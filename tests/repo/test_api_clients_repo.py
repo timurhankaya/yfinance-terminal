@@ -70,13 +70,13 @@ def _create(session: Session, plan: str = "free") -> repo.CreatedClient:
     return created
 
 
-def test_olusturulan_secret_DOGRULANIR(session: Session) -> None:
+def test_the_issued_credential_VERIFIES(session: Session) -> None:
     created = _create(session)
     candidates = repo.candidates_for(session, created.client_id)
     assert verify_against(created.secret, candidates) is not None
 
 
-def test_secret_veritabaninda_ACIK_DURMAZ(session: Session) -> None:
+def test_the_credential_is_NEVER_STORED_in_the_clear(session: Session) -> None:
     created = _create(session)
     stored = session.scalars(
         select(ApiClientSecret.secret_hash).where(
@@ -86,19 +86,19 @@ def test_secret_veritabaninda_ACIK_DURMAZ(session: Session) -> None:
     assert stored and all(created.secret not in row for row in stored)
 
 
-def test_scope_satirlari_yazilir(session: Session) -> None:
+def test_scope_rows_are_written(session: Session) -> None:
     created = _create(session)
     assert repo.scopes_of(session, created.client_id) == sorted(
         [ApiScope.BARS.value, ApiScope.REFERENCE.value]
     )
 
 
-def test_bilinmeyen_plan_reddedilir(session: Session) -> None:
+def test_an_unknown_plan_is_rejected(session: Session) -> None:
     with pytest.raises(repo.UnknownPlan):
-        repo.create_client(session, name="x", owner_email=OWNER, plan="yok", scopes=[])
+        repo.create_client(session, name="x", owner_email=OWNER, plan="no-such-plan", scopes=[])
 
 
-def test_rotasyon_ESKI_SECRETI_calisir_birakir(session: Session) -> None:
+def test_rotation_LEAVES_THE_OLD_CREDENTIAL_working(session: Session) -> None:
     """The whole point of a separate secrets table: a client switches on
     its own schedule instead of taking an outage."""
     created = _create(session)
@@ -110,7 +110,7 @@ def test_rotasyon_ESKI_SECRETI_calisir_birakir(session: Session) -> None:
     assert verify_against(created.secret, candidates) is not None
 
 
-def test_rotasyon_eski_secrete_SON_KULLANMA_koyar(session: Session) -> None:
+def test_rotation_puts_an_EXPIRY_on_the_old_credential(session: Session) -> None:
     created = _create(session)
     repo.rotate_secret(session, created.client_id, grace=timedelta(days=3))
     session.commit()
@@ -124,7 +124,7 @@ def test_rotasyon_eski_secrete_SON_KULLANMA_koyar(session: Session) -> None:
     assert rows[-1].expires_at is None
 
 
-def test_ucuncu_rotasyon_REDDEDILIR(session: Session) -> None:
+def test_a_third_rotation_is_REJECTED(session: Session) -> None:
     """Two live secrets mean an unfinished rotation; a third would make it
     unclear which one the client is actually using."""
     created = _create(session)
@@ -134,7 +134,7 @@ def test_ucuncu_rotasyon_REDDEDILIR(session: Session) -> None:
         repo.rotate_secret(session, created.client_id)
 
 
-def test_suresi_gecmis_secret_ARTIK_KULLANILAMAZ(session: Session) -> None:
+def test_an_expired_credential_NO_LONGER_authenticates(session: Session) -> None:
     created = _create(session)
     row = session.scalars(
         select(ApiClientSecret).where(ApiClientSecret.client_id == created.client_id)
@@ -149,7 +149,7 @@ def test_suresi_gecmis_secret_ARTIK_KULLANILAMAZ(session: Session) -> None:
     assert candidates
 
 
-def test_iptal_edilen_secret_ARTIK_KULLANILAMAZ(session: Session) -> None:
+def test_a_revoked_credential_NO_LONGER_authenticates(session: Session) -> None:
     created = _create(session)
     secret_id = session.scalars(
         select(ApiClientSecret.id).where(ApiClientSecret.client_id == created.client_id)
@@ -161,7 +161,7 @@ def test_iptal_edilen_secret_ARTIK_KULLANILAMAZ(session: Session) -> None:
     assert verify_against(created.secret, candidates) is None
 
 
-# --- auth_epoch invaryanti --------------------------------------------------
+# --- the auth_epoch invariant -----------------------------------------------
 
 
 def _epoch(session: Session, client_id: str) -> int:
@@ -169,7 +169,7 @@ def _epoch(session: Session, client_id: str) -> int:
     return repo.epoch_of(session, client_id)
 
 
-def test_secret_iptali_EPOCHU_ARTIRIR(session: Session) -> None:
+def test_revocation_BUMPS_THE_EPOCH(session: Session) -> None:
     created = _create(session)
     before = _epoch(session, created.client_id)
     secret_id = session.scalars(
@@ -180,7 +180,7 @@ def test_secret_iptali_EPOCHU_ARTIRIR(session: Session) -> None:
     assert _epoch(session, created.client_id) > before
 
 
-def test_scope_daraltmasi_EPOCHU_ARTIRIR(session: Session) -> None:
+def test_narrowing_a_scope_BUMPS_THE_EPOCH(session: Session) -> None:
     """Narrowing a scope must bite now, not when the token runs out."""
     created = _create(session)
     before = _epoch(session, created.client_id)
@@ -190,7 +190,7 @@ def test_scope_daraltmasi_EPOCHU_ARTIRIR(session: Session) -> None:
     assert repo.scopes_of(session, created.client_id) == [ApiScope.REFERENCE.value]
 
 
-def test_plan_degisikligi_EPOCHU_ARTIRIR(session: Session) -> None:
+def test_changing_the_plan_BUMPS_THE_EPOCH(session: Session) -> None:
     created = _create(session)
     before = _epoch(session, created.client_id)
     repo.set_plan(session, created.client_id, "pro")
@@ -198,7 +198,7 @@ def test_plan_degisikligi_EPOCHU_ARTIRIR(session: Session) -> None:
     assert _epoch(session, created.client_id) > before
 
 
-def test_pasiflestirme_ve_etkinlestirme_EPOCHU_ARTIRIR(session: Session) -> None:
+def test_disabling_and_enabling_BUMP_THE_EPOCH(session: Session) -> None:
     created = _create(session)
     before = _epoch(session, created.client_id)
     repo.set_active(session, created.client_id, False)
@@ -217,7 +217,7 @@ def test_pasiflestirme_ve_etkinlestirme_EPOCHU_ARTIRIR(session: Session) -> None
     assert client is not None and client.disabled_at is None
 
 
-def test_rotasyon_EPOCHU_ARTIRIR(session: Session) -> None:
+def test_rotation_BUMPS_THE_EPOCH(session: Session) -> None:
     created = _create(session)
     before = _epoch(session, created.client_id)
     repo.rotate_secret(session, created.client_id)
@@ -225,6 +225,6 @@ def test_rotasyon_EPOCHU_ARTIRIR(session: Session) -> None:
     assert _epoch(session, created.client_id) > before
 
 
-def test_bilinmeyen_istemci_ACIK_HATA(session: Session) -> None:
+def test_an_unknown_client_raises_a_CLEAR_ERROR(session: Session) -> None:
     with pytest.raises(repo.UnknownClient):
         repo.set_active(session, "yfc_yok", True)

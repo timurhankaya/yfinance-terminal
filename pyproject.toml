@@ -34,6 +34,10 @@ api = [
     "pyjwt>=2.9",
     "argon2-cffi>=23.1",
     "redis>=5.1",
+    # Not optional: RFC 6749 requires the token endpoint to accept
+    # application/x-www-form-urlencoded, and FastAPI's Form() refuses to
+    # parse a body without this installed.
+    "python-multipart>=0.0.9",
 ]
 dev = [
     "pytest>=8.0",
@@ -45,6 +49,12 @@ dev = [
     "schemathesis>=3.36",
     "fakeredis>=2.25",
 ]
+
+[project.urls]
+# Upstream: yfin builds on the `yfinance` library, which owns every call
+# to Yahoo. Nothing here re-implements its scraping or repair logic.
+"Upstream (yfinance)" = "https://github.com/ranaroussi/yfinance"
+"Upstream docs" = "https://ranaroussi.github.io/yfinance/"
 
 [project.scripts]
 yfin = "yfin.cli.app:main"
@@ -59,8 +69,8 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "repo: gercek PostgreSQL + TimescaleDB gerektirir (ag yok)",
-    "live: gercek Yahoo API + gercek PostgreSQL gerektirir",
+    "repo: requires a real PostgreSQL + TimescaleDB (no network)",
+    "live: requires the real Yahoo API and a real PostgreSQL",
 ]
 addopts = "-m 'not repo and not live'"
 pythonpath = ["tests"]

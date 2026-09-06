@@ -214,6 +214,36 @@ def set_active(session: Session, client_id: str, active: bool) -> None:
     session.flush()
 
 
+@dataclass(frozen=True)
+class AuthRecord:
+    """Everything the token endpoint needs, in one read."""
+
+    client_id: str
+    is_active: bool
+    auth_epoch: int
+    scopes: tuple[str, ...]
+    candidates: list[Candidate]
+
+
+def load_for_auth(session: Session, client_id: str) -> AuthRecord | None:
+    """Loads a client for authentication, or None if there is no such id.
+
+    Returning None rather than raising is deliberate: the caller still has
+    to perform the same hashing work for an unknown client as for a known
+    one, so "not found" is a value to carry, not a shortcut to take.
+    """
+    client = session.get(ApiClient, client_id)
+    if client is None:
+        return None
+    return AuthRecord(
+        client_id=client.client_id,
+        is_active=client.is_active,
+        auth_epoch=client.auth_epoch,
+        scopes=tuple(scopes_of(session, client_id)),
+        candidates=candidates_for(session, client_id),
+    )
+
+
 def epoch_of(session: Session, client_id: str) -> int:
     """The client's current authorisation epoch.
 

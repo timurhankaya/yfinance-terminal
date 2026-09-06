@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from yfin.api.core.config import ApiSettings, get_api_settings
 from yfin.api.core.errors import install_error_handlers
 from yfin.api.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
-from yfin.api.routers import meta
+from yfin.api.routers import meta, oauth
 
 TITLE = "yfin Data API"
 VERSION = "1.0.0"
@@ -62,6 +62,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.add_middleware(RequestContextMiddleware, settings=settings)
 
     app.include_router(meta.router)
+    app.include_router(oauth.router)
     return app
 
 

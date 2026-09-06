@@ -21,6 +21,7 @@ exist, does it have one secret or two, is that secret revoked.
 from __future__ import annotations
 
 import secrets
+import threading
 from dataclasses import dataclass
 
 from argon2 import PasswordHasher
@@ -58,6 +59,13 @@ _DECOY_HASH = _hasher.hash(secrets.token_urlsafe(SECRET_BYTES))
 #: How many verifications every authentication attempt performs.
 VERIFICATIONS_PER_ATTEMPT = 2
 
+#: Concurrent hashings allowed in this process. Each one reserves
+#: `MEMORY_COST_KIB`, so without a cap the memory ceiling is set by the
+#: size of the thread pool -- that is, by an attacker's request rate.
+#: With this bound it is a fixed ~150 MiB.
+MAX_CONCURRENT_HASHINGS = 8
+_hash_slots = threading.BoundedSemaphore(MAX_CONCURRENT_HASHINGS)
+
 
 def new_client_id() -> str:
     """`yfc_` + 32 URL-safe characters.
@@ -84,10 +92,11 @@ def verify_secret(secret: str, secret_hash: str) -> bool:
     ValueError. Left uncaught, one corrupt row would turn a routine
     authentication failure into a 500 on the token endpoint.
     """
-    try:
-        return _hasher.verify(secret_hash, secret)
-    except (VerifyMismatchError, VerificationError, InvalidHashError):
-        return False
+    with _hash_slots:
+        try:
+            return _hasher.verify(secret_hash, secret)
+        except (VerifyMismatchError, VerificationError, InvalidHashError):
+            return False
 
 
 @dataclass(frozen=True)

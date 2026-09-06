@@ -22,25 +22,25 @@ from yfin.api.models.plans import UsageFamily
 from yfin.core.families import EXTRA_USAGE_FAMILIES, DataFamily, scope_for
 
 
-def test_argon2_parametreleri_SABIT() -> None:
+def test_argon2_parameters_are_PINNED() -> None:
     """Pinned deliberately. The decoy hash used to pad the verification
     path is built with these; if they drift, the decoy stops costing what
     a real comparison costs and the timing signal comes back."""
     assert (TIME_COST, MEMORY_COST_KIB, PARALLELISM) == (2, 19456, 1)
 
 
-def test_hash_dogrulanir_ve_yanlis_secret_reddedilir() -> None:
+def test_hash_verifies_and_a_wrong_credential_is_rejected() -> None:
     secret = new_secret()
     digest = hash_secret(secret)
     assert verify_secret(secret, digest)
     assert not verify_secret(new_secret(), digest)
 
 
-def test_bozuk_hash_istisna_degil_False_dondurur() -> None:
-    assert not verify_secret("x", "bu bir argon2 hash'i degil")
+def test_a_malformed_hash_returns_False_instead_of_raising() -> None:
+    assert not verify_secret("x", "this is not an argon2 hash")
 
 
-def test_client_id_bicimi() -> None:
+def test_client_id_format() -> None:
     client_id = new_client_id()
     assert client_id.startswith(CLIENT_ID_PREFIX)
     assert len(client_id) == CLIENT_ID_LENGTH
@@ -59,7 +59,7 @@ def _count_verifications(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 @pytest.mark.parametrize("stored", [0, 1, 2])
-def test_dogrulama_HER_ZAMAN_iki_kez_kosar(
+def test_verification_ALWAYS_runs_twice(
     stored: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Otherwise response time answers what the response body refuses to:
@@ -73,13 +73,13 @@ def test_dogrulama_HER_ZAMAN_iki_kez_kosar(
     assert len(calls) == VERIFICATIONS_PER_ATTEMPT
 
 
-def test_dogru_secret_eslesir() -> None:
+def test_the_correct_credential_matches() -> None:
     secret = new_secret()
     candidate = Candidate(secret_id=7, secret_hash=hash_secret(secret), is_usable=True)
     assert verify_against(secret, [candidate]) == 7
 
 
-def test_iki_secretten_ikincisi_de_eslesir() -> None:
+def test_both_of_two_credentials_match() -> None:
     """The rotation window: both the new and the outgoing secret work."""
     old, new = new_secret(), new_secret()
     candidates = [
@@ -90,7 +90,7 @@ def test_iki_secretten_ikincisi_de_eslesir() -> None:
     assert verify_against(new, candidates) == 1
 
 
-def test_iptal_edilmis_secret_ESLESMEZ_ama_YINE_DE_hashlenir(
+def test_a_revoked_credential_DOES_NOT_match_but_is_STILL_hashed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Skipping the hash for a revoked secret would make it
@@ -102,17 +102,17 @@ def test_iptal_edilmis_secret_ESLESMEZ_ama_YINE_DE_hashlenir(
     assert len(calls) == VERIFICATIONS_PER_ATTEMPT
 
 
-# --- aile / scope turetmesi -------------------------------------------------
+# --- family / scope derivation ----------------------------------------------
 
 
-def test_scope_kumesi_AILE_KUMESINDEN_turer() -> None:
+def test_scope_set_DERIVES_from_the_family_set() -> None:
     """A scope with no family would be unreachable; a family with no scope
     would be silently open. Neither may happen, so the two are derived
     from one list rather than typed twice."""
     assert {s.value for s in ApiScope} == {scope_for(f) for f in DataFamily}
 
 
-def test_usage_ailesi_veri_aileleri_arti_iki_yuzey() -> None:
+def test_usage_families_are_the_data_families_plus_two_surfaces() -> None:
     assert {u.value for u in UsageFamily} == {f.value for f in DataFamily} | set(
         EXTRA_USAGE_FAMILIES
     )
