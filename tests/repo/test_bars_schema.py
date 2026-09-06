@@ -60,9 +60,13 @@ def test_price_bars_is_a_hypertable(db_session: Session) -> None:
     """Bolumleme kolonu ve chunk araligi beklendigi gibi olmali."""
     row = db_session.execute(
         text(
+            # `hypertable_schema` filtresi SART: view semaya gore
+            # filtrelemez ve ayni ad hem `public`te (uretim) hem surece
+            # ozel test semasinda bulunur -> MultipleResultsFound.
             "SELECT column_name, column_type, time_interval "
             "  FROM timescaledb_information.dimensions "
-            " WHERE hypertable_name = 'price_bars'"
+            " WHERE hypertable_schema = current_schema() "
+            "   AND hypertable_name = 'price_bars'"
         )
     ).one()
 
@@ -76,7 +80,8 @@ def test_price_history_is_a_hypertable(db_session: Session) -> None:
         text(
             "SELECT column_name, time_interval "
             "  FROM timescaledb_information.dimensions "
-            " WHERE hypertable_name = 'price_history'"
+            " WHERE hypertable_schema = current_schema() "
+            "   AND hypertable_name = 'price_history'"
         )
     ).one()
 
@@ -119,7 +124,8 @@ def test_chunks_are_created_on_write(committed_session: Session, cleanup_tables:
     chunks = committed_session.execute(
         text(
             "SELECT count(*) FROM timescaledb_information.chunks "
-            " WHERE hypertable_name = 'price_bars'"
+            " WHERE hypertable_schema = current_schema() "
+            "   AND hypertable_name = 'price_bars'"
         )
     ).scalar_one()
 

@@ -138,7 +138,7 @@ def shard_main(spec: ShardSpec, queue: MPQueue[str]) -> None:
     # tasindi (CFG S3.5). Kosan bir sync boylece tutarli TEK bir anlik
     # goruntu kullanir.
     settings = settings_from_overrides(spec.settings_overrides)
-    install_settings(settings)
+    install_settings(settings, spec.settings_overrides)
 
     # ILK ADIM: structlog cache_logger_on_first_use=True ile calisir ve
     # modul seviyesindeki logger'lar ilk kullanimda yapilandirmayi

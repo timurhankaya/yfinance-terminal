@@ -13,8 +13,15 @@ import json
 import pytest
 from sqlalchemy import Engine
 
-from yfin.config import DB_MANAGED_FIELDS, Settings, settings_from_overrides
-from yfin.settings_store import fetch_rows, plan_seed, serialize, settings_state, write_all
+from yfin.config import DB_MANAGED_FIELDS, Settings
+from yfin.settings_store import (
+    export_values,
+    fetch_rows,
+    plan_seed,
+    serialize,
+    settings_state,
+    write_all,
+)
 
 pytestmark = pytest.mark.repo
 
@@ -29,28 +36,26 @@ SAMPLE = {
 
 
 def _export(settings: Settings, *, all_keys: bool) -> dict[str, object]:
-    """`yfin config export`in dondurdugu JSON govdesi."""
-    rows = fetch_rows(settings)
-    states = settings_state(settings, rows=rows)
-    resolved = settings_from_overrides({k: v.value for k, v in states.items()})
-    return {
-        key: getattr(resolved, key)
-        for key, state in states.items()
-        if all_keys or state.has_row
-    }
+    """`yfin config export` ile AYNI fonksiyonu cagirir.
+
+    Once bu mantik burada KOPYALANMISTI; kopya, ciktinin dogrulugunu
+    degil kendi kendini sinar hale gelmisti (CFG S6.3'un "iki ayri
+    dogrulama yazilsaydi biri gevserdi" gerekcesinin aynisi).
+    """
+    return export_values(settings_state(rows=fetch_rows(settings)), all_keys=all_keys)
 
 
 def test_export_seed_dongusu_durumu_DEGISTIRMEZ(
     test_engine: Engine, store_settings: Settings, clean_settings_table: None
 ) -> None:
     write_all(SAMPLE, settings=store_settings)
-    before = settings_state(store_settings, rows=fetch_rows(store_settings))
+    before = settings_state(rows=fetch_rows(store_settings))
 
     dumped = json.loads(json.dumps(_export(store_settings, all_keys=False)))
     plan = plan_seed(dumped, {}, force=True)
     write_all(plan, settings=store_settings)
 
-    after = settings_state(store_settings, rows=fetch_rows(store_settings))
+    after = settings_state(rows=fetch_rows(store_settings))
     assert {k: v.value for k, v in after.items()} == {k: v.value for k, v in before.items()}
 
 
@@ -73,6 +78,6 @@ def test_tek_deger_kayipsiz_gider_gelir(
     key: str, value: str, store_settings: Settings, clean_settings_table: None
 ) -> None:
     write_all({key: value}, settings=store_settings)
-    state = settings_state(store_settings, rows=fetch_rows(store_settings))[key]
+    state = settings_state(rows=fetch_rows(store_settings))[key]
     assert state.value == value
     assert state.has_row is True

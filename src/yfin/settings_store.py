@@ -152,32 +152,69 @@ def fetch_rows(settings: Settings) -> dict[str, str] | None:
         engine.dispose()
 
 
+class KeyVerdict(StrEnum):
+    """Bir anahtarin DB katmaninda YERI VAR MI."""
+
+    OK = "ok"
+    ENV_ONLY = "env_only"
+    UNKNOWN = "unknown"
+
+
+def classify_key(key: str) -> KeyVerdict:
+    """Anahtar politikasinin TEK dogruluk kaynagi.
+
+    Okuma yolu (`filter_overrides`) ve yazma yolu (`validate_pair`) ayni
+    karari vermek ZORUNDADIR. Karar iki yerde kodlanmis olsaydi -- ilk
+    yazimda oyleydi -- ileride eklenen ucuncu bir kategori (ornegin
+    kullanimdan kaldirilmis anahtarlar) birinde unutulabilirdi. Yazma
+    yolunda unutmak yalnizca can sikici olurdu; OKUMA yolunda unutmak
+    GUVENLIK SINIRINI delerdi: bir DB satiri `db_host`u degistirip
+    baglantiyi baska yere cevirebilir ya da `yf_proxy_secret_key`i
+    ezebilirdi.
+    """
+    if key in ENV_ONLY_FIELDS:
+        return KeyVerdict.ENV_ONLY
+    if key not in DB_MANAGED_FIELDS:
+        return KeyVerdict.UNKNOWN
+    return KeyVerdict.OK
+
+
+# Karar ORTAK, mesajlar AYRI: ikisi ayni siddette degildir. Env-only bir
+# satir bir guvenlik olayidir ("reddedildi"); bilinmeyen bir anahtar
+# cogunlukla ham SQL ile sokulmus kanonik olmayan bir addir ("yok
+# sayildi").
+_LOG_MESSAGE = {
+    KeyVerdict.ENV_ONLY: "settings satiri REDDEDILDI: env-only alan DB'den ezilemez",
+    KeyVerdict.UNKNOWN: "settings satiri yok sayildi: bilinmeyen anahtar",
+}
+_REJECT_MESSAGE = {
+    KeyVerdict.ENV_ONLY: (
+        "{key} env-only bir alandir ve DB'den yonetilemez "
+        "(baglanti bilgileri, Fernet anahtari, log seviyesi)."
+    ),
+    KeyVerdict.UNKNOWN: "bilinmeyen ayar anahtari: {key}",
+}
+
+
 def filter_overrides(rows: Mapping[str, str]) -> dict[str, str]:
-    """Uc filtre; ucu de SESSIZ GECMEZ.
+    """Uygulanabilir satirlar. Elenen HICBIRI sessiz gecmez.
 
     Gecersiz DEGER burada yakalanmaz: bu fonksiyon ham metin dondurur ve
     hata `Settings(**overrides)` cagrisinda `ValidationError` olarak
-    dogar. Boylece dogrulama TEK yerde kalir (CFG S3.2).
+    dogar. Boylece DEGER dogrulamasi tek yerde kalir (CFG S3.2), ANAHTAR
+    politikasi ise `classify_key`te.
     """
     out: dict[str, str] = {}
     for key, value in rows.items():
-        if key in ENV_ONLY_FIELDS:
-            # GUVENLIK SINIRI. Uygulanabilseydi bir DB satiri `db_host`u
-            # degistirip baglantiyi baska yere cevirebilir ya da
-            # `yf_proxy_secret_key`i ezebilirdi.
-            log.warning(
-                "settings satiri REDDEDILDI: env-only alan DB'den ezilemez",
-                setting_key=key,
-            )
-            continue
-        if key not in DB_MANAGED_FIELDS:
+        verdict = classify_key(key)
+        if verdict is KeyVerdict.OK:
+            out[key] = value
+        else:
             # `Settings` extra="ignore" tasiyor ve bilinmeyen kwarg'i
-            # SESSIZCE yutuyor (canli dogrulandi). Bu filtre bir "iyi
-            # olur" degil ZORUNLULUKTUR: atlanirsa hicbir test kirmiziya
-            # donmez.
-            log.warning("settings satiri yok sayildi: bilinmeyen anahtar", setting_key=key)
-            continue
-        out[key] = value
+            # SESSIZCE yutuyor (canli dogrulandi); bu uyari bir "iyi
+            # olur" degil ZORUNLULUKTUR -- atlanirsa hicbir test
+            # kirmiziya donmez.
+            log.warning(_LOG_MESSAGE[verdict], setting_key=key)
     return out
 
 
@@ -195,10 +232,14 @@ def load_overrides(settings: Settings) -> dict[str, str]:
     return filter_overrides(rows)
 
 
-def settings_state(
-    settings: Settings, *, rows: Mapping[str, str] | None = None
-) -> dict[str, SettingState]:
+def settings_state(*, rows: Mapping[str, str] | None = None) -> dict[str, SettingState]:
     """39 anahtarin ETKIN degeri ve kaynagi.
+
+    `Settings` PARAMETRESI YOKTUR ve bu bilinclidir. Ilk yazimda vardi,
+    kullanilmiyordu ve imza YALAN SOYLUYORDU: cagiran (ozellikle repo
+    testi) onu vererek okumayi yonlendirdigini saniyordu, oysa okuma
+    tamamen `rows`tan geliyor. Baglantiyi kim acacaksa `fetch_rows`u O
+    cagirir; bu fonksiyon SAFTIR.
 
     `rows=None` "DB'ye BAKILMADI" demektir (erisilemedi ya da
     `YF_SETTINGS_SOURCE=env`); o durumda kaynak env/default olur ve
@@ -230,6 +271,28 @@ def settings_state(
     return out
 
 
+def export_values(
+    states: Mapping[str, SettingState], *, all_keys: bool = False
+) -> dict[str, Any]:
+    """`yfin config export`in JSON govdesi. SAF fonksiyon.
+
+    Degerler NATIVE tiple doner (int / bool / float / str), metin degil:
+    `seed(export(state)) == state` gidis-donus garantisi buna dayanir
+    (CFG S4.4/S8.2) ve tohum dosyasi da native tip kullanir.
+
+    CLI'nin icine gomulu birakilmisti; repo testi ayni uc satiri
+    KOPYALAMAK zorunda kaldi ve o kopya, ciktinin dogrulugunu sinamak
+    yerine kendi kendini sinar hale geldi. Buraya cikarilinca hem tek
+    dogruluk kaynagi oldu hem de DB'siz test edilebildi.
+    """
+    resolved = settings_from_overrides({key: state.value for key, state in states.items()})
+    return {
+        key: getattr(resolved, key)
+        for key, state in states.items()
+        if all_keys or state.has_row
+    }
+
+
 # --- dogrulama ------------------------------------------------------------
 
 
@@ -240,13 +303,9 @@ def validate_pair(key: str, value: str, *, overrides: Mapping[str, str]) -> None
     yolunun aynisi olmak zorundadir; ileride alanlar arasi bir validator
     eklenirse bu cagri onu da yakalar.
     """
-    if key in ENV_ONLY_FIELDS:
-        raise SettingRejected(
-            f"{key} env-only bir alandir ve DB'den yonetilemez "
-            "(baglanti bilgileri, Fernet anahtari, log seviyesi)."
-        )
-    if key not in DB_MANAGED_FIELDS:
-        raise SettingRejected(f"bilinmeyen ayar anahtari: {key}")
+    verdict = classify_key(key)
+    if verdict is not KeyVerdict.OK:
+        raise SettingRejected(_REJECT_MESSAGE[verdict].format(key=key))
     candidate = {**overrides, key: value}
     try:
         settings_from_overrides(candidate)

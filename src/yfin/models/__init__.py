@@ -118,31 +118,24 @@ from yfin.models.views import (
     V_PRICE_BARS_REGULAR_DROP,
 )
 
-# FK TASIMAYAN ama sembol kapsamli tablolar. Turetme FK kenarlarina
-# dayandigi icin bunlar kendiliginden BULUNAMAZ; liste elle tutulur.
-#
-# LISTE ARTIK BOS. `price_bars` MySQL'de partition'li oldugu icin FK
-# tasiyamiyordu (ERROR 1506) ve tek elemandi; TimescaleDB hypertable'i
-# referencing taraf olabildigi icin artik FK TASIYOR (PG S7.2) ve
-# turetme onu kendiliginden buluyor. Elle listede birakilsaydi purge onu
-# IKI KEZ silmeye calisirdi.
-#
-# Liste yapisi KORUNUYOR: ileride FK tasiyamayan sembol kapsamli bir
-# tablo eklenirse (ornegin baska bir motor ozelligi yuzunden) tek
-# degisiklik burasi olur ve test_registry.py'deki iki yonlu invaryant
-# hatayi yakalar.
-_FK_LESS_SYMBOL_TABLES: tuple[str, ...] = ()
-
 
 def symbol_scoped_tables() -> list[str]:
     """symbols.symbol'a bagli tablolar, SILME sirasina gore.
 
-    Cogu metadata'daki FK kenarlarindan turetilir: yeni bir sembol-kapsamli
-    tablo eklendiginde `yfin symbols purge` kendiliginden onu da kapsar
-    (aksi halde ON DELETE RESTRICT hatasi verirdi). FK tasiyamayan
-    tablolar `_FK_LESS_SYMBOL_TABLES`ten gelir ve BASA konur.
+    Liste TAMAMEN metadata'daki FK kenarlarindan turetilir: yeni bir
+    sembol-kapsamli tablo eklendiginde `yfin symbols purge` kendiliginden
+    onu da kapsar (aksi halde ON DELETE RESTRICT hatasi verirdi).
+
+    TURETMENIN KOR NOKTASI: `symbols`a FK TASIMAYAN bir sembol kapsamli
+    tablo buradan GORUNMEZ. MySQL doneminde boyle bir tablo vardi
+    (`price_bars`, partition yuzunden FK tasiyamiyordu) ve elle tutulan
+    bir liste gerekiyordu; TimescaleDB hypertable'i referencing taraf
+    olabildigi icin o istisna ORTADAN KALKTI ve liste kaldirildi.
+    Ileride FK tasiyamayan bir tablo eklenirse listenin geri gelmesi
+    gerekir -- bugun olmayan bir sey icin bos bir uzanti noktasi
+    tutulmadi (YAGNI).
     """
-    names: list[str] = [n for n in _FK_LESS_SYMBOL_TABLES if n in Base.metadata.tables]
+    names: list[str] = []
     for table in reversed(Base.metadata.sorted_tables):
         if table.name == "symbols":
             continue

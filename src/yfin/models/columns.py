@@ -50,10 +50,10 @@ def make_column(field: Field, table_name: str) -> Column[Any]:
     """
     spec = KINDS[field.kind]
     args: list[Any] = [field.column, spec.sql_type()]
-    if field.kind == "ubig":
+    if spec.check is not None:
         args.append(
             CheckConstraint(
-                f'"{field.column}" >= 0',
+                spec.check(field.column),
                 name=f"ck_{table_name}_{field.column}_nonneg",
             )
         )

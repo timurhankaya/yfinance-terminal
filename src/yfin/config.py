@@ -513,8 +513,13 @@ def applied_overrides() -> dict[str, str]:
     return dict(_overrides)
 
 
-def install_settings(settings: Settings) -> None:
+def install_settings(settings: Settings, overrides: Mapping[str, str] | None = None) -> None:
     """Cozulmus `Settings`i surece KURAR; yukleyici bir daha kosmaz.
+
+    `overrides` de birlikte kurulur. Kurulmasaydi child'da
+    `applied_overrides()` BOS donerdi -- bugun kimse cagirmiyor, ama
+    "singleton kuruldu ama ezmeler bos" hali sessizce yanlis bir cevap
+    uretirdi; iki degeri ayni kapidan gecirmek bu tuzagi hic kurmaz.
 
     Shard child'lari icindir (CFG S3.5): parent'in cozdugu deger
     `ShardSpec` ile tasinir ve child DB'ye HIC bakmaz. Child kendi
@@ -524,9 +529,10 @@ def install_settings(settings: Settings) -> None:
     `spec.database`de yapar -- yani YONLENDIRILMEDIGI semadan ayar
     okurdu.
     """
-    global _settings
+    global _settings, _overrides
     with _lock:
         _settings = settings
+        _overrides = dict(overrides or {})
 
 
 def reset_settings() -> None:

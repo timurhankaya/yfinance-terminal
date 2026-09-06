@@ -13,7 +13,7 @@ calistigi arizaya kurban gitmemelidir.
 from __future__ import annotations
 
 import json
-from typing import Annotated, Any
+from typing import Annotated
 
 import typer
 
@@ -22,7 +22,6 @@ from yfin.config import (
     SETTING_GROUPS,
     Settings,
     bootstrap_settings,
-    settings_from_overrides,
     settings_schema,
     source_is_env,
 )
@@ -31,6 +30,8 @@ from yfin.settings_store import (
     SettingRejected,
     SettingState,
     Source,
+    adopt_env_values,
+    export_values,
     fetch_rows,
     load_seed_file,
     normalize_key,
@@ -72,7 +73,7 @@ def _read_rows_or_warn(settings: Settings) -> dict[str, str] | None:
 
 
 def _states(settings: Settings) -> dict[str, SettingState]:
-    return settings_state(settings, rows=_read_rows_or_warn(settings))
+    return settings_state(rows=_read_rows_or_warn(settings))
 
 
 def _defaults() -> dict[str, str]:
@@ -172,8 +173,10 @@ def config_unset(key: Annotated[str, typer.Argument(help="Ayar anahtari")]) -> N
     removed = unset_setting(canonical, settings=settings)
     typer.echo(f"{canonical}: satir silindi" if removed else f"{canonical}: zaten satir yoktu")
 
-    env_only = bootstrap_settings()
-    typer.echo(f"artik gecerli olacak deger: {serialize(getattr(env_only, canonical))}")
+    # `settings` DB katmani devre disi kurulmus bir bootstrap'tir, yani
+    # `.env` -> varsayilan zincirinin sonucunu tasir: satir silindikten
+    # sonra gecerli olacak deger tam olarak budur.
+    typer.echo(f"artik gecerli olacak deger: {serialize(getattr(settings, canonical))}")
 
     # Anahtar seed dosyasindaysa `unset` KALICI DEGILDIR ve bunu
     # soylemek zorundayiz: JSON "bu kurulumun yapilandirmasi"dir, bir
@@ -225,8 +228,6 @@ def config_seed(
         typer.echo("settings tablosu yok; once `yfin db upgrade` calistirin.", err=True)
         raise typer.Exit(code=1)
 
-    from yfin.settings_store import adopt_env_values
-
     try:
         plan = plan_seed(
             seed,
@@ -264,18 +265,12 @@ def config_export(
     varsayilan degisikliklerinin kuruluma yansima bagi kopar. Yedek depo
     DISINA alinir.
     """
-    settings = bootstrap_settings()
-    rows = _read_rows_or_warn(settings)
-    states = settings_state(settings, rows=rows)
-    # Etkin degerler NATIVE tiple basilir (int/bool/float), metin degil:
-    # `seed(export(state)) == state` gidis-donus garantisi buna dayanir
-    # (CFG S4.4/S8.2) ve seed dosyasi da native tip kullanir.
-    resolved = settings_from_overrides({k: v.value for k, v in states.items()})
-    out: dict[str, Any] = {}
-    for key, state in states.items():
-        if all_keys or state.has_row:
-            out[key] = getattr(resolved, key)
-    typer.echo(json.dumps(out, indent=2, sort_keys=True, ensure_ascii=False))
+    states = _states(bootstrap_settings())
+    typer.echo(
+        json.dumps(
+            export_values(states, all_keys=all_keys), indent=2, sort_keys=True, ensure_ascii=False
+        )
+    )
 
 
 @config_app.command("schema")

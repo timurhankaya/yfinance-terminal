@@ -27,6 +27,12 @@ from yfin.models.base import BIG_PRECISION, BigNumType, PriceType, TsType
 
 log = get_logger(__name__)
 
+def _non_negative(column: str) -> str:
+    """PostgreSQL'de unsigned tamsayi YOKTUR; `BIGINT UNSIGNED`in verdigi
+    "negatif olamaz" garantisi CHECK ile yeniden kurulur."""
+    return f'"{column}" >= 0'
+
+
 def _c_string(length: int) -> Callable[[], TypeEngine[Any]]:
     """String kolonlari da COLLATE "C" tasir.
 
@@ -102,6 +108,12 @@ def _to_datetime(value: Any) -> Any:
 class KindSpec:
     sql_type: Callable[[], TypeEngine[Any]]
     convert: Callable[[Any], Any]
+    # Kolon uzerindeki CHECK ifadesini ureten fabrika (kolon adi -> SQL).
+    # `columns.make_column` icinde `if kind == "ubig"` seklinde SABIT bir
+    # dal duruyordu; kisitli yeni bir kind eklemek IKI dosya degistirmeyi
+    # gerektiriyordu (OCP ihlali). Kisit artik kind'in KENDI tanimindadir:
+    # yeni kind eklemek yine yalnizca bu tabloya satir eklemektir.
+    check: Callable[[str], str] | None = None
 
 
 KINDS: dict[str, KindSpec] = {
@@ -118,7 +130,7 @@ KINDS: dict[str, KindSpec] = {
     # garanti make_column()'daki CHECK ile yeniden kurulur; buradaki
     # `_to_unsigned` (negatifi None yapar) ikinci savunma hattidir ve
     # KORUNUR -- satir dusurmek yerine hucre dusurme davranisi degismez.
-    "ubig": KindSpec(lambda: BigInteger(), _to_unsigned),
+    "ubig": KindSpec(lambda: BigInteger(), _to_unsigned, check=_non_negative),
     "bool": KindSpec(lambda: Boolean(), nz.to_bool),
     "epoch_s": KindSpec(TsType, _to_epoch_seconds),
     "epoch_ms": KindSpec(TsType, _to_epoch_millis),

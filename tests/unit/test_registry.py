@@ -134,21 +134,21 @@ def test_series_datasets_declare_produces_explicitly() -> None:
 
 
 def test_symbol_scoped_tables_covers_every_fk_child() -> None:
-    """yfin symbols purge listesi FK grafinden turetilir; tek istisna
-    FK TASIYAMAYAN tablolardir.
+    """`yfin symbols purge` listesi FK grafinden TAMAMEN turetilir.
 
-    `_FK_LESS_SYMBOL_TABLES` su anda BOSTUR. Tek elemani `price_bars`
-    idi: MySQL'de partition'li oldugu icin FK tasiyamiyordu (ERROR 1506)
-    ve FK grafinde hic gorunmuyordu. TimescaleDB hypertable'i referencing
-    taraf olabildigi icin artik FK TASIYOR (PG S7.2) ve turetme onu
-    kendiliginden buluyor -- yani bu invaryantin KAPSAMI GENISLEDI.
+    MySQL doneminde bir istisna vardi: `price_bars` partition'li oldugu
+    icin FK tasiyamiyordu, FK grafinde hic gorunmuyordu ve elle tutulan
+    `_FK_LESS_SYMBOL_TABLES` listesiyle kapsaniyordu. TimescaleDB
+    hypertable'i referencing taraf olabildigi icin o istisna ORTADAN
+    KALKTI; liste ve onunla gelen ozel dal kaldirildi (YAGNI -- bugun
+    olmayan bir sey icin bos bir uzanti noktasi tutulmadi).
 
-    Test iki yonlu calisir ve ikinci yonu bu gecisi yakaladi: (a) FK'li
-    her cocuk turetilmis listede olmali, (b) elle listedeki her tablo
-    GERCEKTEN FK tasimiyor olmali -- biri FK'li bir tabloyu orada
-    birakirsa purge onu IKI KEZ silmeye calisirdi.
+    Test artik TEK YONLU ama daha guclu: turetilmis liste FK cocuklarina
+    BIREBIR esit olmali. Bir gun FK tasiyamayan sembol kapsamli bir tablo
+    eklenirse purge onu sessizce atlar; bu testin dokumante ettigi kor
+    nokta budur ve `symbol_scoped_tables` docstring'i de onu soyler.
     """
-    from yfin.models import _FK_LESS_SYMBOL_TABLES, Base, symbol_scoped_tables
+    from yfin.models import Base, symbol_scoped_tables
 
     derived = set(symbol_scoped_tables())
     fk_children = {
@@ -157,15 +157,9 @@ def test_symbol_scoped_tables_covers_every_fk_child() -> None:
         if table.name != "symbols"
         and any(fk.column.table.name == "symbols" for fk in table.foreign_keys)
     }
-    assert derived == fk_children | set(_FK_LESS_SYMBOL_TABLES)
-
-    for name in _FK_LESS_SYMBOL_TABLES:
-        table = Base.metadata.tables[name]
-        assert "symbol" in table.c, f"{name}: sembol kolonu yok"
-        assert not any(fk.column.table.name == "symbols" for fk in table.foreign_keys), (
-            f"{name} FK TASIYOR; elle listeden cikarilmali, turetme onu zaten bulur"
-        )
+    assert derived == fk_children
     assert "price_history" in derived
+    assert "price_bars" in derived  # FK'yi hypertable ile geri kazandi
     assert "news_symbols" not in derived  # FK yok (S5.5)
 
 

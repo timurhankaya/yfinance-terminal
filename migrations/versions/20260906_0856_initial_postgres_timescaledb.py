@@ -13,7 +13,6 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 from yfin.models import (
-    Base,
     V_ACTIONS_CREATE,
     V_ACTIONS_DROP,
     V_PRICE_BARS_REGULAR_CREATE,
@@ -1802,16 +1801,27 @@ def downgrade() -> None:
     # `CREATE TYPE proxy_scheme ... already exists` ile patlar (olculdu).
     # Yani kusur downgrade'de degil, BIR SONRAKI upgrade'de ortaya cikar.
     #
-    # Tip listesi `Base.metadata`dan TURETILIR, elle yazilmaz: yeni bir
-    # ENUM eklendiginde bu blok kendiliginden kapsar.
-    bind = op.get_bind()
-    for enum_type in sorted(
-        {
-            column.type
-            for table in Base.metadata.tables.values()
-            for column in table.columns
-            if isinstance(column.type, sa.Enum)
-        },
-        key=lambda e: e.name or "",
+    # Liste ACIKCA YAZILIR, `Base.metadata`dan TURETILMEZ. Bir migration
+    # ANLIK GORUNTUDUR: modeller ilerledikce `Base.metadata` degisir ve
+    # turetilmis bir liste bu revizyonun YARATMADIGI tipleri dusurmeye
+    # calisirdi. Burasi tam olarak bu revizyonun yarattigi 16 tipi
+    # dusurur.
+    for type_name in (
+        "domain_fund_type",
+        "domain_rank_type",
+        "domain_type",
+        "estimate_metric",
+        "fund_section",
+        "fund_weight_category",
+        "holder_type",
+        "item_status",
+        "proxy_health",
+        "proxy_scheme",
+        "run_scope",
+        "run_status",
+        "screen_kind",
+        "screen_quote_type",
+        "statement_freq",
+        "statement_kind",
     ):
-        enum_type.drop(bind, checkfirst=True)
+        op.execute(f"DROP TYPE IF EXISTS {type_name}")
