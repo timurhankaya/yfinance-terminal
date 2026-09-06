@@ -1,4 +1,4 @@
-"""Ortak DeclarativeBase ve tip fabrikalari (PG S2)."""
+"""Shared DeclarativeBase and column type factories."""
 
 from __future__ import annotations
 
@@ -9,12 +9,9 @@ from sqlalchemy import VARCHAR, ForeignKey, MetaData, Numeric, Text
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import DeclarativeBase, MappedColumn, mapped_column
 
-# Kisit ADLARI deterministik olmak ZORUNDADIR. Adsiz birakilan bir
-# CheckConstraint/UniqueConstraint icin Alembic her calistirmada farkli bir
-# ad uretir ve `yfin db revision` sahte bir fark raporlar -- yani
-# "bos diff" kapisi (PG S14 adim 7) HIC acilmaz. Ad uretimini SQLAlchemy'ye
-# devretmek, kisitlari tek tek adlandirmaktan da saglamdir: yeni bir kisit
-# ekleyen kimse adlandirmayi unutamaz.
+# Constraint names must be deterministic. Unnamed constraints get a fresh
+# name from Alembic on every run, so `alembic revision --autogenerate`
+# reports a phantom diff forever.
 NAMING_CONVENTION: dict[str, str] = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
     "uq": "uq_%(table_name)s_%(column_0_N_name)s",
@@ -25,136 +22,107 @@ NAMING_CONVENTION: dict[str, str] = {
 
 
 class Base(DeclarativeBase):
-    """Tum tablolarin ortak tabani."""
-
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
-# --- collation: her yerde "C" ---------------------------------------------
+# --- string types ----------------------------------------------------------
 #
-# MySQL'de her kolonun kendi charset/collation'i vardi ve varsayilan
-# utf8mb4_0900_ai_ci BUYUK/KUCUK HARF DUYARSIZDI. PostgreSQL'de tek bir
-# secim yapildi: COLLATE "C". Byte siralidir, duyarlidir ve `ascii_bin`
-# ile `utf8mb4_0900_as_cs`in birebir karsiligidir.
-#
-# "C" ayrica LIKE icin indeks kullanilabilir kilar: olculdu, "C"
-# kolonunda `LIKE 'abc%'` `text_pattern_ops` OLMADAN Index Scan uretti,
-# ayni tabloda en_US.utf8 kolonunda ayni sorgu Seq Scan'e dustu.
-#
-# Kaybedilen duyarsizlik semantigi KODA tasindi (PG S2.5): sembol alanlari
-# yazilirken .upper(), proxy hostname'i yazilirken .lower() uygulanir.
+# Every string column uses COLLATE "C": byte-ordered, case-sensitive, and
+# usable by an index for LIKE without text_pattern_ops (measured: "C"
+# column gets an Index Scan where an en_US.utf8 column falls back to Seq
+# Scan). Case-insensitive matching, where the domain needs it, happens on
+# the write path instead -- see datasets/symbols.py and
+# scripts/seed_proxies.py.
 
-
-# Sembol ve sembol-benzeri anahtarlarin ORTAK uzunlugu. Tek sayi olmasi
-# zorunludur: `sync_run_items.symbol` denetim kaydini da bu tip tutar ve
-# daha uzun bir anahtar orada deger tasmasi verirdi -- veri YAZILDIKTAN
-# SONRA, yani kosunun en gec aninda (SQ denetimi).
+# Shared width for symbols and symbol-like keys. It must be a single
+# constant: audit rows write the same value into `sync_run_items.symbol`,
+# and a wider key overflows there -- after the data is written, i.e. at
+# the latest possible moment.
 SYMBOL_LENGTH = 32
 
 
 def SymbolType() -> VARCHAR:  # noqa: N802
-    """VARCHAR(32) COLLATE "C".
+    """Symbol key. Case-sensitive: 'AAPL' and 'aapl' must not collide.
 
-    Buyuk/kucuk harf duyarsiz bir collation sembol anahtari icin
-    KULLANILAMAZ ('AAPL' = 'aapl' -> tekillik ihlali). FK kolonlarinin
-    collation'i ebeveynle esdeger olmalidir; PostgreSQL bunu MySQL gibi
-    hata ile ZORLAMAZ, yani sapma SESSIZDIR ve invaryant testiyle
-    korunur (tests/unit/test_schema_invariants.py).
+    FK columns must match the parent's collation. PostgreSQL does not
+    enforce that, so a drift is silent; test_schema_invariants guards it.
     """
     return VARCHAR(SYMBOL_LENGTH, collation="C")
 
 
 def NewsIdType() -> VARCHAR:  # noqa: N802
-    """CHAR(36) esdegeri; news id'leri sabit 36 karakterlik UUID."""
+    """News ids are fixed 36-character UUIDs."""
     return VARCHAR(36, collation="C")
 
 
 def HashType() -> VARCHAR:  # noqa: N802
-    """SHA-256 hex; 256 yerine 64 byte."""
+    """SHA-256 hex."""
     return VARCHAR(64, collation="C")
 
 
 def PersonNameType() -> VARCHAR:  # noqa: N802
-    """'Tim Cook' != 'TIM COOK' olmali (S5.1)."""
+    """'Tim Cook' must not equal 'TIM COOK'."""
     return VARCHAR(255, collation="C")
 
 
 def ShortHashType() -> VARCHAR:  # noqa: N802
-    """SHA-256'nin ilk 16 hanesi; PK bilesenidir.
+    """First 16 hex digits of a SHA-256, used as a PK component.
 
-    Duyarsiz bir collation buyuk/kucuk harf ayrimini yutar, CHAR'in
-    pad-space semantigi de sondaki boslugu kirpardi; ikisi de PK'da
-    sessiz satir kaybi demektir. VARCHAR + "C" ikisini de onler.
+    VARCHAR rather than CHAR: CHAR pads with spaces and would silently
+    merge keys that differ only in trailing whitespace.
     """
     return VARCHAR(16, collation="C")
 
 
 def BarIntervalType() -> VARCHAR:  # noqa: N802
-    """Bar interval kodu: '1m', '5m', '15m', '60m', '1wk', '1mo'.
+    """Bar interval code: '1m', '5m', '15m', '60m', '1wk', '1mo'.
 
-    ENUM DEGILDIR. Gerekce PostgreSQL'de MOTORDAN degil, tek dogruluk
-    kaynagi ilkesinden gelir: gecerli deger kumesi Python tarafinda
-    `BAR_INTERVALS`tedir (models/bars.py) ve semada tekrarlanmasi iki
-    kaynagin sessizce ayrismasi demektir. (MySQL'de ikinci bir gerekce
-    vardi -- ENUM'a deger eklemek 464 milyon satirli tabloda ALTER TABLE
-    demekti; PostgreSQL'de `ALTER TYPE ... ADD VALUE` ucuzdur, yani o
-    gerekce DUSTU. Karar ilkiyle ayakta kalir.)
+    Not an ENUM: the valid set lives in BAR_INTERVALS (models/bars.py) and
+    duplicating it in the schema creates a second source of truth that can
+    drift.
 
-    KOLON ADI `bar_interval`, `interval` DEGIL: INTERVAL PostgreSQL'de de
-    bir TIP ADIDIR. SQLAlchemy kolonu otomatik tirnaklar, ama view tanimi
-    ve rescale UPDATE'i HAM SQL'dir; orada tirnak bir gun unutulur ve
-    hata uretim aninda cikar.
-
-    COLLATE "C": PK bilesenidir; duyarsiz bir collation '1M' = '1m'
-    sayardi -- sessiz satir kaybi.
+    The column is named `bar_interval`, not `interval`: INTERVAL is a type
+    name in PostgreSQL. SQLAlchemy quotes its own SQL, but view
+    definitions and the rescale UPDATE are raw strings.
     """
     return VARCHAR(4, collation="C")
 
 
 def RegionType() -> VARCHAR:  # noqa: N802
-    """Piyasa bolge kodu (US, EUROPE, CRYPTOCURRENCIES...).
+    """Market region code (US, EUROPE, CRYPTOCURRENCIES...).
 
-    Uc tabloda da ayni tip kullanilir; genislik farki ileride FK veya
-    JOIN gerektiginde semantik sapma uretirdi.
+    All three tables share this type; a width mismatch would break a
+    future FK or JOIN.
     """
     return VARCHAR(16, collation="C")
 
 
 def KeyTextType(length: int) -> VARCHAR:  # noqa: N802
-    """PK'ya giren serbest metin.
-
-    Duyarsiz bir collation 'Enflasyon' = 'ENFLASYON' sayar ve iki farkli
-    olayi tek satira indirirdi (S5).
-    """
+    """Free text that is part of a primary key."""
     return VARCHAR(length, collation="C")
 
 
 def AsciiKeyType(length: int) -> VARCHAR:  # noqa: N802
-    """PK'ya giren ASCII kod alani (filing_type, action, board_code)."""
+    """ASCII code field in a primary key (filing_type, action, board_code)."""
     return VARCHAR(length, collation="C")
 
 
 def ProxyLabelType() -> VARCHAR:  # noqa: N802
-    """proxies.label ve sync_run_items.proxy_label.
-
-    UNIQUE anahtar oldugu icin duyarli: 'eu-1' != 'EU-1' olmali.
-    """
+    """proxies.label and sync_run_items.proxy_label. 'eu-1' != 'EU-1'."""
     return VARCHAR(64, collation="C")
 
 
 def HostType() -> VARCHAR:  # noqa: N802
-    """Proxy hostname veya IP. VARCHAR(255) COLLATE "C".
+    """Proxy hostname or IP.
 
-    Hostname'ler buyuk/kucuk harf duyarsizdir (RFC 4343). MySQL bunu
-    `ascii_general_ci` ile SEMADA sagliyordu; PostgreSQL'de duyarsizlik
-    YAZMA YOLUNDA saglanir -- host `.lower()` ile normalize edilir
-    (scripts/seed_proxies.py, PG S2.5.2). `uq_proxies_endpoint` boylece
-    semantigini korur.
+    Hostnames are case-insensitive (RFC 4343), and uq_proxies_endpoint
+    relies on that. The normalisation happens on write (`.lower()`), not
+    in the collation.
     """
     return VARCHAR(255, collation="C")
 
 
-# --- S5.4 tip kararlari ----------------------------------------------------
+# --- numeric and timestamp types -------------------------------------------
 
 PRICE_PRECISION = 28
 PRICE_SCALE = 12
@@ -164,65 +132,61 @@ FACT_SCALE = 10
 
 
 def PriceType() -> Numeric[Decimal]:  # noqa: N802
-    """Fiyat ve oranlar. DB'de round-trip kaybi olmadigi dogrulandi."""
+    """Prices and ratios. Verified to round-trip without loss."""
     return Numeric(PRICE_PRECISION, PRICE_SCALE, asdecimal=True)
 
 
 def FactValueType() -> Numeric[Decimal]:  # noqa: N802
-    """Finansal tablo kalem degeri (S5.6).
+    """Financial statement line item.
 
-    Ayni kolonda hem 1.06e14 (7203.T toplam varlik) hem 0.156
-    (TaxRateForCalcs) bulunur; NUMERIC(38,0) oranlari yok ederdi.
+    One column holds both 1.06e14 (7203.T total assets) and 0.156
+    (TaxRateForCalcs), so NUMERIC(38,0) would destroy the ratios.
 
-    PostgreSQL NUMERIC(38,10) 11. basamagi SESSIZCE yuvarlar (olculdu:
-    numeric(5,2) <- 1.239 -> 1.24, uyari yok) -- MySQL Note 1265 ile ayni
-    davranis. Bu yuzden yuvarlama Python tarafinda quantize ile BILINCLI
-    yapilir. (Tam sayi kismi tastiginda ise gurultulu hata gelir: 22003.)
+    PostgreSQL rounds the 11th decimal silently (measured: numeric(5,2)
+    given 1.239 stores 1.24, no warning), so rounding is done explicitly
+    in Python with quantize. An overflowing integer part does raise.
     """
     return Numeric(FACT_PRECISION, FACT_SCALE, asdecimal=True)
 
 
 def BigNumType() -> Numeric[Decimal]:  # noqa: N802
-    """marketCap / totalRevenue / enterpriseValue gibi buyuk degerler.
-    'Tum sayisal info alanlari NUMERIC(28,12)' kestirmesi tasma verir."""
+    """marketCap / totalRevenue / enterpriseValue.
+
+    NUMERIC(28,12) would overflow on these.
+    """
     return Numeric(BIG_PRECISION, 0, asdecimal=True)
 
 
 def TsType() -> TIMESTAMP:  # noqa: N802
-    """Tum zaman damgalari TIMESTAMP(6) WITH TIME ZONE.
+    """All timestamps are TIMESTAMP(6) WITH TIME ZONE.
 
-    DIALECT TIPI ZORUNLUDUR: generic `sqlalchemy.TIMESTAMP` `precision`
-    argumanini KABUL ETMEZ (TypeError).
+    The dialect type is required: generic sqlalchemy.TIMESTAMP rejects
+    `precision`.
 
-    Alti hane SART: saniye hassasiyeti ayni saniyede PK cakismasi uretir
-    (ticker_info_history PK'si (symbol, fetched_at)) ve PostgreSQL
-    kesirleri YUVARLAR, kesmez (olculdu: timestamptz(0) ile .9 -> +1 sn).
-
-    Kolon tz TASIR: MySQL DATETIME tasimadigi icin normalize damgayi
-    naive'e indiriyordu; artik UTC-aware deger yazilir (PG S2.3).
+    Six digits are mandatory. ticker_info_history is keyed on
+    (symbol, fetched_at), so second precision would collide within the
+    same second -- and PostgreSQL rounds the fraction rather than
+    truncating it.
     """
     return TIMESTAMP(timezone=True, precision=6)
 
 
 def RawJsonType() -> Text:  # noqa: N802
-    """raw_json TEXT'tir, JSON/JSONB DEGIL (PG S2.4).
+    """raw_json is TEXT, never JSON/JSONB.
 
-    MySQL'de LONGTEXT secilmesinin uc gerekcesi PostgreSQL `jsonb` icin
-    AYNEN gecerlidir: anahtar sirasini degistirir (hash yeniden
-    hesaplanamaz), NaN iceren govdeyi reddeder ve sayilari normalize eder
-    (0.001870 -> 0.00187). `json` tipi metni korur ama yine sozdizimi
-    dogrular ve NaN'i reddeder. TEXT byte-for-byte sadiktir ve
-    content_hash'in on kosuludur.
+    jsonb reorders keys (so content_hash could not be recomputed),
+    rejects NaN bodies, and normalises numbers (0.001870 -> 0.00187).
+    `json` still validates syntax and rejects NaN. TEXT is byte-faithful,
+    which content_hash depends on.
     """
     return Text()
 
 
 def symbol_fk_column(**kwargs: Any) -> MappedColumn[str]:
-    """symbols.symbol'a FK tasiyan sembol kolonu (S5.5).
+    """Symbol column carrying an FK to symbols.symbol.
 
-    ON UPDATE CASCADE ON DELETE RESTRICT: tek bir DELETE 40 yillik gecmisi
-    geri donusumsuz silmesin diye soft-delete politikasi DB seviyesinde
-    zorlanir.
+    ON UPDATE CASCADE ON DELETE RESTRICT enforces the soft-delete policy
+    in the database, so a single DELETE cannot drop 40 years of history.
     """
     return mapped_column(
         SymbolType(),

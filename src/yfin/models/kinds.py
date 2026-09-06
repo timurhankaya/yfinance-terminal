@@ -1,13 +1,9 @@
-"""Alan tiplerinin TEK tanim yeri.
+"""Single definition point for field kinds.
 
-Bir `kind` IKI seyi belirler: SQL kolon tipi ve kaynak degerin
-donusumu. (Ucuncu bir alan -- satir boyutu maliyeti -- MySQL'in 65 535
-baytlik satir siniri icin vardi; PostgreSQL'de boyle bir sinir olmadigi
-icin KALDIRILDI, bkz. models/columns.py.) Bunlar ayri if-zincirlerine
-dagilirsa yeni bir kind
-eklemek birden fazla dosyayi degistirmeyi gerektirir ve sessizce
-ayrisabilirler. Burada tek bir tabloda toplanirlar; yeni kind eklemek
-yalnizca bu tabloya satir eklemektir (OCP).
+A kind decides three things: the SQL column type, how a source value is
+converted, and whether the column carries a CHECK. Spreading those across
+separate if-chains would mean touching several files to add a kind, and
+they could drift apart. Adding a kind here is adding one row to KINDS.
 """
 
 from __future__ import annotations
@@ -28,20 +24,16 @@ from yfin.models.base import BIG_PRECISION, BigNumType, PriceType, TsType
 log = get_logger(__name__)
 
 def _non_negative(column: str) -> str:
-    """PostgreSQL'de unsigned tamsayi YOKTUR; `BIGINT UNSIGNED`in verdigi
-    "negatif olamaz" garantisi CHECK ile yeniden kurulur."""
+    """PostgreSQL has no unsigned integers; the guarantee is a CHECK."""
     return f'"{column}" >= 0'
 
 
 def _c_string(length: int) -> Callable[[], TypeEngine[Any]]:
-    """String kolonlari da COLLATE "C" tasir.
+    """String columns carry COLLATE "C" too.
 
-    ATLANMASI KOLAY VE SESSIZ: MySQL'de bu kolonlara TABLO varsayilani
-    (utf8mb4_0900_ai_ci) uygulaniyordu; PostgreSQL'de VERITABANI
-    varsayilani (en_US.utf8) uygulanirdi -- yani ne "C" ne de eski
-    davranis. models/base.py'deki fabrikalar duzeltilip burasi
-    unutulsaydi ticker_info / ticker_fast_info / history_metadata'nin
-    buyuk kismi yanlis collation'da kalirdi (PG S2.5).
+    Easy to miss and silent: without it these columns fall back to the
+    database collation, which covers most of ticker_info,
+    ticker_fast_info and history_metadata.
     """
     return lambda: String(length, collation="C")
 
@@ -54,15 +46,13 @@ def _string_converter(max_len: int) -> Callable[[Any], Any]:
 
 
 def _to_big(value: Any) -> Decimal | None:
-    """DECIMAL(38,0): kesirli gelirse tam sayiya indirilir.
+    """NUMERIC(38,0): a fractional value is reduced to an integer.
 
-    `localcontext(prec=BIG_PRECISION)` ZORUNLUDUR: Python'un varsayilan
-    context'i 28 ANLAMLI hane tasir, kolon ise 38. Varsayilanla 1e28 ve
-    ustu `InvalidOperation` firlatir -- kolon 1e38'e kadar kabul ederken.
-    Istisna `normalize` icinden ciktigi icin o (sembol x dataset) hucresinin
-    TUM satirlarini dusururdu; prec=38 ile Python siniri kolonun gercek
-    sinirina esitlenir. Gercekten tasan deger satir dusurur, hucre `ok`
-    kalir (`common.key_value` deseni).
+    localcontext(prec=BIG_PRECISION) is required. Python's default
+    context carries 28 significant digits while the column holds 38, so
+    anything from 1e28 up would raise InvalidOperation on a value the
+    column accepts. The exception escapes through normalize and would
+    drop every row of that (symbol x dataset) cell.
     """
     dec = nz.to_decimal(value)
     if dec is None:
@@ -90,14 +80,13 @@ def _to_epoch_millis(value: Any) -> Any:
 
 
 def _to_datetime(value: Any) -> Any:
-    """Kaynak Timestamp/datetime dondurur; epoch sayisi gelirse de kabul edilir.
+    """Accepts a Timestamp/datetime, or an epoch number.
 
-    `numbers.Real` KULLANILIR, `int | float` DEGIL: `np.float64` float'in alt
-    sinifidir ama `np.int64` int'in alt sinifi DEGILDIR. Duz isinstance ile
-    pandas kolonu int64 oldugunda (insider_roster'da bir sembolun TUM
-    tarihleri doluysa oyle olur) deger `to_datetime_utc`'ye duser, o da None
-    doner: SESSIZ NULL. numpy skalarlarinin tamami numbers ABC'lerine
-    kayitlidir. `bool` haric tutulur (Integral'dir ama tarih degildir).
+    numbers.Real rather than `int | float`: np.float64 subclasses float
+    but np.int64 does not subclass int. With a plain isinstance check an
+    int64 pandas column (insider_roster, when every date is populated)
+    would fall through to to_datetime_utc and come back None -- a silent
+    NULL. bool is excluded: it is Integral but not a date.
     """
     if isinstance(value, numbers.Real) and not isinstance(value, bool):
         return nz.epoch_to_datetime(value, unit="s")
@@ -108,11 +97,9 @@ def _to_datetime(value: Any) -> Any:
 class KindSpec:
     sql_type: Callable[[], TypeEngine[Any]]
     convert: Callable[[Any], Any]
-    # Kolon uzerindeki CHECK ifadesini ureten fabrika (kolon adi -> SQL).
-    # `columns.make_column` icinde `if kind == "ubig"` seklinde SABIT bir
-    # dal duruyordu; kisitli yeni bir kind eklemek IKI dosya degistirmeyi
-    # gerektiriyordu (OCP ihlali). Kisit artik kind'in KENDI tanimindadir:
-    # yeni kind eklemek yine yalnizca bu tabloya satir eklemektir.
+    # Builds the column's CHECK expression (column name -> SQL). Keeping
+    # it on the kind means make_column does not need to know which kinds
+    # are constrained.
     check: Callable[[str], str] | None = None
 
 
@@ -126,10 +113,8 @@ KINDS: dict[str, KindSpec] = {
     "dec": KindSpec(PriceType, nz.to_decimal),
     "big": KindSpec(BigNumType, _to_big),
     "int": KindSpec(lambda: Integer(), nz.to_int),
-    # PostgreSQL'de unsigned tamsayi YOKTUR. `BIGINT UNSIGNED`in verdigi
-    # garanti make_column()'daki CHECK ile yeniden kurulur; buradaki
-    # `_to_unsigned` (negatifi None yapar) ikinci savunma hattidir ve
-    # KORUNUR -- satir dusurmek yerine hucre dusurme davranisi degismez.
+    # _to_unsigned (negative -> None) is the second line of defence
+    # behind the CHECK: it drops the cell rather than the whole row.
     "ubig": KindSpec(lambda: BigInteger(), _to_unsigned, check=_non_negative),
     "bool": KindSpec(lambda: Boolean(), nz.to_bool),
     "epoch_s": KindSpec(TsType, _to_epoch_seconds),
