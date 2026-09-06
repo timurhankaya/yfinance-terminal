@@ -1,14 +1,15 @@
-"""SQ K6: `lookup` cagrisinin ADAPTIF oldugunu surer.
+"""Proves the `lookup` call is adaptive.
 
-Bu dosya, tasarimin denetimde CURUTULEN kararinin regresyon kilidi. Ilk
-hali "her zaman tek `all` cagrisi" idi ve tek bir DAR terimle (`BTC`)
-olculup genellenmisti. Genis terimlerde `all` ~1.000 belgede kirpiliyor:
-`GOLD` icin `lookupTotals.all` 7.273 bildirirken `documents` 995 donuyor,
-tipli birlesim ise 3.313 -- ve fark IKI YONLU.
+This file is the regression lock on a design decision disproved during an
+audit. The original version always made a single `all` call and had been
+generalized from measuring one narrow term (`BTC`). For broad terms, `all`
+truncates at ~1,000 documents: for `GOLD`, `lookupTotals.all` reports
+7,273 while `documents` returns 995, and the typed union returns 3,313 --
+the difference goes both ways.
 
-Dar terimde tipli dala GECMEMEK de test edilir: gecilseydi sembol
-dongusunde maliyet 1 yerine 8 istek/sembol olur, 4.500 sembolde gunde
-+31.500 gereksiz istek eklenirdi.
+Also tested: NOT falling back to the typed branch for a narrow term. If it
+did, cost in the symbol loop would go from 1 to 8 requests per symbol,
+adding +31,500 unnecessary requests per day across 4,500 symbols.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ def _block(name: str) -> dict[str, Any]:
 
 
 class _Recorder:
-    """`_fetch_type` yerine gecer; istenen tipleri kaydeder."""
+    """Stands in for `_fetch_type`; records the requested types."""
 
     def __init__(self, blocks: dict[str, dict[str, Any]]) -> None:
         self.blocks = blocks
@@ -55,27 +56,27 @@ def _fetch(monkeypatch: pytest.MonkeyPatch, rec: _Recorder, term: str) -> Any:
 
 class TestAdaptiveBranch:
     def test_narrow_term_makes_exactly_one_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """`BTC`: lookupTotals.all = 503, esik 500... ama bu SINIRDA.
+        """`BTC`: lookupTotals.all = 503, threshold 500... but that's borderline.
 
-        Esigin altindaki gercek bir dar terim icin tek cagri beklenir.
-        Burada `AAPL` benzeri bir kume taklit edilir.
+        A single call is expected for a genuinely narrow term below the
+        threshold. Here a set similar to `AAPL` is simulated.
         """
         block = _block("lookup_BTC_all")
         block = {**block, "lookupTotals": {**block["lookupTotals"], "all": 57}}
         rec = _Recorder({"all": block})
         _fetch(monkeypatch, rec, "AAPL")
-        # Iddia CAGRI SAYISI uzerinden surulur, bir payload bayragi
-        # uzerinden degil: bayrak DB'ye yazilmadigi icin yalnizca testin
-        # gordugu bir sey olurdu ve "denetim alani" izlenimi yaratirdi.
+        # The claim is proved via call count, not a payload flag: a flag
+        # is never written to the DB, so it would only be something the
+        # test itself sees, giving a false sense of coverage.
         assert rec.types == ["all"]
 
     def test_broad_term_falls_back_to_typed_calls(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """REGRESYON: `GOLD` -> lookupTotals.all = 7.273, `all` 995 belge.
+        """Regression: `GOLD` -> lookupTotals.all = 7,273, `all` returns 995 docs.
 
-        Tipli dala gecilmezse sembollerin %70'inden fazlasi KAYBEDILIR ve
-        hicbir hata gorulmez.
+        Without falling back to the typed branch, over 70% of symbols
+        would be lost with no visible error.
         """
         rec = _Recorder(
             {"all": _block("lookup_GOLD_all"), "equity": _block("lookup_GOLD_equity")}
@@ -86,10 +87,10 @@ class TestAdaptiveBranch:
     def test_typed_fallback_adds_to_all_it_does_not_replace(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`GOLD`da 354 sembol YALNIZ `all`da vardi.
+        """For `GOLD`, 354 symbols existed only in `all`.
 
-        Tipli dal `all`i birakip yerine gecseydi o semboller kaybolurdu --
-        fark IKI YONLU.
+        If the typed branch replaced `all` instead of adding to it, those
+        symbols would be lost -- the difference goes both ways.
         """
         rec = _Recorder(
             {"all": _block("lookup_GOLD_all"), "equity": _block("lookup_GOLD_equity")}
@@ -100,7 +101,8 @@ class TestAdaptiveBranch:
         assert "equity" in sources
 
     def test_threshold_is_read_from_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Esik kodda gomulu DEGIL: olcum degistiginde ayardan duzeltilir."""
+        """The threshold is not hardcoded: adjust it via settings if the
+        measurement changes."""
         from yfin.core.config import Settings
 
         monkeypatch.setenv("YF_LOOKUP_ALL_THRESHOLD", "10")
@@ -109,10 +111,10 @@ class TestAdaptiveBranch:
     def test_totals_are_read_from_response_not_library_constant(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """SQ S4.1/10: kaynak DOKUZ tip bildiriyor.
+        """The source reports nine types.
 
-        `privateCompany` `LOOKUP_TYPES` sabitinde YOK; sabitten okunsaydi
-        o satir hic yazilmazdi.
+        `privateCompany` is not in the `LOOKUP_TYPES` constant; reading
+        from the constant would never write that row.
         """
         rec = _Recorder({"all": _block("lookup_BTC_all")})
         payload = _fetch(monkeypatch, rec, "BTC")
@@ -125,8 +127,8 @@ class TestAdaptiveBranch:
 
 class TestEnvelope:
     def test_non_dict_response_raises(self) -> None:
-        """Sekil degisirse `failed`; sessizce bos donmek "veri yok" ile
-        "yanit sekli degisti"yi karistirirdi."""
+        """If the shape changes, `failed`; returning empty silently would
+        conflate "no data" with "the response shape changed"."""
         with pytest.raises(TypeError):
             mod._result_block([1, 2, 3])
 

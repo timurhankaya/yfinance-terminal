@@ -1,0 +1,149 @@
+"""Liveness and readiness.
+
+Both are unauthenticated, and that makes `/health/ready` the cheapest
+attack surface in the API: it touches PostgreSQL and Redis on every call.
+Left uncapped, a few thousand requests a second would drain the
+connection pool and take real traffic down with it. So the result is
+cached for a few seconds and the endpoint carries its own per-IP limit.
+
+That limit is in-process on purpose. A readiness probe that needs Redis
+in order to report that Redis is down would be useless exactly when it
+matters.
+"""
+
+from __future__ import annotations
+
+import threading
+import time
+from typing import Literal
+
+from fastapi import APIRouter, Request
+from pydantic import BaseModel
+from sqlalchemy import text
+
+from yfin.api.core.config import ApiSettings
+from yfin.api.core.errors import TYPE_RATE_LIMIT, ApiProblem
+from yfin.core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
+router = APIRouter(tags=["meta"])
+
+Status = Literal["ok", "degraded"]
+
+
+class Health(BaseModel):
+    status: Status
+
+
+class Readiness(BaseModel):
+    status: Status
+    database: Literal["ok", "fail"]
+    redis: Literal["ok", "fail"]
+
+
+class _FixedWindow:
+    """Per-IP counter in a one-minute window.
+
+    Deliberately tiny: it protects one endpoint from floods, it is not
+    the API's rate limiter. Entries are swept when the window rolls so a
+    long uptime cannot grow the dict without bound.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._window = 0
+        self._hits: dict[str, int] = {}
+
+    def allow(self, key: str, limit: int) -> bool:
+        window = int(time.time() // 60)
+        with self._lock:
+            if window != self._window:
+                self._window = window
+                self._hits = {}
+            count = self._hits.get(key, 0) + 1
+            self._hits[key] = count
+            return count <= limit
+
+
+class _ReadinessCache:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._value: Readiness | None = None
+        self._expires = 0.0
+
+    def get(self) -> Readiness | None:
+        with self._lock:
+            if self._value is not None and time.monotonic() < self._expires:
+                return self._value
+            return None
+
+    def put(self, value: Readiness, ttl: float) -> None:
+        with self._lock:
+            self._value = value
+            self._expires = time.monotonic() + ttl
+
+
+_limiter = _FixedWindow()
+_cache = _ReadinessCache()
+
+
+def _check_database() -> bool:
+    from yfin.core.config import bootstrap_settings
+    from yfin.storage.db import create_db_engine
+
+    try:
+        engine = create_db_engine(bootstrap_settings(), application_name="yfin-api-health")
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:  # noqa: BLE001 - a readiness probe reports, never raises
+        log.warning("health_database_unreachable", exc_info=True)
+        return False
+
+
+def _check_redis(settings: ApiSettings) -> bool:
+    try:
+        import redis
+
+        client = redis.Redis.from_url(settings.redis_url, socket_connect_timeout=1)
+        client.ping()
+        return True
+    except Exception:  # noqa: BLE001 - same contract as the database probe
+        log.warning("health_redis_unreachable", exc_info=True)
+        return False
+
+
+@router.get("/health", response_model=Health, summary="Liveness")
+def health() -> Health:
+    """Answers whether the process is up. Touches nothing else, so it
+    stays truthful while dependencies are down."""
+    return Health(status="ok")
+
+
+@router.get("/health/ready", response_model=Readiness, summary="Readiness")
+def health_ready(request: Request) -> Readiness:
+    settings: ApiSettings = request.app.state.api_settings
+    client_ip = getattr(request.state, "client_ip", "unknown")
+    if not _limiter.allow(client_ip, settings.health_rate_limit_per_minute):
+        raise ApiProblem(
+            429,
+            TYPE_RATE_LIMIT,
+            "Too many readiness probes",
+            headers={"Retry-After": "60"},
+        )
+
+    cached = _cache.get()
+    if cached is not None:
+        return cached
+
+    database = _check_database()
+    redis_ok = _check_redis(settings)
+    result = Readiness(
+        status="ok" if database and redis_ok else "degraded",
+        database="ok" if database else "fail",
+        redis="ok" if redis_ok else "fail",
+    )
+    if settings.health_cache_seconds:
+        _cache.put(result, settings.health_cache_seconds)
+    return result

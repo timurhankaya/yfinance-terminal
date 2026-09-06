@@ -16,6 +16,7 @@ def configure_logging(level: str = "INFO") -> None:
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
+            redact_secrets,
             redact_credentials,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso", utc=True),
@@ -51,6 +52,35 @@ def redact_credentials(
     for key, value in event_dict.items():
         if isinstance(value, str) and "://" in value:
             event_dict[key] = scrub(value)
+    return event_dict
+
+
+# Fields that must never reach a log line whatever their value. The API
+# hands out client secrets and bearer tokens; one careless `log.info(...,
+# headers=...)` would park a live credential in a file that outlives it.
+# A denylist of names is checked unconditionally rather than trusting
+# every future call site to remember.
+_SECRET_KEYS = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "client_secret",
+        "secret",
+        "access_token",
+        "token",
+        "password",
+    }
+)
+REDACTED = "***"
+
+
+def redact_secrets(
+    _logger: Any, _name: str, event_dict: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
+    for key in list(event_dict):
+        if key.lower() in _SECRET_KEYS:
+            event_dict[key] = REDACTED
     return event_dict
 
 

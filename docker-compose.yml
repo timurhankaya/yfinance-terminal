@@ -37,5 +37,36 @@ services:
       timeout: 5s
       retries: 20
 
+  redis:
+    # Pinned for the same reason as the database image: a moving tag makes
+    # "works from scratch" meaningless. Upgrading is a deliberate edit.
+    image: redis:7.4.2-alpine
+    container_name: yfin-redis
+    command:
+      - redis-server
+      # Counters and the revocation epoch are the whole workload, and all
+      # of it is reconstructible: quotas re-derive from api_usage_daily and
+      # epoch keys expire within a token lifetime anyway. Persistence would
+      # buy nothing and cost fsyncs on the request path.
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      # A bounded cache, not a database. Without a cap, an attacker
+      # spraying client ids at /oauth/token could grow the keyspace until
+      # the process is OOM-killed -- and the rate limiter fails open, so
+      # that outage would also remove the protection against the spray.
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-256mb}
+      - --maxmemory-policy
+      - allkeys-lru
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
 volumes:
   yfin-pgdata:

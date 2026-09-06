@@ -26,7 +26,25 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.5", "mypy>=1.10"]
+# The HTTP layer is an extra on purpose: a data-pipeline host has no use
+# for FastAPI or uvicorn, and `yfinance[repair]` already sets the pattern.
+api = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pyjwt>=2.9",
+    "argon2-cffi>=23.1",
+    "redis>=5.1",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    # API tests: TestClient rides on httpx; schemathesis drives the frozen
+    # openapi.json; fakeredis keeps the counter tests off a real server.
+    "httpx>=0.27",
+    "schemathesis>=3.36",
+    "fakeredis>=2.25",
+]
 
 [project.scripts]
 yfin = "yfin.cli.app:main"

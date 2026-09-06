@@ -205,8 +205,8 @@ class TestGateScope:
                 assert "query_term" not in row, write.table
 
     def test_reports_are_written_before_hits(self, aapl: Any) -> None:
-        """FK sirasi: `search_report_hits.report_id` -> `research_reports`.
-        Ebeveyn ayni transaction'da ONCE yazilmali."""
+        """FK order: `search_report_hits.report_id` -> `research_reports`.
+        The parent must be written first within the same transaction."""
         tables = [w.table for w in aapl.writes]
         assert tables.index("research_reports") < tables.index("search_report_hits")
 
@@ -225,10 +225,10 @@ class TestSymbolPromotion:
             assert column not in SYMBOL_UPDATE
 
     def test_update_scope_is_narrower_than_screener(self) -> None:
-        """SQ S5.12: Search kotasyonu `currency`/`timezone` TASIMAZ.
+        """A search quote does not carry `currency`/`timezone`.
 
-        Ortak bir liste kullanilsaydi bu yol her kosuda screener'in
-        yazdigi o kolonlari NULL'lardi.
+        Using a shared list would null out those columns on every run of
+        this path, overwriting what screener wrote.
         """
         from yfin.datasets.discovery.search import SYMBOL_UPDATE
         from yfin.datasets.market.screener import SYMBOL_UPDATE as SCREENER_UPDATE
@@ -239,8 +239,9 @@ class TestSymbolPromotion:
 
 class TestReports:
     def test_epoch_ms_report_date(self, aapl: Any) -> None:
-        """SQ S4.3: Search yolunda epoch MILISANIYE, domain yolunda ISO
-        METIN. Ortak donusturucu biri icin sessiz NULL uretirdi."""
+        """The search path uses epoch milliseconds, the domain path ISO
+        text. A shared converter would silently produce NULL for one of
+        them."""
         rows = _rows(aapl, "research_reports")
         assert rows
         assert all(r["report_ts_utc"].year >= 2020 for r in rows)
@@ -249,6 +250,6 @@ class TestReports:
         row = _rows(aapl, "research_reports")[0]
         assert row["author"]
         assert row["report_headline"]
-        # Domain'e ozgu kolonlar bu yolda NULL kalir
+        # Domain-specific columns stay NULL on this path
         assert row["head_html"] is None
         assert row["report_type"] is None

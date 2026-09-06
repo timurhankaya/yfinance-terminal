@@ -1,0 +1,80 @@
+"""API settings.
+
+Deliberately a separate BaseSettings from `yfin.core.config.Settings`,
+for two reasons. These are not pipeline settings managed by the
+`settings` table -- an operator changing `yf_max_shards` from the admin
+panel has no business changing the JWT audience. And the signing key is a
+secret: like `yf_proxy_secret_key` it stays in the environment and never
+becomes an editable row.
+
+The `YFAPI_` prefix is here to separate the two namespaces. Note that the
+pipeline's `Settings` uses no prefix at all (its fields are already
+`yf_*`/`db_*`), so this is not a repeat of an existing pattern.
+"""
+
+from __future__ import annotations
+
+import functools
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Below this, an HS256 key is weaker than the digest it feeds.
+MIN_SIGNING_KEY_BYTES = 32
+
+
+class ApiSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="YFAPI_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # --- token ------------------------------------------------------------
+    # No default: an empty key must fail loudly at startup, not sign
+    # tokens that anyone can forge.
+    jwt_signing_key: str = ""
+    jwt_kid: str = "k1"
+    jwt_issuer: str = "yfin-api"
+    jwt_audience: str = "yfin-api"
+    token_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+
+    # --- infrastructure ---------------------------------------------------
+    redis_url: str = "redis://localhost:6379/0"
+
+    # --- network ----------------------------------------------------------
+    # CIDR list. Empty means "no reverse proxy": X-Forwarded-For is then
+    # ignored entirely rather than trusted blindly.
+    trusted_proxies: str = ""
+    cors_origins: str = ""
+    docs_enabled: bool = True
+
+    # --- health -----------------------------------------------------------
+    health_cache_seconds: int = Field(default=5, ge=0)
+    health_rate_limit_per_minute: int = Field(default=60, ge=1)
+
+    def signing_key_bytes(self) -> bytes:
+        """The signing key, refusing anything too short.
+
+        Checked where the key is used rather than at field level so that
+        commands and health checks that never sign a token still run
+        without one configured.
+        """
+        raw = self.jwt_signing_key.encode("utf-8")
+        if len(raw) < MIN_SIGNING_KEY_BYTES:
+            raise ValueError(
+                f"YFAPI_JWT_SIGNING_KEY must be at least {MIN_SIGNING_KEY_BYTES} bytes"
+            )
+        return raw
+
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    def trusted_proxy_list(self) -> list[str]:
+        return [c.strip() for c in self.trusted_proxies.split(",") if c.strip()]
+
+
+@functools.lru_cache(maxsize=1)
+def get_api_settings() -> ApiSettings:
+    return ApiSettings()

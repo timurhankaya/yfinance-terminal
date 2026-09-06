@@ -1,17 +1,18 @@
-"""GERCEK yakalanmis fixture'lara karsi kaynak sozlesmesi (AH S9.1).
+"""Source contract against real captured fixtures.
 
-`test_analysis.py` / `test_holders.py` / `test_funds.py` elle kurulmus
-cerceveler kullanir ve normalizasyon MANTIGINI dogrular. Bu dosya farkli bir
-seyi dogrular: kodun bekledigi KAYNAK ANAHTARLARI ve SEKILLERI Yahoo'nun
-gercekten dondurdugu seyle esitmi.
+`test_analysis.py` / `test_holders.py` / `test_funds.py` use hand-built
+frames and verify normalization logic. This file verifies something
+different: whether the source keys and shapes the code expects match what
+Yahoo actually returns.
 
-Ayrim onemlidir. Sentetik bir cerceve yalnizca YAZARIN INANDIGINI kodlar:
-`downLast7days` hem koda hem teste kucuk `d` ile yazilsaydi test GECER ve
-kolon sonsuza kadar sessizce NULL kalirdi. Buradaki iddialar yakalanmis
-gercek govdeye bakar, bu yuzden Yahoo bir anahtari degistirdiginde ya da kod
-sapmaya basladiginda KIRILIRLAR.
+The distinction matters. A synthetic frame only encodes what the author
+believes: if `downLast7days` were written with a lowercase `d` in both the
+code and the test, the test would pass and the column would stay silently
+NULL forever. The assertions here look at the actual captured body, so
+they break when Yahoo changes a key or the code drifts.
 
-Fixture yoksa testler atlanir (`helpers.load_fixture` -> pytest.skip).
+Tests are skipped when a fixture is missing (`helpers.load_fixture` ->
+pytest.skip).
 """
 
 from __future__ import annotations
@@ -20,20 +21,20 @@ from typing import Any
 
 from helpers import load_fixture
 
-# --- kaynak anahtar adlari -------------------------------------------------
+# --- source key names ---------------------------------------------------
 
 
 def _columns(records: Any) -> set[str]:
-    """Yakalanmis cerceve kayitlarindaki kolon adlari."""
+    """Column names in a captured frame's records."""
     if not records:
         return set()
     return {k for k in records[0] if k != "index"}
 
 
 def test_eps_revisions_key_really_has_capital_d() -> None:
-    """AH S4.2'nin en sinsi bulgusu: uc anahtar kucuk `d` ile biterken
-    `downLast7Days` BUYUK D ile gelir. Dokumantasyon dordunu de kucuk
-    yaziyor."""
+    """The sneakiest finding: three keys end in lowercase `d`, but
+    `downLast7Days` comes with a capital D. The docs write all four in
+    lowercase."""
     for symbol in ("AAPL", "MSFT", "KO"):
         cols = _columns(load_fixture(symbol, "eps_revisions"))
         if not cols:
@@ -44,14 +45,14 @@ def test_eps_revisions_key_really_has_capital_d() -> None:
 
 
 def test_estimate_frames_carry_undocumented_currency_column() -> None:
-    """`currency` dokumantasyonda YOK ama dort estimate cercevesinde de var."""
+    """`currency` is not documented, but all four estimate frames have it."""
     for dataset in ("earnings_estimate", "revenue_estimate", "eps_trend", "eps_revisions"):
         cols = _columns(load_fixture("AAPL", dataset))
         assert "currency" in cols, f"{dataset}: {sorted(cols)}"
 
 
 def test_upgrades_downgrades_has_seven_columns_not_four() -> None:
-    """Dokumantasyon 4 kolon yaziyor; kaynak 7 donduruyor."""
+    """The docs list 4 columns; the source returns 7."""
     cols = _columns(load_fixture("AAPL", "upgrades_downgrades"))
     assert cols == {
         "Firm",
@@ -65,7 +66,7 @@ def test_upgrades_downgrades_has_seven_columns_not_four() -> None:
 
 
 def test_growth_estimates_index_has_ltg_not_five_year() -> None:
-    """Dokumantasyon `+5y`/`-5y` yaziyor; kaynak `LTG` donduruyor."""
+    """The docs say `+5y`/`-5y`; the source returns `LTG`."""
     records = load_fixture("AAPL", "growth_estimates")
     periods = {r["index"] for r in records}
     assert "LTG" in periods
@@ -84,7 +85,7 @@ def test_major_holders_has_the_four_measured_keys() -> None:
 
 
 def test_institutional_and_mutualfund_columns_are_identical() -> None:
-    """Iki dataset'in TEK tabloya yazmasinin gerekcesi (AH S5.2)."""
+    """Why the two datasets write to a single table."""
     inst = _columns(load_fixture("AAPL", "institutional_holders"))
     fund = _columns(load_fixture("AAPL", "mutualfund_holders"))
     assert inst == fund
@@ -92,7 +93,7 @@ def test_institutional_and_mutualfund_columns_are_identical() -> None:
 
 
 def test_insider_purchases_first_column_carries_the_period() -> None:
-    """0. kolon ADI dinamiktir; etiket ADDAN degil KONUMDAN okunmalidir."""
+    """Column 0's name is dynamic; the label must be read by position, not by name."""
     records = load_fixture("AAPL", "insider_purchases")
     cols = [k for k in records[0] if k != "index"]
     header = cols[0]
@@ -100,12 +101,12 @@ def test_insider_purchases_first_column_carries_the_period() -> None:
     assert {"Shares", "Trans"} <= set(cols)
 
 
-# --- sembole ozgu kenar durumlari -----------------------------------------
+# --- symbol-specific edge cases -------------------------------------------
 
 
 def test_pfe_really_has_two_fully_identical_insider_rows() -> None:
-    """`fact_hash`in TEK BASINA yetmedigi kanit. Bu satirlar ayrisamaz;
-    normalize birebir tekillestirme yapmak ZORUNDADIR (AH S8.3)."""
+    """Proof `fact_hash` alone is not enough. These rows are
+    indistinguishable; normalize must dedupe on an exact match."""
     records = load_fixture("PFE", "insider_transactions")
     seen: set[tuple[Any, ...]] = set()
     duplicates = 0
@@ -114,26 +115,27 @@ def test_pfe_really_has_two_fully_identical_insider_rows() -> None:
         if key in seen:
             duplicates += 1
         seen.add(key)
-    assert duplicates >= 1, "PFE'de birebir ozdes satir bekleniyordu"
+    assert duplicates >= 1, "expected a fully identical row in PFE"
 
 
 def test_xom_ownership_has_a_three_character_value() -> None:
-    """`AsciiKeyType(2)` bu degeri kirpardi."""
+    """`AsciiKeyType(2)` would truncate this value."""
     records = load_fixture("XOM", "insider_transactions")
     values = {str(r.get("Ownership")) for r in records}
     assert "D/I" in values, sorted(values)
 
 
 def test_nvda_insider_roster_has_the_two_extra_columns() -> None:
-    """Kolon seti sembole gore 7/9/11'dir. positionSummary kolona
-    alinmasaydi NVDA'da bir kisinin TEK hisse bilgisi kaybolurdu."""
+    """The column set is 7/9/11 depending on the symbol. If positionSummary
+    were not captured as a column, one person's only share info in NVDA
+    would be lost."""
     cols = _columns(load_fixture("NVDA", "insider_roster_holders"))
     assert "positionSummary" in cols
     assert "positionSummaryDate" in cols
 
 
 def test_insider_roster_column_set_varies_across_symbols() -> None:
-    """Sabit kolon setine guvenilemez -> normalize row.get(...) kullanir."""
+    """A fixed column set cannot be relied on -> normalize uses row.get(...)."""
     sizes = {
         symbol: len(_columns(load_fixture(symbol, "insider_roster_holders")))
         for symbol in ("AAPL", "NVDA")
@@ -142,8 +144,8 @@ def test_insider_roster_column_set_varies_across_symbols() -> None:
 
 
 def test_ko_insider_purchases_has_a_negative_net_value() -> None:
-    """`BigNumType` ISARETLI olmali; UNSIGNED olsaydi ERROR 1264 ile
-    SEMBOLUN TUM transaction'i duserdi."""
+    """`BigNumType` must be signed; if it were UNSIGNED, ERROR 1264 would
+    drop the symbol's entire transaction."""
     records = load_fixture("KO", "insider_purchases")
     shares = [r.get("Shares") for r in records if r.get("Shares") is not None]
     assert any(float(v) < 0 for v in shares), shares
