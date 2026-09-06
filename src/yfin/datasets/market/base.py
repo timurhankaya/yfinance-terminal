@@ -18,6 +18,9 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Literal
 
+from sqlalchemy.orm import Session
+
+from yfin.config import Settings
 from yfin.datasets.base import NormalizedResult, WriteStats
 from yfin.datasets.snapshot_base import snapshot_upsert
 from yfin.persistence import RowWriter, apply_write
@@ -86,7 +89,7 @@ class GlobalDataset[RawT](ABC):
     produces: tuple[str, ...] = ()
     scope: MarketScope = "global"
 
-    def variants(self, settings: Any, session: Any) -> Sequence[str]:
+    def variants(self, settings: Settings, session: Session | None) -> Sequence[str]:
         """`scope == "variant"` ise dis dongunun anahtarlari (SQ S6.1).
 
         `session` ZORUNLUDUR ve imzanin en tartismali parcasidir: varyant
@@ -94,9 +97,15 @@ class GlobalDataset[RawT](ABC):
         `settings` alan bir imza DB'yi okuyamazdi -- `Settings` bir Pydantic
         ayar nesnesidir.
 
-        `market_regions()` gibi runner'da DEGIL dataset'te durur: ekran
-        kumesini bilen taraf dataset'tir, runner'in `screens` tablosundan
-        haberi olmasi gerekmez.
+        `market_regions()` runner'da bir MODUL FONKSIYONUDUR cunku bolge
+        kumesi yalnizca config'ten gelir ve tum bolgeli dataset'ler icin
+        AYNIDIR. Varyant kumesi ise dataset'e ozgudur ve DB okur; taban
+        sinifta bildirimsel bir uzatma noktasi olmasi, runner'in `screens`
+        tablosunu tanimasindan iyidir.
+
+        Varsayilani bos olmasi ZORUNLU: `scope != "variant"` olan alti
+        dataset bunu hic uygulamaz ve runner onlari bu daldan hic
+        gecirmez.
         """
         return ()
 

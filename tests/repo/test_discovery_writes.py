@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from yfin.datasets.discovery.lookup import LookupDataset, LookupPayload
 from yfin.datasets.discovery.search import SearchDataset, SearchPayload
 from yfin.datasets.market.screener import ScreenerDataset, ScreenPayload
-from yfin.persistence import MySQLRowWriter
+from yfin.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo
 
@@ -57,7 +57,7 @@ def _screen_payload(fixture: str, key: str, *, quotes: list[dict[str, Any]] | No
 
 
 def _write(db_session: Session, dataset: Any, payload: Any, *, symbol: str | None = None) -> Any:
-    writer = MySQLRowWriter(db_session)
+    writer = PostgresRowWriter(db_session)
     result = (
         dataset.normalize(payload) if symbol is None else dataset.normalize(payload, symbol)
     )

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from yfin import normalize as nz
 from yfin.datasets.base import TableWrite, WriteStats
 from yfin.models import Base, PriceHistory, Symbol
-from yfin.persistence import MySQLRowWriter, apply_write
+from yfin.persistence import PostgresRowWriter, apply_write
 
 pytestmark = pytest.mark.repo
 
@@ -57,11 +57,11 @@ class TestIdempotency:
         write = _price_write([_row(2, "1.5"), _row(3, "2.5")])
 
         stats = WriteStats()
-        apply_write(MySQLRowWriter(db_session), write, stats)
+        apply_write(PostgresRowWriter(db_session), write, stats)
         first = db_session.execute(select(func.count()).select_from(PriceHistory)).scalar_one()
 
         stats2 = WriteStats()
-        apply_write(MySQLRowWriter(db_session), write, stats2)
+        apply_write(PostgresRowWriter(db_session), write, stats2)
         second = db_session.execute(select(func.count()).select_from(PriceHistory)).scalar_one()
 
         assert first == second == 2
@@ -71,8 +71,8 @@ class TestIdempotency:
     def test_changed_value_is_overwritten(self, db_session: Session) -> None:
         _seed_symbol(db_session)
         stats = WriteStats()
-        apply_write(MySQLRowWriter(db_session), _price_write([_row(2, "1.5")]), stats)
-        apply_write(MySQLRowWriter(db_session), _price_write([_row(2, "9.99")]), WriteStats())
+        apply_write(PostgresRowWriter(db_session), _price_write([_row(2, "1.5")]), stats)
+        apply_write(PostgresRowWriter(db_session), _price_write([_row(2, "9.99")]), WriteStats())
         close = db_session.execute(
             select(PriceHistory.close).where(PriceHistory.session_date == date(2026, 1, 2))
         ).scalar_one()
@@ -84,7 +84,7 @@ class TestUpdateColumnScope:
         """symbols dataset'i isin kolonuna HIC dokunmaz (S6.1/3)."""
         _seed_symbol(db_session)
         apply_write(
-            MySQLRowWriter(db_session),
+            PostgresRowWriter(db_session),
             TableWrite(
                 table="symbols",
                 rows=[{"symbol": "AAPL", "isin": "US0378331005"}],
@@ -94,7 +94,7 @@ class TestUpdateColumnScope:
             WriteStats(),
         )
         apply_write(
-            MySQLRowWriter(db_session),
+            PostgresRowWriter(db_session),
             TableWrite(
                 table="symbols",
                 rows=[{"symbol": "AAPL", "currency": "USD", "quote_type": "EQUITY"}],
@@ -114,10 +114,10 @@ class TestVerification:
         """ROW_COUNT() degismeyen satirda 0 doner; anahtar varligi 1 (S8.6)."""
         _seed_symbol(db_session)
         write = _price_write([_row(5, "3.0")])
-        apply_write(MySQLRowWriter(db_session), write, WriteStats())
+        apply_write(PostgresRowWriter(db_session), write, WriteStats())
 
         stats = WriteStats()
-        apply_write(MySQLRowWriter(db_session), write, stats)  # birebir ayni satir
+        apply_write(PostgresRowWriter(db_session), write, stats)  # birebir ayni satir
         assert stats.verified["price_history"] == 1
         assert stats.attempted["price_history"] == 1
 
@@ -125,7 +125,7 @@ class TestVerification:
         _seed_symbol(db_session)
         rows = [_row(d, "1.0") for d in range(1, 21)]
         stats = WriteStats()
-        apply_write(MySQLRowWriter(db_session), _price_write(rows), stats)
+        apply_write(PostgresRowWriter(db_session), _price_write(rows), stats)
         assert stats.verified["price_history"] == 20
 
 
@@ -135,7 +135,7 @@ class TestDecimalPrecision:
         _seed_symbol(db_session)
         values = ["0.128348", "0.001870", "1234567890.123456789012"]
         rows = [{**_row(10 + i, v), "close": nz.to_decimal(float(v))} for i, v in enumerate(values)]
-        apply_write(MySQLRowWriter(db_session), _price_write(rows), WriteStats())
+        apply_write(PostgresRowWriter(db_session), _price_write(rows), WriteStats())
         stored = (
             db_session.execute(select(PriceHistory.close).order_by(PriceHistory.session_date))
             .scalars()
@@ -205,7 +205,7 @@ class TestForeignKeys:
     def test_delete_restricted_by_child_rows(self, db_session: Session) -> None:
         """ON DELETE RESTRICT soft-delete politikasini DB'de zorlar (S5.5)."""
         _seed_symbol(db_session)
-        apply_write(MySQLRowWriter(db_session), _price_write([_row(7, "1.0")]), WriteStats())
+        apply_write(PostgresRowWriter(db_session), _price_write([_row(7, "1.0")]), WriteStats())
         db_session.flush()
         with pytest.raises(IntegrityError):
             db_session.execute(text("DELETE FROM symbols WHERE symbol = 'AAPL'"))
@@ -312,8 +312,8 @@ class TestReplaceScope:
                 mode="replace_scope",
             )
 
-        apply_write(MySQLRowWriter(db_session), officers(["A", "B"]), WriteStats())
-        apply_write(MySQLRowWriter(db_session), officers(["B", "C"]), WriteStats())
+        apply_write(PostgresRowWriter(db_session), officers(["A", "B"]), WriteStats())
+        apply_write(PostgresRowWriter(db_session), officers(["B", "C"]), WriteStats())
         table = Base.metadata.tables["company_officers"]
         names = set(
             db_session.execute(select(table.c.name).where(table.c.symbol == "AAPL")).scalars()

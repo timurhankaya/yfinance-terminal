@@ -159,6 +159,9 @@ def test_child_tables_inherit_their_parent_timestamp() -> None:
         # edilir. created_at/updated_at tasir; `fetched_at` burada yanlis
         # anlam olurdu. Gunluk cekim damgasi `screen_runs.fetched_at`tedir.
         "screens",
+        # `settings` de STATIK KIMLIKTIR: operator tarafindan yazilir,
+        # Yahoo'dan "cekilmez". created_at/updated_at tasir.
+        "settings",
     }
     for table in Base.metadata.tables.values():
         if table.name in exempt or "fetched_at" in table.c:

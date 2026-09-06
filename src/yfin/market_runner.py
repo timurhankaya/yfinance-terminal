@@ -29,7 +29,7 @@ from yfin.db import advisory_lock
 from yfin.errors import classify_error
 from yfin.logging_setup import get_logger
 from yfin.models import RunScope
-from yfin.persistence import MySQLRowWriter
+from yfin.persistence import PostgresRowWriter
 from yfin.proxy import (
     PasswordUndecryptable,
     ProxyPolicy,
@@ -125,7 +125,7 @@ def _run_turn(
 
     with factory() as session:
         try:
-            stats = dataset.upsert(MySQLRowWriter(session), result)
+            stats = dataset.upsert(PostgresRowWriter(session), result)
             session.commit()
         except Exception as exc:  # noqa: BLE001
             session.rollback()

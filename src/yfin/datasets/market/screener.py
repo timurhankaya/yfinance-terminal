@@ -15,20 +15,31 @@ ayni oldugu icin mixin paylasilir.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Any
 
 import yfinance as yf
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from yfin import normalize as nz
 from yfin.client import call_yahoo
-from yfin.config import Settings
+from yfin.config import Settings, get_settings
 from yfin.datasets.base import NormalizedResult, TableWrite
-from yfin.datasets.common import project_fields, warn_unmapped
+from yfin.datasets.common import (
+    dict_items,
+    discovered_symbol_row,
+    expect_dict,
+    project_fields,
+    symbol_is_writable,
+    utc_as_of_day,
+    warn_unmapped,
+)
 from yfin.datasets.hash_gated import HashGate
 from yfin.datasets.market.base import GlobalDataset, MarketContext
 from yfin.datasets.registry import register_market
 from yfin.logging_setup import get_logger
+from yfin.models.discovery import Screen
 from yfin.models.fields import SCREENER_NON_COLUMN_SOURCES, SCREENER_QUOTE_FIELDS
 from yfin.screens import ALL_SCREENS, ScreenDef, screen_by_key
 
@@ -148,12 +159,12 @@ def _fetch_page(
             ),
             what=f"screen:{spec.key}:@{offset}",
         )
-    if not isinstance(raw, dict):  # pragma: no cover - savunma
-        raise TypeError(f"screen yaniti sozluk degil: {type(raw).__name__}")
-
-    quotes = [q for q in raw.get("quotes") or [] if isinstance(q, dict)]
-    metadata = {k: v for k, v in raw.items() if k != "quotes"}
-    return ScreenPage(quotes=quotes, total=nz.to_int(raw.get("total")) or 0, metadata=metadata)
+    body = expect_dict(raw, what="screen")
+    return ScreenPage(
+        quotes=dict_items(body, "quotes"),
+        total=nz.to_int(body.get("total")) or 0,
+        metadata={k: v for k, v in body.items() if k != "quotes"},
+    )
 
 
 class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
@@ -173,7 +184,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
 
     # --- dis dongu ---------------------------------------------------------
 
-    def variants(self, settings: Any, session: Any) -> list[str]:
+    def variants(self, settings: Settings, session: Session | None) -> list[str]:
         """Ekran kumesi `screens.py`den, ETKINLIK DB'den (SQ S6.5).
 
         Yon onemlidir: kume KODDAN gelir, DB yalnizca ELER. Tersi olsaydi
@@ -181,7 +192,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
         seed edilmeden once bootstrap kilitlenirdi -- tablo da yalnizca
         kosu sirasinda dolduguna gore, kilit hic acilmazdi.
         """
-        cfg: Settings = settings
+        cfg = settings
         wanted = [k.strip() for k in cfg.yf_screen_keys.split(",") if k.strip()]
         keys = [s.key for s in ALL_SCREENS]
         if wanted:
@@ -197,8 +208,6 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
     # --- fetch -------------------------------------------------------------
 
     def fetch(self, mctx: MarketContext) -> ScreenPayload:
-        from yfin.config import get_settings
-
         cfg = get_settings()
         if mctx.variant is None:  # pragma: no cover - savunma
             raise ValueError("screener `variant` olmadan cagrilamaz")
@@ -233,7 +242,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
 
         return ScreenPayload(
             screen_key=spec.key,
-            as_of_date=datetime.now(UTC).date(),
+            as_of_date=utc_as_of_day(mctx.fetched_at),
             fetched_at=mctx.fetched_at,
             quotes=quotes,
             total=total,
@@ -256,7 +265,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
                 # `screen` 300 olculen satirin hepsinde `symbol` dondurdu;
                 # yine de PK'ya NULL yazmaktansa satiri elemek dogru.
                 continue
-            is_known = _symbol_is_writable(symbol)
+            is_known = symbol_is_writable(symbol)
             members.append(
                 {
                     "screen_key": raw.screen_key,
@@ -314,26 +323,12 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
         return NormalizedResult(writes=writes)
 
 
-def _disabled_keys(session: Any) -> set[str]:
+def _disabled_keys(session: Session | None) -> set[str]:
     """DB'de ACIKCA kapatilmis ekranlar."""
-    from sqlalchemy import select
-
-    from yfin.models.discovery import Screen
-
     if session is None:  # kutuphane kullanimi / testler
         return set()
     stmt = select(Screen.screen_key).where(Screen.is_enabled.is_(False))
     return set(session.execute(stmt).scalars())
-
-
-def _symbol_is_writable(symbol: str) -> bool:
-    """`SymbolType()` = VARCHAR(32) ascii_bin kisitina uyuyor mu (SQ S8.3).
-
-    Yazma SIRASINDAN turetilmez; `normalize` icinde hesaplanir. Sirayla
-    turetilseydi `symbols` yaziminin `writes` listesindeki yeri anlam
-    tasirdi ve kapi kapsami duzeltmesiyle sessizce bozulurdu.
-    """
-    return len(symbol) <= 32 and symbol.isascii()
 
 
 def _screen_row(spec: ScreenDef, raw: ScreenPayload) -> dict[str, Any]:
@@ -413,24 +408,28 @@ def _quote_row(
 
 
 def _symbol_row(symbol: str, quote: dict[str, Any], raw: ScreenPayload) -> dict[str, Any]:
-    return {
-        "symbol": symbol,
-        "short_name": nz.to_str(quote.get("shortName"), max_len=128),
-        "long_name": nz.to_str(quote.get("longName"), max_len=255),
-        "exchange": nz.to_str(quote.get("exchange"), max_len=32),
-        "full_exchange_name": nz.to_str(quote.get("fullExchangeName"), max_len=64),
-        "quote_type": nz.to_str(quote.get("quoteType"), max_len=32),
-        "currency": nz.to_str(quote.get("currency"), max_len=32),
-        "timezone": nz.to_str(quote.get("exchangeTimezoneName"), max_len=64),
-        "first_trade_date": nz.epoch_to_datetime(
+    """Screener kotasyonu UC KESIF YOLUNUN EN GENISI: dokuz tanimlayici
+    alan tasir, bu yuzden `SYMBOL_UPDATE` da en genis olan odur (SQ S5.12).
+    """
+    return discovered_symbol_row(
+        symbol,
+        source="screener",
+        fetched_at=raw.fetched_at,
+        short_name=nz.to_str(quote.get("shortName"), max_len=128),
+        long_name=nz.to_str(quote.get("longName"), max_len=255),
+        exchange=nz.to_str(quote.get("exchange"), max_len=32),
+        full_exchange_name=nz.to_str(quote.get("fullExchangeName"), max_len=64),
+        quote_type=nz.to_str(quote.get("quoteType"), max_len=32),
+        currency=nz.to_str(quote.get("currency"), max_len=32),
+        timezone=nz.to_str(quote.get("exchangeTimezoneName"), max_len=64),
+        first_trade_date=nz.epoch_to_datetime(
             quote.get("firstTradeDateMilliseconds"), unit="ms"
         ),
-        # SADECE INSERT'te etkili (K10): update_columns bunlari kapsamaz.
-        "is_active": False,
-        "discovered_by": "screener",
-        "discovered_at": raw.fetched_at,
-        "last_seen_at": raw.fetched_at,
-    }
+    )
 
 
-register_market(ScreenerDataset())
+# OPT-IN (SQ K11): `yfin screen sync` bu dataset'i ADIYLA cozer
+# (`MARKET_DATASETS.resolve(["screener"])`), yani komut calisir. Ciplak
+# `yfin market sync` ise onu CEKMEZ -- aksi halde o komutun maliyeti ~20
+# istekten ~50'ye sessizce cikardi ve bunu kimse istemis olmazdi.
+register_market(ScreenerDataset(), opt_in=True)

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from yfin.datasets import SYMBOL_DATASETS
 from yfin.datasets.payloads import AsOfFramePayload
-from yfin.persistence import MySQLRowWriter
+from yfin.persistence import PostgresRowWriter
 from yfin.prune import PruneDisabledError, asof_tables, prune_asof, run_prune
 
 pytestmark = pytest.mark.repo
@@ -54,7 +54,7 @@ def _write_day(session: Session, day: datetime, holders: list[str]) -> None:
         }
     )
     result = DATASET.normalize(AsOfFramePayload(frame, day), SYMBOL)
-    DATASET.upsert(MySQLRowWriter(session), result)
+    DATASET.upsert(PostgresRowWriter(session), result)
 
 
 def _days(session: Session, symbol: str) -> list[date]:
@@ -88,6 +88,13 @@ def test_gate_table_is_never_pruned() -> None:
 
 
 def test_asof_table_count_matches_the_fourteen_as_of_tables() -> None:
+    """SQ sonrasi DEGISMEDI: kesif tablolari KENDI kapi ailesindedir.
+
+    `asof_table_datasets` kapi tablosuna gore suzuyor; `search`/`lookup`
+    da `AsOfGate` olmasina ragmen bu sayiya girmez (SQ K3a). Suzgec
+    olmasaydi bu sayi 14'ten 24'e cikar ve `prune_asof(asof_state)`
+    kesif tablolarini YANLIS KAPIYLA budamaya calisirdi.
+    """
     assert len(asof_tables()) == 14
 
 
@@ -209,7 +216,7 @@ class TestSharedTableProtection:
             }
         )
         result = self.MUTUAL.normalize(AsOfFramePayload(frame, day), SYMBOL)
-        self.MUTUAL.upsert(MySQLRowWriter(session), result)
+        self.MUTUAL.upsert(PostgresRowWriter(session), result)
 
     def _rows(self, session: Session) -> set[tuple[str, date]]:
         return {

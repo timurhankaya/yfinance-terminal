@@ -1,8 +1,8 @@
-"""MySQL yazma mekanigi (S7.2, S8.6).
+"""PostgreSQL yazma mekanigi (PG S4).
 
 Bu modul, dataset sozlesmesinden (datasets/base.py) AYRIDIR: sozlesme
-hangi verinin nereye yazilacagini tanimlar, buradaki kod bunu MySQL'e
-nasil yazacagini bilir. Dataset'ler `RowWriter` protokolune bagimlidir,
+hangi verinin nereye yazilacagini tanimlar, buradaki kod bunu
+PostgreSQL'e nasil yazacagini bilir. Dataset'ler `RowWriter` protokolune bagimlidir,
 SQLAlchemy'ye degil.
 """
 
@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from typing import Any, Protocol
 
 from sqlalchemy import Table, and_, func, select, tuple_
-from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from yfin.datasets.base import TableWrite, WriteStats
@@ -22,9 +22,8 @@ from yfin.models.base import Base
 VERIFY_CHUNK = 500
 
 # Tek INSERT'e giren azami satir. bars_1m ilk dolumda sembol basina
-# ~20.000 satir uretir (PB S6.7). Gerekce PAKET BOYUTU DEGILDIR -
-# max_allowed_packet 64 MB, bu sekildeki 20.000 satir ~3-4 MB'dir. Iki
-# gercek gerekce:
+# ~20.000 satir uretir (PB S6.7). Gerekce PAKET BOYUTU DEGILDIR
+# (PostgreSQL'de boyle bir sinir yok). Iki gercek gerekce:
 #   1. Kilit suresi: tek dev INSERT shard'lar arasi kilit suresini uzatir
 #      ve _persist_with_retry'nin yeniden deneme penceresini buyutur.
 #   2. Ya hep ya hic: kismi basarisizlikta 20.000 satirin tamami geri
@@ -76,7 +75,7 @@ class SnapshotWriter(RowSink, HashReader, Protocol):
 class RowWriter(RowSink, HashReader, SymbolLookup, Protocol):
     """Dataset sozlesmesinin gordugu tam arayuz.
 
-    Somut MySQL detaylari (ON DUPLICATE KEY UPDATE, anahtar varligi
+    Somut PostgreSQL detaylari (ON CONFLICT, anahtar varligi
     sorgusu) bu protokolun arkasinda kalir. `Dataset.upsert` imzasi
     LSP geregi TAM arayuzu alir; ic yardimcilar ise ihtiyac duyduklari
     DAR protokole baglanir (RowSink / SnapshotWriter).
@@ -104,8 +103,53 @@ def align_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{col: row.get(col) for col in columns} for row in rows]
 
 
-class MySQLRowWriter:
-    """RowWriter'in MySQL uygulamasi."""
+def dedupe_rows(
+    rows: list[dict[str, Any]],
+    key_columns: tuple[str, ...],
+    monotonic_columns: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    """Ayni anahtardan yalnizca bir satir birakir (son kazanir).
+
+    ZORUNLUDUR: PostgreSQL `ON CONFLICT DO UPDATE` ayni komutta ayni
+    satira IKI KEZ dokunamaz (ERROR 21000, "cannot affect row a second
+    time"). MySQL `ON DUPLICATE KEY UPDATE` bunu sorunsuz yutuyordu, bu
+    yuzden dataset'lerin cogunda dilim ici tekillik garantisi YOKTUR --
+    57 TableWrite cagrisinin yalnizca dordu kendi icinde drop_duplicates
+    yapiyor.
+
+    `monotonic_columns` ISTISNADIR: grup icindeki EN BUYUK deger alinir.
+    `GREATEST` yalnizca MEVCUT DB satiriyla yeni satiri karsilastirir,
+    ayni batch'teki iki satiri DEGIL; duz "son kazanir" monotonikligi
+    dilim icinde geri yazardi.
+
+    Kaynak sirasi (ilk gorulme) korunur.
+    """
+    if len(rows) < 2:
+        return rows
+    seen: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for row in rows:
+        key = tuple(row.get(name) for name in key_columns)
+        current = seen.get(key)
+        if current is None:
+            seen[key] = dict(row)
+            continue
+        merged = {**current, **row}
+        for col in monotonic_columns:
+            old, new = current.get(col), row.get(col)
+            if old is None:
+                merged[col] = new
+            elif new is None:
+                merged[col] = old
+            else:
+                merged[col] = max(old, new)
+        seen[key] = merged
+    if len(seen) == len(rows):
+        return rows
+    return list(seen.values())
+
+
+class PostgresRowWriter:
+    """RowWriter'in PostgreSQL uygulamasi."""
 
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -131,6 +175,10 @@ class MySQLRowWriter:
         # bulunan bir kolon, ikincide hic gorunmedigi icin guncelleme
         # kapsamindan SESSIZCE duserdi.
         rows = align_rows(write.rows)
+        # dedupe de DILIMLEMEDEN ONCE: tekrarli iki anahtar farkli
+        # dilimlere duserse ERROR 21000 CIKMAZ ama ikinci dilim
+        # birincinin yazdigini ezer -- yani sessiz veri kaybi.
+        rows = dedupe_rows(rows, write.key_columns, write.monotonic_columns)
         present = set(rows[0])
         for start in range(0, len(rows), INSERT_CHUNK):
             self._session.execute(
@@ -146,16 +194,21 @@ class MySQLRowWriter:
         write: TableWrite,
         present: set[str],
     ) -> Any:
-        """Tek dilimin INSERT ... ON DUPLICATE KEY UPDATE ifadesi.
+        """Tek dilimin INSERT ... ON CONFLICT ifadesi.
 
         `present` TUM satirlardan turetilir ve disaridan gelir; dilimden
         hesaplansaydi align_rows'un is birligi bozulurdu.
+
+        `index_elements` KUME OLARAK TAM ESLESMELIDIR: alt kume de ust
+        kume de "there is no unique or exclusion constraint matching the
+        ON CONFLICT specification" hatasi verir (sira onemsizdir).
+        `key_columns`in gercek bir PK/UNIQUE'e karsilik geldigi
+        test_persistence_contract.py'de invaryant olarak korunur.
         """
-        stmt = mysql_insert(table).values(rows)
-        # ON DUPLICATE KEY UPDATE yalnizca INSERT'te yer alan kolonlara
-        # referans verebilir (ERROR 1054). Kolon seti sembole gore
-        # degistiginden (ornegin fon olmayan sembolde 'Capital Gains' yok)
-        # kapsam kesisime indirilir.
+        stmt = pg_insert(table).values(rows)
+        # Guncelleme kapsami INSERT'te yer alan kolonlara indirilir: kolon
+        # seti sembole gore degisir (ornegin fon olmayan sembolde
+        # 'Capital Gains' yok).
         update_map: dict[str, Any] = {}
         for col in write.update_columns:
             if col not in present:
@@ -164,15 +217,21 @@ class MySQLRowWriter:
                 # Kaynak ayni satir icin bir kez 1, ertesi kez 0
                 # bildirebilir (repair heuristikleri pencere uzunluguna
                 # baglidir); GREATEST bilgiyi geri yazmaz.
-                update_map[col] = func.greatest(table.c[col], stmt.inserted[col])
+                # PostgreSQL GREATEST NULL'i YOK SAYAR (MySQL NULL
+                # dondururdu). Burada DAHA GUVENLIDIR: kaynak bir kez NULL
+                # bildirse bile mevcut deger korunur.
+                update_map[col] = func.greatest(table.c[col], stmt.excluded[col])
             else:
-                update_map[col] = stmt.inserted[col]
+                update_map[col] = stmt.excluded[col]
         if update_map:
-            return stmt.on_duplicate_key_update(**update_map)
+            return stmt.on_conflict_do_update(
+                index_elements=list(write.key_columns), set_=update_map
+            )
         # Hicbir kolon guncellenmiyorsa satir sadece eklenir; mevcutsa
-        # dokunulmaz (ON DUPLICATE KEY UPDATE bos olamaz)
-        first_key = write.key_columns[0]
-        return stmt.on_duplicate_key_update(**{first_key: stmt.inserted[first_key]})
+        # dokunulmaz. MySQL'de `ON DUPLICATE KEY UPDATE` bos olamadigi icin
+        # `first_key = first_key` hilesi gerekiyordu; PostgreSQL'de
+        # DO NOTHING var.
+        return stmt.on_conflict_do_nothing(index_elements=list(write.key_columns))
 
     def _delete_scope(self, table: Table, write: TableWrite) -> None:
         """replace_scope kapsamini siler.
@@ -203,10 +262,12 @@ class MySQLRowWriter:
     def _verify(self, write: TableWrite) -> int:
         """Anahtar varligi sorgusu (S8.6).
 
-        ON DUPLICATE KEY UPDATE'in ROW_COUNT() degeri dogrulama icin
-        KULLANILAMAZ: yeni satir 1, guncellenen 2, DEGISMEYEN 0 doner;
-        ustelik deger CLIENT_FOUND_ROWS bayragina bagli oldugu icin surucu
-        konfigurasyonuna gore degisir.
+        Etkilenen satir sayisi dogrulama icin KULLANILMAZ: `ON CONFLICT
+        DO NOTHING` cakisma nedeniyle ATLANAN satiri saymaz (olculdu:
+        INSERT 0 0). Anahtar varligi sorgusu daha guclu bir garanti
+        verir -- "kac satir dokunuldu"yu degil, "istenen anahtarlarin
+        kaci GERCEKTEN tabloda" sorusunu cevaplar; yani yazma-sonrasi
+        BAGIMSIZ bir okumadir.
         """
         table = self._table(write.table)
         cols = [table.c[name] for name in write.key_columns]
@@ -216,10 +277,8 @@ class MySQLRowWriter:
             stmt = select(func.count()).select_from(table).where(cols[0].in_(values))
             return int(self._session.execute(stmt).scalar_one())
 
-        # Satir-kurucu IN: OR/AND bloklarindan 4,4x hizli ve ayni erisim
-        # planini (type=range, key=PRIMARY) uretir. OR bicimi ayrica
-        # range_optimizer_max_mem_size'a baglidir; asilirsa plan sessizce
-        # ref'e duser.
+        # Satir-kurucu IN: OR/AND bloklarindan belirgin sekilde hizli ve
+        # PRIMARY KEY indeksini kullanan ayni erisim planini uretir.
         keys = [tuple(row[name] for name in write.key_columns) for row in write.rows]
         total = 0
         for start in range(0, len(keys), VERIFY_CHUNK):

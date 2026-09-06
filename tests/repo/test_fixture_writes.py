@@ -33,7 +33,7 @@ from yfin.datasets.payloads import (
     FundsPayload,
     RangedFramePayload,
 )
-from yfin.persistence import MySQLRowWriter
+from yfin.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo
 
@@ -104,7 +104,7 @@ def _write(session: Session, dataset: Dataset[Any], symbol: str) -> tuple[int, i
     result = dataset.normalize(_payload(dataset.name, symbol), symbol)
     if result.is_empty:
         return 0, 0
-    stats = dataset.upsert(MySQLRowWriter(session), result)
+    stats = dataset.upsert(PostgresRowWriter(session), result)
     return sum(stats.attempted.values()), sum(stats.verified.values())
 
 

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from yfin import normalize as nz
 from yfin import proxy as px
 from yfin.cli_bars import bars_app, scope_app
-from yfin.config import Settings, get_settings
+from yfin.config import get_settings
 from yfin.datasets import DOMAIN_DATASETS, MARKET_DATASETS, SYMBOL_DATASETS
 from yfin.db import LockNotAcquired, create_db_engine
 from yfin.domain_audit import audit_domains
@@ -36,6 +36,7 @@ from yfin.models import (
     SyncRunItem,
     symbol_scoped_tables,
 )
+from yfin.models.discovery import QUERY_TERM_LENGTH
 from yfin.prune import PruneDisabledError, run_prune
 from yfin.runner import EXIT_LOCK_NOT_ACQUIRED, EXIT_NO_PROXY, run_sync
 from yfin.shard import NoEligibleProxy, run_sharded
@@ -590,28 +591,6 @@ def _echo_tally(tally: Any) -> None:
     typer.echo("  " + "  ".join(f"{k}={v}" for k, v in tally.totals.items()))
 
 
-# SQ S5.1: serbest terim `discovery_asof_state.query_term`e (AsciiKeyType(64))
-# yazilir. Asan terim REDDEDILIR, kirpilmaz: sessiz kirpma iki farkli terimi
-# ayni kapi satirina dusurup birinin verisini digerinin sanmasina yol acardi.
-QUERY_TERM_MAX = 64
-
-
-def _discovery_enabled_or_exit(settings: Settings) -> None:
-    """SQ K11 + S13.2: bayrak alt sistemin TAMAMINI kapatir.
-
-    Kapaliyken dataset registry'ye hic kaydolmaz, yani `--datasets search`
-    de `UnknownDatasetError` verir. Hata mesaji bayragi ONERIR; aksi halde
-    kullanici "bilinmeyen dataset" gorup adin yanlis oldugunu sanardi.
-    """
-    if not settings.yf_discovery_enabled:
-        typer.echo(
-            "kesif alt sistemi kapali. YF_DISCOVERY_ENABLED=true ile acilabilir "
-            "(varsayilan kapali: sembol basina iki ek istek demektir).",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-
 @discover_app.command("term")
 def discover_term(
     query: str,
@@ -624,15 +603,14 @@ def discover_term(
     """
     settings = get_settings()
     configure_logging(settings.log_level)
-    _discovery_enabled_or_exit(settings)
 
     term = query.strip()
     if not term:
         typer.echo("bos terim", err=True)
         raise typer.Exit(code=1)
-    if len(term) > QUERY_TERM_MAX or not term.isascii():
+    if len(term) > QUERY_TERM_LENGTH or not term.isascii():
         typer.echo(
-            f"terim en fazla {QUERY_TERM_MAX} ASCII karakter olabilir: {len(term)} karakter",
+            f"terim en fazla {QUERY_TERM_LENGTH} ASCII karakter olabilir: {len(term)} karakter",
             err=True,
         )
         raise typer.Exit(code=1)

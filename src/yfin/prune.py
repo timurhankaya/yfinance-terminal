@@ -139,9 +139,26 @@ def asof_table_datasets(
         dataset = reg[name]
         if not isinstance(dataset, AsOfGate):
             continue
+        # KAPI TABLOSUNA GORE SUZULUR, yalnizca tipe gore DEGIL.
+        #
+        # SQ ile birlikte ayni registry'de IKI kapi ailesi var: `search` ve
+        # `lookup` da `AsOfGate`tir ama `discovery_asof_state` kullanir
+        # (SQ K3a). Suzgec olmasaydi `prune_asof(gate_table="asof_state")`
+        # onlarin tablolarini YANLIS KAPIYLA budamaya calisirdi: koruma
+        # kumesi `asof_state`ten okunur, oysa o tabloda kesif satiri hic
+        # yoktur -- yani SON GUN DE KORUNMAZDI.
+        if dataset.asof_gate_table != gate_table:
+            continue
         for table in dataset.produces:
-            if table != gate_table:
-                mapping.setdefault(table, []).append(name)
+            if table == gate_table:
+                continue
+            # `as_of_date` TASIMAYAN hedefler (`symbols`, `news`,
+            # `news_symbols`, `research_reports`) as-of budamasinin konusu
+            # degildir; `prune_asof` onlari zaten atlardi ama haritada
+            # gorunmeleri "budaniyor" izlenimi verirdi.
+            if "as_of_date" not in Base.metadata.tables[table].c:
+                continue
+            mapping.setdefault(table, []).append(name)
     return mapping
 
 

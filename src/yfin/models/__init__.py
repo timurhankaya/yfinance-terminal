@@ -101,6 +101,7 @@ from yfin.models.news import News, NewsSymbol
 from yfin.models.officers import CompanyOfficer
 from yfin.models.prices import CapitalGain, Dividend, PriceHistory, SharesFull, Split
 from yfin.models.proxies import Proxy, ProxyHealth, ProxyScheme
+from yfin.models.settings import SETTING_KEY_LENGTH, SettingRow
 from yfin.models.snapshots import (
     history_metadata,
     ticker_fast_info,
@@ -170,9 +171,11 @@ __all__ = [
     "ScreenKind",
     "ScreenMember",
     "ScreenQuoteType",
+    "SETTING_KEY_LENGTH",
     "ScreenRun",
     "SearchList",
     "SearchQuote",
+    "SettingRow",
     "SearchReportHit",
     "screen_quotes",
     "ResearchReport",

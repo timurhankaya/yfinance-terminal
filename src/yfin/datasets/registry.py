@@ -50,16 +50,42 @@ class Registry[D: Registrable]:
         self.bootstrap = bootstrap
         self.aliases: dict[str, tuple[str, ...]] = dict(aliases or {})
         self._items: dict[str, D] = {}
+        # ADIYLA ISTENMEDIKCE kosmayan dataset'ler (SQ K11). `bootstrap`in
+        # tersi: o her cozumlemeye EKLENIR, bunlar `all`dan CIKARILIR.
+        self._opt_in: set[str] = set()
 
     # --- kayit ------------------------------------------------------------
 
-    def register(self, ds: D) -> D:
+    def register(self, ds: D, *, opt_in: bool = False) -> D:
+        """`opt_in=True`: kayitli ama `all` genislemesine GIRMEZ.
+
+        Gerekce olculmus bir tuzaktir (SQ K11). `search` ve `lookup` sembol
+        basina birer istek ekler; 4.500 sembolde +9.000 istek/gun. Bunlar
+        kosulsuz kayitli olsaydi ciplak `yfin sync` onlari da cekerdi.
+
+        ILK COZUM YANLISTI: kaydi bir ayara baglamak (`sustainability`
+        deseni). O, dataset'i `--datasets search` ile de erisilemez yapiyor
+        ve ayar acildigi anda ciplak kosu YINE agirlasiyordu -- yani tuzagi
+        cozmuyor, yalnizca erteliyordu.
+
+        `opt_in` ikisini birden cozer: ad verildiginde calisir, `all`
+        genislemesinde HIC gorunmez. Bildirim dataset'in KAYIT YERINDE
+        durur, registry'de gomulu bir ad listesinde degil (OCP).
+        """
         self._items[ds.name] = ds
+        if opt_in:
+            self._opt_in.add(ds.name)
+        else:
+            self._opt_in.discard(ds.name)
         return ds
+
+    def is_opt_in(self, name: str) -> bool:
+        return name in self._opt_in
 
     def unregister(self, name: str) -> None:
         """Yalnizca test icin; kayitli olmayan ad sessizce yok sayilir."""
         self._items.pop(name, None)
+        self._opt_in.discard(name)
 
     # Koleksiyon protokolu: `name in registry`, `registry[name]`,
     # `len(registry)`, `for name in registry`. Ayrica names()/values()
@@ -104,14 +130,16 @@ class Registry[D: Registrable]:
         return list(out)
 
     def resolve(self, names: Sequence[str] | None) -> list[D]:
-        """None, bos liste veya 'all' -> hepsi.
+        """None, bos liste veya 'all' -> OPT-IN OLMAYANLARIN hepsi.
 
         Alias'lari genisletir, sira koruyarak tekillestirir, depends_on'a
         gore topolojik siralar, bilinmeyen adi reddeder, donguyu yakalar.
         Bootstrap tanimliysa her zaman basa eklenir.
         """
         if names is None or not names or (len(names) == 1 and names[0].strip() == "all"):
-            selected = [n for n in self._items if n != self.bootstrap]
+            selected = [
+                n for n in self._items if n != self.bootstrap and n not in self._opt_in
+            ]
         else:
             selected = self._expand(names)
 
@@ -238,14 +266,17 @@ DOMAIN_DATASETS: Registry[DomainDataset[Any]] = Registry(
 )
 
 
-def register(ds: Dataset[Any]) -> Dataset[Any]:
-    """Sembol-kapsamli dataset kaydi (dataset modullerinin dekoratoru)."""
-    return SYMBOL_DATASETS.register(ds)
+def register(ds: Dataset[Any], *, opt_in: bool = False) -> Dataset[Any]:
+    """Sembol-kapsamli dataset kaydi (dataset modullerinin dekoratoru).
+
+    `opt_in=True` -> `all` genislemesine girmez; bkz. `Registry.register`.
+    """
+    return SYMBOL_DATASETS.register(ds, opt_in=opt_in)
 
 
-def register_market(ds: GlobalDataset[Any]) -> GlobalDataset[Any]:
+def register_market(ds: GlobalDataset[Any], *, opt_in: bool = False) -> GlobalDataset[Any]:
     """Piyasa-kapsamli dataset kaydi."""
-    return MARKET_DATASETS.register(ds)
+    return MARKET_DATASETS.register(ds, opt_in=opt_in)
 
 
 def register_domain(ds: DomainDataset[Any]) -> DomainDataset[Any]:

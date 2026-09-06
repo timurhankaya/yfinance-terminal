@@ -25,7 +25,7 @@ UC OLCULMUS TUZAK bu modulun seklini belirledi:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Any
 
 import yfinance as yf
@@ -35,6 +35,13 @@ from yfin.client import call_yahoo
 from yfin.config import get_settings
 from yfin.datasets.asof_base import asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.common import (
+    dict_items,
+    discovered_symbol_row,
+    expect_dict,
+    symbol_is_writable,
+    utc_as_of_day,
+)
 from yfin.datasets.discovery.base import DISCOVERY_GATE_TABLE, DiscoveryDataset
 from yfin.datasets.news import _thumbnail
 from yfin.datasets.registry import register
@@ -148,17 +155,15 @@ class SearchDataset(DiscoveryDataset[SearchPayload]):
             ).response,
             what=f"search:{term}",
         )
-        if not isinstance(raw, dict):  # pragma: no cover - savunma
-            raise TypeError(f"search yaniti sozluk degil: {type(raw).__name__}")
-
+        body = expect_dict(raw, what="search")
         return SearchPayload(
             query_term=term,
-            as_of_date=datetime.now(UTC).date(),
+            as_of_date=utc_as_of_day(ctx.fetched_at),
             fetched_at=ctx.fetched_at,
-            quotes=[q for q in raw.get("quotes") or [] if isinstance(q, dict)],
-            news=[n for n in raw.get("news") or [] if isinstance(n, dict)],
-            lists=[x for x in raw.get("lists") or [] if isinstance(x, dict)],
-            reports=[r for r in raw.get("researchReports") or [] if isinstance(r, dict)],
+            quotes=dict_items(body, "quotes"),
+            news=dict_items(body, "news"),
+            lists=dict_items(body, "lists"),
+            reports=dict_items(body, "researchReports"),
         )
 
     def normalize(self, raw: SearchPayload, symbol: str) -> NormalizedResult:
@@ -216,11 +221,6 @@ class SearchDataset(DiscoveryDataset[SearchPayload]):
         )
 
 
-def _symbol_is_writable(symbol: str) -> bool:
-    """`^` KAPSAM ICINDEDIR: endeks sembolleri onunla baslar (SQ S8.3)."""
-    return len(symbol) <= 32 and symbol.isascii()
-
-
 def _quote_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rows: list[dict[str, Any]] = []
     symbols: list[dict[str, Any]] = []
@@ -237,7 +237,7 @@ def _quote_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str
         if symbol in seen:
             continue
         seen.add(symbol)
-        is_known = _symbol_is_writable(symbol)
+        is_known = symbol_is_writable(symbol)
         rows.append(
             {
                 "query_term": raw.query_term,
@@ -269,18 +269,17 @@ def _quote_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str
         rank_index += 1
         if is_known:
             symbols.append(
-                {
-                    "symbol": symbol,
-                    "short_name": nz.to_str(quote.get("shortname"), max_len=128),
-                    "long_name": nz.to_str(quote.get("longname"), max_len=255),
-                    "exchange": nz.to_str(quote.get("exchange"), max_len=32),
-                    "quote_type": nz.to_str(quote.get("quoteType"), max_len=32),
-                    # Yalniz INSERT'te etkili (SQ K10)
-                    "is_active": False,
-                    "discovered_by": "search",
-                    "discovered_at": raw.fetched_at,
-                    "last_seen_at": raw.fetched_at,
-                }
+                discovered_symbol_row(
+                    symbol,
+                    source="search",
+                    fetched_at=raw.fetched_at,
+                    # Search kotasyonu `currency`/`timezone`/`firstTradeDate`
+                    # TASIMAZ; `SYMBOL_UPDATE` da bu dort alanla sinirli.
+                    short_name=nz.to_str(quote.get("shortname"), max_len=128),
+                    long_name=nz.to_str(quote.get("longname"), max_len=255),
+                    exchange=nz.to_str(quote.get("exchange"), max_len=32),
+                    quote_type=nz.to_str(quote.get("quoteType"), max_len=32),
+                )
             )
     return rows, symbols
 
@@ -369,7 +368,7 @@ def _news_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str,
         )
         for ticker in item.get("relatedTickers") or []:
             symbol = nz.to_str(ticker)
-            if symbol is None or not _symbol_is_writable(symbol):
+            if symbol is None or not symbol_is_writable(symbol):
                 continue
             links.append({"news_id": news_id, "symbol": symbol, "is_known": False})
     return rows, links
@@ -423,5 +422,7 @@ def _report_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[st
     return reports, hits
 
 
-if get_settings().yf_discovery_enabled:
-    register(SearchDataset())
+# OPT-IN: kayitli ama `all` genislemesine GIRMEZ (SQ K11).
+# `yfin sync --datasets search` calisir; ciplak
+# `yfin sync` bu dataset'i CEKMEZ ve maliyeti degismez.
+register(SearchDataset(), opt_in=True)

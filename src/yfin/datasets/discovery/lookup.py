@@ -29,7 +29,7 @@ KENDI metodudur, yani HTTP'yi ve proxy'yi yine o yapar (SQ K7 korunur).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Any
 
 import yfinance as yf
@@ -39,6 +39,13 @@ from yfin.client import call_yahoo
 from yfin.config import get_settings
 from yfin.datasets.asof_base import asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.common import (
+    dict_items,
+    discovered_symbol_row,
+    expect_dict,
+    symbol_is_writable,
+    utc_as_of_day,
+)
 from yfin.datasets.discovery.base import DISCOVERY_GATE_TABLE, DiscoveryDataset
 from yfin.datasets.registry import register
 from yfin.logging_setup import get_logger
@@ -97,8 +104,6 @@ class LookupPayload:
     # (lookup_type, belge) ciftleri; SIRA korunur
     documents: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     totals: dict[str, int] = field(default_factory=dict)
-    # Adaptif dal tetiklendi mi -- denetim ve test icin
-    typed_fallback: bool = False
 
 
 def _result_block(payload: Any) -> dict[str, Any]:
@@ -108,9 +113,7 @@ def _result_block(payload: Any) -> dict[str, Any]:
     olur; sessizce bos donmek "veri yok" ile "yanit sekli degisti"yi
     birbirine karistirirdi.
     """
-    if not isinstance(payload, dict):
-        raise TypeError(f"lookup yaniti sozluk degil: {type(payload).__name__}")
-    result = payload.get("finance", {}).get("result") or []
+    result = expect_dict(payload, what="lookup").get("finance", {}).get("result") or []
     return result[0] if result else {}
 
 
@@ -139,14 +142,13 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
             if isinstance(v, int)
         }
         docs: list[tuple[str, dict[str, Any]]] = [
-            (ALL_TYPE, d) for d in block.get("documents") or [] if isinstance(d, dict)
+            (ALL_TYPE, d) for d in dict_items(block, "documents")
         ]
 
         # SQ K6: `lookupTotals.all` esigi asiyorsa `all` KIRPILMIS demektir.
         # Esik `all`in gozlenen tavaninin (~1.000) ALTINDA tutulur ki
         # kirpilma BASLAMADAN tipli dala gecilsin.
-        typed_fallback = totals.get(ALL_TYPE, 0) > cfg.yf_lookup_all_threshold
-        if typed_fallback:
+        if totals.get(ALL_TYPE, 0) > cfg.yf_lookup_all_threshold:
             log.info(
                 "lookup all kirpildi, tipli dala geciliyor",
                 term=term,
@@ -155,19 +157,14 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
             )
             for lookup_type in TYPED_LOOKUPS:
                 typed = _fetch_type(term, lookup_type, cfg.yf_lookup_count)
-                docs.extend(
-                    (lookup_type, d)
-                    for d in typed.get("documents") or []
-                    if isinstance(d, dict)
-                )
+                docs.extend((lookup_type, d) for d in dict_items(typed, "documents"))
 
         return LookupPayload(
             query_term=term,
-            as_of_date=datetime.now(UTC).date(),
+            as_of_date=utc_as_of_day(ctx.fetched_at),
             fetched_at=ctx.fetched_at,
             documents=docs,
             totals=totals,
-            typed_fallback=typed_fallback,
         )
 
     def normalize(self, raw: LookupPayload, symbol: str) -> NormalizedResult:
@@ -184,7 +181,7 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
                 # ezerdi; ILK gorulen -- yani `all`daki -- korunur.
                 continue
             seen.add(sym)
-            is_known = _symbol_is_writable(sym)
+            is_known = symbol_is_writable(sym)
             results.append(
                 {
                     "query_term": raw.query_term,
@@ -217,17 +214,16 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
             )
             if is_known:
                 symbols.append(
-                    {
-                        "symbol": sym,
-                        "short_name": nz.to_str(doc.get("shortName"), max_len=128),
-                        "exchange": nz.to_str(doc.get("exchange"), max_len=32),
-                        "quote_type": nz.to_str(doc.get("quoteType"), max_len=32),
-                        # Yalniz INSERT'te etkili (SQ K10)
-                        "is_active": False,
-                        "discovered_by": "lookup",
-                        "discovered_at": raw.fetched_at,
-                        "last_seen_at": raw.fetched_at,
-                    }
+                    discovered_symbol_row(
+                        sym,
+                        source="lookup",
+                        fetched_at=raw.fetched_at,
+                        # Lookup belgesi YALNIZ uc tanimlayici alan tasir;
+                        # `SYMBOL_UPDATE` da bu ucuyle sinirli (SQ S5.12).
+                        short_name=nz.to_str(doc.get("shortName"), max_len=128),
+                        exchange=nz.to_str(doc.get("exchange"), max_len=32),
+                        quote_type=nz.to_str(doc.get("quoteType"), max_len=32),
+                    )
                 )
 
         totals = [
@@ -268,14 +264,7 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
         )
 
 
-def _symbol_is_writable(symbol: str) -> bool:
-    """`SymbolType()` = VARCHAR(32) ascii_bin kisitina uyuyor mu (SQ S8.3).
-
-    `^` KAPSAM ICINDEDIR: 9.243 sembolun 93'u onunla basliyor (endeksler).
-    Disarida birakan bir dogrulama endeksleri toptan reddederdi.
-    """
-    return len(symbol) <= 32 and symbol.isascii()
-
-
-if get_settings().yf_discovery_enabled:
-    register(LookupDataset())
+# OPT-IN: kayitli ama `all` genislemesine GIRMEZ (SQ K11).
+# `yfin sync --datasets lookup` calisir; ciplak
+# `yfin sync` bu dataset'i CEKMEZ ve maliyeti degismez.
+register(LookupDataset(), opt_in=True)

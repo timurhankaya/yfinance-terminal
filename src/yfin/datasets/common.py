@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any
 
@@ -199,3 +199,92 @@ def date_range_kwargs(start: date | None, end: date | None) -> dict[str, str]:
     if end is not None:
         kwargs["end"] = (end + timedelta(days=1)).isoformat()
     return kwargs
+
+
+# --- kesif dataset'lerinin ortak yardimcilari (SQ denetimi) ---------------
+# Uc kesif dataset'i (`search`, `lookup`, `screener`) ayni dort isi
+# yapiyordu ve dordu de UC KEZ kopyalanmisti. `domain/common.py` ayni
+# durumu ayni bicimde cozuyor.
+
+
+def symbol_is_writable(symbol: str) -> bool:
+    """Sembol `symbols` tablosuna yazilabilir mi (SQ S8.3).
+
+    Kisit `SymbolType()` = VARCHAR(SYMBOL_LENGTH) ascii_bin'den TURETILIR;
+    uzunluk burada sabit olarak yazilmaz.
+
+    `^` KAPSAM ICINDEDIR: olculen 9.243 sembolun 93'u onunla basliyor
+    (endeksler). Karakter kumesini daraltan bir dogrulama endeksleri
+    toptan reddederdi.
+
+    Yazma SIRASINDAN turetilmez, `normalize` icinde hesaplanir: siraya
+    bagli bir turetme kapi kapsami degistiginde sessizce bozulurdu
+    (SQ S6.2.1).
+    """
+    from yfin.models.base import SYMBOL_LENGTH
+
+    return len(symbol) <= SYMBOL_LENGTH and symbol.isascii()
+
+
+def utc_as_of_day(fetched_at: datetime) -> date:
+    """`as_of_date`i CEKIM DAMGASINDAN turetir, `now()`tan degil.
+
+    Uc dataset de `datetime.now(UTC).date()` cagiriyordu; o durumda kapi
+    satirinin `as_of_date`i ile `fetched_at`i FARKLI zaman kaynaklarindan
+    gelir ve gece yarisi gecisinde ayrisir -- satirlar 5 Eylul damgasiyla
+    6 Eylul gunune yazilabilirdi. `domain/common.as_of_day` ayni ilkeyi
+    piyasa saat dilimi icin uyguluyor; kesif tarafi bolge-bagimsiz oldugu
+    icin UTC kullanir.
+    """
+    moment = fetched_at if fetched_at.tzinfo is not None else fetched_at.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).date()
+
+
+def expect_dict(value: Any, *, what: str) -> dict[str, Any]:
+    """Yanit sozluk degilse YUKSEK SESLE patlar.
+
+    Sessizce bos donmek "veri yok" (`empty`) ile "yanit sekli degisti"
+    (`failed`) durumlarini birbirine karistirirdi; ikincisi acilen
+    gorulmesi gereken bir seydir.
+    """
+    if not isinstance(value, dict):
+        raise TypeError(f"{what} yaniti sozluk degil: {type(value).__name__}")
+    return value
+
+
+def dict_items(payload: Mapping[str, Any], key: str) -> list[dict[str, Any]]:
+    """`payload[key]` listesindeki SOZLUK ogeleri; digerleri elenir.
+
+    Kaynak bir blokta beklenmedik bir skaler dondurdugunde tek satir
+    dusmeli, hucrenin tamami degil.
+    """
+    return [item for item in payload.get(key) or [] if isinstance(item, dict)]
+
+
+def discovered_symbol_row(
+    symbol: str,
+    *,
+    source: str,
+    fetched_at: datetime,
+    **typed_fields: Any,
+) -> dict[str, Any]:
+    """Kesfedilen sembolun `symbols` satiri (SQ K10).
+
+    Dort ortak alan BURADA, tek yerde durur. Kaynaga ozgu tanimlayici
+    alanlar `typed_fields` ile gecer -- her yol yalnizca GERCEKTEN
+    doldurdugunu verir ve `update_columns` demeti de ona gore dar tutulur
+    (SQ S5.12).
+
+    `is_active`, `discovered_by` ve `discovered_at` YALNIZ INSERT'te
+    etkilidir: uc yolun da `update_columns` demeti bunlari DISLAR. Kapsama
+    girselerdi operatorun elle aktiflestirdigi bir sembol, ertesi gun
+    yeniden kesfedildiginde SESSIZCE pasife donerdi.
+    """
+    return {
+        "symbol": symbol,
+        **typed_fields,
+        "is_active": False,
+        "discovered_by": source,
+        "discovered_at": fetched_at,
+        "last_seen_at": fetched_at,
+    }

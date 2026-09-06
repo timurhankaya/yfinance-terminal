@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from yfin.datasets.base import NormalizedResult, TableWrite, WriteStats
 from yfin.datasets.hash_gated import HashGatedDataset
 from yfin.models import Base
-from yfin.persistence import MySQLRowWriter, apply_write
+from yfin.persistence import PostgresRowWriter, apply_write
 
 pytestmark = pytest.mark.repo
 
@@ -99,7 +99,7 @@ class TestFinancialWrites:
         """DECIMAL(38,10): oran ve cok buyuk deger ayni kolonda kayipsiz."""
         _seed_symbol(db_session)
         stats = WriteStats()
-        writer = MySQLRowWriter(db_session)
+        writer = PostgresRowWriter(db_session)
         apply_write(writer, _period_write([_period_row()]), stats)
         apply_write(
             writer,
@@ -122,7 +122,7 @@ class TestFinancialWrites:
     def test_composite_fk_cascades(self, db_session: Session) -> None:
         _seed_symbol(db_session)
         stats = WriteStats()
-        writer = MySQLRowWriter(db_session)
+        writer = PostgresRowWriter(db_session)
         apply_write(writer, _period_write([_period_row()]), stats)
         apply_write(writer, _fact_write([_fact_row("TotalRevenue", "1")]), stats)
         assert _count(db_session, "financial_facts") == 1
@@ -134,12 +134,12 @@ class TestFinancialWrites:
         _seed_symbol(db_session)
         stats = WriteStats()
         with pytest.raises(IntegrityError):
-            apply_write(MySQLRowWriter(db_session), _fact_write([_fact_row("X", "1")]), stats)
+            apply_write(PostgresRowWriter(db_session), _fact_write([_fact_row("X", "1")]), stats)
         db_session.rollback()
 
     def test_symbol_delete_is_restricted(self, db_session: Session) -> None:
         _seed_symbol(db_session)
-        apply_write(MySQLRowWriter(db_session), _period_write([_period_row()]), WriteStats())
+        apply_write(PostgresRowWriter(db_session), _period_write([_period_row()]), WriteStats())
         with pytest.raises(IntegrityError):
             db_session.execute(text("DELETE FROM symbols WHERE symbol='AAPL'"))
         db_session.rollback()
@@ -148,7 +148,7 @@ class TestFinancialWrites:
         """Kapsam (symbol, statement, freq, period_end); komsu frekans
         dokunulmadan kalir."""
         _seed_symbol(db_session)
-        writer = MySQLRowWriter(db_session)
+        writer = PostgresRowWriter(db_session)
         stats = WriteStats()
         apply_write(
             writer,
@@ -180,7 +180,7 @@ class TestFinancialWrites:
         """Donemin TUM kalemleri NaN geldiginde (rows bos) eski satirlar
         kalici olarak kalirdi: erken cikis silmeden ONCE oldugu icin."""
         _seed_symbol(db_session)
-        writer = MySQLRowWriter(db_session)
+        writer = PostgresRowWriter(db_session)
         apply_write(writer, _period_write([_period_row()]), WriteStats())
         apply_write(writer, _fact_write([_fact_row("A", "1")]), WriteStats())
         assert _count(db_session, "financial_facts") == 1
@@ -198,7 +198,7 @@ class TestFinancialWrites:
 
     def test_verification_counts_composite_keys(self, db_session: Session) -> None:
         _seed_symbol(db_session)
-        writer = MySQLRowWriter(db_session)
+        writer = PostgresRowWriter(db_session)
         apply_write(writer, _period_write([_period_row()]), WriteStats())
         stats = WriteStats()
         apply_write(writer, _fact_write([_fact_row("A", "1"), _fact_row("B", "2")]), stats)
@@ -230,7 +230,7 @@ def _gated_result(content_hash: str, fetched_at: datetime) -> NormalizedResult:
 
 class TestHashGateAgainstMySQL:
     def test_second_run_skips_facts_but_advances_fetched_at(self, db_session: Session) -> None:
-        writer = MySQLRowWriter(db_session)
+        writer = PostgresRowWriter(db_session)
         _seed_symbol(db_session)
         dataset = _Gated()
 
@@ -249,7 +249,7 @@ class TestHashGateAgainstMySQL:
         assert stored[1] == "h1"
 
     def test_changed_hash_rewrites_facts(self, db_session: Session) -> None:
-        writer = MySQLRowWriter(db_session)
+        writer = PostgresRowWriter(db_session)
         _seed_symbol(db_session)
         dataset = _Gated()
         dataset.upsert(writer, _gated_result("h1", FETCHED_AT))
@@ -267,7 +267,7 @@ class TestHashGateAgainstMySQL:
         assert [(r[0], r[1]) for r in rows] == [("A", Decimal("5.0000000000"))]
 
     def test_fact_count_matches_item_count_sum(self, db_session: Session) -> None:
-        writer = MySQLRowWriter(db_session)
+        writer = PostgresRowWriter(db_session)
         _seed_symbol(db_session)
         _Gated().upsert(writer, _gated_result("h1", FETCHED_AT))
         facts = _count(db_session, "financial_facts")
@@ -308,7 +308,7 @@ class TestSchemaInvariants:
             for name in ("Enflasyon", "ENFLASYON", "Enflâsyon")
         ]
         apply_write(
-            MySQLRowWriter(db_session),
+            PostgresRowWriter(db_session),
             TableWrite(
                 table="calendar_economic",
                 rows=rows,
@@ -336,7 +336,7 @@ class TestSchemaInvariants:
             for value in ("abcdef0123456789", "ABCDEF0123456789")
         ]
         apply_write(
-            MySQLRowWriter(db_session),
+            PostgresRowWriter(db_session),
             TableWrite(
                 table="earnings_dates",
                 rows=rows,
@@ -351,7 +351,7 @@ class TestSchemaInvariants:
         """Ayni dosyalamada iki farkli URL'li EX-99.1 gercekte olur;
         url_hash PK'da olmasaydi ikincisi ERROR 1062 ile duserdi."""
         _seed_symbol(db_session)
-        writer = MySQLRowWriter(db_session)
+        writer = PostgresRowWriter(db_session)
         apply_write(
             writer,
             TableWrite(
@@ -444,7 +444,7 @@ class TestPrune:
     def _seed_calendar(self, session: Session, *whens: datetime) -> None:
         _seed_symbol(session)
         apply_write(
-            MySQLRowWriter(session),
+            PostgresRowWriter(session),
             TableWrite(
                 table="calendar_splits",
                 rows=[self._splits_row(w) for w in whens],
@@ -536,7 +536,7 @@ class TestPrune:
             for when in (datetime(2020, 1, 1), datetime(2026, 9, 1))
         ]
         apply_write(
-            MySQLRowWriter(db_session),
+            PostgresRowWriter(db_session),
             TableWrite(
                 table="market_summary_history",
                 rows=rows,
@@ -560,7 +560,7 @@ class TestValuationStatementKind:
         ayrimi PK'daki `statement` yapar."""
         _seed_symbol(db_session)
         stats = WriteStats()
-        writer = MySQLRowWriter(db_session)
+        writer = PostgresRowWriter(db_session)
         apply_write(
             writer, _period_write([_period_row(), _period_row(statement="valuation")]), stats
         )
@@ -586,7 +586,7 @@ class TestValuationStatementKind:
     def test_orphan_valuation_fact_is_rejected(self, db_session: Session) -> None:
         """Bilesik FK yeni ENUM degerinde de zorlanir."""
         _seed_symbol(db_session)
-        writer = MySQLRowWriter(db_session)
+        writer = PostgresRowWriter(db_session)
         with pytest.raises(IntegrityError):
             apply_write(
                 writer,

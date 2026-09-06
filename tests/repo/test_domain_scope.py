@@ -39,7 +39,7 @@ def test_replace_scope_removes_a_company_that_left_the_list(db_session: Session)
     from helpers import domain_data
     from yfin.datasets.domain.payloads import DomainPayload
     from yfin.datasets.registry import DOMAIN_DATASETS
-    from yfin.persistence import MySQLRowWriter
+    from yfin.persistence import PostgresRowWriter
 
     run_taxonomy(db_session)
     run_dataset(db_session, "sector_rankings", "sector", "technology")
@@ -55,7 +55,7 @@ def test_replace_scope_removes_a_company_that_left_the_list(db_session: Session)
     payload = DomainPayload(
         data=shrunk, fetched_at=NOW, as_of_date=AS_OF, region="US", domain_type="sector"
     )
-    dataset.upsert(MySQLRowWriter(db_session), dataset.normalize(payload, "technology"))
+    dataset.upsert(PostgresRowWriter(db_session), dataset.normalize(payload, "technology"))
 
     after = int(
         db_session.execute(

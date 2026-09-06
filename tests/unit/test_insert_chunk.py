@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 
 from yfin.datasets.base import TableWrite
-from yfin.persistence import INSERT_CHUNK, MySQLRowWriter
+from yfin.persistence import INSERT_CHUNK, PostgresRowWriter, dedupe_rows
 
 
 class RecordingSession:
@@ -68,7 +68,7 @@ def _insert_statements(session: RecordingSession) -> list[Any]:
 
 def test_large_write_is_split_into_chunks() -> None:
     session = RecordingSession()
-    writer = MySQLRowWriter(session)  # type: ignore[arg-type]
+    writer = PostgresRowWriter(session)  # type: ignore[arg-type]
 
     rows = _bar_rows(INSERT_CHUNK * 2 + 1)
     writer.write(_write(rows))
@@ -81,7 +81,7 @@ def test_large_write_is_split_into_chunks() -> None:
 
 def test_small_write_produces_single_insert() -> None:
     session = RecordingSession()
-    writer = MySQLRowWriter(session)  # type: ignore[arg-type]
+    writer = PostgresRowWriter(session)  # type: ignore[arg-type]
 
     writer.write(_write(_bar_rows(3)))
 
@@ -97,7 +97,7 @@ def test_every_chunk_carries_the_same_column_set() -> None:
     kapsamindan sessizce duser.
     """
     session = RecordingSession()
-    writer = MySQLRowWriter(session)  # type: ignore[arg-type]
+    writer = PostgresRowWriter(session)  # type: ignore[arg-type]
 
     rows = _bar_rows(INSERT_CHUNK + 2, drop_volume_after=INSERT_CHUNK)
     writer.write(_write(rows))
@@ -115,14 +115,18 @@ def test_every_chunk_carries_the_same_column_set() -> None:
     assert "volume" in written_columns(inserts[1]), (
         "ikinci dilim volume'u hic gormedi: align_rows dilimlemeden SONRA uygulanmis"
     )
-    # ve update kapsaminda da kalmali
+    # ve guncelleme kapsaminda da kalmali. PostgreSQL'de kapsam
+    # `OnConflictDoUpdate.update_values_to_set`tedir; MySQL'deki
+    # `OnDuplicateClause.update` sozlugunun karsiligidir.
     for stmt in inserts:
-        assert "volume" in set(stmt._post_values_clause.update.keys())
+        clause = stmt._post_values_clause
+        updated = {name for name, _ in clause.update_values_to_set}
+        assert "volume" in updated
 
 
 def test_empty_write_produces_no_insert() -> None:
     session = RecordingSession()
-    writer = MySQLRowWriter(session)  # type: ignore[arg-type]
+    writer = PostgresRowWriter(session)  # type: ignore[arg-type]
 
     assert writer.write(_write([])) == 0
     assert _insert_statements(session) == []
@@ -131,9 +135,55 @@ def test_empty_write_produces_no_insert() -> None:
 @pytest.mark.parametrize("size", [1, INSERT_CHUNK - 1, INSERT_CHUNK, INSERT_CHUNK + 1])
 def test_chunk_boundaries(size: int) -> None:
     session = RecordingSession()
-    writer = MySQLRowWriter(session)  # type: ignore[arg-type]
+    writer = PostgresRowWriter(session)  # type: ignore[arg-type]
 
     writer.write(_write(_bar_rows(size)))
 
     expected = (size + INSERT_CHUNK - 1) // INSERT_CHUNK
     assert len(_insert_statements(session)) == expected
+
+
+class TestDedupeRows:
+    """PostgreSQL `ON CONFLICT DO UPDATE` ayni komutta ayni satira IKI KEZ
+    dokunamaz (ERROR 21000, "cannot affect row a second time"). MySQL
+    `ON DUPLICATE KEY UPDATE` bunu sorunsuz yutuyordu, bu yuzden
+    dataset'lerin cogunda dilim ici tekillik garantisi YOKTUR (PG S4.1.1).
+    """
+
+    def test_last_wins_for_repeated_key(self) -> None:
+        rows = [
+            {"symbol": "AAPL", "session_date": "2026-01-02", "close": 1},
+            {"symbol": "AAPL", "session_date": "2026-01-02", "close": 2},
+            {"symbol": "MSFT", "session_date": "2026-01-02", "close": 9},
+        ]
+        out = dedupe_rows(rows, ("symbol", "session_date"), ())
+        assert out == [
+            {"symbol": "AAPL", "session_date": "2026-01-02", "close": 2},
+            {"symbol": "MSFT", "session_date": "2026-01-02", "close": 9},
+        ]
+
+    def test_preserves_first_seen_order(self) -> None:
+        rows = [{"k": "b", "v": 1}, {"k": "a", "v": 1}, {"k": "b", "v": 2}]
+        out = dedupe_rows(rows, ("k",), ())
+        assert [r["k"] for r in out] == ["b", "a"]
+
+    def test_monotonic_column_takes_group_max(self) -> None:
+        """GREATEST yalnizca MEVCUT DB satiriyla yeni satiri karsilastirir,
+        ayni batch'teki iki satiri DEGIL. Duz "son kazanir" monotonikligi
+        dilim icinde geri yazardi."""
+        rows = [
+            {"symbol": "AAPL", "session_date": "2026-01-02", "is_repaired": True},
+            {"symbol": "AAPL", "session_date": "2026-01-02", "is_repaired": False},
+        ]
+        out = dedupe_rows(rows, ("symbol", "session_date"), ("is_repaired",))
+        assert len(out) == 1
+        assert out[0]["is_repaired"] is True
+
+    def test_none_never_beats_a_value_in_monotonic_column(self) -> None:
+        rows = [{"k": "a", "m": 5}, {"k": "a", "m": None}]
+        out = dedupe_rows(rows, ("k",), ("m",))
+        assert out[0]["m"] == 5
+
+    def test_untouched_when_keys_are_unique(self) -> None:
+        rows = [{"k": "a"}, {"k": "b"}]
+        assert dedupe_rows(rows, ("k",), ()) is rows

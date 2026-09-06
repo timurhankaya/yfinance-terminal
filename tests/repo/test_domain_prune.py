@@ -44,6 +44,10 @@ def test_domain_side_mapping_excludes_the_gate_and_the_shared_report_table() -> 
     mapping = asof_table_datasets(DOMAIN_DATASETS, "domain_asof_state")
     assert "domain_asof_state" not in mapping
     assert mapping["domain_top_companies"] == ["sector_rankings", "industry_rankings"]
+    # `domains` ARTIK YOK: statik kimlik tablosudur ve `as_of_date`
+    # TASIMAZ. `prune_asof` onu zaten atliyordu (`"as_of_date" not in
+    # table.c` dali); haritada gorunmesi "budaniyor" izlenimi veriyordu.
+    # SQ denetiminde `asof_table_datasets` bu suzgeci ONE aldi.
     assert set(mapping) == {
         "domain_metrics",
         "research_reports",
@@ -51,8 +55,8 @@ def test_domain_side_mapping_excludes_the_gate_and_the_shared_report_table() -> 
         "domain_top_companies",
         "domain_top_funds",
         "domain_top_movers",
-        "domains",
     }
+    assert "domains" not in mapping
 
 
 def _seed_two_days(session: Session) -> None:
@@ -67,7 +71,7 @@ def _seed_two_days(session: Session) -> None:
 
     from helpers import domain_data
     from yfin.datasets.domain.payloads import DomainPayload
-    from yfin.persistence import MySQLRowWriter
+    from yfin.persistence import PostgresRowWriter
 
     run_taxonomy(session)
     for offset, (day, moment) in enumerate(
@@ -88,7 +92,7 @@ def _seed_two_days(session: Session) -> None:
                 domain_type="sector",
             )
             dataset.upsert(
-                MySQLRowWriter(session), dataset.normalize(payload, "technology")
+                PostgresRowWriter(session), dataset.normalize(payload, "technology")
             )
 
 
@@ -161,7 +165,19 @@ def test_run_prune_calls_both_registries(db_session: Session) -> None:
 
 
 def test_symbol_side_registry_still_has_thirteen_asof_datasets() -> None:
-    from yfin.datasets.asof_base import AsOfDataset
+    """`asof_state` KAPI AILESI hala 13.
 
-    count = sum(1 for n in SYMBOL_DATASETS if isinstance(SYMBOL_DATASETS[n], AsOfDataset))
+    Sayim KAPI TABLOSUNA gore yapilir, yalnizca tipe gore DEGIL: SQ ile
+    gelen `search`/`lookup` da `AsOfDataset`tir ama kendi kapisini
+    kullanir (`discovery_asof_state`, SQ K3a). Tipe gore sayilsaydi bu
+    test, ilgisiz bir ailenin buyumesiyle her seferinde kirilirdi.
+    """
+    from yfin.datasets.asof_base import GATE_TABLE, AsOfDataset
+
+    count = sum(
+        1
+        for n in SYMBOL_DATASETS
+        if isinstance(SYMBOL_DATASETS[n], AsOfDataset)
+        and SYMBOL_DATASETS[n].asof_gate_table == GATE_TABLE
+    )
     assert count == 13

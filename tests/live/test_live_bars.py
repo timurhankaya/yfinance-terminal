@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from yfin.client import make_ticker
 from yfin.datasets.bars import BAR_LIMITS, IntervalBarDataset, plan_windows
 from yfin.datasets.base import SyncContext
-from yfin.persistence import MySQLRowWriter
+from yfin.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.live
 
@@ -48,7 +48,7 @@ def test_end_to_end_5m_write(db_session: Session, symbol: str) -> None:
     dataset = IntervalBarDataset("5m")
     payload = dataset.fetch(_ctx(symbol))
     result = dataset.normalize(payload, symbol)
-    stats = dataset.upsert(MySQLRowWriter(db_session), result)
+    stats = dataset.upsert(PostgresRowWriter(db_session), result)
 
     assert stats.attempted["price_bars"] > 0
     assert stats.verified["price_bars"] == stats.attempted["price_bars"]

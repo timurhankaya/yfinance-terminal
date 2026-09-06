@@ -1,10 +1,66 @@
-"""Uygulama yapilandirmasi (.env okunur, sifre koda girmez)."""
+"""Uygulama yapilandirmasi (CFG).
+
+Iki katman vardir:
+
+  1. `.env` + model varsayilani -- pydantic-settings'in kendi yolu.
+  2. `settings` TABLOSU -- 39 alan icin DB ezmesi (CFG S3.1).
+
+Cozum sirasi `CLI bayragi > settings tablosu > .env > model varsayilani`
+olarak KENDILIGINDEN dogar: `Settings(**overrides)` cagrisinda init
+kwargs'lari pydantic env degerlerini EZER (canli dogrulandi). Ayri bir
+precedence mantigi YAZILMAZ -- yazilsaydi pydantic'inkiyle sessizce
+ayrisabilirdi.
+
+Metadata (tip / varsayilan / aralik / aciklama / grup) BU DOSYADA yasar,
+`settings` tablosunda DEGIL (CFG S2): kopyalansaydi `Field(ge=1)` bir gun
+`ge=2` olur ve tablodaki kopya bayatlardi. Yonetim paneli formu
+`settings_schema()` ile buradan cizer.
+"""
 
 from __future__ import annotations
+
+import os
+import threading
+from typing import Any
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
+
+from yfin.logging_setup import configure_logging, get_logger
+
+log = get_logger(__name__)
+
+# `Settings` alani DEGILDIR ve olmamalidir: DB katmanini kapatan anahtar,
+# DB katmanindan okunamaz (tavuk-yumurta). `os.getenv` ile okunur.
+SETTINGS_SOURCE_VAR = "YF_SETTINGS_SOURCE"
+
+# Panelin gruplayacagi 11 kume. Yeni bir grup adi eklemek bilincli bir
+# karardir; `tests/unit/test_settings_split.py` bilinmeyen grubu reddeder.
+SETTING_GROUPS: tuple[str, ...] = (
+    "client",
+    "runner",
+    "shard",
+    "proxy",
+    "symbols",
+    "datasets",
+    "market",
+    "domain",
+    "discovery",
+    "bars",
+    "maintenance",
+)
+
+
+def _cfg(group: str, description: str, **kwargs: Any) -> Any:
+    """`Field` + panel metadatasi.
+
+    `group` `json_schema_extra`ya konur cunku pydantic'in `FieldInfo`su
+    serbest anahtar KABUL ETMEZ. Ayri bir modul-seviyesi sozluk
+    tutulsaydi alan ile grubu iki ayri yerde yasar ve biri digerini
+    unutabilirdi; burada alanin TANIMIYLA ayni satirdadir.
+    """
+    return Field(description=description, json_schema_extra={"group": group}, **kwargs)
 
 
 class Settings(BaseSettings):

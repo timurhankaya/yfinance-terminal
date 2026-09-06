@@ -25,13 +25,15 @@ from typing import Literal
 from yfinance import PREDEFINED_SCREENER_QUERIES
 from yfinance.screener.query import EquityQuery, ETFQuery, FundQuery, QueryBase
 
+from yfin.models.discovery import SCREEN_KEY_LENGTH
+
 ScreenKind = Literal["predefined", "custom"]
 ScreenQuoteType = Literal["EQUITY", "MUTUALFUND", "ETF"]
 
-# `sync_run_items.symbol` VARCHAR(32) ascii_bin'dir ve screener tarafinda
-# kapsam etiketi olarak ekran anahtarini tasir (SQ S5.13). Olculen en uzun
-# predefined ad `conservative_foreign_funds` = 26 karakter.
-SCREEN_KEY_MAX_LENGTH = 32
+# Semadaki kolon uzunlugundan TURETILIR, ikinci bir sayi olarak
+# yazilmaz: ayrisirlarsa dogrulama semayi degil kendini dogrular.
+# Olculen en uzun predefined ad `conservative_foreign_funds` = 26.
+SCREEN_KEY_MAX_LENGTH = SCREEN_KEY_LENGTH
 
 # Sorgu SINIFI -> Yahoo'nun `quoteType` alani. `yf.screen` bu eslemeyi
 # kendi icinde de yapiyor (screener.py, `isinstance` zinciri); burada

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.datasets.base import NormalizedResult, TableWrite, WriteStats
 from yfin.models import PriceHistory, Symbol
-from yfin.persistence import MySQLRowWriter
+from yfin.persistence import PostgresRowWriter
 from yfin.runner import SymbolPayload, _is_lock_conflict, _persist_with_retry
 
 pytestmark = pytest.mark.repo
@@ -61,7 +61,7 @@ class TestMonotonicRepairColumn:
     def test_repaired_flag_never_regresses(self, test_engine: Engine) -> None:
         day = date(2026, 1, 2)
         with Session(test_engine) as session:
-            writer = MySQLRowWriter(session)
+            writer = PostgresRowWriter(session)
             writer.write(_price_write(day, repaired=True))
             session.commit()
 
@@ -79,7 +79,7 @@ class TestMonotonicRepairColumn:
     def test_flag_still_rises_from_zero(self, test_engine: Engine) -> None:
         day = date(2026, 1, 5)
         with Session(test_engine) as session:
-            writer = MySQLRowWriter(session)
+            writer = PostgresRowWriter(session)
             writer.write(_price_write(day, repaired=False))
             session.commit()
             writer.write(_price_write(day, repaired=True))

@@ -33,7 +33,7 @@ from yfin.models import (
     SyncRun,
     SyncRunItem,
 )
-from yfin.persistence import MySQLRowWriter
+from yfin.persistence import PostgresRowWriter
 from yfin.rescale import apply_pending
 
 log = get_logger(__name__)
@@ -457,7 +457,7 @@ def _skipped_records(
 def _persist_symbol(session: Session, payload: SymbolPayload) -> list[ItemRecord]:
     """Sembol basina TEK transaction (S8.7): ya butun olarak yazilir ya hic."""
     records: list[ItemRecord] = []
-    writer = MySQLRowWriter(session)
+    writer = PostgresRowWriter(session)
     # Rescale kancasi (PB S6.6): price_bars YAZILMADAN ONCE ve AYNI
     # transaction icinde. Ters sirada, bu kosuda yazilan yeni barlar
     # (zaten Yahoo'nun guncel olceginde) bir kez daha bolunurdu.

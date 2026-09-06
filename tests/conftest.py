@@ -15,7 +15,7 @@ from yfin.models import (
     V_ACTIONS_CREATE,
     V_PRICE_BARS_REGULAR_CREATE,
     Base,
-    price_bars_partition_ddl,
+    timescale_ddl,
 )
 
 
@@ -57,7 +57,8 @@ def test_engine(settings: Settings, test_schema: str) -> Iterator[Engine]:
         # edemez). Migration ile ayni sabit burada da uygulanmazsa
         # price_bars testlerde PARTITION'SIZ olusur ve ne pruning ne de
         # ERROR 1526 davranisi dogrulanabilir (PB S9.2).
-        conn.execute(text(price_bars_partition_ddl()))
+        for stmt in timescale_ddl():
+            conn.execute(text(stmt))
         conn.commit()
     yield engine
     engine.dispose()

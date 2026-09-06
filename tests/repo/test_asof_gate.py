@@ -1,7 +1,7 @@
 """AsOfDataset'in GERCEK MySQL uzerindeki davranisi (AH S9.2).
 
 `tests/unit/test_asof_base.py` kapinin karar mantigini sahte bir writer ile
-baglar; burada ayni akis `MySQLRowWriter` ile kosar. Ikisi ayri sorulari
+baglar; burada ayni akis `PostgresRowWriter` ile kosar. Ikisi ayri sorulari
 yanitlar: karar dogru mu (unit) ve MySQL o karari GERCEKTEN uyguluyor mu
 (repo) -- upsert kapsamı, replace_scope silme ve `first_seen_at`in
 korunmasi yalnizca burada gorulur.
@@ -22,7 +22,7 @@ from yfin.datasets import SYMBOL_DATASETS
 from yfin.datasets.base import NormalizedResult, TableWrite
 from yfin.datasets.payloads import AsOfFramePayload
 from yfin.models import ItemStatus
-from yfin.persistence import MySQLRowWriter
+from yfin.persistence import PostgresRowWriter
 from yfin.runner import _record_items
 
 pytestmark = pytest.mark.repo
@@ -69,7 +69,7 @@ def _run(
 ) -> Any:
     payload = AsOfFramePayload(frame=_frame(holders), fetched_at=fetched_at)
     result = DATASET.normalize(payload, symbol)
-    return DATASET.upsert(MySQLRowWriter(session), result)
+    return DATASET.upsert(PostgresRowWriter(session), result)
 
 
 def _gate(session: Session, symbol: str) -> Any:
@@ -163,7 +163,7 @@ def test_shrinking_source_deletes_stale_rows_in_the_same_day(
 def test_sibling_holder_type_is_untouched(db_session: Session, symbol: str) -> None:
     """Iki dataset ayni tabloda yasar; kapsam `holder_type` ile ayrisir."""
     mutualfund = SYMBOL_DATASETS["mutualfund_holders"]
-    writer = MySQLRowWriter(db_session)
+    writer = PostgresRowWriter(db_session)
     mutualfund.upsert(
         writer, mutualfund.normalize(AsOfFramePayload(_frame(["VFIAX"]), NOW), symbol)
     )
@@ -207,7 +207,7 @@ def test_empty_source_never_opens_the_gate(db_session: Session, symbol: str) -> 
     import pandas as pd
 
     stats = DATASET.upsert(
-        MySQLRowWriter(db_session),
+        PostgresRowWriter(db_session),
         DATASET.normalize(AsOfFramePayload(pd.DataFrame(), NOW), symbol),
     )
 
@@ -237,7 +237,7 @@ def test_multi_table_dataset_can_be_empty_and_skipped_at_once(
     """BND'de `fund_top_holdings` bostur, kardes tablolar `skipped` olur --
     tek dataset ayni calistirmada IKI farkli durum uretebilir (AH S7.2)."""
     funds = SYMBOL_DATASETS["funds_data"]
-    writer = MySQLRowWriter(db_session)
+    writer = PostgresRowWriter(db_session)
     result = NormalizedResult(
         writes=[
             TableWrite(

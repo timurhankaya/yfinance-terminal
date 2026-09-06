@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from yfin import normalize as nz
 from yfin.client import call_optional
-from yfin.config import get_settings
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.payloads import AsOfFramePayload
 from yfin.datasets.registry import register
@@ -50,5 +49,18 @@ class SustainabilityDataset(Dataset[AsOfFramePayload]):
         return NormalizedResult()
 
 
-if get_settings().yf_probe_sustainability:
-    register(SustainabilityDataset())
+# KOSULSUZ KAYIT, `opt_in=True` ILE (CFG S3.4).
+#
+# Onceki hali `if get_settings().yf_probe_sustainability:` idi ve bu, kod
+# tabanindaki TEK modul-govdesi `get_settings()` cagrisiydi. Zincir
+# `cli.py -> yfin.datasets -> analysis -> sustainability` oldugu icin
+# `yfin --help` bile Settings'i kurmaya zorluyordu; DB katmani
+# eklendiginde bu, DB'ye hic dokunmayan komutlarin DB'ye baglanmasi ve DB
+# kapaliyken KURTARMA komutlarinin bile calismamasi demek olurdu.
+#
+# `yf_discovery_enabled` ayni tuzaga dusmus ve kaldirilmisti
+# (config.py'deki not); `sustainability` o gocte atlanmisti. Davranis
+# ayni kalir: dataset `--datasets sustainability` ile ADIYLA istendiginde
+# kosar, `all` genislemesinde HIC gorunmez. `yf_probe_sustainability`
+# boylece registry'den tamamen ayrilir ve DB-yonetimli kalabilir.
+register(SustainabilityDataset(), opt_in=True)

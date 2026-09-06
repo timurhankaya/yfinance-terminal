@@ -1,7 +1,7 @@
 """Domain repo testleri icin ortak kosum yardimcilari (SI S9.3).
 
 Uretim yolunun AYNISINI kullanir: gercek dataset ornekleri, gercek
-`MySQLRowWriter`, gercek `NormalizedResult`. Tek fark cekimin fixture'dan
+`PostgresRowWriter`, gercek `NormalizedResult`. Tek fark cekimin fixture'dan
 gelmesidir.
 """
 
@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from helpers import domain_data
 from yfin.datasets.domain.payloads import DomainPayload, TaxonomyPayload
 from yfin.datasets.registry import DOMAIN_DATASETS
-from yfin.persistence import MySQLRowWriter
+from yfin.persistence import PostgresRowWriter
 
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC).replace(tzinfo=None)
 AS_OF = date(2026, 9, 4)
@@ -35,7 +35,7 @@ def run_taxonomy(
         sectors={key: domain_data("sector", key) for key in sectors}, fetched_at=fetched_at
     )
     result = dataset.normalize(payload, "*")
-    return dataset.upsert(MySQLRowWriter(session), result)
+    return dataset.upsert(PostgresRowWriter(session), result)
 
 
 def run_dataset(
@@ -61,4 +61,4 @@ def run_dataset(
         expected_parent=parent,
     )
     result = dataset.normalize(payload, key)
-    return dataset.upsert(MySQLRowWriter(session), result)
+    return dataset.upsert(PostgresRowWriter(session), result)

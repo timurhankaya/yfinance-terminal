@@ -28,7 +28,7 @@ from yfin.datasets.payloads import (
     FundsPayload,
     RangedFramePayload,
 )
-from yfin.persistence import MySQLRowWriter
+from yfin.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo
 
@@ -52,7 +52,7 @@ def symbol(db_session: Session) -> Iterator[str]:
 def _write(session: Session, dataset: Dataset[Any], payload: Any) -> WriteStats:
     result = dataset.normalize(payload, SYMBOL)
     assert not result.is_empty, f"{dataset.name}: test payload'i bos sonuc uretti"
-    return dataset.upsert(MySQLRowWriter(session), result)
+    return dataset.upsert(PostgresRowWriter(session), result)
 
 
 def _assert_complete(stats: WriteStats, dataset: Dataset[Any]) -> None:

@@ -33,7 +33,14 @@ def live_run(test_engine: Engine):  # type: ignore[no-untyped-def]
                 {"s": symbol},
             )
         session.commit()
-    summary = run_sync(test_engine, list(SYMBOLS), SYMBOL_DATASETS.resolve(None))
+    # OPT-IN dataset'ler ACIKCA eklenir (SQ K11). `resolve(None)` onlari
+    # bilincli olarak DISLAR -- ciplak `yfin sync`e sembol basina iki istek
+    # eklememek icin. Canli kapsam testi ise KAYITLI HER dataset'i
+    # gormelidir; ikisi arasindaki dogru koprü, iddiayi zayiflatmak degil
+    # kapsami genisletmektir.
+    # `"all"` YALNIZCA tek basinayken sihirlidir (registry.py) ve bu dogru
+    # davranistir; burada KAYITLI HER AD acikca verilir.
+    summary = run_sync(test_engine, list(SYMBOLS), SYMBOL_DATASETS.resolve(list(SYMBOL_DATASETS)))
     return summary
 
 
