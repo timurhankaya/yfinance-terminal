@@ -200,11 +200,11 @@ def _effective_shards(
         if require_proxy:
             # The two together are meaningless, and silently letting
             # --no-proxy win would take on ban risk without telling the user.
-            raise ValueError("--no-proxy ile --require-proxy birlikte verilemez")
+            raise ValueError("--no-proxy and --require-proxy cannot be given together")
         if max_shards is not None and max_shards > 1:
             # Running N shards from the same egress IP multiplies effective
             # rate by N; the rate limit is defined per shard.
-            log.warning("--no-proxy ile shard sayisi 1'e indirildi", requested=max_shards)
+            log.warning("--no-proxy reduced the shard count to 1", requested=max_shards)
         return []
 
     limit = max_shards if max_shards is not None else settings.yf_max_shards
@@ -214,13 +214,15 @@ def _effective_shards(
 
     total = count_all(session)
     if require_proxy:
-        raise NoEligibleProxy(f"uygun proxy yok (havuzda {total} kayit); --require-proxy verildi")
+        raise NoEligibleProxy(
+            f"no eligible proxy ({total} rows in the pool); --require-proxy was given"
+        )
     if total:
         # Silently connecting directly would take on ban risk without
         # telling the user.
-        log.warning("havuzda proxy var ama hicbiri uygun degil; dogrudan baglaniliyor", total=total)
+        log.warning("the pool has proxies but none are eligible; connecting directly", total=total)
     else:
-        log.info("proxy havuzu bos; dogrudan baglaniliyor")
+        log.info("proxy pool is empty; connecting directly")
     return []
 
 
@@ -302,8 +304,9 @@ def run_sharded(
                 # --require-proxy exists to prevent (and the exit code would
                 # be 0/2 instead of 5).
                 raise NoEligibleProxy(
-                    f"uygun {len(eligible)} proxy'nin hicbirinin parolasi cozulemedi; "
-                    "--require-proxy verildi (YF_PROXY_SECRET_KEY dogru mu?)"
+                    f"none of the {len(eligible)} eligible proxies could be "
+                    "decrypted; --require-proxy was given "
+                    "(is YF_PROXY_SECRET_KEY correct?)"
                 )
 
         shard_count = max(1, len(specs_source))
@@ -374,7 +377,7 @@ def _build_specs(
         except PasswordUndecryptable as exc:
             # Doesn't mark the proxy dead: reported explicitly to avoid a
             # wrong diagnosis, and it's just skipped for this run.
-            log.error("proxy parolasi cozulemedi", proxy=row.label, error=str(exc))
+            log.error("could not decrypt the proxy password", proxy=row.label, error=str(exc))
             continue
         plans.append(_ProxyPlan(proxy_id=int(row.id), proxy_label=row.label, dsn=endpoint.dsn()))
     return plans
@@ -441,7 +444,7 @@ def _spawn_and_wait(
             process.join(timeout=deadline)
     except KeyboardInterrupt:
         cancelled = True
-        log.warning("iptal edildi; shard'lar sonlandiriliyor")
+        log.warning("cancelled; terminating the shards")
     finally:
         if previous is not None:
             signal.signal(signal.SIGTERM, previous)
@@ -464,7 +467,7 @@ def _spawn_and_wait(
     queue.cancel_join_thread()
     queue.close()
     if cancelled:
-        log.warning("islenmeyen sembol", count=len(leftover))
+        log.warning("unprocessed symbols", count=len(leftover))
     return leftover
 
 
@@ -475,13 +478,13 @@ def _record_crashes(
     now = datetime.now(UTC)
     with factory() as session:
         for plan in plans:
-            log.error("shard beklenmedik sekilde sonlandi", proxy=plan.proxy_label)
+            log.error("shard terminated unexpectedly", proxy=plan.proxy_label)
             persist_event(
                 session,
                 plan.proxy_id,
                 HealthEvent.SHARD_CRASH,
                 policy=policy,
                 now=now,
-                error="shard sonlandi veya zaman asimina ugradi",
+                error="shard terminated or timed out",
             )
         session.commit()

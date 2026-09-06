@@ -1,11 +1,12 @@
-"""growth_estimates dataset'i (AH S6.3).
+"""The growth_estimates dataset.
 
-Resmi dokumantasyon (base.py:369-371) index'i `0q +1q 0y +1y +5y -5y`,
-kolonlari `stock industry sector index` diye yaziyor. OLCUM ikisini de
-curuttu: index `0q,+1q,0y,+1y,LTG`; kolonlar YALNIZCA `stockTrend` ve
-`indexTrend` (19/19 sembol). `industryTrend`/`sectorTrend` kolonlari yine de
-acilir -- modul acikca isteniyor (analysis.py:141), uc geri acildiginda
-migration gerekmesin diye.
+The official documentation (base.py:369-371) gives the index as
+`0q +1q 0y +1y +5y -5y` and the columns as `stock industry sector index`.
+Measurement refuted both: the index is `0q,+1q,0y,+1y,LTG`, and the only
+columns returned are `stockTrend` and `indexTrend` (19 of 19 symbols).
+The `industryTrend`/`sectorTrend` columns are created anyway -- the module
+is requested explicitly (analysis.py:141), so if the endpoint starts
+returning them again no migration is needed.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ class GrowthEstimatesDataset(PeriodFrameDataset):
     api_method = "get_growth_estimates"
     columns = (
         Column("stockTrend", "stock_trend", nz.to_decimal),
-        # TUM sembollerde AYNI deger gelir (piyasa endeksi trendi); sembol
+        # Every symbol returns the SAME value (a market index trend); the symbol
         # basina denormalize saklanmasi bilinclidir (AH S5.1).
         Column("indexTrend", "index_trend", nz.to_decimal),
         Column("industryTrend", "industry_trend", nz.to_decimal),

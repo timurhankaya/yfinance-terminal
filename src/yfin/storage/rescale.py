@@ -58,7 +58,7 @@ def rescale_factors(ratio: Decimal) -> tuple[Decimal, Decimal]:
     formula, no special case.
     """
     if ratio <= 0:
-        raise RescaleSkipped(f"gecersiz split orani: {ratio}")
+        raise RescaleSkipped(f"invalid split ratio: {ratio}")
     return Decimal(1) / ratio, ratio
 
 
@@ -74,13 +74,13 @@ def split_boundary_utc(split_day: date, timezone_name: str | None) -> datetime:
     undone.
     """
     if not timezone_name:
-        raise RescaleSkipped("sembolun IANA tz adi bilinmiyor")
+        raise RescaleSkipped("the symbol's IANA timezone name is unknown")
     try:
         zone = ZoneInfo(timezone_name)
     except (ZoneInfoNotFoundError, ValueError) as exc:
         # The `timezone` column can carry abbreviations like "EDT"/"TRT";
         # if one lands here it's explicitly rejected.
-        raise RescaleSkipped(f"gecersiz tz adi: {timezone_name}") from exc
+        raise RescaleSkipped(f"invalid timezone name: {timezone_name}") from exc
     local_midnight = datetime.combine(split_day, datetime.min.time(), tzinfo=zone)
     # Returned UTC-aware: `price_bars.ts_utc` is timestamptz, and the
     # comparison must be at the same awareness level.

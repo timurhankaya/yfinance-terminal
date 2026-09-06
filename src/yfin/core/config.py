@@ -375,7 +375,7 @@ def source_is_env() -> bool:
         return True
     if value:
         log.warning(
-            "YF_SETTINGS_SOURCE degeri taninmadi; DB katmani ACIK kaliyor",
+            "unrecognised YF_SETTINGS_SOURCE value; the DB layer stays ON",
             value=raw,
             expected="env",
         )

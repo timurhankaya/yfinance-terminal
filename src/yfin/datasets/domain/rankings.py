@@ -9,6 +9,7 @@ byte-identical across all 5 regions, which is why they live on the
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from yfin.core.logging_setup import get_logger
@@ -250,15 +251,7 @@ def _mark_known(writer: RowWriter, write: TableWrite) -> TableWrite:
     candidates = {row["symbol"] for row in write.rows}
     known = writer.known_symbols(candidates)
     rows = [{**row, "is_known": row["symbol"] in known} for row in write.rows]
-    return TableWrite(
-        table=write.table,
-        rows=rows,
-        key_columns=write.key_columns,
-        update_columns=write.update_columns,
-        mode=write.mode,
-        scope_columns=write.scope_columns,
-        scope_values=write.scope_values,
-    )
+    return replace(write, rows=rows)
 
 
 register_domain(SectorRankingsDataset())

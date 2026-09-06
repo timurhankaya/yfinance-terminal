@@ -18,6 +18,7 @@ history_metadata table and produce an extra audit row.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import pandas as pd
@@ -177,7 +178,7 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
         except (YFDataException, KeyError) as exc:
             # Under hide_exceptions=False, the source raises a raw
             # KeyError('topHoldings'), NOT YFDataException (scrapers/funds.py:190-194).
-            log.info("fon verisi yok", symbol=ctx.symbol, error=str(exc)[:80])
+            log.info("no fund data", symbol=ctx.symbol, error=str(exc)[:80])
             return FundsPayload(data=None, fetched_at=ctx.fetched_at)
         return FundsPayload(data=data, fetched_at=ctx.fetched_at)
 
@@ -459,15 +460,7 @@ def _mark_known(writer: RowWriter, write: TableWrite) -> TableWrite:
     candidates = {row["holding_symbol"] for row in write.rows}
     known = writer.known_symbols(candidates)
     rows = [{**row, "is_known": row["holding_symbol"] in known} for row in write.rows]
-    return TableWrite(
-        table=write.table,
-        rows=rows,
-        key_columns=write.key_columns,
-        update_columns=write.update_columns,
-        mode=write.mode,
-        scope_columns=write.scope_columns,
-        scope_values=write.scope_values,
-    )
+    return replace(write, rows=rows)
 
 
 register(FundsDataDataset())

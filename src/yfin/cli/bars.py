@@ -48,7 +48,7 @@ def scope_add(
     single row excludes every OTHER symbol from that scope.
     """
     if interval not in BAR_INTERVALS:
-        typer.echo(f"bilinmeyen interval: {interval}; gecerli: {', '.join(BAR_INTERVALS)}")
+        typer.echo(f"unknown interval: {interval}; valid: {', '.join(BAR_INTERVALS)}")
         raise typer.Exit(code=1)
 
     codes = [nz.normalize_symbol(s) for s in symbols]
@@ -60,8 +60,8 @@ def scope_add(
         ).scalar_one()
         if interval != "1m" and not already and not force:
             typer.echo(
-                f"'{interval}' su an TUM evren icin kosuyor. Ilk kaydi eklemek diger "
-                "butun sembolleri kapsam disina atar; onaylamak icin --force verin."
+                f"'{interval}' currently runs for the WHOLE universe. Adding the first "
+                "row drops every other symbol out of scope; pass --force to confirm."
             )
             raise typer.Exit(code=1)
 
@@ -73,7 +73,7 @@ def scope_add(
                 )
             )
         session.commit()
-    typer.echo(f"{len(codes)} sembol {interval} kapsamina eklendi")
+    typer.echo(f"{len(codes)} symbols added to the {interval} scope")
 
 
 @scope_app.command("disable")
@@ -94,7 +94,7 @@ def scope_disable(
             .values(enabled=False)
         )
         session.commit()
-    typer.echo(f"{len(codes)} sembol {interval} kapsamindan cikarildi (enabled=0)")
+    typer.echo(f"{len(codes)} symbols removed from the {interval} scope (enabled=0)")
 
 
 @scope_app.command("list")
@@ -117,11 +117,11 @@ def scope_list(interval: Annotated[str | None, typer.Option("--interval")] = Non
             continue
         entries = grouped.get(name, [])
         if not entries:
-            meaning = "HICBIR sembol" if name == "1m" else "TUM evren"
-            typer.echo(f"{name:5s} kayit yok -> {meaning}")
+            meaning = "NO symbols" if name == "1m" else "WHOLE universe"
+            typer.echo(f"{name:5s} no rows -> {meaning}")
             continue
         active = sum(1 for _s, e in entries if e)
-        typer.echo(f"{name:5s} {active} aktif / {len(entries)} kayit")
+        typer.echo(f"{name:5s} {active} active / {len(entries)} rows")
         for symbol, enabled in entries:
             typer.echo(f"      {'+' if enabled else '-'} {symbol}")
 
@@ -157,7 +157,7 @@ def bars_gaps(
         rows = list(session.execute(stmt))
 
     if not rows:
-        typer.echo("bosluk yok")
+        typer.echo("no gaps")
         return
     for sym, iv, start, end, why, resolved in rows:
         state = "cozuldu" if resolved else "ACIK"
@@ -185,8 +185,9 @@ def bars_maintain(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -
         unseeded = unseeded_historic_splits(session)
         if unseeded:
             typer.echo(
-                f"UYARI: {unseeded} tarihsel split tohumlanmamis. `yfin rescale --seed` "
-                "calistirilmadan `yfin sync --datasets bars` kosarsa ARSIV BOZULUR."
+                f"WARNING: {unseeded} historical splits are unseeded. Running "
+                "`yfin sync --datasets bars` before `yfin rescale --seed` "
+                "CORRUPTS THE ARCHIVE."
             )
 
         # 2) Gap summary
@@ -200,7 +201,7 @@ def bars_maintain(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -
                 "  FROM bar_gaps GROUP BY reason"
             )
         ).all():
-            typer.echo(f"bosluk {why:18s} toplam {total}, acik {still_open}")
+            typer.echo(f"gap {why:18s} total {total}, open {still_open}")
 
         if dry_run:
             session.rollback()
@@ -229,7 +230,7 @@ def bars_rescale(
             typer.echo(f"baseline: {count} split tohumlandi")
             return
         if symbol is None:
-            typer.echo("--seed ya da --symbol verin")
+            typer.echo("pass --seed or --symbol")
             raise typer.Exit(code=1)
         applied = apply_pending(session, nz.normalize_symbol(symbol))
         session.commit()

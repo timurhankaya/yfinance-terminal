@@ -422,7 +422,7 @@ def run_prune(
     """
     if (calendars_before or history_before or asof_before) and not enabled:
         raise PruneDisabledError(
-            "budama kapali: YF_PRUNE_ENABLED=true yapin ya da --force verin"
+            "pruning is disabled: set YF_PRUNE_ENABLED=true or pass --force"
         )
 
     report = PruneReport(dry_run=dry_run)

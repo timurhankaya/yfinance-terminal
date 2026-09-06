@@ -59,15 +59,39 @@ INTRADAY_INTERVALS: tuple[str, ...] = ("1m", "5m", "15m", "60m")
 PERIODIC_INTERVALS: tuple[str, ...] = ("1wk", "1mo")
 
 
-def bars_table_for(interval: str) -> str:
-    """Resolves an interval to the table it is written to.
+#: The daily series predates the bar tables and has its own shape: it is
+#: keyed on the exchange's session date, carries adj_close, and has no
+#: bar_interval column. It is not in BAR_INTERVALS because nothing writes
+#: it through the bar datasets -- but a reader still has to resolve "1d"
+#: to a table, so the mapping belongs here rather than in a second copy.
+DAILY_INTERVAL = "1d"
 
-    Single source of truth: dataset writes, watermark reads, and tests
-    all use this. If they diverged, an interval would write to the wrong
-    table and its watermark would stay NULL forever -- a full backfill
-    on every run.
+#: Every interval this project can resolve to storage.
+READABLE_INTERVALS: tuple[str, ...] = (*INTRADAY_INTERVALS, DAILY_INTERVAL, *PERIODIC_INTERVALS)
+
+
+def bars_table_for(interval: str) -> str:
+    """Resolves an interval to the table it is stored in.
+
+    Single source of truth: dataset writes, watermark reads, the read API
+    and tests all use this. If they diverged, an interval would write to
+    the wrong table and its watermark would stay NULL forever -- a full
+    backfill on every run.
+
+    Unknown intervals RAISE. Until this returned `periodic_bars` for
+    anything it did not recognise, which meant `bars_table_for("1d")`
+    silently named the wrong table: no error, no warning, just a query or
+    a write against a table with a different primary key. A loud failure
+    is the only safe default here, and it costs the write path nothing --
+    it only ever passes intervals from BAR_INTERVALS.
     """
-    return "price_bars" if interval in INTRADAY_INTERVALS else "periodic_bars"
+    if interval in INTRADAY_INTERVALS:
+        return "price_bars"
+    if interval in PERIODIC_INTERVALS:
+        return "periodic_bars"
+    if interval == DAILY_INTERVAL:
+        return "price_history"
+    raise ValueError(f"unknown interval: {interval!r}")
 
 # bar_gaps.reason values
 GAP_RETENTION_EXPIRED = "retention_expired"

@@ -30,6 +30,23 @@ VERIFY_CHUNK = 500
 # yfin.core.config and should not gain a configuration dependency.
 INSERT_CHUNK = 2000
 
+# PostgreSQL's wire protocol carries at most 65535 bind parameters per
+# statement, and a multi-row INSERT binds one per column per row. This is
+# a HARD limit, unlike INSERT_CHUNK: exceeding it raises
+# psycopg.OperationalError "number of parameters must be between 0 and
+# 65535" and the whole dataset fails. Measured: screen_quotes has 92
+# columns, so 2000 rows asked for 184,000 parameters and every screener
+# run died. pymysql interpolated client-side and never hit this, which is
+# why the limit only appeared after the PostgreSQL migration.
+MAX_BIND_PARAMS = 65535
+
+
+def insert_chunk_size(column_count: int) -> int:
+    """Rows per INSERT that stay under the bind-parameter ceiling."""
+    if column_count <= 0:
+        return INSERT_CHUNK
+    return max(1, min(INSERT_CHUNK, MAX_BIND_PARAMS // column_count))
+
 
 def align_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Aligns every row to the same column set.
@@ -120,9 +137,10 @@ class PostgresRowWriter:
         rows = align_rows(write.rows)
         rows = dedupe_rows(rows, write.key_columns, write.monotonic_columns)
         present = set(rows[0])
-        for start in range(0, len(rows), INSERT_CHUNK):
+        chunk = insert_chunk_size(len(present))
+        for start in range(0, len(rows), chunk):
             self._session.execute(
-                self._insert_stmt(table, rows[start : start + INSERT_CHUNK], write, present)
+                self._insert_stmt(table, rows[start : start + chunk], write, present)
             )
 
         return self._verify(write)
@@ -214,7 +232,15 @@ class PostgresRowWriter:
 
         # Row-constructor IN: markedly faster than OR/AND blocks and
         # still uses the primary key index.
-        keys = [tuple(row[name] for name in write.key_columns) for row in write.rows]
+        #
+        # The key list MUST be deduplicated. It is chunked, and one IN
+        # list collapses its own duplicates while two chunks do not: the
+        # same key appearing in both chunks was counted twice, inflating
+        # `verified` back up to `attempted` and reporting `ok` for a write
+        # that stored fewer rows than it claimed.
+        keys = list(
+            dict.fromkeys(tuple(row[name] for name in write.key_columns) for row in write.rows)
+        )
         total = 0
         for start in range(0, len(keys), VERIFY_CHUNK):
             stmt = (

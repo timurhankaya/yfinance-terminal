@@ -10,6 +10,7 @@ writes to the same table, use `HashGatedDataset` instead.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from yfin.datasets.base import Dataset, NormalizedResult
@@ -48,17 +49,7 @@ def snapshot_upsert(
                 kept.append(row)
         if skipped:
             stats.skipped[write.table] = stats.skipped.get(write.table, 0) + skipped
-        keep.append(
-            TableWrite(
-                table=write.table,
-                rows=kept,
-                key_columns=write.key_columns,
-                update_columns=write.update_columns,
-                mode=write.mode,
-                scope_columns=write.scope_columns,
-                scope_values=write.scope_values,
-            )
-        )
+        keep.append(replace(write, rows=kept))
 
     for write in other_writes:
         apply_write(writer, write, stats)

@@ -90,7 +90,7 @@ def repair_enabled() -> bool:
         except ImportError:
             _REPAIR_AVAILABLE = False
             log.error(
-                "history repair devre disi: yfinance[repair] ekstrasi kurulu degil "
+                "history repair disabled: the yfinance[repair] extra is not installed "
                 "(pip install 'yfinance[repair]'); scipy ve scikit-learn gerekir"
             )
     return _REPAIR_AVAILABLE

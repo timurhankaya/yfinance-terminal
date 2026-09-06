@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from yfin import proxy as px
+from yfin.cli.api import api_app
 from yfin.cli.bars import bars_app, scope_app
 from yfin.cli.settings import config_app
 from yfin.core import normalize as nz
@@ -68,6 +69,7 @@ app.add_typer(scope_app, name="scope")
 # DB-backed configuration lives in its own module: none of its commands share
 # state with the existing ones, and cli.py had already passed 1000 lines.
 app.add_typer(config_app, name="config")
+app.add_typer(api_app, name="api")
 
 
 def _parse_date(value: str | None) -> datetime | None:
@@ -88,7 +90,7 @@ def _parse_day(value: str | None, *, option: str) -> date | None:
     try:
         return datetime.strptime(value.strip(), "%Y-%m-%d").date()
     except ValueError:
-        typer.echo(f"{option} icin gecersiz tarih: {value} (YYYY-MM-DD bekleniyor)", err=True)
+        typer.echo(f"invalid date for {option}: {value} (expected YYYY-MM-DD)", err=True)
         raise typer.Exit(code=1) from None
 
 
@@ -183,11 +185,11 @@ def _filtered_symbols(
         if unresolved:
             names = "/".join(name for name, _ in null_columns)
             typer.echo(
-                f"{len(unresolved)} sembol filtre disinda birakildi "
-                f"({names} NULL - henuz cozulmemis)."
+                f"{len(unresolved)} symbols left out by the filter "
+                f"({names} NULL - not resolved yet)."
             )
             typer.echo(
-                "Once 'yfin sync --datasets symbols' calistirin ya da --suffix kullanin."
+                "Run 'yfin sync --datasets symbols' first, or use --suffix."
             )
     return codes
 
@@ -241,16 +243,19 @@ def _warn_missing_settings_rows() -> None:
     try:
         rows = fetch_rows(bootstrap_settings())
     except Exception as exc:  # noqa: BLE001 - warning path, must not crash the command
-        typer.echo(f"settings tablosu okunamadi, eksik satir denetimi atlandi: {exc}", err=True)
+        typer.echo(
+            f"could not read the settings table, skipping the missing-row check: {exc}",
+            err=True,
+        )
         return
     if rows is None:
         return
     missing = sorted(DB_MANAGED_FIELDS - set(rows))
     if missing:
         typer.echo(
-            f"{len(missing)} ayarin `settings` satiri yok (ilki: {missing[0]}); "
-            "degerleri .env ya da model varsayilanindan gelecek. "
-            "`yfin config seed` calistirin."
+            f"{len(missing)} settings have no `settings` row (first: {missing[0]}); "
+            "their values will come from .env or the model default. "
+            "Run `yfin config seed`."
         )
 
 
@@ -335,9 +340,9 @@ def symbols_add(
             added.append(code)
         session.commit()
     if added:
-        typer.echo(f"eklendi: {', '.join(added)}")
+        typer.echo(f"added: {', '.join(added)}")
     if existing:
-        typer.echo(f"zaten var: {', '.join(existing)}")
+        typer.echo(f"already present: {', '.join(existing)}")
 
 
 @symbols_app.command("list")
@@ -352,7 +357,7 @@ def symbols_list(
     with factory() as session:
         rows = list(session.execute(stmt).scalars())
     if not rows:
-        typer.echo("sembol yok")
+        typer.echo("no symbols")
         return
     for row in rows:
         flag = "" if row.is_active else " [inactive]"
@@ -384,7 +389,7 @@ def symbols_exchanges(
     with factory() as session:
         rows = session.execute(stmt).all()
     if not rows:
-        typer.echo("sembol yok")
+        typer.echo("no symbols")
         return
     for exchange, full_name, quote_type, count in rows:
         code = exchange or "NULL (cozulmemis)"
@@ -402,7 +407,7 @@ def symbols_deactivate(symbol: str) -> None:
         )
         changed = result.rowcount  # type: ignore[attr-defined]
         session.commit()
-    typer.echo(f"pasiflestirildi: {code}" if changed else f"bulunamadi: {code}")
+    typer.echo(f"deactivated: {code}" if changed else f"not found: {code}")
 
 
 @symbols_app.command("purge")
@@ -414,7 +419,7 @@ def symbols_purge(
     ON DELETE RESTRICT."""
     code = nz.normalize_symbol(symbol)
     if not force:
-        typer.echo("bu komut geri donusumsuzdur; onaylamak icin --force verin")
+        typer.echo("this command is irreversible; pass --force to confirm")
         raise typer.Exit(code=1)
 
     factory = _session_factory()
@@ -425,7 +430,7 @@ def symbols_purge(
         session.execute(delete(NewsSymbol).where(NewsSymbol.symbol == code))
         session.execute(delete(Symbol).where(Symbol.symbol == code))
         session.commit()
-    typer.echo(f"silindi: {code}")
+    typer.echo(f"deleted: {code}")
 
 
 # --------------------------------------------------------------------------
@@ -480,7 +485,7 @@ def sync(
     start_date = _parse_day(start, option="--start")
     end_date = _parse_day(end, option="--end")
     if start_date is not None and end_date is not None and start_date > end_date:
-        typer.echo("--start --end'den sonra olamaz", err=True)
+        typer.echo("--start cannot be later than --end", err=True)
         raise typer.Exit(code=1)
 
     exchanges = _csv_upper(exchange)
@@ -490,16 +495,16 @@ def sync(
     if symbols and filtered:
         # If both were given, which one wins would be a silent assumption; the
         # user must either enumerate the universe explicitly or filter it.
-        typer.echo("--symbols ile --exchange/--quote-type/--suffix birlikte kullanilamaz", err=True)
+        typer.echo("--symbols cannot be combined with --exchange/--quote-type/--suffix", err=True)
         raise typer.Exit(code=1)
 
     if (start_date is not None or end_date is not None) and all(
         d.date_range == "none" for d in selected if d.name != SYMBOL_DATASETS.bootstrap
     ):
         typer.echo(
-            "secilen dataset'lerin hicbiri tarih araligi desteklemiyor; "
-            "--start/--end kaldirin ya da 'history', 'upgrades_downgrades' gibi "
-            "bir dataset secin",
+            "none of the selected datasets supports a date range; "
+            "drop --start/--end, or pick a dataset that does, such as "
+            "'history' or 'upgrades_downgrades'",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -519,7 +524,7 @@ def sync(
                 codes = list(session.execute(stmt).scalars())
 
     if not codes:
-        typer.echo("sembol yok; once 'yfin symbols add ...' calistirin")
+        typer.echo("no symbols; run 'yfin symbols add ...' first")
         raise typer.Exit(code=0)
 
     try:
@@ -545,7 +550,7 @@ def sync(
             ),
         )
     except LockNotAcquired:
-        typer.echo("baska bir sync calisiyor (advisory lock alinamadi)", err=True)
+        typer.echo("another sync is running (advisory lock not acquired)", err=True)
         raise typer.Exit(code=EXIT_LOCK_NOT_ACQUIRED) from None
     except NoEligibleProxy as exc:
         typer.echo(str(exc), err=True)
@@ -569,7 +574,7 @@ def status(
             stmt = stmt.order_by(SyncRun.started_at.desc()).limit(limit)
         runs = list(session.execute(stmt).scalars())
         if not runs:
-            typer.echo("henuz sync calistirilmadi")
+            typer.echo("no sync has been run yet")
             return
         for run in runs:
             # A market run has no "symbol"; region count is not written into
@@ -657,7 +662,7 @@ def prune(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from None
 
-    prefix = "silinecek" if report.dry_run else "silinen"
+    prefix = "to delete" if report.dry_run else "deleted"
     typer.echo(f"{prefix} oksuz haber: {report.orphan_news}")
     typer.echo(f"{prefix} oksuz rapor: {report.orphan_reports}")
     for label, counts in (
@@ -670,12 +675,12 @@ def prune(
     ):
         for table, count in sorted(counts.items()):
             typer.echo(f"{prefix} {label} [{table}]: {count}")
-    typer.echo(f"toplam: {report.total}")
+    typer.echo(f"total: {report.total}")
 
 
 def _echo_tally(tally: Any) -> None:
     """Run summary -- the same three lines `sync` and `market sync` print."""
-    typer.echo(f"run #{tally.run_id}  semboller={tally.symbol_count}")
+    typer.echo(f"run #{tally.run_id}  symbols={tally.symbol_count}")
     typer.echo("  " + "  ".join(f"{k}={v}" for k, v in sorted(tally.counts.items())))
     typer.echo("  " + "  ".join(f"{k}={v}" for k, v in tally.totals.items()))
 
@@ -695,11 +700,11 @@ def discover_term(
 
     term = query.strip()
     if not term:
-        typer.echo("bos terim", err=True)
+        typer.echo("empty term", err=True)
         raise typer.Exit(code=1)
     if len(term) > QUERY_TERM_LENGTH or not term.isascii():
         typer.echo(
-            f"terim en fazla {QUERY_TERM_LENGTH} ASCII karakter olabilir: {len(term)} karakter",
+            f"a term may be at most {QUERY_TERM_LENGTH} ASCII characters: {len(term)} given",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -709,7 +714,7 @@ def discover_term(
     try:
         summary = run_sync(engine, [term], selected, settings=settings, selector=f"term={term}")
     except LockNotAcquired:
-        typer.echo("baska bir sync calisiyor (advisory lock alinamadi)", err=True)
+        typer.echo("another sync is running (advisory lock not acquired)", err=True)
         raise typer.Exit(code=EXIT_LOCK_NOT_ACQUIRED) from None
     _echo_tally(summary)
     raise typer.Exit(code=summary.exit_code())
@@ -736,7 +741,7 @@ def screen_sync(
     try:
         summary = run_market_sync(engine, selected, settings=settings)
     except LockNotAcquired:
-        typer.echo("baska bir market sync calisiyor (advisory lock alinamadi)", err=True)
+        typer.echo("another market sync is running (advisory lock not acquired)", err=True)
         raise typer.Exit(code=EXIT_LOCK_NOT_ACQUIRED) from None
     _echo_tally(summary)
     raise typer.Exit(code=summary.exit_code())
@@ -768,7 +773,7 @@ def screen_list(
                 )
             ).all()
             if not rows:
-                typer.echo("kesfedilen yeni ekran yok")
+                typer.echo("no new screens discovered")
                 return
             for key, name, total in rows:
                 typer.echo(f"{key:<32} {str(total or '-'):>8}  {name or ''}")
@@ -787,7 +792,7 @@ def screen_list(
         ).all()
 
     if not rows:
-        typer.echo("screens tablosu bos; `yfin screen sync` henuz kosmadi")
+        typer.echo("screens table is empty; `yfin screen sync` has not run yet")
         return
     typer.echo(
         f"{'ekran':<28} {'tur':<11} {'tip':<11} {'akt':<5} "
@@ -837,16 +842,16 @@ def symbols_activate(
             .order_by(Symbol.symbol)
         ).all()
         if not rows:
-            typer.echo("olcute uyan pasif sembol yok")
+            typer.echo("no inactive symbols match the criteria")
             return
         if dry_run:
             for symbol, exch, source in rows:
                 typer.echo(f"{symbol:<24} {exch or '-':<10} {source}")
-            typer.echo(f"toplam: {len(rows)} (dry-run; hicbir sey degismedi)")
+            typer.echo(f"total: {len(rows)} (dry-run; nothing changed)")
             return
         session.execute(update(Symbol).where(*conditions).values(is_active=True))
         session.commit()
-    typer.echo(f"aktiflestirildi: {len(rows)}")
+    typer.echo(f"activated: {len(rows)}")
 
 
 @market_app.command("sync")
@@ -876,7 +881,7 @@ def market_sync(
             engine, selected, settings=settings, start=window_start, end=window_end
         )
     except LockNotAcquired:
-        typer.echo("baska bir market sync calisiyor (advisory lock alinamadi)", err=True)
+        typer.echo("another market sync is running (advisory lock not acquired)", err=True)
         raise typer.Exit(code=EXIT_LOCK_NOT_ACQUIRED) from None
 
     typer.echo(f"market run #{summary.run_id}  dataset={summary.dataset_count}")
@@ -923,7 +928,7 @@ def domain_sync(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from None
     except LockNotAcquired:
-        typer.echo("baska bir domain sync calisiyor (advisory lock alinamadi)", err=True)
+        typer.echo("another domain sync is running (advisory lock not acquired)", err=True)
         raise typer.Exit(code=EXIT_LOCK_NOT_ACQUIRED) from None
 
     typer.echo(f"domain run #{summary.run_id}  dataset={summary.dataset_count}")
@@ -947,10 +952,10 @@ def domain_audit(
     with factory() as session:
         report = audit_domains(session, as_of=day, run_id=run)
 
-    typer.echo(f"sektor    : {report.sector_count}")
+    typer.echo(f"sectors   : {report.sector_count}")
     typer.echo(
-        f"endustri  : {report.industry_count} "
-        f"(API'nin bildirdigi: {report.expected_industries})"
+        f"industries: {report.industry_count} "
+        f"(the API reports: {report.expected_industries})"
     )
     if report.cells_by_status:
         typer.echo("hucreler  : " + "  ".join(
@@ -992,14 +997,14 @@ def domain_list(
         typer.echo(
             f"{row.domain_type.value:9} {row.domain_key:40} {row.symbol:14} {parent_label}"
         )
-    typer.echo(f"toplam: {len(rows)}")
+    typer.echo(f"total: {len(rows)}")
 
 
 @app.command("datasets")
 def list_datasets() -> None:
     """Lists available dataset names (all three registries)."""
-    typer.echo("sembol : " + ", ".join(SYMBOL_DATASETS.user_visible_names()))
-    typer.echo("piyasa : " + ", ".join(MARKET_DATASETS.user_visible_names()))
+    typer.echo("symbol : " + ", ".join(SYMBOL_DATASETS.user_visible_names()))
+    typer.echo("market : " + ", ".join(MARKET_DATASETS.user_visible_names()))
     typer.echo("domain : " + ", ".join(DOMAIN_DATASETS.user_visible_names()))
 
 
@@ -1009,7 +1014,7 @@ def main() -> None:  # pragma: no cover
     except SystemExit:
         raise
     except Exception as exc:  # noqa: BLE001
-        log.error("beklenmeyen hata", error=str(exc))
+        log.error("unexpected error", error=str(exc))
         sys.exit(1)
 
 
@@ -1025,7 +1030,7 @@ if __name__ == "__main__":  # pragma: no cover
 def _proxy_by_label(session: Session, label: str) -> Proxy:
     row = session.execute(select(Proxy).where(Proxy.label == label)).scalar_one_or_none()
     if row is None:
-        typer.echo(f"proxy bulunamadi: {label}", err=True)
+        typer.echo(f"proxy not found: {label}", err=True)
         raise typer.Exit(code=1)
     return row
 
@@ -1047,7 +1052,7 @@ def proxy_add(
     if endpoint.scheme is ProxyScheme.HTTPS:
         # curl_cffi emits a CurlCffiWarning for this scheme; most users actually
         # want http:// for a CONNECT tunnel.
-        typer.echo("uyari: 'https' proxy'ye TLS demektir; CONNECT-tunel icin 'http' kullanin")
+        typer.echo("warning: 'https' means TLS to the proxy; use 'http' for a CONNECT tunnel")
 
     try:
         password_enc = px.encrypt_password(endpoint.password, settings)
@@ -1067,7 +1072,7 @@ def proxy_add(
             )
         ).scalar_one_or_none()
         if existing is not None:
-            typer.echo(f"zaten var: {existing.label}")
+            typer.echo(f"already present: {existing.label}")
             return
         session.add(
             Proxy(
@@ -1086,9 +1091,9 @@ def proxy_add(
             # not the label: adding a different endpoint under the same label
             # used to print a raw SQLAlchemy traceback.
             session.rollback()
-            typer.echo(f"bu etiket zaten kullanimda: {name}", err=True)
+            typer.echo(f"that label is already in use: {name}", err=True)
             raise typer.Exit(code=1) from None
-    typer.echo(f"eklendi: {name} ({endpoint.scheme.value}://{endpoint.host}:{endpoint.port})")
+    typer.echo(f"added: {name} ({endpoint.scheme.value}://{endpoint.host}:{endpoint.port})")
 
 
 @proxy_app.command("list")
@@ -1104,7 +1109,7 @@ def proxy_list(
     with factory() as session:
         rows = list(session.execute(stmt).scalars())
     if not rows:
-        typer.echo("proxy yok")
+        typer.echo("no proxies")
         return
     typer.echo(f"{'LABEL':<20} {'ENDPOINT':<28} {'ON':<3} {'HEALTH':<18} {'OK/FAIL':<12} LATENCY")
     for row in rows:
@@ -1176,7 +1181,7 @@ def proxy_remove(label: str) -> None:
         row = _proxy_by_label(session, label)
         session.execute(delete(Proxy).where(Proxy.id == row.id))
         session.commit()
-    typer.echo(f"silindi: {label}")
+    typer.echo(f"deleted: {label}")
 
 
 @proxy_app.command("check")
@@ -1209,7 +1214,7 @@ def proxy_check(
                 targets.append((int(row.id), row.label, None, str(exc)))
 
     if not targets:
-        typer.echo("proxy yok")
+        typer.echo("no proxies")
         return
 
     def _run(target: tuple[int, str, px.ProxyEndpoint | None, str]) -> tuple[int, str, Any]:

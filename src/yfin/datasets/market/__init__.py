@@ -1,10 +1,10 @@
-"""Piyasa-kapsamli dataset ailesi (S6.4, S6.5)."""
+"""The market-wide dataset family."""
 
 from __future__ import annotations
 
-# SQ S6.4: modul duzeyindeki `register_market(...)` yalnizca modul
-# IMPORT EDILIRSE kosar. `screener` buraya eklenmezse hicbir zaman
-# kaydolmaz ve `yfin screen sync` SESSIZCE sifir dataset kosardi.
+# The module-level `register_market(...)` runs only when the module is
+# imported. If `screener` were left out here it would never register,
+# and `yfin screen sync` would SILENTLY run zero datasets.
 from yfin.datasets.market import calendars, screener, status  # noqa: F401
 from yfin.datasets.market.base import GlobalDataset, MarketContext
 

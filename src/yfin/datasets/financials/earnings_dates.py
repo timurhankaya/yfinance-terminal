@@ -76,8 +76,8 @@ def _index_tz(index: Any) -> str:
         tz = getattr(index[0], "tz", None)
     if tz is None:
         raise MissingTimezoneError(
-            "earnings_dates index'i tz tasimiyor; damga yorumlanamaz "
-            "(olcumde tum semboller America/New_York donuyordu)"
+            "the earnings_dates index carries no tz; the stamp cannot be interpreted "
+            "(every symbol measured returned America/New_York)"
         )
     return str(tz)
 

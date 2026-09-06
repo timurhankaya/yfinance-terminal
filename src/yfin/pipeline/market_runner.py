@@ -70,7 +70,7 @@ def market_regions(settings: Settings | None = None) -> list[str]:
     regions = [r.strip().upper() for r in cfg.yf_market_regions.split(",") if r.strip()]
     unknown = [r for r in regions if r not in valid]
     if unknown:
-        raise ValueError(f"gecersiz piyasa bolgesi: {', '.join(unknown)}")
+        raise ValueError(f"invalid market region: {', '.join(unknown)}")
     return regions
 
 
@@ -224,7 +224,7 @@ def _setup_proxy(
             try:
                 endpoint = endpoint_of(row, settings)
             except PasswordUndecryptable as exc:
-                log.error("proxy parolasi cozulemedi", proxy=row.label, error=str(exc))
+                log.error("could not decrypt the proxy password", proxy=row.label, error=str(exc))
                 continue
             configure_yfinance(endpoint.dsn(), proxy_key=f"proxy-{row.id}", settings=settings)
             log.info("market sync proxy", proxy=row.label)
@@ -234,5 +234,5 @@ def _setup_proxy(
                 ShardProxyTracker(int(row.id), ProxyPolicy.from_settings(settings)),
             )
     configure_yfinance(None, proxy_key="direct", settings=settings)
-    log.info("market sync dogrudan baglaniliyor")
+    log.info("market sync is connecting directly")
     return None, None, None

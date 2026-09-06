@@ -141,7 +141,7 @@ def fetch_rows(settings: Settings) -> dict[str, str] | None:
         if not sqlalchemy.inspect(engine).has_table(TABLE_NAME):
             # `yfin db upgrade` itself calls get_settings() before the table
             # exists; this is a normal setup state, not an error.
-            log.info("settings tablosu yok; yalniz env kullaniliyor")
+            log.info("no settings table; using env only")
             return None
         with Session(engine) as session:
             rows = session.execute(select(SettingRow.setting_key, SettingRow.value)).all()
@@ -180,15 +180,15 @@ def classify_key(key: str) -> KeyVerdict:
 # env-only row is a security event ("rejected"); an unknown key is usually
 # a non-canonical name inserted via raw SQL ("ignored").
 _LOG_MESSAGE = {
-    KeyVerdict.ENV_ONLY: "settings satiri REDDEDILDI: env-only alan DB'den ezilemez",
-    KeyVerdict.UNKNOWN: "settings satiri yok sayildi: bilinmeyen anahtar",
+    KeyVerdict.ENV_ONLY: "settings row REJECTED: env-only field, not overridable from the DB",
+    KeyVerdict.UNKNOWN: "settings row ignored: unknown key",
 }
 _REJECT_MESSAGE = {
     KeyVerdict.ENV_ONLY: (
-        "{key} env-only bir alandir ve DB'den yonetilemez "
-        "(baglanti bilgileri, Fernet anahtari, log seviyesi)."
+        "{key} is an env-only field and cannot be managed from the database "
+        "(connection details, Fernet key, log level)."
     ),
-    KeyVerdict.UNKNOWN: "bilinmeyen ayar anahtari: {key}",
+    KeyVerdict.UNKNOWN: "unknown setting key: {key}",
 }
 
 
@@ -304,7 +304,7 @@ def validate_pair(key: str, value: str, *, overrides: Mapping[str, str]) -> None
     try:
         settings_from_overrides(candidate)
     except ValidationError as exc:
-        raise SettingRejected(f"{key} icin gecersiz deger {value!r}: {_first_error(exc)}") from exc
+        raise SettingRejected(f"invalid value {value!r} for {key}: {_first_error(exc)}") from exc
 
 
 def _first_error(exc: ValidationError) -> str:
@@ -392,10 +392,10 @@ def load_seed_file(path: Path = SEED_PATH) -> dict[str, Any]:
     that link.
     """
     if not path.exists():
-        raise SettingRejected(f"tohum dosyasi bulunamadi: {path}")
+        raise SettingRejected(f"seed file not found: {path}")
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
-        raise SettingRejected(f"tohum dosyasi bir JSON nesnesi olmali: {path}")
+        raise SettingRejected(f"the seed file must be a JSON object: {path}")
     return data
 
 

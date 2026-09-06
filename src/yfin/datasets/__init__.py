@@ -1,4 +1,4 @@
-"""Alt modulleri import ederek registry kayitlarini tetikler (S6.1)."""
+"""Importing the submodules is what triggers their registry entries."""
 
 from __future__ import annotations
 

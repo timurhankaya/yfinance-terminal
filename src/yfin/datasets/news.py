@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from yfin.core import normalize as nz
@@ -33,12 +34,12 @@ _NEWS_UPDATE = (
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
-    """Kaynakta bu alanlar sozluk ya da None olabilir."""
+    """Upstream, these fields may be a dict or None."""
     return value if isinstance(value, dict) else {}
 
 
 def _url(value: Any) -> str | None:
-    """canonicalUrl / clickThroughUrl bir sozluktur; 'url' anahtarini tasir."""
+    """canonicalUrl / clickThroughUrl is a dict carrying a 'url' key."""
     if isinstance(value, dict):
         return nz.to_str(value.get("url"))
     return nz.to_str(value)
@@ -46,7 +47,7 @@ def _url(value: Any) -> str | None:
 
 def _thumbnail(thumb: Any) -> tuple[str | None, int | None, int | None]:
     """tag='original' cozunurlugu kolonlara; digerleri raw_json'da kalir.
-    thumbnail None olabilir (50 haberin 5'inde) - S8.3."""
+    thumbnail may be None (5 of 50 articles measured)."""
     if not isinstance(thumb, dict):
         return None, None, None
     for res in thumb.get("resolutions") or []:
@@ -83,9 +84,9 @@ class NewsDataset(Dataset[NewsPayload]):
 
     def fetch(self, ctx: SyncContext) -> NewsPayload:
         settings = get_settings()
-        # TAZE bir Ticker kullanilir (S6.3): get_news onbellegi count/tab
-        # parametrelerini yok sayar ('if self._news: return self._news');
-        # ayni Ticker daha once news cektiyse cagri sessizce 10 haberle
+        # A FRESH Ticker is used: the get_news cache ignores the count/tab
+        # parameters ('if self._news: return self._news'), so if the same
+        # Ticker already fetched news the call silently returns 10 items
         # sinirlanir. Bu, ctx.cached mekanizmasinin TEK ISTISNASIDIR.
         ticker = make_ticker(ctx.symbol)
         result: NewsPayload = call_yahoo(
@@ -106,7 +107,8 @@ class NewsDataset(Dataset[NewsPayload]):
         for item in raw:
             if not isinstance(item, dict):
                 continue
-            # PK -> KIRPILMAZ: ilk 36 karakteri ayni iki haber tek satirda
+            # PK -> NEVER TRUNCATED: two articles sharing the first 36
+            # characters would collapse into a single row
             # birlesir ve ikincisinin govdesi birincisini ezerdi.
             news_id = key_value(
                 item.get("id"), 36, field="news_id", dataset=self.name, symbol=symbol
@@ -133,7 +135,7 @@ class NewsDataset(Dataset[NewsPayload]):
                         "description": nz.to_str(content.get("description")),
                         "content_type": nz.to_str(content.get("contentType"), 32),
                         "pub_date": pub_date,
-                        # displayTime bos string gelebilir -> NULL (S8.3)
+                        # displayTime can arrive as an empty string -> NULL
                         "display_time": _iso_to_dt(content.get("displayTime")),
                         "provider_name": nz.to_str(provider.get("displayName"), 128),
                         "provider_url": nz.to_str(provider.get("url"), 255),
@@ -200,22 +202,17 @@ class NewsDataset(Dataset[NewsPayload]):
 
     @staticmethod
     def _mark_known(writer: RowWriter, write: TableWrite) -> TableWrite:
-        """is_known: sembol symbols tablosunda var mi (S5.2).
+        """is_known: whether the symbol exists in the symbols table.
 
-        news_symbols.symbol uzerinde FK YOKTUR: kaynakta evren disi
-        semboller geliyor ve FK olsaydi sembol basina tek transaction geregi
-        TUM sembolun verisi rollback olurdu (S5.5).
+        There is NO foreign key on news_symbols.symbol: upstream sends
+        symbols from outside our universe, and because each symbol runs in
+        a single transaction, an FK violation would roll back ALL of that
+        symbol's data.
         """
         candidates = {row["symbol"] for row in write.rows}
         known = writer.known_symbols(candidates)
         rows = [{**row, "is_known": row["symbol"] in known} for row in write.rows]
-        return TableWrite(
-            table=write.table,
-            rows=rows,
-            key_columns=write.key_columns,
-            update_columns=write.update_columns,
-            mode=write.mode,
-        )
+        return replace(write, rows=rows)
 
 
 register(NewsDataset())

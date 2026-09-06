@@ -248,7 +248,7 @@ def expect_dict(value: Any, *, what: str) -> dict[str, Any]:
     response shape changed" (`failed`); the latter needs to be seen right away.
     """
     if not isinstance(value, dict):
-        raise TypeError(f"{what} yaniti sozluk degil: {type(value).__name__}")
+        raise TypeError(f"the {what} response is not a dict: {type(value).__name__}")
     return value
 
 

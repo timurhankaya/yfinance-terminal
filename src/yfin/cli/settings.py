@@ -59,16 +59,19 @@ def _read_rows_or_warn(settings: Settings) -> dict[str, str] | None:
     """
     if source_is_env():
         typer.echo(
-            "DB katmani KAPALI (YF_SETTINGS_SOURCE=env): asagidaki degerler "
-            ".env ve model varsayilanlarindan geliyor. "
-            "`set` / `unset` / `seed` yine de DB'ye YAZAR.",
+            "DB layer OFF (YF_SETTINGS_SOURCE=env): the values below come "
+            "from .env and the model defaults. "
+            "`set` / `unset` / `seed` still WRITE to the database.",
             err=True,
         )
         return None
     try:
         return fetch_rows(settings)
     except Exception as exc:  # noqa: BLE001 - a recovery command must not crash
-        typer.echo(f"settings tablosu okunamadi ({exc}); env/default ile devam ediliyor.", err=True)
+        typer.echo(
+            f"could not read the settings table ({exc}); continuing with env/default.",
+            err=True,
+        )
         return None
 
 
@@ -99,10 +102,10 @@ def config_list(
     `--source db` for row existence.
     """
     if group is not None and group not in SETTING_GROUPS:
-        typer.echo(f"bilinmeyen grup: {group} ({', '.join(SETTING_GROUPS)})", err=True)
+        typer.echo(f"unknown group: {group} ({', '.join(SETTING_GROUPS)})", err=True)
         raise typer.Exit(code=EXIT_REJECTED)
     if source is not None and source not in {s.value for s in Source}:
-        typer.echo(f"bilinmeyen kaynak: {source} (db | env | default)", err=True)
+        typer.echo(f"unknown source: {source} (db | env | default)", err=True)
         raise typer.Exit(code=EXIT_REJECTED)
 
     settings = bootstrap_settings()
@@ -124,7 +127,7 @@ def config_list(
         mark = " " if state.has_row else "*"
         typer.echo(f"{mark} {key:<34} {state.value:<28} {state.source.value:<8} {groups[key]}")
         shown += 1
-    typer.echo(f"-- {shown} ayar ('*' = settings satiri yok)")
+    typer.echo(f"-- {shown} settings ('*' = no settings row)")
 
 
 @config_app.command("get")
@@ -135,9 +138,9 @@ def config_get(key: Annotated[str, typer.Argument(help="Setting key")]) -> None:
     states = _states(settings)
     state = states.get(canonical)
     if state is None:
-        typer.echo(f"bilinmeyen ya da DB-yonetimli olmayan ayar: {canonical}", err=True)
+        typer.echo(f"unknown or not DB-managed setting: {canonical}", err=True)
         raise typer.Exit(code=EXIT_REJECTED)
-    mark = "" if state.has_row else "  (settings satiri yok)"
+    mark = "" if state.has_row else "  (no settings row)"
     typer.echo(f"{state.key} = {state.value}  [{state.source.value}]{mark}")
 
 
@@ -167,17 +170,17 @@ def config_unset(key: Annotated[str, typer.Argument(help="Setting key")]) -> Non
     """
     canonical = normalize_key(key)
     if canonical not in DB_MANAGED_FIELDS:
-        typer.echo(f"bilinmeyen ya da DB-yonetimli olmayan ayar: {canonical}", err=True)
+        typer.echo(f"unknown or not DB-managed setting: {canonical}", err=True)
         raise typer.Exit(code=EXIT_REJECTED)
 
     settings = bootstrap_settings()
     removed = unset_setting(canonical, settings=settings)
-    typer.echo(f"{canonical}: satir silindi" if removed else f"{canonical}: zaten satir yoktu")
+    typer.echo(f"{canonical}: row deleted" if removed else f"{canonical}: there was no row")
 
     # `settings` here is a bootstrap instance with the DB layer disabled, so
     # it already carries the result of the `.env` -> default chain: exactly
     # the value that becomes effective once the row is gone.
-    typer.echo(f"artik gecerli olacak deger: {serialize(getattr(settings, canonical))}")
+    typer.echo(f"value now in effect: {serialize(getattr(settings, canonical))}")
 
     # If the key is in the seed file, `unset` is NOT PERMANENT and this must
     # be said: the JSON is "this deployment's configuration", the next
@@ -188,8 +191,8 @@ def config_unset(key: Annotated[str, typer.Argument(help="Setting key")]) -> Non
         seed = set()
     if canonical in seed:
         typer.echo(
-            f"UYARI: {canonical} {SEED_PATH} dosyasinda tanimli; "
-            "bir sonraki `yfin config seed` onu geri koyacak."
+            f"WARNING: {canonical} is defined in {SEED_PATH}; "
+            "the next `yfin config seed` will put it back."
         )
 
 
@@ -226,7 +229,7 @@ def config_seed(
         typer.echo(f"settings tablosu okunamadi: {exc}", err=True)
         raise typer.Exit(code=1) from None
     if rows is None:
-        typer.echo("settings tablosu yok; once `yfin db upgrade` calistirin.", err=True)
+        typer.echo("no settings table; run `yfin db upgrade` first.", err=True)
         raise typer.Exit(code=1)
 
     try:
@@ -238,18 +241,18 @@ def config_seed(
         )
     except SettingRejected as exc:
         # ALL OR NOTHING: an invalid JSON writes NOTHING.
-        typer.echo(f"tohum reddedildi, hicbir sey yazilmadi: {exc}", err=True)
+        typer.echo(f"seed rejected, nothing was written: {exc}", err=True)
         raise typer.Exit(code=EXIT_REJECTED) from None
 
     for key, value in sorted(plan.items()):
         typer.echo(f"{'[dry-run] ' if dry_run else ''}{key} = {value}")
 
     if dry_run:
-        typer.echo(f"-- {len(plan)} satir yazilacakti")
+        typer.echo(f"-- {len(plan)} rows would be written")
         raise typer.Exit(code=1 if plan else 0)
 
     write_all(plan, settings=settings)
-    typer.echo(f"-- {len(plan)} satir yazildi")
+    typer.echo(f"-- {len(plan)} rows written")
 
 
 @config_app.command("export")

@@ -98,7 +98,7 @@ def _first_row(result: NormalizedResult) -> dict[str, Any]:
     """
     first = next((row for write in result.writes for row in write.rows), None)
     if first is None:  # pragma: no cover - defensive
-        raise ValueError("kapi satiri icin veri satiri yok")
+        raise ValueError("no data row for the gate row")
     return first
 
 

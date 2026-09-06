@@ -1,4 +1,4 @@
-"""company_officers (S5.2). info'nun ham ciktisindan turer, ayri ag cagrisi yok."""
+"""company_officers. Derived from the raw info payload; no extra network call."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from yfin.models.base import (
 
 
 class CompanyOfficer(Base):
-    """Surrogate id YOKTUR: dogal anahtar yeterlidir ve her upsert'te
-    yapay anahtar tuketilmesini onler (S5.2)."""
+    """There is NO surrogate id: the natural key suffices, and it keeps
+    every upsert from burning an artificial key."""
 
     __tablename__ = "company_officers"
 

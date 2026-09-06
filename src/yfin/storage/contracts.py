@@ -103,7 +103,22 @@ class RowWriter(RowSink, HashReader, SymbolLookup, Protocol):
     """
 
 
+def distinct_key_count(write: TableWrite) -> int:
+    """Rows that can actually land, i.e. distinct key tuples.
+
+    `len(rows)` is the wrong denominator: the writer collapses rows that
+    share a key (ON CONFLICT cannot touch one row twice in a statement),
+    so a batch carrying a duplicate key stores fewer rows than it holds.
+    Counting the raw list made `verified != attempted` and marked a
+    correct write FAILED.
+    """
+    if not write.key_columns:
+        return len(write.rows)
+    return len({tuple(row.get(name) for name in write.key_columns) for row in write.rows})
+
+
 def apply_write(writer: RowSink, write: TableWrite, stats: WriteStats) -> None:
     """Applies one TableWrite and updates the stats."""
-    stats.attempted[write.table] = stats.attempted.get(write.table, 0) + len(write.rows)
+    attempted = distinct_key_count(write)
+    stats.attempted[write.table] = stats.attempted.get(write.table, 0) + attempted
     stats.verified[write.table] = stats.verified.get(write.table, 0) + writer.write(write)

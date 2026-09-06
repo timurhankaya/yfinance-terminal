@@ -149,7 +149,7 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
         # typed branch kicks in before clipping starts.
         if totals.get(ALL_TYPE, 0) > cfg.yf_lookup_all_threshold:
             log.info(
-                "lookup all kirpildi, tipli dala geciliyor",
+                "lookup all was truncated, switching to the typed branch",
                 term=term,
                 total=totals.get(ALL_TYPE),
                 documents=len(docs),

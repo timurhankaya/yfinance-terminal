@@ -149,8 +149,8 @@ class Registry[D: Registrable]:
         unknown = [n for n in selected if n not in self._items]
         if unknown:
             raise UnknownDatasetError(
-                f"bilinmeyen dataset: {', '.join(unknown)}. "
-                f"gecerli adlar: {', '.join(self.user_visible_names())}"
+                f"unknown dataset: {', '.join(unknown)}. "
+                f"valid names: {', '.join(self.user_visible_names())}"
             )
 
         wanted: dict[str, None] = {}
@@ -168,7 +168,7 @@ class Registry[D: Registrable]:
             if state.get(name) == 0:
                 raise DependencyCycleError(f"dongu: {' -> '.join((*path, name))}")
             if name not in self._items:
-                raise UnknownDatasetError(f"bilinmeyen bagimlilik: {name}")
+                raise UnknownDatasetError(f"unknown dependency: {name}")
             state[name] = 0
             for dep in self._items[name].depends_on:
                 visit(dep, (*path, name))

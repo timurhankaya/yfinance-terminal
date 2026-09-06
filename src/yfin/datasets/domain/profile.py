@@ -295,7 +295,7 @@ class IndustryProfileDataset(_DomainProfileDataset):
             # Signal of taxonomy drift. The row does not update `parent_key`
             # (outside update_columns), so this cannot silently overwrite it.
             log.warning(
-                "sectorKey domains.parent_key ile uyusmuyor",
+                "sectorKey does not match domains.parent_key",
                 dataset=self.name,
                 domain_key=key,
                 response_parent=parent,

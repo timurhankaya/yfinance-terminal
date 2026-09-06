@@ -118,7 +118,7 @@ def plan_windows(
     manually requested backfill failing is user error, not a missed fetch.
     """
     if interval not in BAR_LIMITS:
-        raise ValueError(f"bilinmeyen interval: {interval}; gecerli: {', '.join(BAR_INTERVALS)}")
+        raise ValueError(f"unknown interval: {interval}; valid: {', '.join(BAR_INTERVALS)}")
 
     per_request, depth = BAR_LIMITS[interval]
     today = _as_date(now)
@@ -288,7 +288,7 @@ def is_extended_bar(
 def normalize_bars(raw: BarPayload, symbol: str) -> NormalizedResult:
     """Converts the raw frame into price_bars rows."""
     if raw.interval not in BAR_LIMITS:
-        raise ValueError(f"bilinmeyen interval: {raw.interval}")
+        raise ValueError(f"unknown interval: {raw.interval}")
     if nz.is_empty_result(raw.frame):
         # No early return: gap records are independent of the frame. If a
         # slice failed and no bars came back at all, that gap must still be
@@ -506,7 +506,7 @@ class IntervalBarDataset(Dataset[BarPayload]):
 
     def __init__(self, interval: str) -> None:
         if interval not in BAR_INTERVALS:
-            raise ValueError(f"bilinmeyen interval: {interval}")
+            raise ValueError(f"unknown interval: {interval}")
         self.interval = interval
         self.name = f"bars_{interval}"
         self.produces = (bars_table_for(interval), "bar_gaps")

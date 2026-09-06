@@ -80,7 +80,7 @@ class DomainContext:
     def for_region(self, region: str) -> DomainContext:
         return self._clone(region=region)
 
-    # --- cekim icin turetilmis degerler -----------------------------------
+    # --- values derived for fetching -----------------------------------
 
     @property
     def fetch_region(self) -> str:
@@ -95,13 +95,13 @@ class DomainContext:
     @property
     def target_key(self) -> str:
         if self.key is None:  # pragma: no cover - defensive
-            raise ValueError("DomainContext.key ayarlanmadan fetch cagrildi")
+            raise ValueError("fetch was called before DomainContext.key was set")
         return self.key
 
     @property
     def target_type(self) -> DomainType:
         if self.domain_type is None:  # pragma: no cover - defensive
-            raise ValueError("DomainContext.domain_type ayarlanmadan fetch cagrildi")
+            raise ValueError("fetch was called before DomainContext.domain_type was set")
         return self.domain_type
 
 

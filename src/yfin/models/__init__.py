@@ -17,10 +17,12 @@ from yfin.models.analysis import (
 from yfin.models.asof import AsOfState
 from yfin.models.bars import (
     BAR_INTERVALS,
+    DAILY_INTERVAL,
     GAP_FETCH_FAILED,
     GAP_RETENTION_EXPIRED,
     INTRADAY_INTERVALS,
     PERIODIC_INTERVALS,
+    READABLE_INTERVALS,
     BarGap,
     BarRescale,
     IntradayScope,
@@ -251,6 +253,8 @@ __all__ = [
     "market_status_history",
     "market_summary",
     "market_summary_history",
+    "DAILY_INTERVAL",
+    "READABLE_INTERVALS",
     "bars_table_for",
     "timescale_ddl",
     "ticker_calendar",

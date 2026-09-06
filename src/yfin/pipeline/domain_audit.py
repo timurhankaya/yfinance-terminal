@@ -53,7 +53,7 @@ def audit_domains(
     )
     if report.sector_count != len(SECTOR_KEYS):
         report.problems.append(
-            f"sektor sayisi {report.sector_count}, beklenen {len(SECTOR_KEYS)}"
+            f"sector count {report.sector_count}, expected {len(SECTOR_KEYS)}"
         )
 
     report.industry_count = int(
@@ -94,12 +94,12 @@ def audit_domains(
 
     if report.expected_industries is None:
         report.problems.append(
-            "domain_metrics'te sektor satiri yok: beklenen endustri sayisi hesaplanamiyor"
+            "no sector row in domain_metrics: cannot compute the expected industry count"
         )
     elif report.expected_industries != report.industry_count:
         report.problems.append(
-            f"endustri sayisi {report.industry_count}, "
-            f"API'nin bildirdigi toplam {report.expected_industries}"
+            f"industry count {report.industry_count}, "
+            f"against the {report.expected_industries} the API reports"
         )
 
     # 3) Cell coverage and failures

@@ -153,10 +153,10 @@ def advisory_lock(engine: Engine, name: str = SYNC_LOCK_NAME) -> Iterator[None]:
         if not got:
             # Include who holds it. A bare "not acquired" message tells
             # someone who accidentally started two overlapping runs nothing.
-            holder = lock_holder(conn, name) or "sahip bulunamadi"
+            holder = lock_holder(conn, name) or "holder not found"
             raise LockNotAcquired(
-                f"advisory lock alinamadi: {name} ({holder}). "
-                "Baska bir sync/live test kosusu devam ediyor olabilir."
+                f"advisory lock not acquired: {name} ({holder}). "
+                "Another sync or live test run may still be in progress."
             )
         try:
             yield

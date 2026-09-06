@@ -12,7 +12,7 @@ from yfin.storage.contracts import TableWrite
 class IsinDataset(Dataset[str | None]):
     name = "isin"
     depends_on = ("symbols",)
-    produces = ("symbols",)  # produces her zaman TABLO adidir (S6.1/1)
+    produces = ("symbols",)  # `produces` is always a TABLE name
 
     def fetch(self, ctx: SyncContext) -> str | None:
         result: str | None = call_yahoo(ctx.ticker.get_isin, what=f"isin:{ctx.symbol}")

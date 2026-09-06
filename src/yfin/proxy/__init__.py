@@ -1,8 +1,8 @@
 """Proxy havuzu.
 
-Sorumluluklar ayri modullerde: `dsn` (deger nesnesi), `crypto`
+Responsibilities live in separate modules: `dsn` (value object), `crypto`
 (sifreleme), `health` (SAF durum makinesi), `repository` (DB), `check`
-(ag). Disaridan tek bir yuz gorunur.
+(network). From the outside a single surface is visible.
 """
 
 from __future__ import annotations

@@ -173,7 +173,7 @@ class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
         # (region, board_code) PK.
         for key, value in payload.items():
             if len(str(key)) > BOARD_CODE_MAX or not isinstance(value, dict):
-                raise ValueError(f"market summary sekli beklenmedik: anahtar={key!r}")
+                raise ValueError(f"unexpected market summary shape: key={key!r}")
 
         rows: list[dict[str, Any]] = []
         symbols: set[str] = set()

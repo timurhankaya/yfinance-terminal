@@ -280,3 +280,24 @@ def test_both_bar_tables_share_the_same_primary_key() -> None:
     assert pk["price_bars"] == pk["periodic_bars"] == {"symbol", "bar_interval", "ts_utc"}
     assert bars_table_for("1m") == "price_bars"
     assert bars_table_for("1wk") == "periodic_bars"
+
+
+def test_the_daily_interval_resolves_to_its_own_table() -> None:
+    """`1d` has a different shape from the bar tables -- keyed on the
+    exchange session date, carrying adj_close, with no bar_interval -- so
+    it lives in price_history and the resolver has to say so."""
+    from yfin.models import bars_table_for
+
+    assert bars_table_for("1d") == "price_history"
+
+
+def test_an_unknown_interval_RAISES_instead_of_guessing() -> None:
+    """This used to fall through to periodic_bars for anything it did not
+    recognise, so `bars_table_for("1d")` quietly named the wrong table:
+    no error, no warning, just a query against a different primary key."""
+    import pytest
+
+    from yfin.models import bars_table_for
+
+    with pytest.raises(ValueError, match="unknown interval"):
+        bars_table_for("3mo")

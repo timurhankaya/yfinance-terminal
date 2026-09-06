@@ -1,4 +1,4 @@
-"""Analist dataset'leri; import edilmesi registry kayitlarini tetikler."""
+"""Analyst datasets; importing them is what triggers their registry entries."""
 
 from __future__ import annotations
 

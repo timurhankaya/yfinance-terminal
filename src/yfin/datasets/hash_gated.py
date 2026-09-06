@@ -15,6 +15,7 @@ Rule:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from yfin.datasets.base import Dataset, NormalizedResult
@@ -98,11 +99,9 @@ class HashGate:
                 continue
             apply_write(
                 writer,
-                TableWrite(
-                    table=write.table,
+                replace(
+                    write,
                     rows=kept,
-                    key_columns=write.key_columns,
-                    update_columns=write.update_columns,
                     mode="replace_scope",
                     scope_columns=self.gate_key_columns,
                     scope_values=scope_values,
@@ -129,12 +128,6 @@ def _with_rows(
     *,
     update_columns: tuple[str, ...] | None = None,
 ) -> TableWrite:
-    return TableWrite(
-        table=write.table,
-        rows=rows,
-        key_columns=write.key_columns,
-        update_columns=update_columns if update_columns is not None else write.update_columns,
-        mode=write.mode,
-        scope_columns=write.scope_columns,
-        scope_values=write.scope_values,
-    )
+    if update_columns is None:
+        return replace(write, rows=rows)
+    return replace(write, rows=rows, update_columns=update_columns)

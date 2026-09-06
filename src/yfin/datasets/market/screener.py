@@ -201,8 +201,8 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
             unknown = [k for k in wanted if k not in set(keys)]
             if unknown:
                 raise ValueError(
-                    f"bilinmeyen ekran: {', '.join(unknown)}. "
-                    f"gecerli adlar: {', '.join(sorted(keys))}"
+                    f"unknown screen: {', '.join(unknown)}. "
+                    f"valid names: {', '.join(sorted(keys))}"
                 )
             keys = [k for k in keys if k in set(wanted)]
         return [k for k in keys if k not in _disabled_keys(session)]
@@ -212,7 +212,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
     def fetch(self, mctx: MarketContext) -> ScreenPayload:
         cfg = get_settings()
         if mctx.variant is None:  # pragma: no cover - defensive
-            raise ValueError("screener `variant` olmadan cagrilamaz")
+            raise ValueError("screener cannot be called without a `variant`")
         spec = screen_by_key(mctx.variant)
 
         quotes: list[dict[str, Any]] = []

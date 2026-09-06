@@ -30,12 +30,12 @@ class HistoryMetadataDataset(Dataset[MetadataPayload]):
         if nz.is_empty_result(metadata):
             return NormalizedResult()
 
-        # HistoryMetadata bir dict DEGIL, Mapping'dir (S8.3)
+        # HistoryMetadata is NOT a dict, it is a Mapping
         payload = nz.as_mapping(metadata)
         warn_unmapped(
             payload, HISTORY_METADATA_FIELDS, dataset="history_metadata", ignore=_RAW_ONLY
         )
-        # tradingPeriods bir DataFrame; YFJSONEncoder onu records'a cevirir
+        # tradingPeriods is a DataFrame; YFJSONEncoder turns it into records
         row, _ = snapshot_rows(symbol, payload, HISTORY_METADATA_FIELDS, raw.fetched_at)
 
         return NormalizedResult(

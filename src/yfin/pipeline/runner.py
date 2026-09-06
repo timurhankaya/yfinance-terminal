@@ -258,7 +258,7 @@ def resolve_symbol(
         return None, f"{type(exc).__name__}: {exc}", kind
     if result.is_empty:
         # An empty result is not a network error; don't penalize the proxy.
-        return None, "sembol cozulemedi: bos sonuc", None
+        return None, "symbol could not be resolved: empty result", None
     return result, None, None
 
 
@@ -857,7 +857,7 @@ def run_shard(
                         symbol=payload.symbol,
                         dataset=SYMBOL_DATASETS.bootstrap or "symbols",
                         status=status,
-                        error=payload.error or "sembol cozulemedi",
+                        error=payload.error or "symbol could not be resolved",
                     )
                 ]
             )
@@ -895,7 +895,7 @@ def record_not_attempted(
                 symbol=symbol,
                 dataset=SYMBOL_DATASETS.bootstrap or "symbols",
                 status=ItemStatus.NOT_ATTEMPTED,
-                error="shard cekildi; sembol kuyrukta kaldi",
+                error="shard withdrawn; symbol left in the queue",
             )
             for symbol in symbols
         ],

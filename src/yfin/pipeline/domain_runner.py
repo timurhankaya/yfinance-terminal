@@ -113,11 +113,11 @@ def domain_regions(
     getter = fetch or fetch_domain
     regions = [r.strip().upper() for r in cfg.yf_domain_regions.split(",") if r.strip()]
     if not regions:
-        raise RegionValidationError("YF_DOMAIN_REGIONS bos olamaz")
+        raise RegionValidationError("YF_DOMAIN_REGIONS must not be empty")
     bad = [r for r in regions if not _REGION_PATTERN.fullmatch(r)]
     if bad:
         raise RegionValidationError(
-            f"gecersiz bolge kodu (ISO 3166-1 alpha-2): {', '.join(bad)}"
+            f"invalid region code (ISO 3166-1 alpha-2): {', '.join(bad)}"
         )
 
     candidates = [r for r in regions if r != US]
@@ -142,10 +142,10 @@ def domain_regions(
         overlap = len(probe & base) / len(base) if base else 0.0
         if overlap >= FALLBACK_OVERLAP:
             raise RegionValidationError(
-                f"bolge {region!r} Yahoo tarafindan desteklenmiyor: referans sektorun "
-                f"sirket listesi US ile %{overlap * 100:.0f} ortusuyor "
-                f"(esik %{FALLBACK_OVERLAP * 100:.0f}) -- "
-                f"US verisi {region!r} etiketiyle yazilacakti"
+                f"region {region!r} is not supported by Yahoo: the company list of the "
+                f"reference sector overlaps US by {overlap * 100:.0f}% "
+                f"(threshold {FALLBACK_OVERLAP * 100:.0f}%) -- "
+                f"US data would have been written under the {region!r} label"
             )
     return regions
 
@@ -348,7 +348,7 @@ def _setup_proxy(
             try:
                 endpoint = endpoint_of(row, settings)
             except PasswordUndecryptable as exc:
-                log.error("proxy parolasi cozulemedi", proxy=row.label, error=str(exc))
+                log.error("could not decrypt the proxy password", proxy=row.label, error=str(exc))
                 continue
             configure_yfinance(endpoint.dsn(), proxy_key=f"proxy-{row.id}", settings=settings)
             log.info("domain sync proxy", proxy=row.label)
@@ -358,5 +358,5 @@ def _setup_proxy(
                 ShardProxyTracker(int(row.id), ProxyPolicy.from_settings(settings)),
             )
     configure_yfinance(None, proxy_key="direct", settings=settings)
-    log.info("domain sync dogrudan baglaniliyor")
+    log.info("domain sync is connecting directly")
     return None, None, None

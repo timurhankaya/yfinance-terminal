@@ -1,6 +1,6 @@
 """Sektor / endustri dataset'leri (SI S7).
 
-Alt modulleri import etmek `DOMAIN_DATASETS` kayitlarini tetikler.
+Importing the submodules is what triggers the `DOMAIN_DATASETS` entries.
 """
 
 from __future__ import annotations
