@@ -81,12 +81,18 @@ def test_thyao_degenerate_pre_post_columns_do_not_mark_everything_extended() -> 
     assert len(rows) == 479
 
 
-def test_multiday_intervals_are_never_extended() -> None:
-    """1wk/1mo'da kavram anlamsizdir (PB S6.4 kural 1)."""
+def test_multiday_intervals_carry_no_extended_column() -> None:
+    """1wk/1mo'da kavram anlamsizdir (PB S6.4 kural 1).
+
+    Eskiden bu satirlar `is_extended=False` tasiyordu. Artik KOLONU HIC
+    TASIMIYORLAR: gun ustu barlar `periodic_bars`a gider ve o tabloda
+    boyle bir kolon YOKTUR (PG S7.1). "Anlamsiz alani False ile
+    doldurmak" yerine "alani hic olusturmamak" -- kavram semada da yok.
+    """
     for dataset, interval in (("bars_1wk", "1wk"), ("bars_1mo", "1mo")):
         rows = _rows("AAPL", dataset, interval)
         assert rows
-        assert not any(r["is_extended"] for r in rows)
+        assert all("is_extended" not in r for r in rows)
 
 
 def test_missing_trading_periods_defaults_to_not_extended() -> None:

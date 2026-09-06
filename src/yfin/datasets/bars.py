@@ -25,6 +25,7 @@ from yfin.models.bars import (
     GAP_FETCH_FAILED,
     GAP_RETENTION_EXPIRED,
     INTRADAY_INTERVALS,
+    bars_table_for,
 )
 
 # (istek basina azami gun, geriye azami derinlik gun) - PB S4.3'te olculdu.
@@ -296,6 +297,7 @@ def normalize_bars(raw: BarPayload, symbol: str) -> NormalizedResult:
         return NormalizedResult(writes=_gap_writes(raw, symbol))
 
     frame = raw.frame
+    table_name = bars_table_for(raw.interval)
     bounds = _session_bounds(raw.trading_periods)
     # Kolon seti sembole gore DEGISIR (ETF'te 'Capital Gains' eklenir);
     # sabit siraya veya varliga guvenilmez (S8.3). Bu uc kolon zaten
@@ -321,8 +323,14 @@ def normalize_bars(raw: BarPayload, symbol: str) -> NormalizedResult:
             "ts_utc": ts_utc,
             "local_date": local_day,
             "close": close,
-            "is_extended": is_extended_bar(pd.Timestamp(index), local_day, bounds, raw.interval),
         }
+        # `is_extended` YALNIZ intraday tabloda vardir: seans disi kavrami
+        # gun ustu barda anlamsizdir ve `periodic_bars`ta KOLON YOKTUR
+        # (models/bars.py: PeriodicBar).
+        if table_name == "price_bars":
+            row["is_extended"] = is_extended_bar(
+                pd.Timestamp(index), local_day, bounds, raw.interval
+            )
         for src, dst in present.items():
             if dst == "close":
                 continue
@@ -338,9 +346,12 @@ def normalize_bars(raw: BarPayload, symbol: str) -> NormalizedResult:
     if rows:
         writes.append(
             TableWrite(
-                table="price_bars",
+                table=table_name,
                 rows=rows,
                 key_columns=("symbol", "bar_interval", "ts_utc"),
+                # `is_extended` intraday'e ozeldir; align_rows zaten
+                # eksik kolonu tolere eder ve `_insert_stmt` guncelleme
+                # kapsamini MEVCUT kolonlarla kesistirir.
                 update_columns=UPDATE_COLUMNS,
             )
         )
@@ -475,7 +486,11 @@ class IntervalBarDataset(Dataset[BarPayload]):
     dersinden farki budur - orada tip degisiyordu).
     """
 
-    produces = ("price_bars", "bar_gaps")
+    # `produces` INSTANCE attribute'tur: hangi tabloya yazdigi interval'e
+    # baglidir (intraday -> price_bars, 1wk/1mo -> periodic_bars). Sinif
+    # attribute'u olarak sabitlenseydi denetim yanlis tabloyu bildirirdi
+    # ve rescale kancasi (runner.py) gun ustu kosularda da tetiklenirdi.
+    produces: tuple[str, ...] = ("price_bars", "bar_gaps")
     # SADECE "symbols". Once ("symbols", "splits") yazilmisti; iki ayri
     # nedenle YANLISTI:
     #   1. "splits" bir TABLO adidir, dataset adi degil - Registry
@@ -496,6 +511,7 @@ class IntervalBarDataset(Dataset[BarPayload]):
             raise ValueError(f"bilinmeyen interval: {interval}")
         self.interval = interval
         self.name = f"bars_{interval}"
+        self.produces = (bars_table_for(interval), "bar_gaps")
 
     def fetch(self, ctx: SyncContext) -> BarPayload:
         # Kapsam kapisi AG CAGRISINDAN ONCE (PB S6.5): kapsam disi sembol
@@ -503,7 +519,9 @@ class IntervalBarDataset(Dataset[BarPayload]):
         if not ctx.in_scope(self.interval):
             raise DatasetOutOfScope(self.interval)
 
-        watermark = ctx.watermark("price_bars", "ts_utc", where={"bar_interval": self.interval})
+        watermark = ctx.watermark(
+            bars_table_for(self.interval), "ts_utc", where={"bar_interval": self.interval}
+        )
         open_gaps = ctx.open_gaps(self.interval)
         plan = plan_windows(
             self.interval,

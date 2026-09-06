@@ -19,12 +19,13 @@ from yfin.config import (
     Settings,
 )
 
-# Sayilar 2026-09-05 anlik goruntusudur ve MEKANIZMA bunlara dayanmaz;
+# Sayilar 2026-09-06 anlik goruntusudur (spec 47/39 diyordu;
+# `yf_probe_sustainability` YAGNI geregi kaldirildi) ve MEKANIZMA bunlara dayanmaz;
 # yine de bir alan eklendiginde bu dosyanin okunmasini zorlamak icin
 # tutulurlar.
-SNAPSHOT_TOTAL = 47
+SNAPSHOT_TOTAL = 46
 SNAPSHOT_ENV_ONLY = 8
-SNAPSHOT_DB_MANAGED = 39
+SNAPSHOT_DB_MANAGED = 38
 
 SECRET_NAME_RE = re.compile(r"secret|password|token|credential")
 

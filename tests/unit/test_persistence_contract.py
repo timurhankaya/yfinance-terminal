@@ -247,9 +247,36 @@ def test_every_declared_key_matches_a_real_unique_constraint() -> None:
                 )
 
     assert not problems, problems
-    # Olculdu: 39 cagri statik olarak cozuluyor, 33'u cozulemiyor
-    # (degiskenden gelen tuple, kosullu dal). Esikler GEVSEK DEGIL:
-    # kapsam duserse ya da cozulemeyenler artarsa burasi kirmizi olur --
-    # aksi halde invaryant sessizce zayiflardi.
-    assert checked >= 39, f"denetlenen cagri sayisi DUSTU: {checked}"
-    assert len(unresolved) <= 33, f"cozulemeyen cagri sayisi ARTTI: {unresolved}"
+    # Olculdu: 38 cagri statik olarak cozuluyor, 34'u cozulemiyor
+    # (degiskenden gelen tuple, kosullu dal, DINAMIK TABLO ADI). Esikler
+    # GEVSEK DEGIL: kapsam duserse ya da cozulemeyenler artarsa burasi
+    # kirmizi olur -- aksi halde invaryant sessizce zayiflardi.
+    #
+    # Cozulemeyenlerden BIRI bilincli: `datasets/bars.py` tabloyu
+    # `bars_table_for(interval)` ile SECER (intraday -> price_bars,
+    # 1wk/1mo -> periodic_bars). O cagri statik olarak cozulemez; yerine
+    # asagidaki test iki tablonun PK'sinin OZDES oldugunu kanitlar, ki
+    # yonlendirme hangi dala giderse gitsin `key_columns` gecerli kalsin.
+    assert checked >= 38, f"denetlenen cagri sayisi DUSTU: {checked}"
+    assert len(unresolved) <= 34, f"cozulemeyen cagri sayisi ARTTI: {unresolved}"
+
+
+def test_both_bar_tables_share_the_same_primary_key() -> None:
+    """`bars_table_for` yonlendirmesinin gecerliligi buna dayanir.
+
+    `datasets/bars.py` TEK bir `key_columns` ile IKI tabloya yazabilir
+    (price_bars / periodic_bars). PK'lari ayrisirsa `ON CONFLICT` bir
+    dalda "no unique or exclusion constraint matching" ile patlar --
+    ustelik yalnizca o interval kosuldugunda, yani gec fark edilen bir
+    yerde. Statik tarama dinamik tablo adini cozemedigi icin invaryant
+    BURADA korunur.
+    """
+    from yfin.models import Base, bars_table_for
+
+    pk = {
+        name: {c.name for c in Base.metadata.tables[name].primary_key.columns}
+        for name in ("price_bars", "periodic_bars")
+    }
+    assert pk["price_bars"] == pk["periodic_bars"] == {"symbol", "bar_interval", "ts_utc"}
+    assert bars_table_for("1m") == "price_bars"
+    assert bars_table_for("1wk") == "periodic_bars"

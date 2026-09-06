@@ -233,6 +233,11 @@ def _apply_one(
     # olcegindedir. Olceklenirlerse ve o kosuda fetch duserse satirlar
     # CIFT duzeltilmis kalir; bar_rescales split'i "uygulandi" saydigi
     # icin de bir daha duzelmez.
+    #
+    # FILTRE ARTIK YAPISAL OLARAK GEREKSIZ -- `price_bars` yalnizca
+    # intraday tasiyor, 1wk/1mo `periodic_bars`ta (PG S7.1). Yine de
+    # BIRAKILDI: kural kodda GORUNUR kalsin ve tablo bir gun yeniden
+    # birlestirilirse sessizce bozulmasin. Maliyeti bir IN yan tumcesi.
     placeholders = ", ".join(f":iv{i}" for i in range(len(INTRADAY_INTERVALS)))
     params: dict[str, object] = {
         "symbol": symbol,

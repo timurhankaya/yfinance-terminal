@@ -82,7 +82,8 @@ class SettingState:
 def serialize(value: Any) -> str:
     """Python degeri -> `value` sutununun metni.
 
-    39 alanin tamami skalerdir (bool / float / int / str). Karmasik tip
+    DB-yonetimli alanlarin tamami skalerdir (bool / float / int / str).
+    Karmasik tip
     icin kural TANIMLANMAMISTIR cunku boyle bir alan yoktur; skaler citi
     (`tests/unit/test_settings_split.py`) biri eklenirse patlar ve bu
     fonksiyonun guncellenmesini ZORUNLU kilar.
@@ -233,7 +234,7 @@ def load_overrides(settings: Settings) -> dict[str, str]:
 
 
 def settings_state(*, rows: Mapping[str, str] | None = None) -> dict[str, SettingState]:
-    """39 anahtarin ETKIN degeri ve kaynagi.
+    """DB-yonetimli her anahtarin ETKIN degeri ve kaynagi.
 
     `Settings` PARAMETRESI YOKTUR ve bu bilinclidir. Ilk yazimda vardi,
     kullanilmiyordu ve imza YALAN SOYLUYORDU: cagiran (ozellikle repo

@@ -119,7 +119,9 @@ def test_export_varsayilan_yalniz_SATIRI_OLANLARI_verir(cli: CliRunner) -> None:
     assert json.loads(result.stdout) == {"yf_max_shards": 9}
 
     all_result = cli.invoke(config_app, ["export", "--all"])
-    assert len(json.loads(all_result.stdout)) == 39
+    from yfin.config import DB_MANAGED_FIELDS
+
+    assert set(json.loads(all_result.stdout)) == DB_MANAGED_FIELDS
 
 
 def test_schema_DB_YE_BAKMAZ(cli: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:

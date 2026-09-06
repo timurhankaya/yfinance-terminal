@@ -90,7 +90,7 @@ def config_list(
         str | None, typer.Option("--source", help="db | env | default")
     ] = None,
 ) -> None:
-    """DB-yonetimli 39 ayarin etkin degeri ve kaynagi.
+    """DB-yonetimli ayarlarin etkin degeri ve kaynagi.
 
     8 env-only alan (db_*, yf_proxy_secret_key, log_level) BURADA YER
     ALMAZ: panelden yonetilemezler. `--changed` "satiri var mi"yi degil
@@ -254,7 +254,7 @@ def config_seed(
 @config_app.command("export")
 def config_export(
     all_keys: Annotated[
-        bool, typer.Option("--all", help="39 degerin tam anlik goruntusu")
+        bool, typer.Option("--all", help="DB-yonetimli her degerin tam anlik goruntusu")
     ] = False,
 ) -> None:
     """HER ZAMAN JSON basar.

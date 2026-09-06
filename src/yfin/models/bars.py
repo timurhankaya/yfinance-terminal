@@ -39,13 +39,41 @@ BAR_INTERVALS: tuple[str, ...] = ("1m", "5m", "15m", "60m", "1wk", "1mo")
 #      "uygulandi" saydigi icin bir daha duzelmez.
 INTRADAY_INTERVALS: tuple[str, ...] = ("1m", "5m", "15m", "60m")
 
+# Gun ustu interval'ler. AYRI BIR TABLOYA yazilirlar (`periodic_bars`) ve
+# bu bir depolama optimizasyonu DEGIL, olculmus bir zorunluluktur:
+#
+#   1wk/1mo satirlarin %0,07'sidir (5.000 sembolde ~320 bin satir/yil)
+#   ama zaman araliginin %100'udur: `period="max"` ile 1980'e kadar iner.
+#   Ayni hypertable'da 7 gunluk chunk araligiyla 16.700 / 7 = ~2.386 chunk
+#   dogururlar -- olculdu: tek sembolde 21.934 satir icin 2.388 chunk,
+#   chunk basina ~9 satir. Yani chunk patlamasinin TAMAMINI verinin binde
+#   yedisi uretiyordu.
+#
+# Ayrilinca `price_bars`in araligi 60m'in 729 gunune iner (~104 chunk) ve
+# `periodic_bars` hypertable OLMAZ: 46 yillik dolum ~15 milyon satirdir,
+# chunk'lamaya ihtiyaci yoktur.
+#
+# MySQL bunu `p_hist` adinda tek bir tarihsel partition'la cozuyordu;
+# TimescaleDB'de o kavramin karsiligi yoktur, ayirmak gerekir.
+PERIODIC_INTERVALS: tuple[str, ...] = ("1wk", "1mo")
+
+
+def bars_table_for(interval: str) -> str:
+    """Interval'i yazilacagi TABLOYA cozer (PB S5, PG S7.1).
+
+    Tek dogruluk kaynagi: hem dataset yazimi hem watermark okumasi hem
+    testler bunu kullanir. Ayrisirlarsa bir interval yanlis tabloya
+    yazilir ve watermark hep NULL kalir -- yani her kosuda bastan dolum.
+    """
+    return "price_bars" if interval in INTRADAY_INTERVALS else "periodic_bars"
+
 # bar_gaps.reason degerleri
 GAP_RETENTION_EXPIRED = "retention_expired"
 GAP_FETCH_FAILED = "fetch_failed"
 
 
 class PriceBar(Base):
-    """price_history'nin intraday/cok-gunluk kardesi.
+    """INTRADAY barlar (1m/5m/15m/60m). price_history'nin kardesi.
 
     FK TASIR. MySQL 8'de partition'li InnoDB tablosu foreign key
     desteklemiyordu (ERROR 1506) ve butunluk yazim yolunda + aylik bir
@@ -57,6 +85,10 @@ class PriceBar(Base):
 
     Kabul edilen bedel: her insert `symbols` satirinda paylasimli kilit
     alir ve price_bars en yogun yazilan tablodur.
+
+    YALNIZ INTRADAY: 1wk/1mo `periodic_bars`a gider (bkz.
+    PERIODIC_INTERVALS). Ayni tabloda olsalardi 46 yillik zaman
+    araliklariyla chunk sayisini yirmi kat sisirirlerdi.
     """
 
     __tablename__ = "price_bars"
@@ -104,6 +136,44 @@ class IntradayScope(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     added_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     note: Mapped[str | None] = mapped_column(String(255, collation="C"))
+
+
+class PeriodicBar(Base):
+    """Gun ustu barlar (1wk/1mo). HYPERTABLE DEGILDIR.
+
+    `price_bars`tan AYRI durur cunku iki tablo her operasyonel boyutta
+    ayrisir:
+      * ZAMAN ARALIGI: burasi 46 yil, orasi 729 gun.
+      * YOGUNLUK: burasi 5.000 sembolde ~320 bin satir/yil, orasi ~464
+        milyon.
+      * RESCALE: geriye donuk olcekleme YALNIZ intraday'e uygulanir
+        (PB S6.6/1) -- bu tablo her kosuda period="max" ile bastan
+        cekildigi icin daima Yahoo'nun guncel olceginde gelir.
+      * is_extended: seans disi kavrami gun ustu barda ANLAMSIZDIR, bu
+        yuzden KOLON YOKTUR.
+
+    Chunk'lanmaz: 46 yillik dolum ~15 milyon satirdir ve PK indeksi
+    yeter. Hypertable yapmak, cozdugumuz chunk patlamasini geri
+    getirirdi.
+    """
+
+    __tablename__ = "periodic_bars"
+    __table_args__ = (
+        Index("ix_periodic_bars_local_date", "local_date"),
+    )
+
+    symbol: Mapped[str] = symbol_fk_column(primary_key=True)
+    bar_interval: Mapped[str] = mapped_column(BarIntervalType(), primary_key=True)
+    ts_utc: Mapped[datetime] = mapped_column(TsType(), primary_key=True)
+    local_date: Mapped[date] = mapped_column(nullable=False)
+
+    open: Mapped[Decimal | None] = mapped_column(PriceType())
+    high: Mapped[Decimal | None] = mapped_column(PriceType())
+    low: Mapped[Decimal | None] = mapped_column(PriceType())
+    close: Mapped[Decimal] = mapped_column(PriceType(), nullable=False)
+    volume: Mapped[int | None] = mapped_column(
+        BigInteger, CheckConstraint('"volume" >= 0', name="ck_periodic_bars_volume_nonneg")
+    )
 
 
 class BarGap(Base):
@@ -181,6 +251,10 @@ def timescale_ddl() -> tuple[str, ...]:
 
     INTERVAL '1 year' KULLANILMAZ: TimescaleDB ay iceren interval'i 30
     gunluk aylara cevirir ve aralik 360 gun olarak kaydolur (olculdu).
+
+    `periodic_bars` BU LISTEDE YOKTUR ve olmamalidir: 1wk/1mo 46 yil
+    kapsar ama ~15 milyon satirdir; hypertable yapmak chunk patlamasini
+    geri getirirdi (PG S7.1, PERIODIC_INTERVALS notu).
 
     Aylik partition'lari ELLE eklemek gerekmez: chunk'lar yazma aninda
     olusur. "Aralik disi insert" kavrami YOKTUR, dolayisiyla MySQL'deki

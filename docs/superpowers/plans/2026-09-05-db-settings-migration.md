@@ -3,7 +3,7 @@
 **Spec:** `docs/superpowers/specs/2026-09-05-db-settings-design.md` (v2)
 **Durum:** Plan A ve Plan B uygulandı (2026-09-06).
 
-`Settings`in 39 alanı artık `settings` tablosundan yönetilir; 8 alan
+`Settings`in 38 alanı artık `settings` tablosundan yönetilir; 8 alan
 `.env`de kalır. Çözüm sırası:
 
 ```
@@ -25,7 +25,8 @@ CLI bayrağı  >  settings tablosu  >  .env  >  model varsayılanı
    varsayılan 4'e dönerdi.
 4. `yfin config list` — `source` kolonunun `env`den `db`ye döndüğü
    doğrulanır.
-5. O 39 anahtardan `.env`de fiilen bulunanlar silinir.
+5. O 38 anahtardan `.env`de fiilen bulunanlar silinir. **`YF_PROBE_SUSTAINABILITY`
+   de silinir** — o alan tümden kaldırıldı (aşağıya bakın).
 
 **5. adımdan sonra `.env` katmanı fiilen boştur.** `Settings`e sonradan
 eklenen bir alan için `yfin config seed` çalıştırılmazsa değer artık
@@ -53,7 +54,8 @@ değişikliklerinin kuruluma yansıma bağı kopar.
 ## 2. `.env.example` — elle uygulanacak (BU DEPODA YAPILAMADI)
 
 `.env*` dosyaları bu oturumda yazma izni dışındaydı. Aşağıdaki düzenleme
-elle uygulanmalıdır: **39 DB-yönetimli anahtar çıkarılır**, kalan 8 anahtar
+elle uygulanmalıdır: **38 DB-yönetimli anahtar + `YF_PROBE_SUSTAINABILITY`
+çıkarılır**, kalan 8 anahtar
 artı `YF_SETTINGS_SOURCE` bırakılır.
 
 `.env`de kalması gereken TEK anahtarlar:
@@ -81,14 +83,16 @@ LOG_LEVEL=INFO
 # YF_SETTINGS_SOURCE=env
 ```
 
-Diğer 39 anahtarın satırları silinir; değerleri `yfin config` ile yönetilir.
+Diğer 38 anahtarın satırları silinir; değerleri `yfin config` ile yönetilir.
+`YF_PROBE_SUSTAINABILITY` varsa o da silinir: **artık bir `Settings` alanı
+değildir.**
 
 ---
 
 ## 3. Günlük kullanım
 
 ```bash
-yfin config list                  # 39 ayar, etkin deger ve kaynak
+yfin config list                  # 38 ayar, etkin deger ve kaynak
 yfin config list --group shard    # tek grup (11 grup var)
 yfin config list --changed        # etkin degeri varsayilandan FARKLI olanlar
 yfin config list --source db      # settings SATIRI olanlar
@@ -113,7 +117,23 @@ YF_SETTINGS_SOURCE=env yfin config set yf_max_shards 4   # yine de DB'ye YAZAR
 
 ---
 
-## 4. Bu tasarımın ÇÖZMEDİĞİ şeyler (S12)
+## 4. Spec'ten bilinçli sapma: `yf_probe_sustainability` kaldırıldı
+
+Spec (S4.3) bu alanı `datasets` grubunda tutuyor ve sayıları 47/39 olarak
+veriyordu. Ama aynı spec (S3.4) dataset'i `register(..., opt_in=True)`
+desenine taşıdı ve **o andan sonra bayrağı okuyan kimse kalmadı.**
+
+Etkisi olmayan bir ayar, amacı bir yönetim panelini beslemek olan bu
+katmanda en kötü türden gürültüdür: panelde çalışır görünen ama hiçbir şey
+yapmayan bir anahtar. `yf_discovery_enabled` ve `YF_BAR_INTERVALS` için
+verilen kararın aynısı uygulandı (YAGNI).
+
+Sonuç: **46 alan / 8 env-only / 38 DB-yönetimli / 11 grup**
+(`datasets` grubu 6 değil 5).
+
+---
+
+## 5. Bu tasarımın ÇÖZMEDİĞİ şeyler (S12)
 
 - **Koşan bir sync'in ortasında ayar değiştirmek.** Değer süreç başında bir
   kez okunur; değişiklik BİR SONRAKİ koşuda etkili olur.

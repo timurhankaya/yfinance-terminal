@@ -141,6 +141,10 @@ def test_child_tables_inherit_their_parent_timestamp() -> None:
         # cevap vermez: bar hangi kosuda yazildi bilgisi sync_run_items'ta
         # zaten var (PB S5.1).
         "price_bars",
+        # periodic_bars: price_bars ile AYNI gerekce -- ts_utc kaynagin
+        # kendi zamanidir ve bar hangi kosuda yazildi bilgisi
+        # sync_run_items'ta zaten var.
+        "periodic_bars",
     }
     # Operasyonel ve denetim tablolari: kendi zaman kolonlarini tasirlar
     # (added_at / detected_at / applied_at) ama bunlar "kaynaktan cekilme"

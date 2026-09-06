@@ -6,9 +6,9 @@ PFE, WMT, BA, INTC, DIS, F, THYAO.IS, NESN.SW, BP.L, 005930.KS, BABA). Hic
 dolmayacak bir tablo acmak yerine ucun geri acilip acilmadigini IZLEYEN bir
 dataset kalir; kaynak dolu gelirse WARNING ile haber verir.
 
-VARSAYILAN KAPALIDIR (`YF_PROBE_SUSTAINABILITY=0`): acikken her sembolde bir
-bosa istek ve bir `empty` hucre uretir. Kayit KOSULLUDUR, cunku
-`--datasets all` kayitli her dataset'i kosturur.
+`all` GENISLEMESINDE YOKTUR (`opt_in=True`): kosturulursa her sembolde bir
+bosa istek ve bir `empty` hucre uretir. Kayit KOSULSUZDUR ama opt-in'dir --
+dataset `--datasets sustainability` ile ADIYLA istendiginde kosar.
 """
 
 from __future__ import annotations
@@ -62,5 +62,7 @@ class SustainabilityDataset(Dataset[AsOfFramePayload]):
 # (config.py'deki not); `sustainability` o gocte atlanmisti. Davranis
 # ayni kalir: dataset `--datasets sustainability` ile ADIYLA istendiginde
 # kosar, `all` genislemesinde HIC gorunmez. `yf_probe_sustainability`
-# boylece registry'den tamamen ayrilir ve DB-yonetimli kalabilir.
+# alani ise TAMAMEN KALDIRILDI: bu degisiklikten sonra onu okuyan kimse
+# kalmiyordu ve etkisiz bir ayar, bir yonetim panelini besleyen
+# yapilandirma katmaninda yanlis bilgi demektir (config.py'deki not).
 register(SustainabilityDataset(), opt_in=True)

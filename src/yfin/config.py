@@ -3,7 +3,7 @@
 Iki katman vardir:
 
   1. `.env` + model varsayilani -- pydantic-settings'in kendi yolu.
-  2. `settings` TABLOSU -- 39 alan icin DB ezmesi (CFG S3.1).
+  2. `settings` TABLOSU -- 38 alan icin DB ezmesi (CFG S3.1).
 
 Cozum sirasi `CLI bayragi > settings tablosu > .env > model varsayilani`
 olarak KENDILIGINDEN dogar: `Settings(**overrides)` cagrisinda init
@@ -156,15 +156,18 @@ class Settings(BaseSettings):
     yf_earnings_dates_max_pages: int = _cfg(
         "datasets", "earnings_dates icin sayfa ust siniri.", default=3, ge=1
     )
-    # esgScores 19 sembolun 19'unda da 404 verdi; izleme dataset'i
-    # VARSAYILAN KAPALIDIR (AH S6.3). Acilirsa her sembolde bir bosa istek
-    # ve bir `empty` hucre uretir.
-    yf_probe_sustainability: bool = _cfg(
-        "datasets",
-        "esgScores izleme probu; dataset artik opt-in kayitlidir "
-        "(--datasets sustainability ile kosar).",
-        default=False,
-    )
+    # YF_PROBE_SUSTAINABILITY ANAHTARI YOKTUR ve bilincli olarak
+    # KALDIRILMISTIR. CFG spec'i onu DB-yonetimli birakiyordu, ama ayni
+    # spec dataset'i `register(..., opt_in=True)` desenine tasidi ve o
+    # andan sonra bayragi OKUYAN HIC KIMSE KALMADI. Etkisi olmayan bir
+    # ayar, amaci bir yonetim paneli beslemek olan bu katmanda en kotu
+    # turden gurultudur: panelde calisir gorunen ama hicbir sey yapmayan
+    # bir anahtar. `yf_discovery_enabled` ve `YF_BAR_INTERVALS` icin
+    # verilen kararin aynisi (YAGNI).
+    #
+    # Karsiladigi ihtiyac zaten karsilanmis durumda: dataset `all`
+    # genislemesinde gorunmez, `--datasets sustainability` ile adiyla
+    # istenince kosar.
     yf_market_regions: str = _cfg(
         "market",
         "Piyasa ozeti bolgeleri (virgullu).",
@@ -457,7 +460,7 @@ def _bounds(metadata: list[Any]) -> tuple[float | None, float | None]:
 
 
 def settings_schema() -> list[FieldSchema]:
-    """DB-yonetimli 39 alanin makine-okunur semasi. SAF: DB'ye BAKMAZ.
+    """DB-yonetimli alanlarin makine-okunur semasi. SAF: DB'ye BAKMAZ.
 
     Sema ile DURUM bilincli olarak ayrildi (CFG S2/S6.4): sema surec omru
     boyunca sabittir, `value` her okumada degisebilir. Birlesik olsaydi

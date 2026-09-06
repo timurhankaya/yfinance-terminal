@@ -995,6 +995,62 @@ chunk göstermelidir. Gerçek veri hacmiyle ayarlama ayrı bir karardır.
 **Hash boyutu (`add_dimension(by_hash(...))`) EKLENMEZ.** Ölçüm olmadan
 gerekçesi yoktur ve chunk sayısını N katına çıkarır.
 
+#### 7.1.1 `price_bars` yalnızca INTRADAY taşır (uygulamada ölçüldü)
+
+İlk tasarım altı interval'i de `price_bars`'a koyuyordu. Gerçek bir
+`yfin sync` sonrası ölçüldü: **21 934 satır için 2 388 chunk**, chunk
+başına ~9 satır. Kabul ölçütü (<100 chunk) karşılanmıyordu.
+
+Kök neden, hacim ile zaman aralığının **ters orantılı** olması:
+
+| interval | satır/yıl (5 000 sembol) | zaman aralığı |
+|---|---:|---|
+| `5m` | 242 M | 59 gün |
+| `1m` | 121 M | 29 gün |
+| `15m` | 81 M | 59 gün |
+| `60m` | 20 M | 729 gün |
+| **`1wk` + `1mo`** | **0,32 M** | **16 700 gün (46 yıl)** |
+
+`1wk`/`1mo` satırların **%0,07'si ama zaman aralığının %100'ü**; 7 günlük
+chunk aralığıyla 16 700/7 = 2 386 chunk doğuruyorlar. Yani chunk
+patlamasının tamamını verinin binde yedisi üretiyordu.
+
+**MySQL bunu çözmüştü:** `p_hist` adında tek bir tarihsel partition vardı
+(PB§5.3). TimescaleDB'de o kavramın karşılığı yok — ayırmak gerekiyor.
+
+**Karar: `1wk`/`1mo` ayrı bir DÜZ tabloya (`periodic_bars`) taşınır.**
+
+- `price_bars` intraday kalır → aralık `60m`'in 729 günü → **105 chunk**
+  (ölçüldü; 2 388'den düştü).
+- `periodic_bars` **hypertable DEĞİLDİR**: 46 yıllık dolum ~15 milyon
+  satırdır ve PK indeksi yeter. Hypertable yapmak çözülen problemi geri
+  getirirdi.
+- `is_extended` kolonu `periodic_bars`'ta **yoktur** — seans dışı kavramı
+  gün üstü barda anlamsızdır. Anlamsız alanı `false` ile doldurmak yerine
+  alan hiç oluşturulmaz.
+
+**Ayrım zaten kodda vardı:** `INTRADAY_INTERVALS` üç yerde kullanılıyordu
+(rescale yalnız ona uygulanır, `is_extended` yalnız onun için anlamlı,
+kapsam kapısı). Ayrılmayan tek şey depolamaydı — yani bu bir SRP
+düzeltmesidir, yeni bir kavram değil.
+
+**Reddedilen alternatif — "yalnız 1m tutup türet".** Cazip ama Yahoo'nun
+derinlik sınırları buna izin vermiyor (PB§4.3, ölçüldü): `1m` **29 gün**,
+`5m`/`15m` 59 gün, `60m` 729 gün geriye gider. 46 yıllık haftalık barı
+1m'den türetmek fiziksel olarak imkânsızdır — kaynak veri o kadar geriye
+yok. 29 günlük pencerede `5m`/`15m` türetmek mümkündür (continuous
+aggregate) ama yalnız `intraday_scope`'taki semboller için ve yalnız
+ileriye doğru; ayrı bir optimizasyon konusudur, chunk kusurunun çözümü
+değil.
+
+**Yönlendirme tek kaynaktan:** `models/bars.py:bars_table_for(interval)`.
+Dataset yazımı, watermark okuması ve testler bunu kullanır; ayrışırlarsa
+bir interval yanlış tabloya yazılır ve watermark hep NULL kalır — yani
+her koşuda baştan dolum. İki tablonun PK'sı **özdeştir** ve bu
+`test_persistence_contract.py`'de invaryant olarak korunur: statik AST
+taraması dinamik tablo adını çözemediği için `ON CONFLICT` güvenliği
+oradan gelir.
+
 ### 7.2 `price_bars`'a foreign key geri geliyor
 
 `models/bars.py` şu an: *"FK YOKTUR: MySQL 8 partition'lı InnoDB tablosunda
