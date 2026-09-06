@@ -595,13 +595,56 @@ maliyet icindir.
 `BigNumType` = `Numeric(38,0)`; float'a cevirmek bunu tam da API
 sinirinda sessizce geri alirdi.
 
-**Tazelik (`as_of`) tek kuralla hesaplanir:** ilgili dataset ve sembol
-icin as-of tablosundan `max(as_of)`. Uc as-of tablosu vardir ve kapsama
-gore secilir — `asof_state` (sembol-kapsamli, `models/asof.py:26`),
-`domain_asof_state` (`models/domains.py:411`), `discovery_asof_state`
-(`models/discovery.py:123`). Kayit yoksa `as_of` `null` doner ve
-`X-Data-As-Of` basligi **gonderilmez**. `sync_runs` yalnizca operator
-tarafi icindir, `as_of` hesabina girmez.
+**Tazelik (`as_of`): "kaynaga karsi en son ne zaman dogrulandi".** Veri
+zamani DEGILDIR ve ikisi asla ayni alanda birlestirilmez.
+
+Tek bir kural yoktur, cunku sema tek bir kaynak sunmuyor. Kaynak veri
+ailesine gore degisir:
+
+| Aile | `as_of` kaynagi |
+|---|---|
+| `fundamentals` | `max(financial_periods.fetched_at)` |
+| `holders`, `analysis`, `funds` | `max(asof_state.fetched_at)` (sembol + dataset) |
+| `discovery` | `discovery_asof_state` |
+| `domains` | `domain_asof_state` |
+| `bars`, `reference` | **`null`** — asagiya bakin |
+
+Kayit yoksa `as_of` `null` doner ve `X-Data-As-Of` basligi
+**gonderilmez**.
+
+**Fiyat tablolari icin `null` bir eksiklik degil, dogru cevaptir.**
+`price_history` / `price_bars` / `periodic_bars` hicbir cekim zaman
+damgasi tasimaz ve bu olculmus bir karardir (`models/bars.py`):
+`price_bars`'a bir `fetched_at` eklemek arsivde ~4 GB'a mal olur ve
+`sync_run_items`'in operator icin zaten cevapladigi bir soruyu
+cevaplar. Serinin ne kadar guncel oldugunu son barin `ts_utc`'si zaten
+soyluyor ve o yanitin icinde.
+
+Reddedilen uc secenek, gerekceleriyle:
+
+1. **Son barin `ts_utc`'sini `as_of` diye sunmak.** Iki farkli soruyu
+   karistirir ve boru hatti o sembolu bir aydir cekemediginde YALAN
+   soyler: son bar hala tazeymis gibi gorunur. `session_date` /
+   `local_date` ayriminda bir kez odenen bedelin aynisi.
+2. **Istek basina `sync_run_items ⨝ sync_runs`.** `(symbol, dataset)`
+   basina satir sayisi saklama suresiyle sinirsiz buyur (gunluk kosuda
+   yilda ~365 satir, `run_id`'ye gore siralamak icin hepsi okunur), ve
+   uc noktayi dataset adina esleyen ikinci bir harita gerektirir. §5.5'in
+   onlemek icin var oldugu sey: senkron thread havuzunda her istege
+   sinirsiz bir sorgu eklemek.
+3. **Kosu duzeyinde tazelik** (son basarili kosunun `finished_at`'i,
+   aile basina onbellekli). Ucuzdur ama SEMBOL DUZEYINDE YANLISTIR: son
+   kosuda cekilemeyen bir sembol, kosunun bitis zamanini taze diye
+   raporlar.
+
+**Dogru cozum kaydedilmistir ve bu spec'in kapsami disindadir:** boru
+hattinin yazacagi kucuk bir `dataset_freshness(symbol, dataset,
+last_success_at)` tablosu. API tarafinda birincil anahtar aramasi
+(bugunku `symbol_exists` sorgusundan ucuz), yazma tarafinda kosu basina
+bir upsert — `sync_run_items` satirinin yazildigi ayni islemde. Satir
+sayisi sembol x dataset ile sinirlidir (~135 bin), saklama suresiyle
+buyumez. Bu bir BORU HATTI degisikligidir; bu spec API veri yazmaz
+kuralini korur, dolayisiyla ayri bir is olarak ele alinir.
 
 **Onbellek:** `Cache-Control` daima `private` ile baslar — paylasimli
 onbellekler (CDN, kurumsal proxy) bu yanitlari saklayamaz; aksi halde
@@ -746,14 +789,24 @@ dakikada bir `api_clients.last_used_at`'e yazilir.
 
 ```toml
 [project.optional-dependencies]
-api = ["fastapi", "uvicorn[standard]", "pyjwt", "argon2-cffi", "redis"]
+api = ["fastapi", "uvicorn[standard]", "pyjwt", "argon2-cffi", "redis",
+       "python-multipart"]
 dev = ["pytest>=8.0", "ruff>=0.5", "mypy>=1.10",
-       "httpx", "schemathesis", "fakeredis"]
+       "httpx", "schemathesis", "fakeredis[lua]"]
 ```
 
 Veri hatti sunucularina FastAPI kurmanin anlami yok; `yfinance[repair]`
-ile ayni desen. `dev` ekstrasi bugun yalnizca pytest/ruff/mypy tasiyor,
-uc paket eklenir.
+ile ayni desen.
+
+Iki paket uygulama sirasinda eklendi ve ikisi de opsiyonel degil:
+
+- **`python-multipart`** — RFC 6749 token uc noktasinin
+  `application/x-www-form-urlencoded` govde kabul etmesini zorunlu kilar
+  ve FastAPI'nin `Form()`'u bu paket olmadan govdeyi ayristirmayi
+  reddeder.
+- **`fakeredis[lua]`** (`lupa`) — hiz ve kota tek bir Lua script'inde
+  karara baglandigi icin, `[lua]` olmadan o testler ancak gercek bir
+  sunucuya karsi kosabilirdi.
 
 ### 7.2 OpenAPI kilidi
 
@@ -811,6 +864,14 @@ Asgari ayarlar: `YFAPI_JWT_SIGNING_KEY`, `YFAPI_JWT_KID`,
 
 `docker-compose.yml`'ye `redis` ve `api` servisleri; Redis imaji da
 TimescaleDB gibi SABIT surume cakilir.
+
+Compose ayrica tek dugumlu, sabit surumlu bir **Kafka** brokeri tasir
+(KRaft). Bugun hicbir kod ona baglanmaz; altyapinin hazir olmasi icin
+istendi. Iki dinleyici ile kurulur ve bu zorunludur: Kafka istemciye
+yeniden baglanacagi ADVERTISED adresi soyler, dolayisiyla `kafka:9092`
+duyuran bir broker host'tan, `localhost:9092` duyuran ise diger
+konteynerlerden erisilemez olur -- her iki hata da AYAGA KALKAR ve
+saglik kontrolunu GECER, ancak ilk uretim denemesinde ortaya cikar.
 
 **TLS zorunludur.** API yalnizca TLS uzerinden yayinlanir; sonlandirma
 reverse proxy'dedir, duz HTTP dinleyicisi ya kapalidir ya yalnizca 308
@@ -902,3 +963,17 @@ kapatilabilir) ve `/oauth/token` ile ayni IP limitine tabidir.
    filtrelenmis), `/v1/datasets/{ad}`.
 8. **Sozlesme kilidi** — `dump_openapi.py`, `openapi.json`, CI diff,
    schemathesis.
+
+## 10. Kayitli takip isleri
+
+Bu spec'in kapsami disinda kalan, ama uygulama sirasinda adiyla
+kararlastirilan isler. Kaybolmasinlar diye burada dururlar.
+
+- **`dataset_freshness` tablosu (boru hatti).** Fiyat aileleri icin
+  gercek bir "en son ne zaman dogrulandi" degeri uretir; §5.6'daki
+  gerekce ve reddedilen alternatifler orada. API tarafinda birincil
+  anahtar aramasi, yazma tarafinda kosu basina bir upsert.
+- **Compose'daki `api` servisi ve Dockerfile.** Uc noktalar var artik;
+  kalan is imaji ve servisi yazmaktir.
+- **Kafka icin bir uretici/tuketici.** Broker ayakta ama kullanilmiyor;
+  ne yayimlanacagina karar verilmedi.
