@@ -17,7 +17,6 @@ from sqlalchemy.dialects.mysql import BIGINT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
-    MYSQL_TABLE_ARGS,
     AsciiKeyType,
     BarIntervalType,
     Base,
@@ -59,7 +58,6 @@ class PriceBar(Base):
     __tablename__ = "price_bars"
     __table_args__ = (
         Index("ix_price_bars_local_date", "local_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     # symbol_fk_column DEGIL (FK tasimaz), ama TIPI birebir aynidir:
@@ -97,13 +95,12 @@ class IntradayScope(Base):
     """
 
     __tablename__ = "intraday_scope"
-    __table_args__ = MYSQL_TABLE_ARGS
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     bar_interval: Mapped[str] = mapped_column(BarIntervalType(), primary_key=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1")
     added_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
-    note: Mapped[str | None] = mapped_column(String(255))
+    note: Mapped[str | None] = mapped_column(String(255, collation="C"))
 
 
 class BarGap(Base):
@@ -116,7 +113,7 @@ class BarGap(Base):
     """
 
     __tablename__ = "bar_gaps"
-    __table_args__ = (Index("ix_bar_gaps_detected_at", "detected_at"), MYSQL_TABLE_ARGS)
+    __table_args__ = (Index("ix_bar_gaps_detected_at", "detected_at"),)
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     bar_interval: Mapped[str] = mapped_column(BarIntervalType(), primary_key=True)
@@ -148,7 +145,6 @@ class BarRescale(Base):
     """
 
     __tablename__ = "bar_rescales"
-    __table_args__ = MYSQL_TABLE_ARGS
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     split_date: Mapped[date] = mapped_column(primary_key=True)

@@ -30,7 +30,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
-    MYSQL_TABLE_ARGS,
     AsciiKeyType,
     Base,
     BigNumType,
@@ -103,7 +102,6 @@ class FinancialPeriod(Base):
     __tablename__ = "financial_periods"
     __table_args__ = (
         Index("ix_financial_periods_period_end", "period_end"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = mapped_column(
@@ -115,7 +113,7 @@ class FinancialPeriod(Base):
     freq: Mapped[StatementFreq] = mapped_column(FREQ_ENUM, primary_key=True)
     period_end: Mapped[date] = mapped_column(Date, primary_key=True)
     # info.financialCurrency; THYAO.IS tablolari USD, fiyatlari TRY
-    currency: Mapped[str | None] = mapped_column(String(8))
+    currency: Mapped[str | None] = mapped_column(String(8, collation="C"))
     item_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     raw_json: Mapped[str] = mapped_column(RawJsonType(), nullable=False)
     content_hash: Mapped[str] = mapped_column(HashType(), nullable=False)
@@ -148,7 +146,6 @@ class FinancialFact(Base):
         Index("ix_financial_facts_period_item", "period_end", "item_key"),
         # "tum sembollerde TotalRevenue"
         Index("ix_financial_facts_item_period", "item_key", "period_end"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
@@ -199,7 +196,7 @@ def _calendar_table(name: str, *, historical: bool) -> Table:
         cols.append(Column("fetched_at", TsType(), nullable=False))
     # (symbol, fetched_at DESC) indeksi ACILMAZ: PK'nin ta kendisidir ve
     # InnoDB kumelenmis indeksi geriye dogru da tarar.
-    return Table(name, Base.metadata, *cols, **MYSQL_TABLE_ARGS)  # type: ignore[arg-type]
+    return Table(name, Base.metadata, *cols)
 
 
 ticker_calendar = _calendar_table("ticker_calendar", historical=False)
@@ -218,7 +215,6 @@ class EarningsDate(Base):
     __tablename__ = "earnings_dates"
     __table_args__ = (
         Index("ix_earnings_dates_ts", "earnings_ts_utc"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = mapped_column(
@@ -230,7 +226,7 @@ class EarningsDate(Base):
     fact_hash: Mapped[str] = mapped_column(ShortHashType(), primary_key=True)
     earnings_date_local: Mapped[date] = mapped_column(Date, nullable=False)
     # Olcumde THYAO.IS, SAP.DE ve 7203.T dahil hepsi America/New_York
-    tz_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    tz_name: Mapped[str] = mapped_column(String(64, collation="C"), nullable=False)
     eps_estimate: Mapped[Decimal | None] = mapped_column(PriceType())
     reported_eps: Mapped[Decimal | None] = mapped_column(PriceType())
     surprise_pct: Mapped[Decimal | None] = mapped_column(PriceType())
@@ -244,7 +240,6 @@ class SecFiling(Base):
     __table_args__ = (
         Index("ix_sec_filings_symbol_date", "symbol", desc(text("filing_date"))),
         Index("ix_sec_filings_type", "filing_type"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = mapped_column(
@@ -285,7 +280,6 @@ class SecFilingExhibit(Base):
             ondelete="CASCADE",
             name="fk_sec_filing_exhibits_filing",
         ),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)

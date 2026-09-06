@@ -10,7 +10,6 @@ from sqlalchemy.dialects.mysql import BIGINT, SMALLINT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
-    MYSQL_TABLE_ARGS,
     Base,
     ProxyLabelType,
     RegionType,
@@ -57,7 +56,7 @@ class ItemStatus(enum.StrEnum):
 
 class SyncRun(Base):
     __tablename__ = "sync_runs"
-    __table_args__ = (Index("ix_sync_runs_started", "started_at"), MYSQL_TABLE_ARGS)
+    __table_args__ = (Index("ix_sync_runs_started", "started_at"),)
 
     id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
     started_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
@@ -81,7 +80,7 @@ class SyncRun(Base):
     # symbols/market ayrimini tasir; hangi run'in hangi evreni kapsadigi aksi
     # halde geriye donuk bilinemez ve eksiksizlik iddiasi denetlenemez
     # (AH S5.6). server_default YOKTUR: mevcut satirlar NULL kalir = filtresiz.
-    selector: Mapped[str | None] = mapped_column(String(255))
+    selector: Mapped[str | None] = mapped_column(String(255, collation="C"))
     rows_fetched: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     rows_written: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     rows_verified: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
@@ -96,7 +95,6 @@ class SyncRunItem(Base):
         Index("ix_sync_run_items_run_status", "run_id", "status"),
         Index("ix_sync_run_items_symbol_dataset", "symbol", "dataset"),
         Index("ix_sync_run_items_proxy", "proxy_id", "status"),
-        MYSQL_TABLE_ARGS,
     )
 
     id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
@@ -106,11 +104,11 @@ class SyncRunItem(Base):
     # FK YOKTUR (S5.5): cozulemeyen sembol icin unknown_symbol kaydi
     # yazilamazdi (ERROR 1452). Denetim kaydi sembol silinse de kalmalidir.
     symbol: Mapped[str] = mapped_column(SymbolType(), nullable=False)
-    dataset: Mapped[str] = mapped_column(String(64), nullable=False)
+    dataset: Mapped[str] = mapped_column(String(64, collation="C"), nullable=False)
     status: Mapped[ItemStatus] = mapped_column(
         Enum(ItemStatus, values_callable=lambda e: [m.value for m in e]), nullable=False
     )
-    table_name: Mapped[str | None] = mapped_column(String(64))
+    table_name: Mapped[str | None] = mapped_column(String(64, collation="C"))
     rows_fetched: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     rows_written: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     rows_verified: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")

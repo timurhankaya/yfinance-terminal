@@ -1,7 +1,10 @@
 """Alan tiplerinin TEK tanim yeri.
 
-Bir `kind` uc seyi belirler: SQL kolon tipi, kaynak degerin donusumu ve
-satir boyutu maliyeti. Bunlar ayri if-zincirlerine dagilirsa yeni bir kind
+Bir `kind` IKI seyi belirler: SQL kolon tipi ve kaynak degerin
+donusumu. (Ucuncu bir alan -- satir boyutu maliyeti -- MySQL'in 65 535
+baytlik satir siniri icin vardi; PostgreSQL'de boyle bir sinir olmadigi
+icin KALDIRILDI, bkz. models/columns.py.) Bunlar ayri if-zincirlerine
+dagilirsa yeni bir kind
 eklemek birden fazla dosyayi degistirmeyi gerektirir ve sessizce
 ayrisabilirler. Burada tek bir tabloda toplanirlar; yeni kind eklemek
 yalnizca bu tabloya satir eklemektir (OCP).
@@ -15,8 +18,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any
 
-from sqlalchemy import Boolean, Integer, String, Text
-from sqlalchemy.dialects.mysql import BIGINT
+from sqlalchemy import BigInteger, Boolean, Integer, String, Text
 from sqlalchemy.types import TypeEngine
 
 from yfin import normalize as nz
@@ -25,9 +27,17 @@ from yfin.models.base import BIG_PRECISION, BigNumType, PriceType, TsType
 
 log = get_logger(__name__)
 
-# utf8mb4'te VARCHAR(n) yaklasik 4n+2 byte tutar; TEXT satirdan yalnizca
-# ~20 byte goturur (S5.4 satir butcesi)
-_VARCHAR_COST = 4
+def _c_string(length: int) -> Callable[[], TypeEngine[Any]]:
+    """String kolonlari da COLLATE "C" tasir.
+
+    ATLANMASI KOLAY VE SESSIZ: MySQL'de bu kolonlara TABLO varsayilani
+    (utf8mb4_0900_ai_ci) uygulaniyordu; PostgreSQL'de VERITABANI
+    varsayilani (en_US.utf8) uygulanirdi -- yani ne "C" ne de eski
+    davranis. models/base.py'deki fabrikalar duzeltilip burasi
+    unutulsaydi ticker_info / ticker_fast_info / history_metadata'nin
+    buyuk kismi yanlis collation'da kalirdi (PG S2.5).
+    """
+    return lambda: String(length, collation="C")
 
 
 def _string_converter(max_len: int) -> Callable[[Any], Any]:
@@ -92,22 +102,25 @@ def _to_datetime(value: Any) -> Any:
 class KindSpec:
     sql_type: Callable[[], TypeEngine[Any]]
     convert: Callable[[Any], Any]
-    row_cost: int
 
 
 KINDS: dict[str, KindSpec] = {
-    "str16": KindSpec(lambda: String(16), _string_converter(16), 16 * _VARCHAR_COST + 2),
-    "str32": KindSpec(lambda: String(32), _string_converter(32), 32 * _VARCHAR_COST + 2),
-    "str64": KindSpec(lambda: String(64), _string_converter(64), 64 * _VARCHAR_COST + 2),
-    "str128": KindSpec(lambda: String(128), _string_converter(128), 128 * _VARCHAR_COST + 2),
-    "str255": KindSpec(lambda: String(255), _string_converter(255), 255 * _VARCHAR_COST + 2),
-    "text": KindSpec(lambda: Text(), nz.to_str, 20),
-    "dec": KindSpec(PriceType, nz.to_decimal, 13),
-    "big": KindSpec(BigNumType, _to_big, 17),
-    "int": KindSpec(lambda: Integer(), nz.to_int, 4),
-    "ubig": KindSpec(lambda: BIGINT(unsigned=True), _to_unsigned, 8),
-    "bool": KindSpec(lambda: Boolean(), nz.to_bool, 1),
-    "epoch_s": KindSpec(TsType, _to_epoch_seconds, 8),
-    "epoch_ms": KindSpec(TsType, _to_epoch_millis, 8),
-    "dt": KindSpec(TsType, _to_datetime, 8),
+    "str16": KindSpec(_c_string(16), _string_converter(16)),
+    "str32": KindSpec(_c_string(32), _string_converter(32)),
+    "str64": KindSpec(_c_string(64), _string_converter(64)),
+    "str128": KindSpec(_c_string(128), _string_converter(128)),
+    "str255": KindSpec(_c_string(255), _string_converter(255)),
+    "text": KindSpec(lambda: Text(), nz.to_str),
+    "dec": KindSpec(PriceType, nz.to_decimal),
+    "big": KindSpec(BigNumType, _to_big),
+    "int": KindSpec(lambda: Integer(), nz.to_int),
+    # PostgreSQL'de unsigned tamsayi YOKTUR. `BIGINT UNSIGNED`in verdigi
+    # garanti make_column()'daki CHECK ile yeniden kurulur; buradaki
+    # `_to_unsigned` (negatifi None yapar) ikinci savunma hattidir ve
+    # KORUNUR -- satir dusurmek yerine hucre dusurme davranisi degismez.
+    "ubig": KindSpec(lambda: BigInteger(), _to_unsigned),
+    "bool": KindSpec(lambda: Boolean(), nz.to_bool),
+    "epoch_s": KindSpec(TsType, _to_epoch_seconds),
+    "epoch_ms": KindSpec(TsType, _to_epoch_millis),
+    "dt": KindSpec(TsType, _to_datetime),
 }

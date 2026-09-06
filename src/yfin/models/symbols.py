@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from yfin.models.base import MYSQL_TABLE_ARGS, Base, SymbolType, TsType
+from yfin.models.base import Base, SymbolType, TsType
 
 
 class Symbol(Base):
@@ -15,20 +15,19 @@ class Symbol(Base):
     __table_args__ = (
         Index("ix_symbols_exchange", "exchange"),
         Index("ix_symbols_isin", "isin"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
 
     # isin UNIQUE DEGILDIR: ayni ISIN farkli borsalarda listelenebilir (S5.2)
-    isin: Mapped[str | None] = mapped_column(String(16))
-    quote_type: Mapped[str | None] = mapped_column(String(32))
-    exchange: Mapped[str | None] = mapped_column(String(32))
-    full_exchange_name: Mapped[str | None] = mapped_column(String(64))
-    currency: Mapped[str | None] = mapped_column(String(32))
-    timezone: Mapped[str | None] = mapped_column(String(64))
-    short_name: Mapped[str | None] = mapped_column(String(128))
-    long_name: Mapped[str | None] = mapped_column(String(255))
+    isin: Mapped[str | None] = mapped_column(String(16, collation="C"))
+    quote_type: Mapped[str | None] = mapped_column(String(32, collation="C"))
+    exchange: Mapped[str | None] = mapped_column(String(32, collation="C"))
+    full_exchange_name: Mapped[str | None] = mapped_column(String(64, collation="C"))
+    currency: Mapped[str | None] = mapped_column(String(32, collation="C"))
+    timezone: Mapped[str | None] = mapped_column(String(64, collation="C"))
+    short_name: Mapped[str | None] = mapped_column(String(128, collation="C"))
+    long_name: Mapped[str | None] = mapped_column(String(255, collation="C"))
     first_trade_date: Mapped[datetime | None] = mapped_column(TsType())
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1")
@@ -44,7 +43,7 @@ class Symbol(Base):
     # cekmeyi birakirdi. `first_seen_at`in AH S5.4'te kurdugu "yalniz
     # INSERT'te yazilir" kuralinin aynisi.
     discovered_by: Mapped[str] = mapped_column(
-        String(16), nullable=False, server_default="manual"
+        String(16, collation="C"), nullable=False, server_default="manual"
     )
     discovered_at: Mapped[datetime | None] = mapped_column(TsType())
     # S8.8: ardisik unknown_symbol sayaci; esik asilinca is_active=0

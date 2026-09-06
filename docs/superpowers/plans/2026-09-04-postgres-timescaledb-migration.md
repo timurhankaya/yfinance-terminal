@@ -781,7 +781,30 @@ Her dosyada iki tür değişiklik:
     return Table(name, Base.metadata, *args)
 ```
 
-`Table()` çağrılarındaki `# type: ignore[arg-type]` yorumu da kaldırılır — `**MYSQL_TABLE_ARGS` gittiği için gerekmez.
+**`# type: ignore[arg-type]` yorumu KALDIRILMAZ.** İlk taslakta "`**MYSQL_TABLE_ARGS` gittiği için gerekmez" yazıyordu; **yanlış** (uygulamada ölçüldü). Ignore, `*args`'ın `list[object]` olmasından kaynaklanıyor:
+
+```
+src/yfin/models/market.py:101: error: Argument 3 to "Table" has incompatible
+  type "*list[object]"; expected "SchemaItem"  [arg-type]
+```
+
+`market.py:101` ve `snapshots.py:53` ignore'u korur. (`financials.py:199` `*cols` kullanıyor ve ignore gerektirmiyor.)
+
+**Ek adım — doğrudan `String(n)` çağrıları.** Spec'in ilk sürümü collation'ın **üçüncü kaynağını** atlamıştı: model dosyalarında doğrudan yazılan `String(n)`. Ölçüldü: 89 çağrı, 12 dosya; düzeltilmezse 101 kolon `"C"` olmadan kalır ve Step 10'daki invaryant testi kırmızı kalır.
+
+```bash
+python3 - <<'PY'
+import re, pathlib
+for p in sorted(pathlib.Path("src/yfin/models").glob("*.py")):
+    t0 = t = p.read_text(encoding="utf-8")
+    # Zaten collation tasiyanlara dokunmaz (parantez ici virgulsuz kosulu)
+    t, n = re.subn(r"\bString\((\w+)\)", r'String(\1, collation="C")', t)
+    if t != t0:
+        p.write_text(t, encoding="utf-8"); print(f"  {p.name}: {n}")
+PY
+```
+
+Sonra `ruff check` bir E501 (satır uzunluğu) verebilir — `discovery.py`'deki `lookup_type` satırı gibi; çok satıra bölünür.
 
 ```bash
 grep -rn "MYSQL_TABLE_ARGS" src tests | grep -v __pycache__   # BOS donmeli

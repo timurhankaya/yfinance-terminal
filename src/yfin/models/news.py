@@ -8,7 +8,6 @@ from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
-    MYSQL_TABLE_ARGS,
     Base,
     NewsIdType,
     RawJsonType,
@@ -21,18 +20,18 @@ class News(Base):
     """symbols'a FK ile bagli DEGILDIR; baglanti news_symbols uzerindendir."""
 
     __tablename__ = "news"
-    __table_args__ = (Index("ix_news_pub_date", "pub_date"), MYSQL_TABLE_ARGS)
+    __table_args__ = (Index("ix_news_pub_date", "pub_date"),)
 
     news_id: Mapped[str] = mapped_column(NewsIdType(), primary_key=True)
-    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    title: Mapped[str] = mapped_column(String(512, collation="C"), nullable=False)
     summary: Mapped[str | None] = mapped_column(Text)
     description: Mapped[str | None] = mapped_column(Text)
-    content_type: Mapped[str | None] = mapped_column(String(32))
+    content_type: Mapped[str | None] = mapped_column(String(32, collation="C"))
     pub_date: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     display_time: Mapped[datetime | None] = mapped_column(TsType())
-    provider_name: Mapped[str | None] = mapped_column(String(128))
-    provider_url: Mapped[str | None] = mapped_column(String(255))
-    provider_source_id: Mapped[str | None] = mapped_column(String(64))
+    provider_name: Mapped[str | None] = mapped_column(String(128, collation="C"))
+    provider_url: Mapped[str | None] = mapped_column(String(255, collation="C"))
+    provider_source_id: Mapped[str | None] = mapped_column(String(64, collation="C"))
     canonical_url: Mapped[str | None] = mapped_column(Text)
     click_through_url: Mapped[str | None] = mapped_column(Text)
     # tag="original" cozunurlugu; diger cozunurlukler raw_json'da kalir
@@ -54,7 +53,6 @@ class NewsSymbol(Base):
     __table_args__ = (
         # InnoDB FK'siz oldugu icin bu index ACIKCA tanimlanir (S5.6)
         Index("ix_news_symbols_symbol", "symbol"),
-        MYSQL_TABLE_ARGS,
     )
 
     news_id: Mapped[str] = mapped_column(

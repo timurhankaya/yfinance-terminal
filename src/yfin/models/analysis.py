@@ -22,7 +22,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
-    MYSQL_TABLE_ARGS,
     AsciiKeyType,
     Base,
     FactValueType,
@@ -57,7 +56,6 @@ class AnalystRecommendation(Base):
     __tablename__ = "analyst_recommendations"
     __table_args__ = (
         Index("ix_analyst_recommendations_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -83,7 +81,6 @@ class AnalystGradeChange(Base):
     __table_args__ = (
         Index("ix_analyst_grade_changes_ts", "grade_ts_utc"),
         Index("ix_analyst_grade_changes_firm", "firm"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -92,12 +89,12 @@ class AnalystGradeChange(Base):
     grade_ts_utc: Mapped[datetime] = mapped_column(TsType(), primary_key=True)
     # 15 sembol / 8852 satirda (GradeDate, Firm) dup=0; olculen max 26.
     firm: Mapped[str] = mapped_column(KeyTextType(64), primary_key=True)
-    to_grade: Mapped[str | None] = mapped_column(String(32))
-    from_grade: Mapped[str | None] = mapped_column(String(32))
+    to_grade: Mapped[str | None] = mapped_column(String(32, collation="C"))
+    from_grade: Mapped[str | None] = mapped_column(String(32, collation="C"))
     # ENUM DEGIL: 5 deger olculdu, bu Yahoo'nun listesinin kapali oldugunu
     # kanitlamaz.
     action: Mapped[str | None] = mapped_column(AsciiKeyType(16))
-    price_target_action: Mapped[str | None] = mapped_column(String(16))
+    price_target_action: Mapped[str | None] = mapped_column(String(16, collation="C"))
     # 0.0 GERCEK bir degerdir ("hedef yok"), NULL'a cevrilmez.
     current_price_target: Mapped[Decimal | None] = mapped_column(PriceType())
     prior_price_target: Mapped[Decimal | None] = mapped_column(PriceType())
@@ -111,7 +108,6 @@ class AnalystPriceTarget(Base):
     __tablename__ = "analyst_price_targets"
     __table_args__ = (
         Index("ix_analyst_price_targets_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -135,7 +131,6 @@ class AnalystEstimate(Base):
     __tablename__ = "analyst_estimates"
     __table_args__ = (
         Index("ix_analyst_estimates_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -161,7 +156,6 @@ class AnalystEpsTrend(Base):
     __tablename__ = "analyst_eps_trend"
     __table_args__ = (
         Index("ix_analyst_eps_trend_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -188,7 +182,6 @@ class AnalystEpsRevision(Base):
     __tablename__ = "analyst_eps_revisions"
     __table_args__ = (
         Index("ix_analyst_eps_revisions_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -217,7 +210,6 @@ class AnalystGrowthEstimate(Base):
     __tablename__ = "analyst_growth_estimates"
     __table_args__ = (
         Index("ix_analyst_growth_estimates_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -240,7 +232,6 @@ class EarningsHistoryRow(Base):
     __tablename__ = "earnings_history"
     __table_args__ = (
         Index("ix_earnings_history_quarter", "quarter_end"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)

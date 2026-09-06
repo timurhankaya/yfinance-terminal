@@ -43,7 +43,7 @@ from sqlalchemy.dialects.mysql import SMALLINT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
-    MYSQL_TABLE_ARGS,
+    SYMBOL_LENGTH,
     AsciiKeyType,
     Base,
     HashType,
@@ -56,11 +56,16 @@ from yfin.models.columns import make_column
 from yfin.models.domains import REPORT_ID_LENGTH
 from yfin.models.fields import SCREENER_QUOTE_FIELDS
 
-# Serbest arama terimi. Sembol terimleri olculen en fazla 17 karakter
-# (SQ S4.1/16); 64 serbest terime pay birakir. CLI bu siniri ASANI
-# REDDEDER, kirpmaz: sessiz kirpma iki farkli terimi ayni kapi satirina
-# dusurup birinin verisini digerinin sanmasina yol acardi.
-QUERY_TERM_LENGTH = 64
+# Serbest arama terimi. UZUNLUK `SYMBOL_LENGTH` ILE AYNIDIR ve bu bir
+# tercih degil ZORUNLULUKTUR: terim, denetim kaydinda
+# `sync_run_items.symbol` (= `SymbolType()`) kolonuna da yazilir. Daha
+# genis bir sinir olculdu ve `ERROR 1406` verdi -- ustelik VERI
+# YAZILDIKTAN SONRA, `write_items` asamasinda, yani kosunun en gec aninda.
+#
+# Ilk tasarim 64 secip "denetim kaydinda kirpilir" demisti; kirpma hicbir
+# zaman uygulanmadi ve iki sabitin ayrisimi hatayi gorunmez kildi. Tek
+# sayi bu sinifi hatayi yapisal olarak imkansiz kilar.
+QUERY_TERM_LENGTH = SYMBOL_LENGTH
 
 # `ALGO_WATCHLIST` seklinde `slug`, `PREDEFINED_SCREENER` seklinde
 # `canonicalName` (SQ S4.1/6). Olculen en uzun:
@@ -73,9 +78,9 @@ LIST_KEY_LENGTH = 128
 # gerektirmez.
 LOOKUP_TYPE_LENGTH = 24
 
-# `sync_run_items.symbol` VARCHAR(32) ascii_bin ve screener tarafinda
-# kapsam etiketi olarak ekran anahtarini tasir (SQ S5.13).
-SCREEN_KEY_LENGTH = 32
+# Ekran anahtari da `sync_run_items.symbol`e kapsam etiketi olarak yazilir
+# (SQ S5.13), yani ayni sinira tabidir.
+SCREEN_KEY_LENGTH = SYMBOL_LENGTH
 
 
 def _query_term_column(**kwargs: object) -> Mapped[str]:
@@ -114,7 +119,6 @@ class DiscoveryAsOfState(Base):
     __tablename__ = "discovery_asof_state"
     __table_args__ = (
         Index("ix_discovery_asof_dataset_date", "dataset", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     query_term: Mapped[str] = _query_term_column(primary_key=True)
@@ -141,7 +145,7 @@ class SearchQuote(Base):
     """
 
     __tablename__ = "search_quotes"
-    __table_args__ = (Index("ix_search_quotes_symbol", "symbol"), MYSQL_TABLE_ARGS)
+    __table_args__ = (Index("ix_search_quotes_symbol", "symbol"),)
 
     query_term: Mapped[str] = _query_term_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
@@ -152,21 +156,21 @@ class SearchQuote(Base):
     rank_index: Mapped[int] = mapped_column(SMALLINT, nullable=False)
     # Olculen aralik 12,2 - 16.067.500,0
     score: Mapped[Decimal | None] = mapped_column(PriceType())
-    quote_type: Mapped[str | None] = mapped_column(String(32))
-    type_disp: Mapped[str | None] = mapped_column(String(64))
-    exchange: Mapped[str | None] = mapped_column(String(32))
-    exch_disp: Mapped[str | None] = mapped_column(String(64))
-    short_name: Mapped[str | None] = mapped_column(String(128))
-    long_name: Mapped[str | None] = mapped_column(String(255))
+    quote_type: Mapped[str | None] = mapped_column(String(32, collation="C"))
+    type_disp: Mapped[str | None] = mapped_column(String(64, collation="C"))
+    exchange: Mapped[str | None] = mapped_column(String(32, collation="C"))
+    exch_disp: Mapped[str | None] = mapped_column(String(64, collation="C"))
+    short_name: Mapped[str | None] = mapped_column(String(128, collation="C"))
+    long_name: Mapped[str | None] = mapped_column(String(255, collation="C"))
     # Sektor/endustri ailesi YALNIZ EQUITY satirlarinda gelir (SQ S4.1/2);
     # eksiklik hata degil, NULL.
-    sector: Mapped[str | None] = mapped_column(String(64))
-    sector_disp: Mapped[str | None] = mapped_column(String(64))
-    industry: Mapped[str | None] = mapped_column(String(128))
-    industry_disp: Mapped[str | None] = mapped_column(String(128))
+    sector: Mapped[str | None] = mapped_column(String(64, collation="C"))
+    sector_disp: Mapped[str | None] = mapped_column(String(64, collation="C"))
+    industry: Mapped[str | None] = mapped_column(String(128, collation="C"))
+    industry_disp: Mapped[str | None] = mapped_column(String(128, collation="C"))
     disp_sec_ind_flag: Mapped[bool | None] = mapped_column(Boolean)
     is_yahoo_finance: Mapped[bool | None] = mapped_column(Boolean)
-    prev_name: Mapped[str | None] = mapped_column(String(255))
+    prev_name: Mapped[str | None] = mapped_column(String(255, collation="C"))
     name_change_date: Mapped[datetime | None] = mapped_column(TsType())
     # Sembol `symbols` yazimina dahil edilebildi mi (SQ S8.3)
     is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
@@ -190,27 +194,26 @@ class SearchList(Base):
     """
 
     __tablename__ = "search_lists"
-    __table_args__ = (MYSQL_TABLE_ARGS,)
 
     query_term: Mapped[str] = _query_term_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     list_key: Mapped[str] = mapped_column(AsciiKeyType(LIST_KEY_LENGTH), primary_key=True)
 
     rank_index: Mapped[int] = mapped_column(SMALLINT, nullable=False)
-    list_type: Mapped[str | None] = mapped_column(String(32))
+    list_type: Mapped[str | None] = mapped_column(String(32, collation="C"))
     # ALGO_WATCHLIST'te `name`, PREDEFINED_SCREENER'da `title`
-    name: Mapped[str | None] = mapped_column(String(255))
+    name: Mapped[str | None] = mapped_column(String(255, collation="C"))
     score: Mapped[Decimal | None] = mapped_column(PriceType())
     icon_url: Mapped[str | None] = mapped_column(Text)
     # --- yalniz ALGO_WATCHLIST ---
-    brand_slug: Mapped[str | None] = mapped_column(String(64))
-    pf_id: Mapped[str | None] = mapped_column(String(128))
-    user_id: Mapped[str | None] = mapped_column(String(64))
+    brand_slug: Mapped[str | None] = mapped_column(String(64, collation="C"))
+    pf_id: Mapped[str | None] = mapped_column(String(128, collation="C"))
+    user_id: Mapped[str | None] = mapped_column(String(64, collation="C"))
     symbol_count: Mapped[int | None] = mapped_column(Integer)
     daily_percent_gain: Mapped[Decimal | None] = mapped_column(PriceType())
     follower_count: Mapped[int | None] = mapped_column(Integer)
     # --- yalniz PREDEFINED_SCREENER ---
-    yahoo_id: Mapped[str | None] = mapped_column(String(64))
+    yahoo_id: Mapped[str | None] = mapped_column(String(64, collation="C"))
     total: Mapped[int | None] = mapped_column(Integer)
     is_premium: Mapped[bool | None] = mapped_column(Boolean)
 
@@ -228,7 +231,6 @@ class SearchReportHit(Base):
     """
 
     __tablename__ = "search_report_hits"
-    __table_args__ = (MYSQL_TABLE_ARGS,)
 
     query_term: Mapped[str] = _query_term_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
@@ -245,7 +247,7 @@ class LookupResult(Base):
     """`Lookup` belgeleri (SQ S5.6)."""
 
     __tablename__ = "lookup_results"
-    __table_args__ = (Index("ix_lookup_results_symbol", "symbol"), MYSQL_TABLE_ARGS)
+    __table_args__ = (Index("ix_lookup_results_symbol", "symbol"),)
 
     query_term: Mapped[str] = _query_term_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
@@ -260,12 +262,12 @@ class LookupResult(Base):
     # `equity` ve `etf` cagrilarinin ikisinde birden donebiliyor ve PK'da
     # olmadigi icin son yazan kazanir -- hangi cagrinin yazdigi
     # denetlenebilir olmalidir.
-    lookup_type: Mapped[str | None] = mapped_column(String(LOOKUP_TYPE_LENGTH))
-    quote_type: Mapped[str | None] = mapped_column(String(32))
-    exchange: Mapped[str | None] = mapped_column(String(32))
-    short_name: Mapped[str | None] = mapped_column(String(128))
+    lookup_type: Mapped[str | None] = mapped_column(String(LOOKUP_TYPE_LENGTH, collation="C"))
+    quote_type: Mapped[str | None] = mapped_column(String(32, collation="C"))
+    exchange: Mapped[str | None] = mapped_column(String(32, collation="C"))
+    short_name: Mapped[str | None] = mapped_column(String(128, collation="C"))
     # YALNIZ `equity` belgelerinde dolu (SQ S4.1/9)
-    industry_name: Mapped[str | None] = mapped_column(String(128))
+    industry_name: Mapped[str | None] = mapped_column(String(128, collation="C"))
     industry_link: Mapped[str | None] = mapped_column(Text)
     fullday_price: Mapped[Decimal | None] = mapped_column(PriceType())
     fullday_change: Mapped[Decimal | None] = mapped_column(PriceType())
@@ -288,11 +290,12 @@ class LookupTotal(Base):
     """
 
     __tablename__ = "lookup_totals"
-    __table_args__ = (MYSQL_TABLE_ARGS,)
 
     query_term: Mapped[str] = _query_term_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
-    lookup_type: Mapped[str] = mapped_column(String(LOOKUP_TYPE_LENGTH), primary_key=True)
+    lookup_type: Mapped[str] = mapped_column(
+        String(LOOKUP_TYPE_LENGTH, collation="C"), primary_key=True
+    )
     total: Mapped[int] = mapped_column(Integer, nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
@@ -309,18 +312,17 @@ class Screen(Base):
     """
 
     __tablename__ = "screens"
-    __table_args__ = (MYSQL_TABLE_ARGS,)
 
     screen_key: Mapped[str] = mapped_column(AsciiKeyType(SCREEN_KEY_LENGTH), primary_key=True)
     kind: Mapped[ScreenKind] = mapped_column(_enum(ScreenKind), nullable=False)
     quote_type: Mapped[ScreenQuoteType] = mapped_column(_enum(ScreenQuoteType), nullable=False)
     # Predefined'da ILK GET sayfasindan TAZELENIR (SQ S4.1/13); custom'da
     # `ScreenDef`ten gelir ve tazelenmez -- POST yaniti metadata tasimaz.
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str] = mapped_column(String(255, collation="C"), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     # SQ K15: `sortAsc` varsayilani AZALAN; sira acikca tutulmazsa sayfalar
     # arasi tutarsizlik sembol atlatir.
-    sort_field: Mapped[str] = mapped_column(String(64), nullable=False)
+    sort_field: Mapped[str] = mapped_column(String(64, collation="C"), nullable=False)
     sort_asc: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
     definition_json: Mapped[str | None] = mapped_column(RawJsonType())
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1")
@@ -341,7 +343,7 @@ class ScreenRun(Base):
     """
 
     __tablename__ = "screen_runs"
-    __table_args__ = (Index("ix_screen_runs_date", "as_of_date"), MYSQL_TABLE_ARGS)
+    __table_args__ = (Index("ix_screen_runs_date", "as_of_date"),)
 
     screen_key: Mapped[str] = mapped_column(AsciiKeyType(SCREEN_KEY_LENGTH), primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
@@ -354,7 +356,7 @@ class ScreenRun(Base):
     # Kapi sozlesmesi kolonu: `screen_members` satir sayisi
     row_count: Mapped[int] = mapped_column(Integer, nullable=False)
     page_count: Mapped[int] = mapped_column(SMALLINT, nullable=False)
-    yahoo_id: Mapped[str | None] = mapped_column(String(64))
+    yahoo_id: Mapped[str | None] = mapped_column(String(64, collation="C"))
     version_id: Mapped[int | None] = mapped_column(Integer)
     last_updated: Mapped[datetime | None] = mapped_column(TsType())
     criteria_json: Mapped[str | None] = mapped_column(RawJsonType())
@@ -372,7 +374,7 @@ class ScreenMember(Base):
     """
 
     __tablename__ = "screen_members"
-    __table_args__ = (Index("ix_screen_members_symbol", "symbol"), MYSQL_TABLE_ARGS)
+    __table_args__ = (Index("ix_screen_members_symbol", "symbol"),)
 
     screen_key: Mapped[str] = mapped_column(AsciiKeyType(SCREEN_KEY_LENGTH), primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
@@ -405,6 +407,5 @@ screen_quotes = Table(
     Column("is_known", Boolean, nullable=False, server_default="0"),
     Column("fetched_at", TsType(), nullable=False),
     # `corporateActions` LISTEDIR ve kolona cikmaz; burada kalir.
-    Column("raw_json", RawJsonType(), nullable=False),
-    **MYSQL_TABLE_ARGS,  # type: ignore[arg-type]
+    Column("raw_json", RawJsonType(), nullable=False)
 )

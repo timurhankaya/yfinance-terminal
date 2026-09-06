@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from yfin.models import Base
-from yfin.models.columns import MYSQL_ROW_SIZE_LIMIT, estimated_row_size
 from yfin.models.fields import (
     FAST_INFO_FIELDS,
     HISTORY_METADATA_FIELDS,
@@ -39,12 +38,6 @@ def test_fast_info_has_exactly_20_keys() -> None:
     """Kaynakta hardcoded 20 anahtar (quote.py:_public_keys)."""
     assert len(FAST_INFO_FIELDS) == 20
 
-
-def test_row_size_budget_respected() -> None:
-    """S5.4: 65535 byte satir butcesi; kolon terfisi bu kontrol olmadan yapilmaz."""
-    for table_name, fields in CASES:
-        size = estimated_row_size(fields, extra=200)
-        assert size < MYSQL_ROW_SIZE_LIMIT, f"{table_name} butceyi asiyor: {size}"
 
 
 def test_epoch_fields_use_epoch_kind() -> None:

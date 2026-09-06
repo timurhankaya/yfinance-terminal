@@ -20,7 +20,6 @@ from sqlalchemy.dialects.mysql import TINYINT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
-    MYSQL_TABLE_ARGS,
     AsciiKeyType,
     Base,
     FactValueType,
@@ -63,16 +62,15 @@ class FundProfile(Base):
     __tablename__ = "fund_profile"
     __table_args__ = (
         Index("ix_fund_profile_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     quote_type: Mapped[str] = mapped_column(AsciiKeyType(16), nullable=False)
-    category_name: Mapped[str | None] = mapped_column(String(64))
-    family: Mapped[str | None] = mapped_column(String(128))
+    category_name: Mapped[str | None] = mapped_column(String(64, collation="C"))
+    family: Mapped[str | None] = mapped_column(String(128, collation="C"))
     # VFIAX/FCNTX'te None olculdu
-    legal_type: Mapped[str | None] = mapped_column(String(64))
+    legal_type: Mapped[str | None] = mapped_column(String(64, collation="C"))
     # Olculen max 555 (ARKK)
     description: Mapped[str | None] = mapped_column(Text)
     # fund_operations 0. kolonu -- ADI SEMBOLUN KENDISIDIR, konumdan okunur
@@ -109,7 +107,6 @@ class FundMetric(Base):
     __tablename__ = "fund_metrics"
     __table_args__ = (
         Index("ix_fund_metrics_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -127,7 +124,6 @@ class FundWeighting(Base):
     __tablename__ = "fund_weightings"
     __table_args__ = (
         Index("ix_fund_weightings_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -157,7 +153,6 @@ class FundTopHolding(Base):
         # FK yok -> otomatik indeks yok; SHOW INDEX ile dogrulandi
         Index("ix_fund_top_holdings_holding", "holding_symbol"),
         Index("ix_fund_top_holdings_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)

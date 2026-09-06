@@ -15,7 +15,6 @@ from sqlalchemy import Date, Enum, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
-    MYSQL_TABLE_ARGS,
     AsciiKeyType,
     Base,
     BigNumType,
@@ -47,7 +46,6 @@ class HolderBreakdown(Base):
     __tablename__ = "holder_breakdown"
     __table_args__ = (
         Index("ix_holder_breakdown_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -73,7 +71,6 @@ class InstitutionalHolder(Base):
         Index("ix_institutional_holders_holder", "holder"),
         Index("ix_institutional_holders_reported", "date_reported"),
         Index("ix_institutional_holders_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -104,7 +101,6 @@ class InsiderActivity(Base):
     __tablename__ = "insider_activity"
     __table_args__ = (
         Index("ix_insider_activity_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -139,7 +135,6 @@ class InsiderTransaction(Base):
     __tablename__ = "insider_transactions"
     __table_args__ = (
         Index("ix_insider_transactions_start", "start_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -150,10 +145,10 @@ class InsiderTransaction(Base):
     insider: Mapped[str | None] = mapped_column(PersonNameType())
     # Olculen max 56 (WMT); '' -> NULL (BP.L'de bos olculdu)
     position: Mapped[str | None] = mapped_column(KeyTextType(64))
-    text: Mapped[str | None] = mapped_column(String(255))
+    text: Mapped[str | None] = mapped_column(String(255, collation="C"))
     # 16 sembol / 1464 satirin HEPSINDE '' -> NULL. Kolon yine de acilir ki
     # uc dolmaya basladiginda migration gerekmesin.
-    transaction_label: Mapped[str | None] = mapped_column(String(64))
+    transaction_label: Mapped[str | None] = mapped_column(String(64, collation="C"))
     url: Mapped[str | None] = mapped_column(Text)
     shares: Mapped[Decimal | None] = mapped_column(BigNumType())
     # DIS ve BP.L'de TUM satirlarda NaN
@@ -175,7 +170,6 @@ class InsiderRosterHolder(Base):
     __tablename__ = "insider_roster"
     __table_args__ = (
         Index("ix_insider_roster_as_of", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
@@ -184,7 +178,7 @@ class InsiderRosterHolder(Base):
     name: Mapped[str] = mapped_column(PersonNameType(), primary_key=True)
     position: Mapped[str | None] = mapped_column(KeyTextType(64))
     url: Mapped[str | None] = mapped_column(Text)
-    most_recent_transaction: Mapped[str | None] = mapped_column(String(64))
+    most_recent_transaction: Mapped[str | None] = mapped_column(String(64, collation="C"))
     # datetime64 VEYA ham epoch float64 gelebilir (6 sembolde dolu float
     # olculdu); kinds.py::_to_datetime iki bicimi de kabul eder.
     latest_transaction_date: Mapped[datetime | None] = mapped_column(TsType())

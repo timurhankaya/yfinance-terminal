@@ -22,7 +22,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.schema import FetchedValue
 
 from yfin.models.base import (
-    MYSQL_TABLE_ARGS,
     Base,
     HostType,
     ProxyLabelType,
@@ -58,7 +57,6 @@ class Proxy(Base):
         # eklenmesine izin verirdi.
         UniqueConstraint("scheme", "host", "port", "username", name="uq_proxies_endpoint"),
         Index("ix_proxies_eligibility", "is_enabled", "health"),
-        MYSQL_TABLE_ARGS,
     )
 
     id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)

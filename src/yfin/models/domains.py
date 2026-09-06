@@ -32,7 +32,6 @@ from sqlalchemy.dialects.mysql import BIGINT, MEDIUMTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
-    MYSQL_TABLE_ARGS,
     AsciiKeyType,
     Base,
     BigNumType,
@@ -117,7 +116,6 @@ class Domain(Base):
             name="ck_domains_parent",
         ),
         Index("ix_domains_type_parent", "domain_type", "parent_key"),
-        MYSQL_TABLE_ARGS,
     )
 
     domain_key: Mapped[str] = mapped_column(AsciiKeyType(DOMAIN_KEY_LENGTH), primary_key=True)
@@ -148,13 +146,13 @@ class Domain(Base):
         ForeignKey("domains.domain_key", onupdate="RESTRICT", ondelete="RESTRICT"),
     )
     # Olculen max 40
-    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(64, collation="C"), nullable=False)
     # Olculen max 446, 156/156 dolu. SEKTORDE bootstrap yazar; ENDUSTRIDE
     # `industries[]` blogu bu alani icermez, bu yuzden `industry_profile`
     # yazar (SI S7.3) -- ilk profil kosusuna kadar NULL.
     description: Mapped[str | None] = mapped_column(Text)
     # Olculen max 15
-    message_board_id: Mapped[str | None] = mapped_column(String(32))
+    message_board_id: Mapped[str | None] = mapped_column(String(32, collation="C"))
     # Ilk INSERT'te yazilir, bir daha guncellenmez (AH S5.4 kurali):
     # `update_columns` kapsaminin DISINDADIR.
     first_seen_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
@@ -171,7 +169,6 @@ class DomainMetric(Base):
     __tablename__ = "domain_metrics"
     __table_args__ = (
         Index("ix_domain_metrics_date", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     domain_key: Mapped[str] = domain_key_column(primary_key=True)
@@ -197,7 +194,7 @@ class DomainMetric(Base):
     five_year_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
 
     # `performanceOverviewBenchmark` blogu -- o da yfinance'te YOK
-    benchmark_name: Mapped[str | None] = mapped_column(String(64))
+    benchmark_name: Mapped[str | None] = mapped_column(String(64, collation="C"))
     benchmark_ytd_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
     benchmark_reg_market_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
     benchmark_one_year_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
@@ -227,7 +224,6 @@ class DomainTopCompany(Base):
         # PK'nin 4. kolonu oldugu icin "bu sirket hangi sektorlerin ilk
         # 50'sinde" sorgusu aksi halde TAM TARAMA yapardi.
         Index("ix_domain_top_companies_symbol", "symbol"),
-        MYSQL_TABLE_ARGS,
     )
 
     domain_key: Mapped[str] = domain_key_column(primary_key=True)
@@ -238,10 +234,10 @@ class DomainTopCompany(Base):
     # gerekcesi). Bunun yerine `is_known` bayragi DB'den doldurulur.
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
 
-    name: Mapped[str | None] = mapped_column(String(255))
+    name: Mapped[str | None] = mapped_column(String(255, collation="C"))
     # Olculen: Strong Buy / Buy / Hold / Underperform / Sell. ENUM DEGIL --
     # kapali liste oldugunun kaniti yok (AH'nin `action` karari).
-    rating: Mapped[str | None] = mapped_column(String(32))
+    rating: Mapped[str | None] = mapped_column(String(32, collation="C"))
     market_weight: Mapped[Decimal | None] = mapped_column(PriceType())
     market_cap: Mapped[Decimal | None] = mapped_column(BigNumType())
     last_price: Mapped[Decimal | None] = mapped_column(PriceType())
@@ -263,7 +259,6 @@ class DomainTopFund(Base):
     """
 
     __tablename__ = "domain_top_funds"
-    __table_args__ = (MYSQL_TABLE_ARGS,)
 
     domain_key: Mapped[str] = domain_key_column(primary_key=True)
     region: Mapped[str] = mapped_column(RegionType(), primary_key=True)
@@ -274,7 +269,7 @@ class DomainTopFund(Base):
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
 
     # Gunluk 220 fon satirinin 7'sinde YOK; yedisi de yatirim fonu tarafinda
-    name: Mapped[str | None] = mapped_column(String(255))
+    name: Mapped[str | None] = mapped_column(String(255, collation="C"))
     net_assets: Mapped[Decimal | None] = mapped_column(BigNumType())
     expense_ratio: Mapped[Decimal | None] = mapped_column(PriceType())
     last_price: Mapped[Decimal | None] = mapped_column(PriceType())
@@ -293,7 +288,6 @@ class DomainTopMover(Base):
     """
 
     __tablename__ = "domain_top_movers"
-    __table_args__ = (MYSQL_TABLE_ARGS,)
 
     domain_key: Mapped[str] = domain_key_column(primary_key=True)
     region: Mapped[str] = mapped_column(RegionType(), primary_key=True)
@@ -301,7 +295,7 @@ class DomainTopMover(Base):
     rank_type: Mapped[RankType] = mapped_column(RANK_TYPE_ENUM, primary_key=True)
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
 
-    name: Mapped[str | None] = mapped_column(String(255))
+    name: Mapped[str | None] = mapped_column(String(255, collation="C"))
     # ELOX (biotechnology) 9999.0 olculdu; SENTINEL SAYILMAZ, oldugu gibi
     # yazilir (`currentPriceTarget = 0.0`'in NULL'a cevrilmemesiyle ayni
     # ilke).
@@ -338,7 +332,6 @@ class ResearchReport(Base):
     __tablename__ = "research_reports"
     __table_args__ = (
         Index("ix_research_reports_date", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     report_id: Mapped[str] = mapped_column(AsciiKeyType(REPORT_ID_LENGTH), primary_key=True)
@@ -348,10 +341,10 @@ class ResearchReport(Base):
     # `as_of_date`'ini `writes`'in ILK satirindan okur ve bu tablo ilk
     # sirada gelebilir -- kolon olmasaydi KeyError verirdi.
     as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
-    provider: Mapped[str | None] = mapped_column(String(64))
-    report_type: Mapped[str | None] = mapped_column(String(64))
+    provider: Mapped[str | None] = mapped_column(String(64, collation="C"))
+    report_type: Mapped[str | None] = mapped_column(String(64, collation="C"))
     # Olculen max 59
-    head_html: Mapped[str | None] = mapped_column(String(255))
+    head_html: Mapped[str | None] = mapped_column(String(255, collation="C"))
     # MEDIUMTEXT OLMAK ZORUNDA: olculen max 23 570 karakter (104 rapor,
     # medyan 281). `TEXT` 65 535 BAYT'tir ve utf8mb4'te 4 baytlik
     # karakterlerle tasabilir.
@@ -360,20 +353,20 @@ class ResearchReport(Base):
     # topCompanies[].targetPrice SARMALI) -- SI S4.4.
     target_price: Mapped[Decimal | None] = mapped_column(PriceType())
     # Olculen: Maintained / Increased / Decreased / yok
-    target_price_status: Mapped[str | None] = mapped_column(String(32))
+    target_price_status: Mapped[str | None] = mapped_column(String(32, collation="C"))
     # Olculen: Bullish / Neutral / Bearish / yok
-    investment_rating: Mapped[str | None] = mapped_column(String(32))
+    investment_rating: Mapped[str | None] = mapped_column(String(32, collation="C"))
     # DOMAIN yolunda ISO metin, SEARCH yolunda epoch MILISANIYE gelir
     # (SQ S4.3). Ortak bir donusturucu varsayilsaydi biri sessizce NULL
     # olurdu; her dataset kendi donusturucusunu uygular.
     report_ts_utc: Mapped[datetime | None] = mapped_column(TsType())
     # --- yalniz SEARCH yolunda dolar (SQ S5.4) ---
     # Domain yaniti yazar alani TASIMAZ.
-    author: Mapped[str | None] = mapped_column(String(128))
+    author: Mapped[str | None] = mapped_column(String(128, collation="C"))
     # `Search.research` -> `reportHeadline`. Domain yolunda NULL KALIR:
     # oradaki baslik `head_html` / `report_title` kolonlarinda durur ve
     # ikisi ayni sey degildir (SQ S4.3).
-    report_headline: Mapped[str | None] = mapped_column(String(512))
+    report_headline: Mapped[str | None] = mapped_column(String(512, collation="C"))
     # `update_columns` DISINDA (AH S5.4)
     first_seen_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
@@ -387,7 +380,6 @@ class DomainReportLink(Base):
     """
 
     __tablename__ = "domain_report_links"
-    __table_args__ = (MYSQL_TABLE_ARGS,)
 
     domain_key: Mapped[str] = domain_key_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
@@ -414,7 +406,6 @@ class DomainAsOfState(Base):
     __tablename__ = "domain_asof_state"
     __table_args__ = (
         Index("ix_domain_asof_dataset_date", "dataset", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     domain_key: Mapped[str] = domain_key_column(primary_key=True)

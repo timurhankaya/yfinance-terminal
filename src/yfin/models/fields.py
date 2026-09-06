@@ -454,7 +454,3 @@ SCREENER_QUOTE_FIELDS: tuple[Field, ...] = (
     *(f for f in INFO_FIELDS if f.source in SCREENER_SHARED_SOURCES),
     *SCREENER_EXTRA_FIELDS,
 )
-
-SCREENER_QUOTE_SOURCE_KEYS: frozenset[str] = frozenset(
-    f.source for f in SCREENER_QUOTE_FIELDS
-) | SCREENER_NON_COLUMN_SOURCES

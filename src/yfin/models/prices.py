@@ -10,7 +10,6 @@ from sqlalchemy.dialects.mysql import BIGINT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
-    MYSQL_TABLE_ARGS,
     Base,
     PriceType,
     TsType,
@@ -22,7 +21,7 @@ class PriceHistory(Base):
     """interval='1d'. PK borsanin YEREL seans tarihidir."""
 
     __tablename__ = "price_history"
-    __table_args__ = (Index("ix_price_history_session_date", "session_date"), MYSQL_TABLE_ARGS)
+    __table_args__ = (Index("ix_price_history_session_date", "session_date"),)
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     session_date: Mapped[date] = mapped_column(primary_key=True)
@@ -54,7 +53,7 @@ class PriceHistory(Base):
 
 class Dividend(Base):
     __tablename__ = "dividends"
-    __table_args__ = (Index("ix_dividends_ex_date", "ex_date"), MYSQL_TABLE_ARGS)
+    __table_args__ = (Index("ix_dividends_ex_date", "ex_date"),)
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     ex_date: Mapped[date] = mapped_column(primary_key=True)
@@ -63,7 +62,7 @@ class Dividend(Base):
 
 class Split(Base):
     __tablename__ = "splits"
-    __table_args__ = (Index("ix_splits_split_date", "split_date"), MYSQL_TABLE_ARGS)
+    __table_args__ = (Index("ix_splits_split_date", "split_date"),)
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     split_date: Mapped[date] = mapped_column(primary_key=True)
@@ -72,7 +71,7 @@ class Split(Base):
 
 class CapitalGain(Base):
     __tablename__ = "capital_gains"
-    __table_args__ = (Index("ix_capital_gains_gain_date", "gain_date"), MYSQL_TABLE_ARGS)
+    __table_args__ = (Index("ix_capital_gains_gain_date", "gain_date"),)
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     gain_date: Mapped[date] = mapped_column(primary_key=True)
@@ -88,7 +87,7 @@ class SharesFull(Base):
     """
 
     __tablename__ = "shares_full"
-    __table_args__ = (Index("ix_shares_full_as_of_date", "as_of_date"), MYSQL_TABLE_ARGS)
+    __table_args__ = (Index("ix_shares_full_as_of_date", "as_of_date"),)
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(primary_key=True)

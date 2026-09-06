@@ -12,7 +12,6 @@ from typing import Any
 from sqlalchemy import Column, ForeignKey, Index, Table, desc, text
 
 from yfin.models.base import (
-    MYSQL_TABLE_ARGS,
     Base,
     HashType,
     RawJsonType,
@@ -51,7 +50,7 @@ def _snapshot_table(
     if historical:
         # S5.6: en son snapshot'i bulmak icin (symbol, fetched_at DESC)
         args.append(Index(f"ix_{name}_symbol_fetched", "symbol", desc(text("fetched_at"))))
-    return Table(name, Base.metadata, *args, **MYSQL_TABLE_ARGS)  # type: ignore[arg-type]
+    return Table(name, Base.metadata, *args)  # type: ignore[arg-type]
 
 
 ticker_info = _snapshot_table("ticker_info", INFO_FIELDS, historical=False)

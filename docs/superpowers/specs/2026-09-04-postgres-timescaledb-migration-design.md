@@ -230,12 +230,34 @@ reddeder. Byte-for-byte sadakat `content_hash`'in ön koşuludur.
 | `KeyTextType(n)` | `utf8mb4_0900_as_cs` | `VARCHAR(n) COLLATE "C"` |
 | `HostType()` | `ascii_general_ci` | `VARCHAR(255) COLLATE "C"` + §2.5.2 |
 | **`kinds.py` `str16/32/64/128/255`** | tablo varsayılanı `utf8mb4_0900_ai_ci` | **`String(n, collation="C")`** |
+| **model dosyalarında doğrudan `String(n)`** | tablo varsayılanı `utf8mb4_0900_ai_ci` | **`String(n, collation="C")`** |
 
-**Son satır atlanamaz.** `models/kinds.py` düz `String(n)` üretiyor;
-MySQL'de tablo varsayılanı uygulanıyordu, PostgreSQL'de **veritabanı
-varsayılanı** (imajda `en_US.utf8`) uygulanır — yani ne `"C"` ne eski
-davranış. Bu kolonlar `ticker_info`, `ticker_fast_info`, `history_metadata`
-ve türevlerinin büyük kısmını oluşturur.
+**Son İKİ satır atlanamaz — üç kaynak vardır, biri değil.**
+
+1. `models/base.py` fabrikaları (yukarıdaki 11 satır)
+2. `models/kinds.py` `strN` kind'ları — `ticker_info`, `ticker_fast_info`,
+   `history_metadata` ve türevlerinin büyük kısmı
+3. **Model dosyalarında doğrudan yazılmış `String(n)` çağrıları** — ölçüldü:
+   **89 çağrı, 12 dosyada** (`discovery.py` 26, `market.py` 19,
+   `domains.py` 14, `symbols.py` 9, `news.py` 5, `analysis.py`/`funds.py`/
+   `holders.py`/`sync.py` 3'er, `financials.py` 2, `bars.py`/`officers.py`
+   1'er)
+
+Üçüncü kaynak bu tasarımın ilk sürümünde **gözden kaçmıştı** ve
+uygulama sırasında §9.4'teki invaryant testi tarafından yakalandı: 101
+kolon `"C"` olmadan kalıyordu. Testin varlık sebebi tam olarak budur —
+"politikayı bir yardımcıda tanımlamak onu korumaz".
+
+MySQL'de üçü de tablo varsayılanını alıyordu; PostgreSQL'de kolon
+collation'ı verilmezse **veritabanı varsayılanı** (imajda `en_US.utf8`)
+uygulanır, yani ne `"C"` ne de eski davranış.
+
+**Kabul edilen bedel:** salt görüntüleme alanları da (`domains.name`,
+`search_quotes.long_name`) `"C"` olur, yani `ORDER BY` byte sıralıdır ve
+aksanlı metinde dile göre doğru sıralamaz. Alternatif — anahtar olmayan
+kolonları veritabanı varsayılanına bırakmak — invaryantı yok eder ve
+tam da bu bölümün önlediği sessiz ayrışmayı geri getirirdi. Sıralama
+gerekirse sorgu tarafında `COLLATE "en_US.utf8"` ile istenir.
 
 **`"C"` collation seçiminin kanıtı (ölçüldü):** `"C"` collation'lı kolonda
 `LIKE 'abc%'` `text_pattern_ops` OLMADAN indeks kullanıyor

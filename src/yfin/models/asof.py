@@ -14,7 +14,6 @@ from sqlalchemy import Date, Index, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
-    MYSQL_TABLE_ARGS,
     AsciiKeyType,
     Base,
     HashType,
@@ -27,7 +26,6 @@ class AsOfState(Base):
     __tablename__ = "asof_state"
     __table_args__ = (
         Index("ix_asof_state_dataset_date", "dataset", "as_of_date"),
-        MYSQL_TABLE_ARGS,
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
