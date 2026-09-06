@@ -27,7 +27,7 @@ from yfin.models.kinds import KINDS
 # kalmadi; uydurma bir butce yaniltici olurdu.
 
 
-def make_column(field: Field) -> Column[Any]:
+def make_column(field: Field, table_name: str) -> Column[Any]:
     """Tipli kolon; hepsi NULL kabul eder (kaynak alan seti sembole gore
     degisir).
 
@@ -35,14 +35,26 @@ def make_column(field: Field) -> Column[Any]:
     YOKTUR, `BIGINT UNSIGNED`in verdigi "negatif olamaz" garantisi kisitla
     yeniden kurulur.
 
-    Kisit ADSIZ birakilir; adini `Base.metadata`nin naming_convention'i
-    uretir (`ck_{table}_{column}`). Ad burada URETILEMEZDI: `Field`
-    (models/fields.py) tablo adini TASIMAZ ve tek cagri yeri
-    snapshots.py'dir. Adlandirmayi SQLAlchemy'ye devretmek ayrica
-    Alembic'in kararsiz ad problemini kaynaginda cozer (PG S2.6).
+    KISIT ACIKCA ADLANDIRILIR ve `table_name` TAM DA BUNUN ICIN alinir.
+    Ilk tasarim kisiti adsiz birakip adi `Base.metadata`nin
+    naming_convention'ina (`ck_%(table_name)s_%(column_0_name)s`)
+    biraktiriyordu. OLCULDU: KOLON SEVIYESINDE tanimlanan bir
+    CheckConstraint icin SQLAlchemy `column_0_name`i cozemez ve ad
+    `ck_ticker_info_` olarak -- kolon kismi BOS -- uretilir. ticker_info'da
+    sekiz `ubig` kolonu vardir, yani sekiz kisit AYNI ADI alir ve
+    PostgreSQL `CREATE TABLE`i reddeder.
+
+    `Field` (models/fields.py) tablo adini tasimadigi icin ad buradan
+    baska bir yerde de uretilemezdi; iki cagri yeri de (snapshots.py,
+    discovery.py) tablo adini zaten biliyor.
     """
     spec = KINDS[field.kind]
     args: list[Any] = [field.column, spec.sql_type()]
     if field.kind == "ubig":
-        args.append(CheckConstraint(f'"{field.column}" >= 0'))
+        args.append(
+            CheckConstraint(
+                f'"{field.column}" >= 0',
+                name=f"ck_{table_name}_{field.column}_nonneg",
+            )
+        )
     return Column(*args, nullable=True)

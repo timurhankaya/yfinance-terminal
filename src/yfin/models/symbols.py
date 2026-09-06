@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Index, Integer, String, func
+from sqlalchemy import Boolean, Index, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import Base, SymbolType, TsType
@@ -30,7 +30,7 @@ class Symbol(Base):
     long_name: Mapped[str | None] = mapped_column(String(255, collation="C"))
     first_trade_date: Mapped[datetime | None] = mapped_column(TsType())
 
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     # SQ S5.12: sembolu evrene KIM soktu. Kesif yollari (`search`, `lookup`,
     # `screener`) yeni sembolu `is_active=0` ile yazar; aktiflestirme ELLE
     # yapilir (`yfin symbols activate --discovered-by ...`).

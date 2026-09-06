@@ -12,8 +12,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Index, String
-from sqlalchemy.dialects.mysql import BIGINT
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
@@ -21,7 +20,6 @@ from yfin.models.base import (
     BarIntervalType,
     Base,
     PriceType,
-    SymbolType,
     TsType,
     symbol_fk_column,
 )
@@ -49,10 +47,16 @@ GAP_FETCH_FAILED = "fetch_failed"
 class PriceBar(Base):
     """price_history'nin intraday/cok-gunluk kardesi.
 
-    FK YOKTUR: MySQL 8 partition'li InnoDB tablosunda foreign key
-    desteklemez (ERROR 1506). `symbol` yine symbols.symbol'a isaret eder;
-    butunluk yazim yolunda (symbols bootstrap'i once kosar) ve aylik
-    oksuz satir sorgusuyla korunur (PB S7.5/2, PB S8.7).
+    FK TASIR. MySQL 8'de partition'li InnoDB tablosu foreign key
+    desteklemiyordu (ERROR 1506) ve butunluk yazim yolunda + aylik bir
+    oksuz-satir sorgusuyla korunuyordu. TimescaleDB hypertable'i
+    REFERENCING taraf OLABILIR (olculdu: ON UPDATE CASCADE +
+    ON DELETE RESTRICT calisiyor, giden FK varken drop_chunks sorunsuz),
+    bu yuzden butunluk artik DB seviyesindedir ve oksuz-satir sorgusu
+    GEREKSIZDIR (PG S7.2).
+
+    Kabul edilen bedel: her insert `symbols` satirinda paylasimli kilit
+    alir ve price_bars en yogun yazilan tablodur.
     """
 
     __tablename__ = "price_bars"
@@ -60,10 +64,7 @@ class PriceBar(Base):
         Index("ix_price_bars_local_date", "local_date"),
     )
 
-    # symbol_fk_column DEGIL (FK tasimaz), ama TIPI birebir aynidir:
-    # farkli genislik/collation ileride symbols ile JOIN'de ERROR 3780
-    # uretirdi (S5.1).
-    symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
+    symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     bar_interval: Mapped[str] = mapped_column(BarIntervalType(), primary_key=True)
     ts_utc: Mapped[datetime] = mapped_column(TsType(), primary_key=True)
 
@@ -77,13 +78,15 @@ class PriceBar(Base):
     high: Mapped[Decimal | None] = mapped_column(PriceType())
     low: Mapped[Decimal | None] = mapped_column(PriceType())
     close: Mapped[Decimal] = mapped_column(PriceType(), nullable=False)
-    volume: Mapped[int | None] = mapped_column(BIGINT(unsigned=True))
+    volume: Mapped[int | None] = mapped_column(
+        BigInteger, CheckConstraint('"volume" >= 0', name="ck_price_bars_volume_nonneg")
+    )
 
     # Seans disi (pre/post market) bari mi. Tek dogruluk kaynagi
     # tradingPeriods'in start/end araligidir (PB S6.4);
     # has_pre_post_market_data KULLANILMAZ - SHEL.L ve VWCE.DE onu False
     # bildirdikleri halde seans disi bar donduruyor.
-    is_extended: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    is_extended: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
 
 class IntradayScope(Base):
@@ -98,7 +101,7 @@ class IntradayScope(Base):
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     bar_interval: Mapped[str] = mapped_column(BarIntervalType(), primary_key=True)
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     added_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     note: Mapped[str | None] = mapped_column(String(255, collation="C"))
 
@@ -152,43 +155,43 @@ class BarRescale(Base):
     # milyonlarca satirda birikimli sapma uretir.
     ratio: Mapped[Decimal] = mapped_column(PriceType(), nullable=False)
     applied_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
-    rows_affected: Mapped[int] = mapped_column(BIGINT(unsigned=True), nullable=False)
+    rows_affected: Mapped[int] = mapped_column(
+        BigInteger,
+        CheckConstraint('"rows_affected" >= 0', name="ck_bar_rescales_rows_affected_nonneg"),
+        nullable=False,
+    )
 
 
-def price_bars_partition_ddl(
-    *, first: tuple[int, int] = (2023, 10), last: tuple[int, int] = (2028, 9)
-) -> str:
-    """price_bars'in RANGE COLUMNS(ts_utc) partition DDL'i.
+def timescale_ddl() -> tuple[str, ...]:
+    """price_bars ve price_history icin hypertable DDL'i.
 
-    Alembic partition DDL'ini autogenerate EDEMEZ; hem migration hem test
-    conftest'i bu ayni sabiti kullanir (proje V_ACTIONS_CREATE icin de
-    boyle yapiyor). Aksi halde testler PARTITION'SIZ bir tabloya karsi
-    kosar ve pruning davranisi hic dogrulanamaz.
+    Alembic bunu autogenerate EDEMEZ; hem migration hem test conftest'i
+    BU AYNI SABITI kullanir (projenin V_ACTIONS_CREATE icin kurdugu
+    desen). Aksi halde testler hypertable'siz DUZ tablolara karsi kosar
+    ve chunk davranisi hic dogrulanmaz.
 
-    MAXVALUE BOLUMU YOKTUR ve bu bilincli bir karardir. Olculdu:
-      - MAXVALUE varken ADD PARTITION IMKANSIZDIR (ERROR 1493); tek yol
-        REORGANIZE PARTITION'dir ve o, p_future'daki HER SATIRI kopyalar
-        (ALGORITHM=INPLACE/LOCK=NONE secenegi yoktur, ERROR 1064).
-        Bakim birkac ay atlanirsa onarim, yuz milyonlarca satirin kilit
-        altinda yeniden yazilmasi demektir.
-      - MAXVALUE yokken aralik disi insert ERROR 1526 ile GURULTULU
-        duser ve ADD PARTITION metadata-only, anliktir.
-    Sessiz pruning olumu yerine gurultulu insert hatasi tercih edilir:
-    hata, bakimin atlandigini kosunun kendisinde bildirir.
+    `create_default_indexes => FALSE` ZORUNLUDUR. Varsayilan davranis
+    bolumleme kolonu uzerinde `price_bars_ts_utc_idx` adli bir DESC
+    indeks yaratir; o indeks `public` semasinda durur, Base.metadata'da
+    YOKTUR ve Alembic autogenerate onu "silinmeli" diye raporlar -- yani
+    `yfin db revision`in "bos diff" kapisi HIC acilmaz (PG S7.1).
+    Gereken indeksler modelde acikca tanimlidir
+    (ix_price_bars_local_date, ix_price_history_session_date); ts_utc
+    PK'nin son bileseni oldugu icin ayri indeks gerekmez.
 
-    Aralik ileriye VE geriye acilir: ilk dolum 60m icin 729 gun veri
-    getirir (PB S4.3), tek bir baslangic partition'i olsaydi tum gecmis
-    oraya duser ve pruning gecmis sorgularinda hic calismazdi. 1wk/1mo'nun
-    period="max" ile gelen daha eski satirlari icin tek bir p_hist yeterli
-    - bu iki interval'in satir sayisi ihmal edilebilir (PB S5.2).
+    INTERVAL '1 year' KULLANILMAZ: TimescaleDB ay iceren interval'i 30
+    gunluk aylara cevirir ve aralik 360 gun olarak kaydolur (olculdu).
+
+    Aylik partition'lari ELLE eklemek gerekmez: chunk'lar yazma aninda
+    olusur. "Aralik disi insert" kavrami YOKTUR, dolayisiyla MySQL'deki
+    "gurultulu ERROR 1526 mi sessiz pruning olumu mu" ikilemi de ortadan
+    kalkar -- bu, migrasyonun en buyuk tek kazancidir.
     """
-    parts = [f"  PARTITION p_hist VALUES LESS THAN ('{first[0]:04d}-{first[1]:02d}-01')"]
-    year, month = first
-    while (year, month) <= last:
-        nyear, nmonth = (year + 1, 1) if month == 12 else (year, month + 1)
-        parts.append(
-            f"  PARTITION p{year:04d}_{month:02d} VALUES LESS THAN ('{nyear:04d}-{nmonth:02d}-01')"
-        )
-        year, month = nyear, nmonth
-    body = ",\n".join(parts)
-    return f"ALTER TABLE price_bars\nPARTITION BY RANGE COLUMNS (ts_utc) (\n{body}\n)"
+    return (
+        "SELECT create_hypertable('price_bars', "
+        "by_range('ts_utc', INTERVAL '7 days'), "
+        "create_default_indexes => FALSE)",
+        "SELECT create_hypertable('price_history', "
+        "by_range('session_date', INTERVAL '365 days'), "
+        "create_default_indexes => FALSE)",
+    )

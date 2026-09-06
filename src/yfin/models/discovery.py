@@ -35,11 +35,12 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Table,
     Text,
+    text,
 )
-from sqlalchemy.dialects.mysql import SMALLINT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
@@ -103,8 +104,11 @@ class ScreenQuoteType(enum.StrEnum):
     ETF = "ETF"
 
 
-def _enum(kind: type[enum.StrEnum]) -> Enum:
-    return Enum(kind, values_callable=lambda e: [m.value for m in e])
+def _enum(kind: type[enum.StrEnum], name: str) -> Enum:
+    """`name` ACIKCA verilir: PostgreSQL'de ENUM adi kalici bir tip
+    adidir ve SQLAlchemy'nin sinif adindan turettigi bicim
+    (`screenkind`) snake_case konvansiyonuna uymaz."""
+    return Enum(kind, values_callable=lambda e: [m.value for m in e], name=name)
 
 
 # --- 1. kapi ---------------------------------------------------------------
@@ -153,7 +157,7 @@ class SearchQuote(Base):
 
     # Yanittaki 0-TABANLI sira (SQ S5.14). Kaynagin kendi siralamasi
     # skorudur; sembolsuz satirlar ELENDIKTEN SONRA numaralandirilir.
-    rank_index: Mapped[int] = mapped_column(SMALLINT, nullable=False)
+    rank_index: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     # Olculen aralik 12,2 - 16.067.500,0
     score: Mapped[Decimal | None] = mapped_column(PriceType())
     quote_type: Mapped[str | None] = mapped_column(String(32, collation="C"))
@@ -173,7 +177,7 @@ class SearchQuote(Base):
     prev_name: Mapped[str | None] = mapped_column(String(255, collation="C"))
     name_change_date: Mapped[datetime | None] = mapped_column(TsType())
     # Sembol `symbols` yazimina dahil edilebildi mi (SQ S8.3)
-    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     raw_json: Mapped[str] = mapped_column(RawJsonType(), nullable=False)
 
@@ -199,7 +203,7 @@ class SearchList(Base):
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     list_key: Mapped[str] = mapped_column(AsciiKeyType(LIST_KEY_LENGTH), primary_key=True)
 
-    rank_index: Mapped[int] = mapped_column(SMALLINT, nullable=False)
+    rank_index: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     list_type: Mapped[str | None] = mapped_column(String(32, collation="C"))
     # ALGO_WATCHLIST'te `name`, PREDEFINED_SCREENER'da `title`
     name: Mapped[str | None] = mapped_column(String(255, collation="C"))
@@ -239,7 +243,7 @@ class SearchReportHit(Base):
         ForeignKey("research_reports.report_id", onupdate="CASCADE", ondelete="CASCADE"),
         primary_key=True,
     )
-    rank_index: Mapped[int] = mapped_column(SMALLINT, nullable=False)
+    rank_index: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
@@ -254,7 +258,7 @@ class LookupResult(Base):
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
 
     # Yanittaki 0-tabanli sira (SQ S5.14)
-    rank_index: Mapped[int] = mapped_column(SMALLINT, nullable=False)
+    rank_index: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     # Kaynagin KENDI `rank_index` alani -- bir sira DEGIL, Yahoo'nun siralama
     # skoru (olculen ornek 30007). Adi ayrilmasaydi `rank_index` ile karisirdi.
     source_rank: Mapped[int | None] = mapped_column(Integer)
@@ -275,7 +279,7 @@ class LookupResult(Base):
     regular_market_price: Mapped[Decimal | None] = mapped_column(PriceType())
     regular_market_change: Mapped[Decimal | None] = mapped_column(PriceType())
     regular_market_percent_change: Mapped[Decimal | None] = mapped_column(PriceType())
-    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     raw_json: Mapped[str] = mapped_column(RawJsonType(), nullable=False)
 
@@ -293,6 +297,20 @@ class LookupTotal(Base):
 
     query_term: Mapped[str] = _query_term_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    # NORMALIZE EDILMEZ ve bu bilinclidir (PG S2.5.4 taramasinin tek
+    # bulgusu). Bu kolon MySQL'de duz `String(...)` idi, yani tablo
+    # varsayilani `utf8mb4_0900_ai_ci`yi aliyordu -- PK bileseni olan tek
+    # BUYUK/KUCUK HARF DUYARSIZ kolondu. Simdi COLLATE "C".
+    #
+    # Deger dogrudan Yahoo yanitinin SOZLUK ANAHTARIDIR
+    # (`raw.totals.items()`: 'equity', 'mutualfund', 'privateCompany').
+    # Iki gerekceyle `.lower()` UYGULANMAZ:
+    #   1. `privateCompany` camelCase'tir; kucultmek kaynak tanimlayicisini
+    #      bozar ve o anahtara gore eslesen kodu kirar.
+    #   2. Davranis farki SESSIZ DEGIL GORUNURDUR: ai_ci altinda kaynak bir
+    #      gun 'Equity' bildirseydi ayni satir sessizce guncellenirdi;
+    #      "C" ile IKINCI bir satir olusur ve fark denetimde gorulur.
+    #      Projenin tercihi zaten gurultulu hatadir.
     lookup_type: Mapped[str] = mapped_column(
         String(LOOKUP_TYPE_LENGTH, collation="C"), primary_key=True
     )
@@ -314,8 +332,10 @@ class Screen(Base):
     __tablename__ = "screens"
 
     screen_key: Mapped[str] = mapped_column(AsciiKeyType(SCREEN_KEY_LENGTH), primary_key=True)
-    kind: Mapped[ScreenKind] = mapped_column(_enum(ScreenKind), nullable=False)
-    quote_type: Mapped[ScreenQuoteType] = mapped_column(_enum(ScreenQuoteType), nullable=False)
+    kind: Mapped[ScreenKind] = mapped_column(_enum(ScreenKind, "screen_kind"), nullable=False)
+    quote_type: Mapped[ScreenQuoteType] = mapped_column(
+        _enum(ScreenQuoteType, "screen_quote_type"), nullable=False
+    )
     # Predefined'da ILK GET sayfasindan TAZELENIR (SQ S4.1/13); custom'da
     # `ScreenDef`ten gelir ve tazelenmez -- POST yaniti metadata tasimaz.
     title: Mapped[str] = mapped_column(String(255, collation="C"), nullable=False)
@@ -323,9 +343,9 @@ class Screen(Base):
     # SQ K15: `sortAsc` varsayilani AZALAN; sira acikca tutulmazsa sayfalar
     # arasi tutarsizlik sembol atlatir.
     sort_field: Mapped[str] = mapped_column(String(64, collation="C"), nullable=False)
-    sort_asc: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    sort_asc: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     definition_json: Mapped[str | None] = mapped_column(RawJsonType())
-    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1")
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
@@ -355,7 +375,7 @@ class ScreenRun(Base):
     fetched_rows: Mapped[int] = mapped_column(Integer, nullable=False)
     # Kapi sozlesmesi kolonu: `screen_members` satir sayisi
     row_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    page_count: Mapped[int] = mapped_column(SMALLINT, nullable=False)
+    page_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     yahoo_id: Mapped[str | None] = mapped_column(String(64, collation="C"))
     version_id: Mapped[int | None] = mapped_column(Integer)
     last_updated: Mapped[datetime | None] = mapped_column(TsType())
@@ -384,7 +404,7 @@ class ScreenMember(Base):
     # MUTLAK sira. Hash govdesindedir: kadro ayni kalip sira degistiginde
     # bu GERCEK bir degisimdir.
     rank_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
@@ -403,8 +423,8 @@ screen_quotes = Table(
     Base.metadata,
     Column("symbol", SymbolType(), primary_key=True, nullable=False),
     Column("as_of_date", Date, primary_key=True, nullable=False),
-    *(make_column(f) for f in SCREENER_QUOTE_FIELDS),
-    Column("is_known", Boolean, nullable=False, server_default="0"),
+    *(make_column(f, "screen_quotes") for f in SCREENER_QUOTE_FIELDS),
+    Column("is_known", Boolean, nullable=False, server_default=text("false")),
     Column("fetched_at", TsType(), nullable=False),
     # `corporateActions` LISTEDIR ve kolona cikmaz; burada kalir.
     Column("raw_json", RawJsonType(), nullable=False)

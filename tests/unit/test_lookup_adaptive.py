@@ -63,9 +63,11 @@ class TestAdaptiveBranch:
         block = _block("lookup_BTC_all")
         block = {**block, "lookupTotals": {**block["lookupTotals"], "all": 57}}
         rec = _Recorder({"all": block})
-        payload = _fetch(monkeypatch, rec, "AAPL")
+        _fetch(monkeypatch, rec, "AAPL")
+        # Iddia CAGRI SAYISI uzerinden surulur, bir payload bayragi
+        # uzerinden degil: bayrak DB'ye yazilmadigi icin yalnizca testin
+        # gordugu bir sey olurdu ve "denetim alani" izlenimi yaratirdi.
         assert rec.types == ["all"]
-        assert payload.typed_fallback is False
 
     def test_broad_term_falls_back_to_typed_calls(
         self, monkeypatch: pytest.MonkeyPatch
@@ -78,8 +80,7 @@ class TestAdaptiveBranch:
         rec = _Recorder(
             {"all": _block("lookup_GOLD_all"), "equity": _block("lookup_GOLD_equity")}
         )
-        payload = _fetch(monkeypatch, rec, "GOLD")
-        assert payload.typed_fallback is True
+        _fetch(monkeypatch, rec, "GOLD")
         assert rec.types == ["all", *mod.TYPED_LOOKUPS]
 
     def test_typed_fallback_adds_to_all_it_does_not_replace(

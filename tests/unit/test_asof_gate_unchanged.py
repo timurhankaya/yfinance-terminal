@@ -61,10 +61,31 @@ def _golden_result(order: tuple[str, ...]) -> NormalizedResult:
 
 
 def _asof_datasets() -> list[AsOfDataset[Any]]:
+    """`asof_state` KAPI AILESI -- bu dosyanin konusu olan 13 dataset.
+
+    Kapi tablosuna gore SUZULUR, yalnizca tipe gore DEGIL: SQ ile gelen
+    `search`/`lookup` da `AsOfDataset`tir ama KENDI kapisini kullanir
+    (`discovery_asof_state`, SQ K3a). Tipe gore suzmek bu dosyanin surdugu
+    "13 dataset'in sozlesmesi degismedi" iddiasini, alakasiz bir ailenin
+    buyumesiyle her seferinde kirardi.
+    """
     return [
         SYMBOL_DATASETS[name]
         for name in SYMBOL_DATASETS
         if isinstance(SYMBOL_DATASETS[name], AsOfDataset)
+        and SYMBOL_DATASETS[name].asof_gate_table == GATE_TABLE
+    ]
+
+
+def _discovery_datasets() -> list[AsOfDataset[Any]]:
+    """`discovery_asof_state` kapi ailesi (SQ S6.2)."""
+    from yfin.datasets.discovery.base import DISCOVERY_GATE_TABLE
+
+    return [
+        SYMBOL_DATASETS[name]
+        for name in SYMBOL_DATASETS
+        if isinstance(SYMBOL_DATASETS[name], AsOfDataset)
+        and SYMBOL_DATASETS[name].asof_gate_table == DISCOVERY_GATE_TABLE
     ]
 
 
@@ -106,7 +127,7 @@ def test_symbol_side_gate_identity_is_symbol_and_dataset() -> None:
 
 
 def test_first_seen_at_cannot_affect_any_existing_hash() -> None:
-    """Sembol tarafindaki hicbir VERI tablosunda `first_seen_at` YOK.
+    """`asof_state` ailesinin hicbir VERI tablosunda `first_seen_at` YOK.
 
     Kolonu tasiyan tek sembol-tarafi tablosu kapinin kendisidir
     (`asof_state`) ve o hash GOVDESINE hic girmez.
@@ -125,6 +146,55 @@ def test_first_seen_at_cannot_affect_any_existing_hash() -> None:
     assert symbol_side_targets & carriers == set()
     assert "first_seen_at" in VOLATILE_COLUMNS
     assert GATE_TABLE in carriers
+
+
+def test_discovery_family_uses_its_own_gate() -> None:
+    """SQ K3a: `asof_state` KULLANILAMAZ.
+
+    O tablonun `symbol` kolonu `symbols.symbol`a FK tasir; serbest arama
+    terimi orada olmadigi icin kapi satiri `ERROR 1452` alirdi. Bu test,
+    birinin "tutarlilik olsun" diye kesif dataset'lerini eski kapiya
+    tasimasini engeller.
+    """
+    from yfin.datasets.discovery.base import (
+        DISCOVERY_GATE_KEY_COLUMNS,
+        DISCOVERY_GATE_TABLE,
+    )
+
+    family = _discovery_datasets()
+    assert {d.name for d in family} == {"search", "lookup"}
+    for dataset in family:
+        assert dataset.asof_gate_table == DISCOVERY_GATE_TABLE
+        assert dataset.asof_gate_key_columns == DISCOVERY_GATE_KEY_COLUMNS
+        assert dataset.produces[-1] == DISCOVERY_GATE_TABLE
+
+
+def test_discovery_first_seen_at_carrier_is_ungated() -> None:
+    """`research_reports` `first_seen_at` TASIR ve `search`in `produces`
+    listesindedir -- ama KAPI DISINDADIR (SQ S6.2.1).
+
+    Yani hash govdesine hic girmez ve `first_seen_at`in "her kosuda degisir"
+    ozelligi kapiyi bozamaz. Bu, ustteki testin kesif ailesindeki
+    karsiligidir; kanit `UNGATED_TABLES`tan turetilir, elle yazilmis bir
+    istisna listesinden degil.
+    """
+    from yfin.datasets.discovery.base import UNGATED_TABLES
+
+    carriers = {
+        table.name for table in Base.metadata.tables.values() if "first_seen_at" in table.c
+    }
+    gated_targets = {
+        table
+        for dataset in _discovery_datasets()
+        for table in dataset.produces
+        if table != dataset.asof_gate_table and table not in UNGATED_TABLES
+    }
+    assert gated_targets & carriers == set()
+    # Iddianin BOS OLMADIGININ kaniti: tasiyici gercekten `produces`ta ve
+    # gercekten kapi disinda.
+    assert "research_reports" in carriers
+    assert "research_reports" in SYMBOL_DATASETS["search"].produces
+    assert "research_reports" in UNGATED_TABLES
 
 
 def test_asof_dataset_is_still_a_dataset() -> None:

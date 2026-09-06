@@ -332,6 +332,33 @@ tek biçime indirgeme (`.upper()` veya `.lower()`), kolon tipi değişmez,
 bağımlılık değil" çıkarsa yalnızca yorum düzeltilir. Bu kuralla
 çözülemeyen bir bulgu uygulamayı durdurur ve yazara sorulur.
 
+**TARAMA YAPILDI (uygulama, Görev 3 Adım 7).** PK/UNIQUE bileşeni olan
+117 string kolon incelendi. Bunların ezici çoğunluğu MySQL'de zaten
+duyarlıydı (`ascii_bin` veya `utf8mb4_0900_as_cs`); yalnızca tablo
+varsayılanı `ai_ci`'yi alan düz `String(n)` kolonları risk taşıyordu.
+
+**Tek bulgu: `lookup_totals.lookup_type`** (PK bileşeni, taban commit'te
+düz `String(LOOKUP_TYPE_LENGTH)`).
+
+`company_officers.name` ve `insider_roster.name` de PK bileşenidir ama
+`PersonNameType()` = `utf8mb4_0900_as_cs` kullanıyorlardı — **zaten
+duyarlıydılar**, davranış değişmiyor.
+
+**Karar: normalizasyon UYGULANMADI**, gerekçe `models/discovery.py`'ye
+yazıldı. Değer doğrudan Yahoo yanıtının sözlük anahtarıdır
+(`equity`, `mutualfund`, `privateCompany`). İki gerekçe:
+
+1. `privateCompany` camelCase'tir; `.lower()` kaynak tanımlayıcısını
+   bozar ve o anahtara göre eşleşen kodu kırar.
+2. **Davranış farkı sessiz değil görünürdür.** `ai_ci` altında kaynak bir
+   gün `Equity` bildirseydi aynı satır sessizce güncellenirdi; `"C"` ile
+   ikinci bir satır oluşur ve denetimde görülür. Projenin tercihi zaten
+   gürültülü hatadır (PB§K10 ile aynı ilke).
+
+Bu, §2.5.4'ün karar kuralındaki "bağımlılık değil" dalıdır — ama
+§2.5.3'ten farkı, burada davranışın **gerçekten değişmesi**, yalnızca
+değişimin daha güvenli yöne olmasıdır.
+
 ### 2.6 Unsigned tamsayılar — 35 kolon
 
 PostgreSQL'de unsigned tamsayı yoktur.

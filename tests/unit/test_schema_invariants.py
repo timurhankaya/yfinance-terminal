@@ -10,7 +10,7 @@ korunan sey yardimcinin kendisi degil, INVARYANT'tir.
 from __future__ import annotations
 
 from sqlalchemy import Date, ForeignKeyConstraint
-from sqlalchemy.dialects.mysql import DATETIME
+from sqlalchemy.dialects.postgresql import TIMESTAMP
 
 from yfin.models import Base
 
@@ -40,8 +40,12 @@ def test_every_symbol_fk_uses_the_same_policy() -> None:
 
 
 def test_every_symbol_column_shares_the_symbols_collation() -> None:
-    """FK kolonunun collation'i ebeveynle BIREBIR esitse calisir; degilse
-    MySQL ERROR 3780 verir ve tablo hic olusmaz."""
+    """FK kolonunun collation'i ebeveynle BIREBIR esit olmali.
+
+    MySQL bunu MOTOR SEVIYESINDE zorluyordu: uyusmazlik ERROR 3780
+    verir ve tablo hic olusmazdi. PostgreSQL boyle bir hata VERMEZ --
+    yani sapma SESSIZDIR ve JOIN/karsilastirma semantigini ayristirir.
+    Test tam da bu yuzden artik daha degerlidir (PG S9.4)."""
     parent = Base.metadata.tables["symbols"].c["symbol"].type
     for table_name, fk in _symbol_fks():
         for element in fk.elements:
@@ -53,13 +57,22 @@ def test_every_symbol_column_shares_the_symbols_collation() -> None:
 
 
 def test_no_timestamp_column_loses_sub_second_precision() -> None:
-    """Tum damgalar DATETIME(6). DATETIME(0) ayni saniyede PK cakismasi
-    uretir (ERROR 1062) VE kesirleri yuvarlar (T S5.4)."""
+    """Tum damgalar TIMESTAMP(6) WITH TIME ZONE.
+
+    Saniye hassasiyeti ayni saniyede PK cakismasi uretir
+    (ticker_info_history PK'si (symbol, fetched_at)) ve PostgreSQL
+    kesirleri YUVARLAR, kesmez (T S5.4, PG S2.3).
+
+    `timezone` de kontrol edilir: naive bir damga kolonu, psycopg'nin
+    baglanti TZ'sine gore yorumlamasi sayesinde DOGRU sonuc verir ama
+    tip tutarsizligini kalicilastirir -- yani sapma SESSIZDIR.
+    """
     offenders = [
         f"{table.name}.{col.name}"
         for table in Base.metadata.tables.values()
         for col in table.c
-        if isinstance(col.type, DATETIME) and getattr(col.type, "fsp", None) != 6
+        if isinstance(col.type, TIMESTAMP)
+        and (col.type.precision != 6 or col.type.timezone is not True)
     ]
     assert offenders == []
 

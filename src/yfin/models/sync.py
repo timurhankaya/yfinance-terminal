@@ -5,8 +5,18 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Enum, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.dialects.mysql import BIGINT, SMALLINT
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    Enum,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    SmallInteger,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
@@ -58,23 +68,26 @@ class SyncRun(Base):
     __tablename__ = "sync_runs"
     __table_args__ = (Index("ix_sync_runs_started", "started_at"),)
 
-    id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
     started_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     # server_default mevcut satirlari geriye donuk etiketler; NOT NULL kisiti
     # ilk calistirmada patlamaz (ALGORITHM=INSTANT, 50k satirda 16 ms)
     scope: Mapped[RunScope] = mapped_column(
-        Enum(RunScope, values_callable=lambda e: [m.value for m in e]),
+        Enum(RunScope, values_callable=lambda e: [m.value for m in e], name="run_scope"),
         nullable=False,
         server_default=RunScope.SYMBOLS.value,
     )
     finished_at: Mapped[datetime | None] = mapped_column(TsType())
     status: Mapped[RunStatus] = mapped_column(
-        Enum(RunStatus, values_callable=lambda e: [m.value for m in e]), nullable=False
+        Enum(
+            RunStatus, values_callable=lambda e: [m.value for m in e], name="run_status"
+        ),
+        nullable=False,
     )
     symbol_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     dataset_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     # Proxy secimi bilindikten SONRA yazilir (P4.4)
-    shard_count: Mapped[int] = mapped_column(SMALLINT, nullable=False, server_default="1")
+    shard_count: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="1")
     # Bu calistirmanin sembol evreni ve tarih araligi, insan-okunur biçimde
     # ("exchange=IST quote_type=EQUITY start=2020-01-01"). `scope` yalnizca
     # symbols/market ayrimini tasir; hangi run'in hangi evreni kapsadigi aksi
@@ -97,16 +110,19 @@ class SyncRunItem(Base):
         Index("ix_sync_run_items_proxy", "proxy_id", "status"),
     )
 
-    id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
     run_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True), ForeignKey("sync_runs.id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("sync_runs.id", ondelete="CASCADE"), nullable=False
     )
     # FK YOKTUR (S5.5): cozulemeyen sembol icin unknown_symbol kaydi
     # yazilamazdi (ERROR 1452). Denetim kaydi sembol silinse de kalmalidir.
     symbol: Mapped[str] = mapped_column(SymbolType(), nullable=False)
     dataset: Mapped[str] = mapped_column(String(64, collation="C"), nullable=False)
     status: Mapped[ItemStatus] = mapped_column(
-        Enum(ItemStatus, values_callable=lambda e: [m.value for m in e]), nullable=False
+        Enum(
+            ItemStatus, values_callable=lambda e: [m.value for m in e], name="item_status"
+        ),
+        nullable=False,
     )
     table_name: Mapped[str | None] = mapped_column(String(64, collation="C"))
     rows_fetched: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -121,12 +137,14 @@ class SyncRunItem(Base):
     # anahtari bunu asiyor (en uzun 37).
     region: Mapped[str | None] = mapped_column(RegionType())
 
-    shard_index: Mapped[int] = mapped_column(SMALLINT, nullable=False, server_default="0")
+    shard_index: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
     # FK YOKTUR (P3.5) - `symbol` ile ayni gerekce ve bir tanesi daha:
     # InnoDB her INSERT icin ebeveyn proxies satirina shared lock alir;
     # shard binlerce item yazarken kendi proxy satirini S-kilitler ve
     # komsu shard'in saglik flush'i (X-lock) beklerdi. FK, tam da
     # engellemek istedigimiz deadlock'u uretirdi.
-    proxy_id: Mapped[int | None] = mapped_column(BIGINT(unsigned=True))
+    proxy_id: Mapped[int | None] = mapped_column(
+        BigInteger, CheckConstraint('"proxy_id" >= 0', name="ck_sync_run_items_proxy_id_nonneg")
+    )
     # Anlik kopya: proxy silinse de denetim kaydi okunabilir kalir
     proxy_label: Mapped[str | None] = mapped_column(ProxyLabelType())

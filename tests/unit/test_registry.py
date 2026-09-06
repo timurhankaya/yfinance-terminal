@@ -40,9 +40,19 @@ def test_bootstrap_always_first() -> None:
 
 
 def test_all_resolves_every_dataset() -> None:
-    assert {d.name for d in resolve(None)} == set(REGISTRY)
-    assert {d.name for d in resolve(["all"])} == set(REGISTRY)
-    assert {d.name for d in resolve([])} == set(REGISTRY)
+    """`all` = OPT-IN OLMAYAN her dataset (SQ K11).
+
+    `opt_in` `bootstrap`in tersidir: biri her cozumlemeye eklenir, digeri
+    `all`dan cikarilir. Ikisini de disladiktan sonra kalan kume,
+    kayitlarin tamamina esittir.
+    """
+    opt_in = {n for n in REGISTRY if REGISTRY.is_opt_in(n)}
+    assert opt_in, "opt-in dataset bekleniyordu (search/lookup)"
+    assert {d.name for d in resolve(None)} == set(REGISTRY) - opt_in
+    assert {d.name for d in resolve(["all"])} == set(REGISTRY) - opt_in
+    # Bos liste de `all` ile AYNI daldir (registry.py); opt-in orada da
+    # disaridadir -- aksi halde `--datasets ""` gizli bir arka kapi olurdu.
+    assert {d.name for d in resolve([])} == set(REGISTRY) - opt_in
 
 
 def test_alias_expands() -> None:
@@ -127,14 +137,16 @@ def test_symbol_scoped_tables_covers_every_fk_child() -> None:
     """yfin symbols purge listesi FK grafinden turetilir; tek istisna
     FK TASIYAMAYAN tablolardir.
 
-    price_bars partition'li oldugu icin foreign key tasiyamaz (ERROR
-    1506), yani FK grafinde HIC GORUNMEZ. Purge onu atlarsa sembol
-    silinir, barlar oksuz kalir ve ERROR 1451 uyarisi da gelmez
-    (PB S8.7). Bu yuzden `_FK_LESS_SYMBOL_TABLES` elle tutulur.
+    `_FK_LESS_SYMBOL_TABLES` su anda BOSTUR. Tek elemani `price_bars`
+    idi: MySQL'de partition'li oldugu icin FK tasiyamiyordu (ERROR 1506)
+    ve FK grafinde hic gorunmuyordu. TimescaleDB hypertable'i referencing
+    taraf olabildigi icin artik FK TASIYOR (PG S7.2) ve turetme onu
+    kendiliginden buluyor -- yani bu invaryantin KAPSAMI GENISLEDI.
 
-    Test iki yonlu calisir: (a) FK'li her cocuk turetilmis listede olmali,
-    (b) elle listedeki her tablo GERCEKTEN FK tasimiyor olmali - biri
-    FK'li bir tabloyu oraya eklerse iki kez silinmeye calisilirdi.
+    Test iki yonlu calisir ve ikinci yonu bu gecisi yakaladi: (a) FK'li
+    her cocuk turetilmis listede olmali, (b) elle listedeki her tablo
+    GERCEKTEN FK tasimiyor olmali -- biri FK'li bir tabloyu orada
+    birakirsa purge onu IKI KEZ silmeye calisirdi.
     """
     from yfin.models import _FK_LESS_SYMBOL_TABLES, Base, symbol_scoped_tables
 
@@ -177,7 +189,8 @@ def test_market_registry_has_no_bootstrap() -> None:
 
     assert MARKET_DATASETS.bootstrap is None
     resolved = MARKET_DATASETS.resolve(None)
-    assert {d.name for d in resolved} == set(MARKET_DATASETS)
+    opt_in = {n for n in MARKET_DATASETS if MARKET_DATASETS.is_opt_in(n)}
+    assert {d.name for d in resolved} == set(MARKET_DATASETS) - opt_in
     assert MARKET_DATASETS.resolve([]) == resolved
 
 

@@ -24,7 +24,7 @@ from yfin.models.bars import (
     BarRescale,
     IntradayScope,
     PriceBar,
-    price_bars_partition_ddl,
+    timescale_ddl,
 )
 from yfin.models.base import Base
 from yfin.models.discovery import (
@@ -120,14 +120,17 @@ from yfin.models.views import (
 # FK TASIMAYAN ama sembol kapsamli tablolar. Turetme FK kenarlarina
 # dayandigi icin bunlar kendiliginden BULUNAMAZ; liste elle tutulur.
 #
-# price_bars partition'li oldugu icin FK tasiyamaz (ERROR 1506). Purge
-# onu atlarsa (a) satirlar kalir ve (b) ERROR 1451 ile uyari da VERMEZ -
-# sembol gider, barlar oksuz kalir. Daha kotusu: bar_rescales FK tasidigi
-# icin SILINIR, yani olcekleme defteri kaybolur ve sembol yeniden
-# eklenirse tarihsel split'ler bastan uygulanir (PB S8.7).
+# LISTE ARTIK BOS. `price_bars` MySQL'de partition'li oldugu icin FK
+# tasiyamiyordu (ERROR 1506) ve tek elemandi; TimescaleDB hypertable'i
+# referencing taraf olabildigi icin artik FK TASIYOR (PG S7.2) ve
+# turetme onu kendiliginden buluyor. Elle listede birakilsaydi purge onu
+# IKI KEZ silmeye calisirdi.
 #
-# SIRA ONEMLIDIR: defter (bar_rescales) EN SONA birakilir.
-_FK_LESS_SYMBOL_TABLES: tuple[str, ...] = ("price_bars",)
+# Liste yapisi KORUNUYOR: ileride FK tasiyamayan sembol kapsamli bir
+# tablo eklenirse (ornegin baska bir motor ozelligi yuzunden) tek
+# degisiklik burasi olur ve test_registry.py'deki iki yonlu invaryant
+# hatayi yakalar.
+_FK_LESS_SYMBOL_TABLES: tuple[str, ...] = ()
 
 
 def symbol_scoped_tables() -> list[str]:
@@ -248,7 +251,7 @@ __all__ = [
     "market_status_history",
     "market_summary",
     "market_summary_history",
-    "price_bars_partition_ddl",
+    "timescale_ddl",
     "ticker_calendar",
     "ticker_calendar_history",
     "ticker_fast_info",

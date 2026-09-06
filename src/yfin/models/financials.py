@@ -44,10 +44,11 @@ from yfin.models.base import (
 
 
 class StatementKind(enum.StrEnum):
-    # Yeni deger SONA eklenir, ASLA araya girmez: MySQL native ENUM'da
-    # deger sirasi ORDINAL'dir ve `financial_facts` bilesik FK'si bu
-    # kolonu tasir; sira degisirse FK sessizce yanlis satira baglanirdi
-    # (STATEMENT_ENUM notunun ayni gerekcesi).
+    # PostgreSQL ENUM degerlerini `pg_enum` OID'i olarak saklar ve FK
+    # ETIKET uzerinden baglanir: deger sirasi degisse bile FK BOZULMAZ
+    # (olculdu: `ALTER TYPE ... ADD VALUE ... BEFORE` sonrasi enumsortorder
+    # 1.5 oldu ve bilesik FK'li satir saglam kaldi). MySQL'in ordinal
+    # tuzagi YOKTUR; deger araya da eklenebilir.
     INCOME = "income"
     BALANCE_SHEET = "balance_sheet"
     CASH_FLOW = "cash_flow"
@@ -68,9 +69,11 @@ def _enum_values(e: type[enum.Enum]) -> list[str]:
 
 
 # ENUM tanimi TEK kaynaktan gelir ve iki tabloda PAYLASILIR (S5.1).
-# Iki ayri Enum() nesnesi kullanilsaydi ve deger sirasi bir kez ayrissaydi,
-# MySQL FK'yi ORDINAL uzerinden sessizce yanlis satira baglardi: ne CREATE
-# ne INSERT uyari verir.
+# Gerekce TEK TANIM YERI ilkesidir: iki ayri Enum() nesnesinin deger
+# listeleri sessizce ayrisabilir. Teknik bir cakisma riski YOKTUR --
+# SQLAlchemy ayni MetaData icinde ayni adli tipi checkfirst=False ile
+# bile tekillestirir (olculdu); yani bu bir BAKIM karari, zorunluluk
+# degil.
 STATEMENT_ENUM = Enum(
     StatementKind, values_callable=_enum_values, name="statement_kind", native_enum=True
 )

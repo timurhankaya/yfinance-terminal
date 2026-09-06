@@ -40,7 +40,7 @@ def _snapshot_table(
         # PK (symbol, fetched_at); DATETIME(6) sayesinde ayni saniyede iki
         # snapshot cakismaz (S5.4)
         cols.append(Column("fetched_at", TsType(), primary_key=True, nullable=False))
-    cols.extend(make_column(f) for f in fields)
+    cols.extend(make_column(f, name) for f in fields)
     cols.append(Column("raw_json", RawJsonType(), nullable=False))
     if with_hash:
         cols.append(Column("content_hash", HashType(), nullable=False))

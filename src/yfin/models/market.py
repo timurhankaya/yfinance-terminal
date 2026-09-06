@@ -22,6 +22,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -66,7 +67,7 @@ def _summary_columns() -> list[Column[Any]]:
     return [
         # Board sembolleri (ES=F, ^GSPC) evrende olmayabilir -> FK YOK
         Column("symbol", SymbolType(), nullable=True),
-        Column("is_known", Boolean, nullable=False, server_default="0"),
+        Column("is_known", Boolean, nullable=False, server_default=text("false")),
         Column("short_name", String(64, collation="C"), nullable=True),
         Column("quote_type", String(32, collation="C"), nullable=True),
         Column("exchange", String(32, collation="C"), nullable=True),
@@ -133,7 +134,7 @@ class CalendarEarnings(Base):
     eps_estimate: Mapped[Decimal | None] = mapped_column(PriceType())
     reported_eps: Mapped[Decimal | None] = mapped_column(PriceType())
     surprise_pct: Mapped[Decimal | None] = mapped_column(PriceType())
-    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
@@ -181,7 +182,7 @@ class CalendarIpo(Base):
     price: Mapped[Decimal | None] = mapped_column(PriceType())
     currency: Mapped[str | None] = mapped_column(String(8, collation="C"))
     shares: Mapped[Decimal | None] = mapped_column(BigNumType())
-    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
@@ -199,7 +200,7 @@ class CalendarSplits(Base):
     share_worth: Mapped[int | None] = mapped_column(Integer)
     # share_worth / old_share_worth; payda 0 veya NULL ise NULL
     ratio: Mapped[Decimal | None] = mapped_column(PriceType())
-    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 

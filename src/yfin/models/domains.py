@@ -18,6 +18,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -27,8 +28,8 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
-from sqlalchemy.dialects.mysql import BIGINT, MEDIUMTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
@@ -184,7 +185,12 @@ class DomainMetric(Base):
     # 1,32e-5 ... 0,746
     market_weight: Mapped[Decimal | None] = mapped_column(PriceType())
     # 18 ... 11 895 040
-    employee_count: Mapped[int | None] = mapped_column(BIGINT(unsigned=True))
+    employee_count: Mapped[int | None] = mapped_column(
+        BigInteger,
+        CheckConstraint(
+            '"employee_count" >= 0', name="ck_domain_metrics_employee_count_nonneg"
+        ),
+    )
 
     # `performance` blogu -- yfinance HICBIR property ile acmiyor (SI S4.3)
     ytd_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
@@ -244,7 +250,7 @@ class DomainTopCompany(Base):
     target_price: Mapped[Decimal | None] = mapped_column(PriceType())
     ytd_return: Mapped[Decimal | None] = mapped_column(PriceType())
     reg_market_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
-    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
@@ -274,7 +280,7 @@ class DomainTopFund(Base):
     expense_ratio: Mapped[Decimal | None] = mapped_column(PriceType())
     last_price: Mapped[Decimal | None] = mapped_column(PriceType())
     ytd_return: Mapped[Decimal | None] = mapped_column(PriceType())
-    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
@@ -305,7 +311,7 @@ class DomainTopMover(Base):
     target_price: Mapped[Decimal | None] = mapped_column(PriceType())
     # Yalniz `growth` listesinde; RELL 81.5, alt uc -9.999999999999998
     growth_estimate: Mapped[Decimal | None] = mapped_column(PriceType())
-    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
@@ -348,7 +354,7 @@ class ResearchReport(Base):
     # MEDIUMTEXT OLMAK ZORUNDA: olculen max 23 570 karakter (104 rapor,
     # medyan 281). `TEXT` 65 535 BAYT'tir ve utf8mb4'te 4 baytlik
     # karakterlerle tasabilir.
-    report_title: Mapped[str | None] = mapped_column(MEDIUMTEXT())
+    report_title: Mapped[str | None] = mapped_column(Text)
     # 104 raporun 17'sinde HIC YOK. Ayrica CIPLAK float gelir (oysa
     # topCompanies[].targetPrice SARMALI) -- SI S4.4.
     target_price: Mapped[Decimal | None] = mapped_column(PriceType())

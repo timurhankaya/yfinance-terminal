@@ -15,8 +15,7 @@ import enum
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, Enum, Index, String, Text
-from sqlalchemy.dialects.mysql import TINYINT
+from sqlalchemy import Boolean, CheckConstraint, Date, Enum, Index, SmallInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
@@ -164,6 +163,12 @@ class FundTopHolding(Base):
     # Ad `rank` OLAMAZ: MySQL 8'de window fonksiyonu olarak rezerve
     # (CREATE TABLE ... rank ... -> ERROR 1064). Kaynak sirasi verinin
     # kendisidir ("ilk 10" siralamasi).
-    holding_rank: Mapped[int] = mapped_column(TINYINT(unsigned=True), nullable=False)
+    holding_rank: Mapped[int] = mapped_column(
+        SmallInteger,
+        CheckConstraint(
+            '"holding_rank" BETWEEN 0 AND 255', name="ck_fund_top_holdings_holding_rank_range"
+        ),
+        nullable=False,
+    )
     is_known: Mapped[bool] = mapped_column(Boolean, nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)

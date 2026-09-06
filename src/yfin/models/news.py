@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
@@ -60,4 +60,4 @@ class NewsSymbol(Base):
     )
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
     # sembol symbols tablosunda var mi
-    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))

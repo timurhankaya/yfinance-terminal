@@ -40,8 +40,9 @@ class EstimateMetric(enum.StrEnum):
     REVENUE = "revenue"
 
 
-# ENUM tanimi tek kaynaktan; deger sirasi ayrisirsa MySQL ordinal uzerinden
-# sessizce yanlis degeri okur (financials.py'deki ayni ders).
+# ENUM tanimi tek kaynaktan. PostgreSQL'de deger sirasi ordinal DEGILDIR
+# (pg_enum OID'i saklanir), yani MySQL'deki sessiz-yanlis-deger tuzagi
+# yoktur; tek kaynak yine de BAKIM icin korunur.
 METRIC_ENUM = Enum(
     EstimateMetric,
     values_callable=lambda e: [m.value for m in e],
