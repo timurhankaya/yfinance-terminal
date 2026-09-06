@@ -1,0 +1,63 @@
+[project]
+name = "yfin"
+version = "0.1.0"
+description = "yfinance Ticker API -> MySQL 8 veri hatti"
+requires-python = ">=3.13"
+dependencies = [
+    # [repair] ekstrasi ZORUNLUDUR: history(repair=True) onarim
+    # heuristiklerinde scipy.ndimage ve sklearn.cluster.DBSCAN'i tembel
+    # import eder (scrapers/history.py:820, 1338). Eksikse onarim HER
+    # sembolde ModuleNotFoundError verir ve price_history hic yazilmaz.
+    "yfinance[repair]>=1.7.0",
+    # yfinance uzerinden gecisli olarak da gelir, ama proxy check onu
+    # DOGRUDAN import eder ve yfinance YF_DISABLE_CURL_CFFI ile onsuz da
+    # calisabilir; gecisli bir bagimliliga yaslanmak kirilgan olurdu.
+    "curl_cffi>=0.15",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "pymysql>=1.1",
+    "cryptography>=42",
+    "pydantic-settings>=2.2",
+    "typer>=0.12",
+    "tenacity>=8.2",
+    "structlog>=24.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.5", "mypy>=1.10"]
+
+[project.scripts]
+yfin = "yfin.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "repo: gercek MySQL gerektirir (ag yok)",
+    "live: gercek Yahoo API + gercek MySQL gerektirir",
+]
+addopts = "-m 'not repo and not live'"
+pythonpath = ["tests"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+# Alembic autogenerate ciktisi makine uretimidir
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+strict = true
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["yfinance.*", "pandas.*", "numpy.*", "curl_cffi.*", "scipy.*", "sklearn.*"]
+ignore_missing_imports = true

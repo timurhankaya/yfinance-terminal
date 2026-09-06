@@ -1,0 +1,92 @@
+"""earnings_history dataset'i (AH S6.3).
+
+AS-OF DEGILDIR: kaynak ceyrek sonunu veriyor. `quarter_end` tz-naive
+Timestamp'ten `.date()` ile alinir ve TZ DONUSUMU YAPILMAZ -- mali ceyrek
+takvimsel bir ETIKETTIR, bir an degil.
+
+Kaynak her sembolde tam DORT ceyrek dondurur (17 sembolde (4,4) olculdu);
+`--start` bunu geriye uzatmaz, yalnizca satir eler (AH S4.5).
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import pandas as pd
+
+from yfin import normalize as nz
+from yfin.client import call_optional
+from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.common import in_range
+from yfin.datasets.payloads import RangedFramePayload
+from yfin.datasets.registry import register
+from yfin.logging_setup import get_logger
+
+log = get_logger(__name__)
+
+TABLE = "earnings_history"
+COLUMNS = (
+    ("epsActual", "eps_actual"),
+    ("epsEstimate", "eps_estimate"),
+    ("epsDifference", "eps_difference"),
+    ("surprisePercent", "surprise_percent"),
+)
+
+
+class EarningsHistoryDataset(Dataset[RangedFramePayload]):
+    name = "earnings_history"
+    depends_on = ("symbols",)
+    produces = (TABLE,)
+    date_range = "filter"
+
+    def fetch(self, ctx: SyncContext) -> RangedFramePayload:
+        frame = call_optional(
+            ctx.ticker.get_earnings_history, what=f"{self.name}:{ctx.symbol}"
+        )
+        return RangedFramePayload(
+            frame=frame, fetched_at=ctx.fetched_at, start=ctx.start, end=ctx.end
+        )
+
+    def normalize(self, raw: RangedFramePayload, symbol: str) -> NormalizedResult:
+        frame = raw.frame
+        if nz.is_empty_result(frame):
+            return NormalizedResult()
+        assert isinstance(frame, pd.DataFrame)
+
+        ranged = raw.start is not None or raw.end is not None
+        rows: dict[Any, dict[str, Any]] = {}
+
+        for index, record in frame.iterrows():
+            quarter_end = nz.to_local_date(index)
+            if quarter_end is None:
+                log.warning("earnings history row has no quarter", symbol=symbol)
+                continue
+            if ranged and not in_range(quarter_end, raw.start, raw.end):
+                continue
+
+            row: dict[str, Any] = {
+                "symbol": symbol,
+                "quarter_end": quarter_end,
+                **{
+                    column: nz.to_decimal(record.get(source)) for source, column in COLUMNS
+                },
+                "fetched_at": raw.fetched_at,
+            }
+            rows[quarter_end] = row
+
+        if not rows:
+            return NormalizedResult()
+
+        return NormalizedResult(
+            writes=[
+                TableWrite(
+                    table=TABLE,
+                    rows=list(rows.values()),
+                    key_columns=("symbol", "quarter_end"),
+                    update_columns=(*(c for _, c in COLUMNS), "fetched_at"),
+                )
+            ]
+        )
+
+
+register(EarningsHistoryDataset())

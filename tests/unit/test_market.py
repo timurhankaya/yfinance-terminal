@@ -1,0 +1,243 @@
+"""Piyasa dataset'leri ve hash kapisi testleri (S9.1)."""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
+
+import pytest
+
+from helpers import as_calendar_frame, load_fixture
+from yfin.datasets import MARKET_DATASETS
+from yfin.datasets.base import NormalizedResult, TableWrite
+from yfin.datasets.hash_gated import HashGatedDataset
+from yfin.datasets.market.base import MarketContext
+from yfin.datasets.payloads import (
+    CalendarFramePayload,
+    MarketStatusPayload,
+    MarketSummaryPayload,
+)
+
+FETCHED_AT = datetime(2026, 9, 4, 10, 0, 0, 500000)
+GATE_KEY = ("symbol", "statement", "freq", "period_end")
+
+
+def _rows(result: Any, table: str) -> list[dict[str, Any]]:
+    return [row for write in result.writes if write.table == table for row in write.rows]
+
+
+def _market_fixture(name: str) -> Any:
+    return load_fixture("_market", name)
+
+
+class TestMarketStatus:
+    def test_us_status_normalizes(self) -> None:
+        raw = MarketStatusPayload(
+            region="US", status=_market_fixture("market_status"), fetched_at=FETCHED_AT
+        )
+        result = MARKET_DATASETS["market_status"].normalize(raw)
+        row = _rows(result, "market_status")[0]
+        assert row["region"] == "US"
+        assert row["market_id"] == "us"
+        assert row["timezone_name"] == "America/New_York"
+        assert row["gmt_offset"] is not None
+
+    def test_none_status_is_empty_not_failure(self) -> None:
+        """US disindaki 7 bolgede status None doner (deterministik)."""
+        raw = MarketStatusPayload(region="EUROPE", status=None, fetched_at=FETCHED_AT)
+        assert MARKET_DATASETS["market_status"].normalize(raw).is_empty
+
+    def test_datetime_fields_serialize(self) -> None:
+        """open/close birer datetime nesnesidir; duz json.dumps TypeError verir."""
+        raw = MarketStatusPayload(
+            region="US", status=_market_fixture("market_status"), fetched_at=FETCHED_AT
+        )
+        row = _rows(MARKET_DATASETS["market_status"].normalize(raw), "market_status")[0]
+        assert "open" in row["raw_json"]
+
+
+class TestMarketSummary:
+    def _result(self) -> Any:
+        raw = MarketSummaryPayload(
+            region="US", summary=_market_fixture("market_summary"), fetched_at=FETCHED_AT
+        )
+        return MARKET_DATASETS["market_summary"].normalize(raw)
+
+    def test_boards_become_rows(self) -> None:
+        rows = _rows(self._result(), "market_summary")
+        assert {r["board_code"] for r in rows} == {"CME", "CBT", "CXI", "CMX"}
+        assert all(r["region"] == "US" for r in rows)
+
+    def test_symbol_carried_without_fk(self) -> None:
+        rows = _rows(self._result(), "market_summary")
+        assert any(r["symbol"] for r in rows)
+        assert all(r["is_known"] is False for r in rows)  # upsert asamasinda isaretlenir
+
+    def test_envelope_shape_raises_instead_of_writing_garbage(self) -> None:
+        """Parse hatasinda yfinance ham zarf dict'i dondurebilir; sekil
+        dogrulanmazsa (region, board_code) PK'sina cop yazilirdi."""
+        raw = MarketSummaryPayload(
+            region="US",
+            summary={"marketSummaryResponse": {"result": []}},
+            fetched_at=FETCHED_AT,
+        )
+        with pytest.raises(ValueError, match="beklenmedik"):
+            MARKET_DATASETS["market_summary"].normalize(raw)
+
+
+class TestCalendars:
+    def _result(self, dataset: str, fixture: str) -> Any:
+        frame = as_calendar_frame(_market_fixture(fixture))
+        return MARKET_DATASETS[dataset].normalize(
+            CalendarFramePayload(frame=frame, fetched_at=FETCHED_AT)
+        )
+
+    def test_earnings_calendar(self) -> None:
+        rows = _rows(self._result("earnings_calendar", "earnings_calendar"), "calendar_earnings")
+        assert rows
+        assert all(r["symbol"] == r["symbol"].upper() for r in rows)
+        assert all(r["event_start_ts_utc"].tzinfo is None for r in rows)
+
+    def test_economic_calendar_triple_key_is_unique(self) -> None:
+        """Index (Event) tekil DEGIL (100 satirda 29 tekrar); uclu anahtar
+        100/100 tekil olculdu."""
+        raw = _market_fixture("economic_calendar")
+        rows = _rows(self._result("economic_calendar", "economic_calendar"), "calendar_economic")
+        keys = {(r["region"], r["event_time_utc"], r["event_name"]) for r in rows}
+        assert len(keys) == len(rows)
+        assert len(rows) == len(raw)  # hicbir satir tekillestirmede kaybolmadi
+
+    def test_economic_calendar_uses_last_reported_not_reserved_word(self) -> None:
+        rows = _rows(self._result("economic_calendar", "economic_calendar"), "calendar_economic")
+        assert "last_reported" in rows[0]
+        assert "last_value" not in rows[0]
+
+    def test_ipo_calendar_handles_nat(self) -> None:
+        """Filing/Amended Date olcumde 3/3 satirda NaT."""
+        rows = _rows(self._result("ipo_calendar", "ipo_calendar"), "calendar_ipo")
+        assert rows
+        assert all(r["filing_date"] is None or isinstance(r["filing_date"], date) for r in rows)
+
+    def test_splits_calendar_computes_ratio(self) -> None:
+        rows = _rows(self._result("splits_calendar", "splits_calendar"), "calendar_splits")
+        assert rows
+        row = next(r for r in rows if r["old_share_worth"])
+        assert row["ratio"] == Decimal(row["share_worth"]) / Decimal(row["old_share_worth"])
+
+    def test_empty_page_is_empty(self) -> None:
+        result = MARKET_DATASETS["splits_calendar"].normalize(
+            CalendarFramePayload(frame=None, fetched_at=FETCHED_AT)
+        )
+        assert result.is_empty
+
+
+class TestMarketContext:
+    def test_for_region_shares_cache(self) -> None:
+        base = MarketContext(fetched_at=FETCHED_AT, start=date(2026, 9, 1), end=date(2026, 10, 1))
+        calls: list[int] = []
+        base.cached("k", lambda: calls.append(1))
+        clone = base.for_region("US")
+        clone.cached("k", lambda: calls.append(1))
+        assert len(calls) == 1
+        assert clone.region == "US"
+        assert base.region is None
+
+
+class _FakeWriter:
+    def __init__(self, hashes: dict[tuple[Any, ...], str] | None = None) -> None:
+        self.written: list[TableWrite] = []
+        self.hashes = hashes or {}
+
+    def write(self, write: TableWrite) -> int:
+        self.written.append(write)
+        return len(write.rows)
+
+    def current_hash(self, table: str, key: Any) -> str | None:
+        return self.hashes.get((table, *key.values()))
+
+    def known_symbols(self, candidates: set[str]) -> set[str]:
+        return set()
+
+
+class _GatedDataset(HashGatedDataset[None]):
+    name = "_test_gated"
+    produces = ("financial_periods", "financial_facts")
+    gate_table = "financial_periods"
+    child_table = "financial_facts"
+    gate_key_columns = GATE_KEY
+
+    def fetch(self, ctx: Any) -> None:  # pragma: no cover - test tabani
+        return None
+
+    def normalize(self, raw: None, symbol: str) -> NormalizedResult:  # pragma: no cover
+        return NormalizedResult()
+
+
+def _gated_result(content_hash: str = "h1") -> NormalizedResult:
+    key = {
+        "symbol": "AAPL",
+        "statement": "income",
+        "freq": "annual",
+        "period_end": date(2025, 9, 30),
+    }
+    period = {**key, "content_hash": content_hash, "fetched_at": FETCHED_AT, "item_count": 2}
+    facts = [{**key, "item_key": "TotalRevenue", "value": Decimal("1")}]
+    return NormalizedResult(
+        writes=[
+            TableWrite(
+                table="financial_periods",
+                rows=[period],
+                key_columns=GATE_KEY,
+                update_columns=("content_hash", "fetched_at", "item_count"),
+            ),
+            TableWrite(
+                table="financial_facts",
+                rows=facts,
+                key_columns=(*GATE_KEY, "item_key"),
+                update_columns=("value",),
+                mode="replace_scope",
+                scope_columns=GATE_KEY,
+            ),
+        ]
+    )
+
+
+class TestHashGate:
+    def test_changed_hash_writes_facts_with_period_scope(self) -> None:
+        writer = _FakeWriter()
+        stats = _GatedDataset().upsert(writer, _gated_result())
+        facts_write = next(w for w in writer.written if w.table == "financial_facts")
+        assert facts_write.mode == "replace_scope"
+        assert facts_write.scope_values is not None
+        assert stats.attempted["financial_facts"] == 1
+
+    def test_unchanged_hash_skips_facts_but_writes_period(self) -> None:
+        """Hash esitse cocuk satirlari yazilmaz; baslik satiri YAZILIR ve
+        yalnizca fetched_at guncellenir (S6.3/b)."""
+        key = ("financial_periods", "AAPL", "income", "annual", date(2025, 9, 30))
+        writer = _FakeWriter({key: "h1"})
+        stats = _GatedDataset().upsert(writer, _gated_result("h1"))
+
+        period_writes = [w for w in writer.written if w.table == "financial_periods"]
+        assert len(period_writes) == 1
+        assert period_writes[0].update_columns == ("fetched_at",)
+        assert stats.skipped["financial_facts"] == 1
+        assert stats.attempted.get("financial_facts", 0) == 0
+        assert not [w for w in writer.written if w.table == "financial_facts"]
+
+    def test_hash_read_before_any_write(self) -> None:
+        order: list[str] = []
+
+        class OrderingWriter(_FakeWriter):
+            def current_hash(self, table: str, key: Any) -> str | None:
+                order.append(f"read:{table}")
+                return super().current_hash(table, key)
+
+            def write(self, write: TableWrite) -> int:
+                order.append(f"write:{write.table}")
+                return super().write(write)
+
+        _GatedDataset().upsert(OrderingWriter(), _gated_result())
+        assert order[0] == "read:financial_periods"
+        assert order.index("read:financial_periods") < order.index("write:financial_periods")

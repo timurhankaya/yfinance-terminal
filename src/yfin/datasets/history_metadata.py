@@ -1,0 +1,55 @@
+"""history_metadata dataset'i (S6.3 #3)."""
+
+from __future__ import annotations
+
+from yfin import normalize as nz
+from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.common import data_columns, snapshot_rows, warn_unmapped
+from yfin.datasets.payloads import MetadataPayload
+from yfin.datasets.registry import register
+from yfin.datasets.symbols import fetch_history_metadata
+from yfin.models.fields import HISTORY_METADATA_FIELDS
+
+# Sadece raw_json'da tutulan, tabloya tasinmayan anahtarlar
+_RAW_ONLY = frozenset(
+    {"symbol", "tradingPeriods", "currentTradingPeriod", "validRanges", "YF repair?"}
+)
+
+
+class HistoryMetadataDataset(Dataset[MetadataPayload]):
+    name = "history_metadata"
+    depends_on = ("symbols",)
+    produces = ("history_metadata",)
+
+    def fetch(self, ctx: SyncContext) -> MetadataPayload:
+        return MetadataPayload(metadata=fetch_history_metadata(ctx), fetched_at=ctx.fetched_at)
+
+    def normalize(self, raw: MetadataPayload, symbol: str) -> NormalizedResult:
+        metadata = raw.metadata
+        if nz.is_empty_result(metadata):
+            return NormalizedResult()
+
+        # HistoryMetadata bir dict DEGIL, Mapping'dir (S8.3)
+        payload = nz.as_mapping(metadata)
+        warn_unmapped(
+            payload, HISTORY_METADATA_FIELDS, dataset="history_metadata", ignore=_RAW_ONLY
+        )
+        # tradingPeriods bir DataFrame; YFJSONEncoder onu records'a cevirir
+        row, _ = snapshot_rows(symbol, payload, HISTORY_METADATA_FIELDS, raw.fetched_at)
+
+        return NormalizedResult(
+            writes=[
+                TableWrite(
+                    table="history_metadata",
+                    rows=[row],
+                    key_columns=("symbol",),
+                    update_columns=data_columns(
+                        HISTORY_METADATA_FIELDS,
+                        extra=("raw_json", "content_hash", "fetched_at"),
+                    ),
+                )
+            ]
+        )
+
+
+register(HistoryMetadataDataset())
