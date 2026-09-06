@@ -1,6 +1,6 @@
-"""Proxy havuzu: DSN, redaction, sifreleme ve saglik durum makinesi (P10.1).
+"""Proxy pool: DSN, redaction, encryption, and the health state machine.
 
-Durum makinesi SAF bir fonksiyondur; bu dosya DB'ye hic dokunmaz.
+The state machine is a PURE function; this file never touches the DB.
 """
 
 from __future__ import annotations
@@ -50,8 +50,8 @@ class TestDsn:
             assert endpoint.port == 8080
 
     def test_percent_encoded_credentials_round_trip(self) -> None:
-        """Kimlik bilgisindeki ':' ve '/' kodlanmis gelir; dsn() yeniden
-        kodlar, aksi halde ayirici sanilirdi."""
+        """':' and '/' in credentials arrive percent-encoded; dsn() re-encodes
+        them, otherwise they would be mistaken for delimiters."""
         endpoint = parse_dsn("socks5h://ac%3Act:pa%2Fss@10.0.0.1:1080")
         assert endpoint.username == "ac:ct"
         assert endpoint.password == "pa/ss"
@@ -64,20 +64,20 @@ class TestDsn:
             parse_dsn("http://10.0.0.1")
 
     def test_password_never_leaks_through_repr(self) -> None:
-        """P3.4: parola repr'e, str'ye ve log satirina GIRMEZ."""
+        """The password does NOT enter repr, str, or a log line."""
         endpoint = parse_dsn(f"http://acct:{SECRET}@10.0.0.1:3128")
         assert SECRET not in repr(endpoint)
         assert SECRET not in str(endpoint)
         assert SECRET not in endpoint.redacted()
         assert "acct:***@" in endpoint.redacted()
-        # ...ama gercek DSN parolayi TASIR, aksi halde proxy calismazdi
+        # ...but the actual DSN DOES carry the password, otherwise the proxy would not work
         assert SECRET in endpoint.dsn()
 
     def test_default_label_has_no_dots(self) -> None:
         assert default_label(parse_dsn("http://10.0.0.1:8080")) == "10-0-0-1-8080"
 
 
-# --- sifreleme -------------------------------------------------------------
+# --- encryption --------------------------------------------------------------
 
 
 class TestPasswordEncryption:
@@ -99,7 +99,7 @@ class TestPasswordEncryption:
             encrypt_password("x", _settings())
 
     def test_rotated_key_is_reported_not_silently_empty(self) -> None:
-        """Anahtar degisirse proxy dead YAPILMAZ; acik hata verilir (P3.4)."""
+        """If the key changes, the proxy is NOT marked dead; an explicit error is raised."""
         from cryptography.fernet import Fernet
 
         token = encrypt_password("x", _settings(Fernet.generate_key().decode()))
@@ -108,7 +108,7 @@ class TestPasswordEncryption:
             decrypt_password(token, _settings(Fernet.generate_key().decode()))
 
 
-# --- saglik durum makinesi -------------------------------------------------
+# --- health state machine ---------------------------------------------------
 
 
 class TestHealthStateMachine:
@@ -136,8 +136,8 @@ class TestHealthStateMachine:
         assert state.cooldown_until == NOW + timedelta(seconds=POLICY.cooldown_seconds)
 
     def test_shard_crash_bypasses_threshold(self) -> None:
-        """Tek NETWORK olayi cooldown uretmezdi; olen shard'in proxy'si
-        havuzda kalmaya devam ederdi (P5.4)."""
+        """A single NETWORK event would not produce a cooldown; the dying
+        shard's proxy would keep sitting in the pool."""
         after = apply_outcome(ProxyHealthState(), HealthEvent.SHARD_CRASH, NOW, POLICY)
         assert after.health is ProxyHealth.COOLDOWN
         assert after.cooldown_rounds == 1
@@ -153,17 +153,17 @@ class TestHealthStateMachine:
         assert apply_outcome(state, HealthEvent.SUCCESS, NOW, POLICY) == state
 
     def test_success_does_not_reset_cooldown_rounds(self) -> None:
-        """Sifirlasaydi arada tek bir basari dead'e giden yolu surekli
-        bastan baslatir, yari-olu proxy sonsuza dek havuzda kalirdi."""
+        """If this reset, a single success in between would keep restarting the
+        path to dead, and a half-dead proxy would stay in the pool forever."""
         state = ProxyHealthState(health=ProxyHealth.COOLDOWN, cooldown_rounds=2)
         after = apply_outcome(state, HealthEvent.SUCCESS, NOW, POLICY)
         assert after.cooldown_rounds == 2
 
     def test_expired_cooldown_keeps_cooldown_health(self) -> None:
-        """health 'cooldown' KALIR; yalnizca ilk basari healthy yapar.
+        """health STAYS 'cooldown'; only the first success makes it healthy.
 
-        Uygunlugun kendisi SQL'de tanimlidir (tek dogruluk kaynagi) ve
-        repo testindeki dogruluk tablosuyla sinanir.
+        Eligibility itself is defined in SQL (single source of truth) and is
+        tested against the truth table in the repo test.
         """
         state = ProxyHealthState(
             health=ProxyHealth.COOLDOWN, cooldown_until=NOW - timedelta(seconds=1)
@@ -187,7 +187,7 @@ class TestEventMapping:
 
     @pytest.mark.parametrize("kind", [ErrorKind.DATA, ErrorKind.UNKNOWN_SYMBOL])
     def test_data_faults_never_punish_proxy(self, kind: ErrorKind) -> None:
-        """Gecersiz sembol veya parse hatasi proxy'nin sucu DEGILDIR."""
+        """An invalid symbol or parse error is NOT the proxy's fault."""
         assert event_for(kind) is None
 
 

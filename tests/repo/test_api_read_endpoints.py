@@ -268,7 +268,9 @@ def test_an_unknown_symbol_is_404(client: TestClient) -> None:
 def test_the_daily_interval_reads_price_history(client: TestClient) -> None:
     """`bars_table_for` used to return periodic_bars for 1d, which is a
     different table with a different key."""
-    body = _get(client, f"/v1/symbols/{SYMBOL}/bars", interval="1d", **{"from": "2026-01-01"}).json()
+    body = _get(
+        client, f"/v1/symbols/{SYMBOL}/bars", interval="1d", **{"from": "2026-01-01"}
+    ).json()
     assert len(body["data"]) == 5
     row = body["data"][0]
     assert row["session_date"] is not None

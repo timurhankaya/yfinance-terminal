@@ -51,7 +51,7 @@ def test_an_unknown_key_rejects_the_WHOLE_plan() -> None:
     """All or nothing: a partially written seed would leave it ambiguous
     which key came from which source."""
     with pytest.raises(SettingRejected):
-        plan_seed({"yf_max_shards": 8, "hicboyle_yok": 1}, {})
+        plan_seed({"yf_max_shards": 8, "no_such_key": 1}, {})
 
 
 def test_an_invalid_value_rejects_the_WHOLE_plan() -> None:
@@ -81,7 +81,7 @@ def test_adopt_env_fills_only_keys_with_no_row_and_outside_the_JSON() -> None:
     assert plan["yf_screen_keys"] == ""
 
 
-def test_adopt_env_verilmezse_kapsam_JSON_ile_sinirli() -> None:
+def test_without_adopt_env_the_scope_is_limited_to_the_JSON() -> None:
     plan = plan_seed({"yf_max_shards": 8}, {})
     assert set(plan) == {"yf_max_shards"}
 

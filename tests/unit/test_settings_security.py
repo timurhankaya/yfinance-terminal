@@ -44,7 +44,7 @@ def test_a_db_host_row_is_NOT_APPLIED(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.parametrize("key", sorted(ENV_ONLY_FIELDS))
-def test_her_env_only_alan_filtrelenir(key: str) -> None:
+def test_every_env_only_field_is_filtered_out(key: str) -> None:
     assert filter_overrides({key: "x"}) == {}
 
 

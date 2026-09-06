@@ -110,10 +110,10 @@ def test_an_unknown_key_is_ignored_with_a_warning(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(
         settings_store.log, "warning", lambda msg, **kw: warnings.append((msg, kw))
     )
-    _rows(monkeypatch, {"YF_MAX_SHARDS": "9", "hicboyle_yok": "1", KEY: "6"})
+    _rows(monkeypatch, {"YF_MAX_SHARDS": "9", "no_such_key": "1", KEY: "6"})
     assert get_settings().yf_max_shards == 6
     reported = {kw["setting_key"] for _, kw in warnings}
-    assert reported == {"YF_MAX_SHARDS", "hicboyle_yok"}
+    assert reported == {"YF_MAX_SHARDS", "no_such_key"}
 
 
 def test_an_invalid_value_NEVER_STARTS_the_run(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -8,7 +8,7 @@ from sqlalchemy import Engine, text
 pytestmark = pytest.mark.repo
 
 
-def test_setting_key_buyuk_kucuk_harf_DUYARLI(
+def test_setting_key_is_CASE_SENSITIVE(
     test_engine: Engine, clean_settings_table: None
 ) -> None:
     """The point of case sensitivity is not to prevent collisions (the CLI

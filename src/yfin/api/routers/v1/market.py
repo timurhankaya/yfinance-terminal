@@ -253,7 +253,9 @@ def list_bars(
             "session does not apply to this interval",
             detail="the session filter is only meaningful for intraday intervals",
         )
-    effective_session = (session_kind or reads.SESSION_REGULAR) if is_intraday else reads.SESSION_ALL
+    effective_session = (
+        (session_kind or reads.SESSION_REGULAR) if is_intraday else reads.SESSION_ALL
+    )
 
     window_start, window_end = limits.resolve_window(
         interval=interval,

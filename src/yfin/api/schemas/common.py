@@ -14,16 +14,13 @@ once (see the session_date / local_date note in models/bars.py).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Generic, TypeVar
 
 from pydantic import BaseModel, Field
-
-T = TypeVar("T")
 
 DEFAULT_PAGE_SIZE = 100
 
 
-class Collection(BaseModel, Generic[T]):
+class Collection[T](BaseModel):
     data: list[T]
     next_cursor: str | None = Field(
         default=None,
@@ -40,7 +37,7 @@ class Collection(BaseModel, Generic[T]):
     )
 
 
-class Resource(BaseModel, Generic[T]):
+class Resource[T](BaseModel):
     data: T
     as_of: datetime | None = None
 

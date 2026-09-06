@@ -1,4 +1,4 @@
-"""`is_known` hash GOVDESINDE: evren degisince kapi acilir (SI S9.3, S7.4)."""
+"""`is_known` hash IS PART OF THE BODY: when the universe changes, the gate opens."""
 
 from __future__ import annotations
 
@@ -33,13 +33,13 @@ def test_unknown_symbols_start_at_zero(db_session: Session) -> None:
     run_dataset(db_session, "sector_rankings", "sector", "technology")
     flags = _known_flags(db_session, "technology")
     assert flags
-    assert not any(flags.values()), "evrende olmayan semboller is_known=0 olmali"
+    assert not any(flags.values()), "symbols outside the universe must have is_known=0"
 
 
 def test_adding_the_symbol_reopens_the_gate_and_flips_the_flag(
     db_session: Session,
 ) -> None:
-    """DISLANSAYDI bayrak 0'da DONUP KALIRDI: kapi `skipped` derdi."""
+    """If it had been EXCLUDED, the flag would STAY STUCK at 0: the gate would say `skipped`."""
     run_taxonomy(db_session)
     run_dataset(db_session, "sector_rankings", "sector", "technology")
     target = domain_data("sector", "technology")["topCompanies"][0]["symbol"]
@@ -55,12 +55,12 @@ def test_adding_the_symbol_reopens_the_gate_and_flips_the_flag(
     stats = run_dataset(
         db_session, "sector_rankings", "sector", "technology", fetched_at=LATER
     )
-    assert stats.attempted.get("domain_top_companies"), "kapi ACILMALIYDI"
+    assert stats.attempted.get("domain_top_companies"), "the gate SHOULD HAVE OPENED"
     assert _known_flags(db_session, "technology")[target] is True
 
 
 def test_non_ticker_fund_ids_stay_unknown(db_session: Session) -> None:
-    """`0P0001WO1I` bir Morningstar kimligi; FK olsaydi TUM TUR dusurdu."""
+    """`0P0001WO1I` is a Morningstar identifier; an FK would drop THE WHOLE TYPE."""
     run_taxonomy(db_session)
     run_dataset(db_session, "sector_rankings", "sector", "healthcare")
     rows = {

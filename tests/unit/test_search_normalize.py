@@ -137,7 +137,7 @@ class TestNews:
             "raw_json",
         ):
             assert column not in NEWS_UPDATE, column
-        # Zengin yolun kapsami DEGISMEDI
+        # The rich path's coverage is UNCHANGED
         assert "summary" in _NEWS_UPDATE
         assert "raw_json" in _NEWS_UPDATE
 

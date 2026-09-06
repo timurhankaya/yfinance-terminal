@@ -1,7 +1,4 @@
-"""date_range sozlesmesi ve SyncContext aralik alanlari (AH S6.2).
-
-AH = 2026-09-04-yfinance-analysis-holdings-design.md
-"""
+"""date_range contract and SyncContext range fields."""
 
 from __future__ import annotations
 
@@ -29,12 +26,12 @@ def _ctx(**kwargs: Any) -> SyncContext:
 
 
 def test_date_range_defaults_to_none() -> None:
-    """Varsayilan 'none': aralik bildirmeyen dataset --start ile kosmaz."""
+    """Default 'none': a dataset that declares no range does not run with --start."""
     assert _Probe.date_range == "none"
 
 
 def test_sync_context_start_end_default_to_none() -> None:
-    """Filtresiz calistirma Yahoo'nun verdigi TUM gecmisi yazar (AH S6.2)."""
+    """An unfiltered run writes the ENTIRE history Yahoo returns."""
     ctx = _ctx()
     assert ctx.start is None
     assert ctx.end is None
@@ -47,14 +44,14 @@ def test_sync_context_carries_range() -> None:
 
 
 def test_every_registered_dataset_declares_valid_date_range() -> None:
-    """date_range bir class attribute'tur ve uc degerden biridir."""
+    """date_range is a class attribute and must be one of three values."""
     for name in SYMBOL_DATASETS:
         value = SYMBOL_DATASETS[name].date_range
         assert value in ("api", "filter", "none"), f"{name} -> {value}"
 
 
 def test_date_range_is_class_attribute_not_property() -> None:
-    """Alt tipte property'ye cevrilirse tabanin sozlesmesi daralir (LSP)."""
+    """If a subtype turns it into a property, the base contract narrows (LSP)."""
     for name in SYMBOL_DATASETS:
         cls = type(SYMBOL_DATASETS[name])
         attr = getattr(cls, "date_range", None)

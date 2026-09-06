@@ -1,4 +1,4 @@
-"""replace_scope kapsami: iki dataset AYNI tabloya yaziyor (SI S9.3, S5.11)."""
+"""replace_scope scope: two datasets write to the SAME table."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def _keys(session: Session) -> set[str]:
 
 
 def test_industry_rankings_do_not_delete_sector_rows(db_session: Session) -> None:
-    """Kapsam `domain_key` icermeseydi SEKTOR satirlari silinirdi."""
+    """If the scope did not include `domain_key`, SECTOR rows would get deleted."""
     run_taxonomy(db_session)
     run_dataset(db_session, "sector_rankings", "sector", "technology")
     assert _keys(db_session) == {"technology"}
@@ -26,13 +26,13 @@ def test_industry_rankings_do_not_delete_sector_rows(db_session: Session) -> Non
     run_dataset(db_session, "industry_rankings", "industry", "semiconductors")
     assert _keys(db_session) == {"technology", "semiconductors"}
 
-    # Sektoru yeniden yazmak endustriyi de dusurmemeli
+    # Rewriting the sector must not drop the industry too
     run_dataset(db_session, "sector_rankings", "sector", "technology")
     assert _keys(db_session) == {"technology", "semiconductors"}
 
 
 def test_replace_scope_removes_a_company_that_left_the_list(db_session: Session) -> None:
-    """Yahoo listeden bir sirket cikardiginda ESKI SATIR KALMAMALI."""
+    """When Yahoo drops a company from the list, the OLD ROW MUST NOT REMAIN."""
     import copy
 
     from domain_support import AS_OF, NOW

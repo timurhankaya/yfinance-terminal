@@ -1,4 +1,4 @@
-"""Alan haritasi ile model kolonlarinin ayrismadigini dogrular."""
+"""Verifies the field map and the model columns do not diverge."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def test_every_field_has_a_column() -> None:
     for table_name, fields in CASES:
         columns = set(Base.metadata.tables[table_name].c.keys())
         for field in fields:
-            assert field.column in columns, f"{table_name}.{field.column} yok"
+            assert field.column in columns, f"{table_name}.{field.column} is missing"
 
 
 def test_no_duplicate_sources_or_columns() -> None:
@@ -35,7 +35,7 @@ def test_no_duplicate_sources_or_columns() -> None:
 
 
 def test_fast_info_has_exactly_20_keys() -> None:
-    """Kaynakta hardcoded 20 anahtar (quote.py:_public_keys)."""
+    """The source hardcodes 20 keys (quote.py:_public_keys)."""
     assert len(FAST_INFO_FIELDS) == 20
 
 

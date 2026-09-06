@@ -16,7 +16,7 @@ def test_record_count_and_ordering() -> None:
     assert [i.key for i in items] == sorted(DB_MANAGED_FIELDS)
 
 
-def test_env_only_alanlar_semada_YOK() -> None:
+def test_env_only_fields_are_NOT_in_the_schema() -> None:
     """The 8 env-only fields cannot be managed from the panel; if they
     appeared in the schema, the panel would render a form field for them
     and a write attempt would be rejected."""
@@ -38,7 +38,7 @@ def test_min_max_Field_kisitlarindan_TURETILIR() -> None:
     assert by_key["yf_news_tab"].min is None
 
 
-def test_tip_default_ve_grup_modelden_gelir() -> None:
+def test_type_default_and_group_come_from_the_model() -> None:
     by_key = {i.key: i for i in settings_schema()}
     for key, item in by_key.items():
         assert item.default == Settings.model_fields[key].default

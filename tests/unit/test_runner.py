@@ -11,58 +11,72 @@ from yfin.pipeline.runner import (
     EXIT_OK,
     EXIT_PARTIAL,
     ItemRecord,
-    RunSummary,
+    RunTally,
 )
 
 
-def _summary(statuses: list[tuple[str, ItemStatus]], symbol_count: int = 1) -> RunSummary:
-    items = [ItemRecord(symbol=symbol, dataset="d", status=status) for symbol, status in statuses]
-    return RunSummary(run_id=1, items=items, symbol_count=symbol_count, dataset_count=1)
+def _tally(statuses: list[tuple[str, ItemStatus]], symbol_count: int = 1) -> RunTally:
+    """Builds the tally the way `finalize_run` does: counts per status,
+    plus how many distinct symbols actually resolved."""
+    counts: dict[str, int] = {}
+    for _symbol, status in statuses:
+        counts[status.value] = counts.get(status.value, 0) + 1
+    unresolved = {s for s, st in statuses if st is ItemStatus.UNKNOWN_SYMBOL}
+    resolved = len({s for s, _ in statuses} - unresolved)
+    return RunTally(
+        run_id=1,
+        symbol_count=symbol_count,
+        dataset_count=1,
+        resolved_symbols=resolved,
+        counts=counts,
+    )
 
 
 def test_empty_and_skipped_do_not_fail_the_run() -> None:
     """No failed -> 0; ok U empty U skipped is normal."""
-    summary = _summary([("A", ItemStatus.OK), ("A", ItemStatus.EMPTY), ("A", ItemStatus.SKIPPED)])
-    assert summary.exit_code() == EXIT_OK
+    tally = _tally([("A", ItemStatus.OK), ("A", ItemStatus.EMPTY), ("A", ItemStatus.SKIPPED)])
+    assert tally.exit_code() == EXIT_OK
 
 
 def test_all_empty_is_still_zero() -> None:
     """capital_gains never comes back populated for any symbol; this is not an error."""
-    assert _summary([("A", ItemStatus.EMPTY)]).exit_code() == EXIT_OK
+    assert _tally([("A", ItemStatus.EMPTY)]).exit_code() == EXIT_OK
 
 
 def test_partial_failure() -> None:
-    summary = _summary([("A", ItemStatus.OK), ("A", ItemStatus.FAILED)])
-    assert summary.exit_code() == EXIT_PARTIAL
+    tally = _tally([("A", ItemStatus.OK), ("A", ItemStatus.FAILED)])
+    assert tally.exit_code() == EXIT_PARTIAL
 
 
 def test_all_cells_failed() -> None:
-    summary = _summary([("A", ItemStatus.FAILED), ("A", ItemStatus.FAILED)])
-    assert summary.exit_code() == EXIT_ALL_FAILED
+    tally = _tally([("A", ItemStatus.FAILED), ("A", ItemStatus.FAILED)])
+    assert tally.exit_code() == EXIT_ALL_FAILED
 
 
 def test_no_symbol_resolved() -> None:
-    summary = _summary([("A", ItemStatus.UNKNOWN_SYMBOL)])
-    assert summary.exit_code() == EXIT_NO_SYMBOL_RESOLVED
+    tally = _tally([("A", ItemStatus.UNKNOWN_SYMBOL)])
+    assert tally.exit_code() == EXIT_NO_SYMBOL_RESOLVED
 
 
 def test_one_resolved_one_not_is_not_exit_one() -> None:
-    summary = _summary([("A", ItemStatus.OK), ("B", ItemStatus.UNKNOWN_SYMBOL)], symbol_count=2)
-    assert summary.exit_code() == EXIT_OK
+    tally = _tally([("A", ItemStatus.OK), ("B", ItemStatus.UNKNOWN_SYMBOL)], symbol_count=2)
+    assert tally.exit_code() == EXIT_OK
 
 
-def test_totals_sum_all_items() -> None:
-    items = [
-        ItemRecord("A", "d", ItemStatus.OK, rows_fetched=5, rows_written=5, rows_verified=5),
-        ItemRecord("A", "e", ItemStatus.SKIPPED, rows_skipped=1),
-    ]
-    summary = RunSummary(run_id=1, items=items, symbol_count=1, dataset_count=2)
-    assert summary.totals() == {
-        "rows_fetched": 5,
-        "rows_written": 5,
-        "rows_verified": 5,
-        "rows_skipped": 1,
-    }
+def test_a_not_attempted_cell_can_never_report_success() -> None:
+    """A run that left work undone must not exit 0, even with no failures.
+
+    This is the rule the retired RunSummary.exit_code() did not have: it
+    returned EXIT_OK here, so a shard that died before touching its queue
+    looked like a clean run.
+    """
+    tally = _tally([("A", ItemStatus.OK), ("B", ItemStatus.NOT_ATTEMPTED)], symbol_count=2)
+    assert tally.exit_code() == EXIT_PARTIAL
+
+
+def test_item_record_carries_the_row_counters() -> None:
+    record = ItemRecord("A", "d", ItemStatus.OK, rows_fetched=5, rows_written=5, rows_verified=5)
+    assert (record.rows_fetched, record.rows_written, record.rows_verified) == (5, 5, 5)
 
 
 class TestItemStatusMapping:

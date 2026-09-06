@@ -1,4 +1,4 @@
-"""`ItemRecord.region` genislemesi SIFIR DAVRANIS DEGISIKLIGI (SI S9.2, S14/2)."""
+"""The `ItemRecord.region` addition is ZERO BEHAVIOR CHANGE."""
 
 from __future__ import annotations
 
@@ -24,8 +24,9 @@ def test_symbol_side_records_leave_region_null() -> None:
 
 
 def test_market_side_records_leave_region_null() -> None:
-    """`market_runner` bolgeyi `symbol` alanina yaziyor ve bu BILINCLI olarak
-    degistirilmedi (SI S5.9): degistirmek mevcut denetim sorgularini kirardi."""
+    """`market_runner` writes the region into the `symbol` field, and this was
+    DELIBERATELY left unchanged: changing it would break existing audit
+    queries."""
     dataset = MARKET_DATASETS["market_summary"]
     stats = WriteStats(attempted={"market_summary": 5}, verified={"market_summary": 5})
     records = _record_items(dataset, "US", stats, fetched=5, duration_ms=7)

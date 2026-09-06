@@ -70,7 +70,7 @@ def test_an_env_only_key_exits_2(cli: CliRunner, test_engine: Engine) -> None:
 
 
 def test_an_unknown_key_exits_2(cli: CliRunner, test_engine: Engine) -> None:
-    assert cli.invoke(config_app, ["set", "hicboyle_yok", "1"]).exit_code == 2
+    assert cli.invoke(config_app, ["set", "no_such_key", "1"]).exit_code == 2
     assert _rows(test_engine) == {}
 
 
@@ -124,7 +124,7 @@ def test_export_by_default_returns_ONLY_KEYS_WITH_A_ROW(cli: CliRunner) -> None:
     assert set(json.loads(all_result.stdout)) == DB_MANAGED_FIELDS
 
 
-def test_schema_DB_YE_BAKMAZ(cli: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_schema_DOES_NOT_TOUCH_THE_DB(cli: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
     """A pure schema dump runs with no network and no DB."""
     monkeypatch.setattr(
         cli_config, "fetch_rows", lambda s: pytest.fail("schema connected to the DB")
@@ -152,7 +152,7 @@ def test_with_source_env_list_WARNS_and_shows_the_EFFECTIVE_value(
     assert "default" in result.stdout
 
 
-def test_source_env_iken_set_YINE_DE_yazar(cli: CliRunner, test_engine: Engine,
+def test_with_source_env_set_STILL_WRITES(cli: CliRunner, test_engine: Engine,
                                            monkeypatch: pytest.MonkeyPatch) -> None:
     """This is exactly the recovery scenario: a broken value must be
     fixable even while the layer is off."""

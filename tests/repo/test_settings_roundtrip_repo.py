@@ -45,7 +45,7 @@ def _export(settings: Settings, *, all_keys: bool) -> dict[str, object]:
     return export_values(settings_state(rows=fetch_rows(settings)), all_keys=all_keys)
 
 
-def test_export_seed_dongusu_durumu_DEGISTIRMEZ(
+def test_the_export_seed_round_trip_LEAVES_THE_STATE_UNCHANGED(
     test_engine: Engine, store_settings: Settings, clean_settings_table: None
 ) -> None:
     write_all(SAMPLE, settings=store_settings)
@@ -59,7 +59,7 @@ def test_export_seed_dongusu_durumu_DEGISTIRMEZ(
     assert {k: v.value for k, v in after.items()} == {k: v.value for k, v in before.items()}
 
 
-def test_export_all_returns_39_keys_and_can_be_seeded_back(
+def test_export_all_returns_every_db_managed_key_and_can_be_seeded_back(
     test_engine: Engine, store_settings: Settings, clean_settings_table: None
 ) -> None:
     """`--all` is a backup dump kept outside the repo; it must still be

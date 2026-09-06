@@ -1,4 +1,4 @@
-"""Bolge dogrulamasi (SI S9.2, S6.6). Ag YOK -- `fetch` enjekte edilir."""
+"""Region validation. NO network -- `fetch` is injected."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from yfin.pipeline.domain_runner import US, RegionValidationError, domain_region
 
 _US_TOP = [{"symbol": s} for s in ("NVDA", "AAPL", "MSFT", "AVGO")]
 _GB_TOP = [{"symbol": s} for s in ("SGE.L", "AVV.L", "KNOS.L", "SPT.L")]
-# Sirasi ve KUMESI kaymis ama US ile ortusmeyen bir liste
+# A list whose order and SET have both shifted but that does not overlap US
 _GB_DRIFTED = [{"symbol": s} for s in ("SPT.L", "KNOS.L", "AVV.L", "DARK.L")]
 
 
@@ -30,7 +30,7 @@ class Recorder:
 
 
 def test_us_alone_makes_no_request() -> None:
-    """US Yahoo'nun GERI DUSUS bolgesidir; korunacak bir sey yok."""
+    """US is Yahoo's FALLBACK region; there is nothing to validate against."""
     fetch = Recorder({US: _US_TOP})
     assert domain_regions(_settings("US"), fetch=fetch) == ["US"]
     assert fetch.calls == []
@@ -50,16 +50,17 @@ def test_empty_configuration_is_rejected() -> None:
 
 
 def test_xx_alone_is_still_probed_against_us() -> None:
-    """TABAN HER ZAMAN US.
+    """The BASELINE IS ALWAYS US.
 
-    Birincil bolge taban alinsaydi `YF_DOMAIN_REGIONS=XX` kendi kendini
-    dogrular ve US verisi XX etiketiyle yazilirdi.
+    If the primary region were used as the baseline, `YF_DOMAIN_REGIONS=XX`
+    would validate against itself and US data would get written under the
+    XX label.
     """
     fetch = Recorder({US: _US_TOP, "XX": _US_TOP})
     with pytest.raises(RegionValidationError, match="is not supported by Yahoo"):
         domain_regions(_settings("XX"), fetch=fetch)
-    # Ilk istek TABANDIR ve tabanin bolgesi US'tir, yapilandirmadaki deger
-    # ne olursa olsun.
+    # The first request is the BASELINE and the baseline's region is always
+    # US, regardless of the configured value.
     assert fetch.calls[0] == ("technology", "sector", US)
 
 
@@ -70,11 +71,11 @@ def test_supported_region_passes() -> None:
 
 
 def test_a_drifted_but_different_list_still_passes() -> None:
-    """ESITLIK KULLANILMADIGININ KANITI.
+    """PROOF THAT EQUALITY IS NOT USED.
 
-    Sirasi ve kumesi kaymis bir liste, US ile ortusmedigi surece gecer;
-    esitlik olsaydi iki ardisik istek arasindaki dogal kayma bu bolgeyi
-    yanlislikla REDDEDERDI.
+    A list whose order and set have both shifted still passes as long as it
+    does not overlap US; if equality were used, the natural drift between two
+    consecutive requests would wrongly REJECT this region.
     """
     fetch = Recorder({US: _US_TOP, "GB": _GB_DRIFTED})
     assert domain_regions(_settings("US,GB"), fetch=fetch) == ["US", "GB"]
@@ -94,7 +95,7 @@ def test_overlap_at_the_threshold_is_rejected() -> None:
 
 
 def test_base_request_is_cached_for_the_run() -> None:
-    """US yapilandirilmissa `sector_profile` tabani YENIDEN CEKMEZ."""
+    """If US is configured, `sector_profile` does NOT re-fetch the baseline."""
     cache: dict[str, Any] = {}
     fetch = Recorder({US: _US_TOP, "GB": _GB_TOP})
     domain_regions(_settings("US,GB"), cache=cache, fetch=fetch)

@@ -1,4 +1,4 @@
-"""Ucuncu registry: alias, bootstrap, scope ve regional bayraklari (SI S9.2)."""
+"""The third registry: aliases, bootstrap, and the scope / regional flags."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def test_depends_on_pulls_the_bootstrap_even_when_deselected() -> None:
 
 
 def test_scope_and_regional_flags_drive_the_run_shape() -> None:
-    """`regional` bolge dongusunu, `scope` anahtar kumesini belirler."""
+    """`regional` drives the region loop, `scope` drives the key set."""
     expected = {
         "domain_taxonomy": ("sector", False, False),
         "sector_profile": ("sector", False, True),
@@ -57,7 +57,7 @@ def test_scope_and_regional_flags_drive_the_run_shape() -> None:
 
 
 def test_produces_declares_the_gate_table() -> None:
-    """Kapi bildirilmezse hata yolunda denetimden duserdi (AH S6.1)."""
+    """An undeclared gate would drop out of the audit on the failure path."""
     for name in ("sector_profile", "sector_rankings", "industry_profile", "industry_rankings"):
         assert DOMAIN_DATASETS[name].produces[-1] == "domain_asof_state"
     assert "domain_asof_state" not in DOMAIN_DATASETS["domain_taxonomy"].produces

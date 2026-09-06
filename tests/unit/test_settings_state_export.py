@@ -72,21 +72,21 @@ def test_export_all_returns_39_keys_with_their_NATIVE_type() -> None:
     assert isinstance(out["yf_news_tab"], str)
 
 
-def test_export_bos_state_bos_sozluk() -> None:
+def test_export_of_an_empty_state_is_an_empty_dict() -> None:
     assert export_values({}) == {}
 
 
 @pytest.mark.parametrize("key", sorted(DB_MANAGED_FIELDS))
-def test_classify_db_yonetimli_alanlar_OK(key: str) -> None:
+def test_classify_db_managed_fields_OK(key: str) -> None:
     assert classify_key(key) is KeyVerdict.OK
 
 
 @pytest.mark.parametrize("key", sorted(ENV_ONLY_FIELDS))
-def test_classify_env_only_alanlar(key: str) -> None:
+def test_classify_env_only_fields(key: str) -> None:
     assert classify_key(key) is KeyVerdict.ENV_ONLY
 
 
-@pytest.mark.parametrize("key", ["hicboyle_yok", "YF_MAX_SHARDS", ""])
+@pytest.mark.parametrize("key", ["no_such_key", "YF_MAX_SHARDS", ""])
 def test_classify_unknown_keys(key: str) -> None:
     """A non-canonical form (`YF_MAX_SHARDS`) is also UNKNOWN: keeping such
     a row visible if it were inserted via raw SQL is why the collation
@@ -103,7 +103,7 @@ def test_the_read_and_write_paths_make_the_SAME_decision() -> None:
     """
     from yfin.storage.settings_store import SettingRejected, filter_overrides, validate_pair
 
-    for key in sorted(ENV_ONLY_FIELDS | {"hicboyle_yok"}):
+    for key in sorted(ENV_ONLY_FIELDS | {"no_such_key"}):
         assert filter_overrides({key: "x"}) == {}, f"{key} passed on the read path"
         with pytest.raises(SettingRejected):
             validate_pair(key, "x", overrides={})

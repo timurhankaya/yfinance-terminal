@@ -1,4 +1,4 @@
-"""Rate limiting ve retry davranisi (S7.5)."""
+"""Rate limiting and retry behavior."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ class TestTokenBucket:
         for _ in range(4):
             bucket.acquire()
         elapsed = time.monotonic() - started
-        # 4 token @ 20/sn ~= 0.2 sn; zamanlama toleransli olcuulur
+        # 4 tokens @ 20/sec ~= 0.2 sec; timing is measured with tolerance
         assert elapsed >= 0.15, elapsed
 
     def test_burst_allows_initial_calls(self) -> None:
@@ -29,7 +29,7 @@ class TestTokenBucket:
         assert time.monotonic() - started < 0.1
 
     def test_thread_safe_under_contention(self) -> None:
-        """Limiter process-global ve KILITLIDIR (S7.1)."""
+        """The limiter is process-global and LOCKED."""
         bucket = TokenBucket(rate_per_sec=1000.0, burst=1000.0)
         counter = {"n": 0}
         lock = threading.Lock()
@@ -68,9 +68,9 @@ class TestRetryClassification:
         "exc",
         [
             KeyError("currency"),
-            ValueError("gecersiz sembol"),
+            ValueError("invalid symbol"),
             TypeError("x"),
-            # Durum kodu gibi gorunen ama HTTP olmayan mesajlar
+            # Messages that look like status codes but are not HTTP
             ValueError("Symbol 500 not found"),
             ValueError("no data for 5000 rows"),
             ValueError("$NOSUCH: No data found, symbol may be delisted"),
@@ -82,7 +82,7 @@ class TestRetryClassification:
 
 @pytest.fixture(autouse=True)
 def _fast_retries(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Testte exponential backoff beklemesi anlamsizdir."""
+    """Waiting for exponential backoff in tests makes no sense."""
     from yfin.core import config
 
     settings = config.get_settings()
@@ -121,7 +121,7 @@ class TestCallYahoo:
         assert attempts["n"] == 1
 
     def test_retries_pass_through_the_limiter(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """tenacity retry'lari da limiter'dan gecer (S7.5)."""
+        """tenacity retries also pass through the limiter."""
         from yfin.ingest import client
 
         calls = {"n": 0}

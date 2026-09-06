@@ -49,7 +49,7 @@ def test_the_value_the_parent_resolved_travels_in_the_spec(
     assert spec.settings_overrides == {"yf_max_shards": "9", "yf_news_tab": "news"}
 
 
-def test_spec_PICKLE_lanabilir(store_settings: Settings) -> None:
+def test_the_spec_is_PICKLEABLE(store_settings: Settings) -> None:
     """This object passes through a pipe to a `spawn`-started child; an
     unpicklable field added here would only surface in a real run."""
     spec = _spec(settings_overrides={"yf_max_shards": "9"})
@@ -95,6 +95,6 @@ def test_the_value_is_right_even_when_spec_database_DIFFERS_from_db_name(
 
     write_all({"yf_max_shards": "9"}, settings=store_settings)
     spec = _spec(settings_overrides={"yf_max_shards": "9"})
-    object.__setattr__(spec, "database", "bambaska_bir_veritabani")
+    object.__setattr__(spec, "database", "a_completely_different_database")
 
     assert settings_from_overrides(spec.settings_overrides).yf_max_shards == 9

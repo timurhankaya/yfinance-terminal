@@ -336,7 +336,9 @@ def has_financials(session: Session, symbol: str) -> bool:
 # --- freshness --------------------------------------------------------------
 
 
-def financials_as_of(session: Session, symbol: str, statement_kind: str, freq: str) -> datetime | None:
+def financials_as_of(
+    session: Session, symbol: str, statement_kind: str, freq: str
+) -> datetime | None:
     """When these statements were last verified against the source."""
     return session.execute(
         select(func.max(FinancialPeriod.fetched_at)).where(

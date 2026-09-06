@@ -1,4 +1,4 @@
-"""Domain semasi: collation, CHECK kisiti ve FK'ler (SI S9.3)."""
+"""Domain schema: collation, CHECK constraints and FKs."""
 
 from __future__ import annotations
 
@@ -41,9 +41,9 @@ def _insert_domain(
 
 
 def test_domain_key_is_case_sensitive(db_session: Session) -> None:
-    """`TECHNOLOGY` canlida 404 verdi; anahtarlar buyuk/kucuk harf DUYARLI.
+    """`TECHNOLOGY` returned 404 in production; keys are case SENSITIVE.
 
-    Duyarsiz bir collation olsaydi iki ayri anahtar tek satira inerdi.
+    A case-insensitive collation would collapse two distinct keys into one row.
     """
     _seed_symbol(db_session, "^YHZ1")
     _seed_symbol(db_session, "^YHZ2")
@@ -77,7 +77,7 @@ def test_symbol_is_unique_across_domains(db_session: Session) -> None:
 
 
 def test_deleting_a_sector_with_children_is_restricted(db_session: Session) -> None:
-    """ON DELETE RESTRICT SELF-FK'de de gecerli: 145 endustri oksuz kalamaz."""
+    """ON DELETE RESTRICT also applies on the self-FK: 145 industries cannot be orphaned."""
     _seed_symbol(db_session, "^YHZ6")
     _seed_symbol(db_session, "^YHZ7")
     _insert_domain(db_session, "energy", "^YHZ6")
@@ -98,9 +98,9 @@ def test_deleting_a_domain_symbol_is_restricted(db_session: Session) -> None:
 
 
 def test_report_links_cascade_when_the_report_is_deleted(db_session: Session) -> None:
-    """FK TERS YONDE calisir: rapor silinince bag silinir.
+    """FK works in REVERSE: deleting the report deletes the link.
 
-    Bu yuzden `--orphan-reports` ayri bir adimdir (SI S11.2).
+    That's why `--orphan-reports` is a separate step.
     """
     _seed_symbol(db_session, "^YHZ9")
     _insert_domain(db_session, "energy", "^YHZ9")
@@ -126,12 +126,12 @@ def test_report_links_cascade_when_the_report_is_deleted(db_session: Session) ->
 
 
 def test_report_title_is_unbounded_text(db_session: Session) -> None:
-    """Olculen max 23 570 KARAKTER; uzunluk siniri OLMAMALI.
+    """Measured max is 23,570 CHARACTERS; there must be NO length limit.
 
-    MySQL'de `TEXT` 65 535 BAYT'ti ve utf8mb4'te 23 570 karakter bunu
-    asabiliyordu, bu yuzden `MEDIUMTEXT` gerekiyordu. PostgreSQL'de
-    `text` SINIRSIZDIR; ayrim ortadan kalkti. Testin AMACI ayni:
-    kolonun bir uzunluk siniri tasimadigini kanitlamak (PG S2.2).
+    In MySQL, `TEXT` was 65,535 BYTES, and 23,570 characters in utf8mb4 could
+    exceed that, so `MEDIUMTEXT` was needed. In PostgreSQL, `text` is
+    UNBOUNDED; the distinction disappeared. The test's PURPOSE is the same:
+    prove the column carries no length limit.
     """
     data_type, max_len = db_session.execute(
         text(
@@ -143,17 +143,17 @@ def test_report_title_is_unbounded_text(db_session: Session) -> None:
         )
     ).one()
     assert data_type == "text"
-    assert max_len is None, "report_title uzunluk siniri TASIMAMALI"
+    assert max_len is None, "report_title MUST NOT carry a length limit"
 
 
 def test_domain_asof_state_key_includes_region(db_session: Session) -> None:
     keys = list(
         db_session.execute(
             text(
-                # PostgreSQL'de PK kisitinin adi 'PRIMARY' DEGILDIR;
-                # naming_convention `pk_<tablo>` uretir (PG S2.6).
-                # constraint_type uzerinden gitmek ada bagimliligi da
-                # ortadan kaldirir.
+                # In PostgreSQL the PK constraint's name is NOT 'PRIMARY';
+                # the naming_convention produces `pk_<table>`.
+                # Going through constraint_type also removes the
+                # dependency on the name.
                 "SELECT k.column_name "
                 "  FROM information_schema.key_column_usage k "
                 "  JOIN information_schema.table_constraints c "

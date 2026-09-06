@@ -158,7 +158,7 @@ class TestNewsSparseUpdate:
         db_session.execute(
             text(
                 "INSERT INTO news (news_id, title, summary, description, canonical_url, "
-                "pub_date, raw_json) VALUES (:i, 'zengin', 'OZET', 'ACIKLAMA', "
+                "pub_date, raw_json) VALUES (:i, 'rich', 'SUMMARY', 'DESCRIPTION', "
                 "'https://x/y', :t, '{}')"
             ),
             {"i": news_id, "t": NOW},
@@ -174,11 +174,11 @@ class TestNewsSparseUpdate:
             ),
             {"i": news_id},
         ).one()
-        assert row.summary == "OZET"
-        assert row.description == "ACIKLAMA"
+        assert row.summary == "SUMMARY"
+        assert row.description == "DESCRIPTION"
         assert row.canonical_url == "https://x/y"
         # The column Search populates is updated
-        assert row.title != "zengin"
+        assert row.title != "rich"
 
 
 class TestSymbolPromotion:
