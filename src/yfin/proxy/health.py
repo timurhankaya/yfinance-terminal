@@ -1,8 +1,8 @@
-"""Proxy saglik POLITIKASI: saf durum makinesi.
+"""Proxy health policy: a pure state machine.
 
-DB'siz ve agsiz oldugu icin tam gecis tablosuyla test edilebilir. Parent
-da child de ayni `apply_outcome` fonksiyonunu kullanir; politika tek
-yerde kalir.
+Has no DB or network dependency, so it can be tested with a full
+transition table. Parent and child both call the same `apply_outcome`,
+keeping the policy in one place.
 """
 
 from __future__ import annotations
@@ -21,9 +21,9 @@ class HealthEvent(enum.StrEnum):
     RATE_LIMITED = "rate_limited"
     BLOCKED = "blocked"
     NETWORK = "network"
-    # Child beklenmedik sekilde oldu/timeout'a girdi. ESIKTEN BAGIMSIZ
-    # olarak cooldown uretir: tek bir NETWORK olayi yalnizca sayaci bir
-    # artirirdi ve olen shard'in proxy'si havuzda kalmaya devam ederdi.
+    # Child died unexpectedly or timed out. Triggers cooldown regardless
+    # of the failure threshold: a single NETWORK event would only
+    # increment the counter, leaving the crashed shard's proxy in the pool.
     SHARD_CRASH = "shard_crash"
 
 
@@ -35,7 +35,7 @@ _EVENT_BY_KIND = {
 
 
 def event_for(kind: ErrorKind) -> HealthEvent | None:
-    """DATA ve UNKNOWN_SYMBOL proxy durumuna HIC dokunmaz."""
+    """DATA and UNKNOWN_SYMBOL never affect proxy health."""
     return _EVENT_BY_KIND.get(kind) if kind in PROXY_FAULT_KINDS else None
 
 
@@ -90,14 +90,14 @@ def apply_outcome(
     now: datetime,
     policy: ProxyPolicy,
 ) -> ProxyHealthState:
-    """Tek bir olayi durum makinesine uygular.
+    """Applies a single event to the state machine.
 
-    NOT: SUCCESS `cooldown_rounds`'u SIFIRLAMAZ. Sifirlasaydi arada tek
-    bir basari dead'e giden yolu surekli bastan baslatir ve yari-olu bir
-    proxy sonsuza dek havuzda kalirdi.
+    SUCCESS does not reset `cooldown_rounds`. If it did, one lucky success
+    would keep restarting the path to dead, leaving a half-dead proxy in
+    the pool forever.
     """
     if state.health is ProxyHealth.DEAD:
-        return state  # yalnizca `proxy reset` geri getirir
+        return state  # only `proxy reset` brings it back
 
     if event is HealthEvent.SUCCESS:
         return replace(
@@ -117,5 +117,5 @@ def apply_outcome(
 
 
 # --------------------------------------------------------------------------
-# Secim
+# Selection
 # --------------------------------------------------------------------------

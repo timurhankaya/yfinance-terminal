@@ -1,4 +1,4 @@
-"""Registry cozumleme testleri (S6.2)."""
+"""Registry resolution tests."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ user_visible_names = SYMBOL_DATASETS.user_visible_names
 
 
 def test_registry_record_count() -> None:
-    """Kayitlar: 10 eski kullanici-gorunur + symbols + 11 yeni (S6.5).
-    'actions' ve 'financials' kayit degil, alias."""
+    """Records: 10 legacy user-visible + symbols + 11 new.
+    'actions' and 'financials' are aliases, not records."""
     assert len(REGISTRY) == len(set(REGISTRY))
     assert "financials" not in REGISTRY
     assert "actions" not in REGISTRY
@@ -40,18 +40,19 @@ def test_bootstrap_always_first() -> None:
 
 
 def test_all_resolves_every_dataset() -> None:
-    """`all` = OPT-IN OLMAYAN her dataset (SQ K11).
+    """`all` = every dataset that is NOT opt-in.
 
-    `opt_in` `bootstrap`in tersidir: biri her cozumlemeye eklenir, digeri
-    `all`dan cikarilir. Ikisini de disladiktan sonra kalan kume,
-    kayitlarin tamamina esittir.
+    `opt_in` is the inverse of `bootstrap`: one is added to every
+    resolution, the other is excluded from `all`. Excluding both leaves
+    the full set of records.
     """
     opt_in = {n for n in REGISTRY if REGISTRY.is_opt_in(n)}
-    assert opt_in, "opt-in dataset bekleniyordu (search/lookup)"
+    assert opt_in, "expected at least one opt-in dataset (search/lookup)"
     assert {d.name for d in resolve(None)} == set(REGISTRY) - opt_in
     assert {d.name for d in resolve(["all"])} == set(REGISTRY) - opt_in
-    # Bos liste de `all` ile AYNI daldir (registry.py); opt-in orada da
-    # disaridadir -- aksi halde `--datasets ""` gizli bir arka kapi olurdu.
+    # An empty list takes the same branch as `all` (registry.py); opt-in
+    # stays excluded there too -- otherwise `--datasets ""` would be a
+    # hidden backdoor.
     assert {d.name for d in resolve([])} == set(REGISTRY) - opt_in
 
 
@@ -109,8 +110,8 @@ def test_cycle_detected() -> None:
 
 
 def test_produces_are_table_names() -> None:
-    """produces HER ZAMAN tablo adidir (S6.1/1); isin dataset'i ('symbols',)
-    bildirir, hangi kolona yazdigi update_columns'ta durur."""
+    """produces is always a table name; the isin dataset declares ('symbols',),
+    and which column it writes lives in update_columns."""
     from yfin.models import Base
 
     for dataset in (REGISTRY[name] for name in REGISTRY):
@@ -125,8 +126,8 @@ def test_produces_are_table_names() -> None:
 
 
 def test_series_datasets_declare_produces_explicitly() -> None:
-    """produces bir class attribute olmalidir; alt tipte property'ye
-    donusturmek tabanin sozlesmesini daraltir (LSP)."""
+    """produces must be a class attribute; turning it into a property on a
+    subtype would narrow the base contract (LSP)."""
     for name in ("dividends", "splits", "capital_gains"):
         dataset = REGISTRY[name]
         assert type(type(dataset).produces) is tuple
@@ -134,19 +135,19 @@ def test_series_datasets_declare_produces_explicitly() -> None:
 
 
 def test_symbol_scoped_tables_covers_every_fk_child() -> None:
-    """`yfin symbols purge` listesi FK grafinden TAMAMEN turetilir.
+    """`yfin symbols purge`'s list is derived entirely from the FK graph.
 
-    MySQL doneminde bir istisna vardi: `price_bars` partition'li oldugu
-    icin FK tasiyamiyordu, FK grafinde hic gorunmuyordu ve elle tutulan
-    `_FK_LESS_SYMBOL_TABLES` listesiyle kapsaniyordu. TimescaleDB
-    hypertable'i referencing taraf olabildigi icin o istisna ORTADAN
-    KALKTI; liste ve onunla gelen ozel dal kaldirildi (YAGNI -- bugun
-    olmayan bir sey icin bos bir uzanti noktasi tutulmadi).
+    In the MySQL era there was an exception: `price_bars` was partitioned
+    and could not carry an FK, so it never appeared in the FK graph and was
+    covered by a hand-maintained `_FK_LESS_SYMBOL_TABLES` list. A
+    TimescaleDB hypertable can be the referencing side, so that exception is
+    gone; the list and its special-case branch were removed (YAGNI -- no
+    empty extension point kept for something that no longer exists).
 
-    Test artik TEK YONLU ama daha guclu: turetilmis liste FK cocuklarina
-    BIREBIR esit olmali. Bir gun FK tasiyamayan sembol kapsamli bir tablo
-    eklenirse purge onu sessizce atlar; bu testin dokumante ettigi kor
-    nokta budur ve `symbol_scoped_tables` docstring'i de onu soyler.
+    The test is now one-directional but stronger: the derived list must
+    equal the FK children exactly. If a symbol-scoped table that cannot
+    carry an FK is ever added, purge will silently skip it -- that blind
+    spot is documented here and in `symbol_scoped_tables`'s docstring.
     """
     from yfin.models import Base, symbol_scoped_tables
 
@@ -159,12 +160,12 @@ def test_symbol_scoped_tables_covers_every_fk_child() -> None:
     }
     assert derived == fk_children
     assert "price_history" in derived
-    assert "price_bars" in derived  # FK'yi hypertable ile geri kazandi
-    assert "news_symbols" not in derived  # FK yok (S5.5)
+    assert "price_bars" in derived  # regained its FK via the hypertable
+    assert "news_symbols" not in derived  # has no FK
 
 
 def test_purge_order_respects_foreign_keys() -> None:
-    """Silme sirasi cocuktan ebeveyne dogru olmalidir."""
+    """Deletion order must go from child to parent."""
     from yfin.models import Base, symbol_scoped_tables
 
     order = symbol_scoped_tables()
@@ -178,7 +179,7 @@ def test_purge_order_respects_foreign_keys() -> None:
 
 
 def test_market_registry_has_no_bootstrap() -> None:
-    """bootstrap=None dali: zorunlu on dataset eklenmez (S6.1)."""
+    """bootstrap=None branch: no mandatory prerequisite dataset is added."""
     from yfin.datasets import MARKET_DATASETS
 
     assert MARKET_DATASETS.bootstrap is None
@@ -189,8 +190,8 @@ def test_market_registry_has_no_bootstrap() -> None:
 
 
 def test_financials_alias_expands_in_order() -> None:
-    """8 statement dataset'i tek alias'la secilir; ttm_balance_sheet YOKTUR
-    (freq='trailing' bilancoda ValueError firlatir)."""
+    """8 statement datasets are selected via one alias; ttm_balance_sheet
+    does not exist (freq='trailing' raises ValueError on a balance sheet)."""
     names = [d.name for d in resolve(["financials"])]
     assert names[0] == BOOTSTRAP
     assert names[1:] == list(ALIASES["financials"])

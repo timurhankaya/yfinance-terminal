@@ -1,14 +1,14 @@
-"""Domain (sektor / endustri) kapsamli dataset sozlesmesi (SI S6.1).
+"""Contract for domain (sector / industry) scoped datasets.
 
-`GlobalDataset`'in kardesi. `SyncContext`'ten TUREMEZ: `symbol` alani domain
-tarafinda yanlis anlam tasirdi -- ve burada bu, `market/base.py`'deki
-gerekceden DAHA KESKINDIR, cunku domain tablolarinda `symbol` GERCEKTEN
-VARDIR ama SIRKETIN sembolüdür.
+Sibling of `GlobalDataset`. Cannot derive from `SyncContext`: the `symbol`
+field would carry the wrong meaning on the domain side -- sharper here than
+the same issue in `market/base.py`, because domain tables really do have a
+`symbol` column, but it is the company's symbol.
 
-Ucuncu eksen: ne sembol ne bolge dongusu. 156 anahtar, her biri kendi HTTP
-istegi. Bolge dongusu dataset'in DISINDADIR (domain_runner icinde), boylece
-`sync_run_items` granulerligi dogal olarak (dataset x anahtar x bolge x
-tablo) olur.
+A third axis: neither a symbol loop nor a region loop. 156 keys, each its
+own HTTP request. The region loop lives outside the dataset (inside
+domain_runner), so `sync_run_items` granularity naturally becomes
+(dataset x key x region x table).
 """
 
 from __future__ import annotations
@@ -34,13 +34,13 @@ DomainType = Literal["sector", "industry"]
 
 @dataclass
 class DomainContext:
-    """Run'a ait, SEMBOLSUZ ve anahtar-hedefli baglam.
+    """Per-run context, symbol-less and key-targeted.
 
-    `for_target` ve `for_region` AYNI `_cache`'i paylasir
-    (`MarketContext.for_region` deseni): bir (anahtar, bolge) ciftinin ham
-    JSON'u BIR KEZ cekilir ve o ciftin TUM dataset'lerini besler. Bolgesiz
-    dataset'ler BIRINCIL bolgenin yanitini kullanir ve ek istek uretmezler
-    (veri bolgeden bagimsiz olculdu, SI S4.5).
+    `for_target` and `for_region` share the same `_cache` (mirrors
+    `MarketContext.for_region`): a (key, region) pair's raw JSON is fetched
+    once and feeds all of that pair's datasets. Region-less datasets use
+    the primary region's response and produce no extra request (data was
+    measured to be region-independent).
     """
 
     fetched_at: datetime
@@ -49,10 +49,10 @@ class DomainContext:
     region: str = GLOBAL_REGION_MARKER
     key: str | None = None
     domain_type: DomainType | None = None
-    # Endustri anahtari -> DB'deki ebeveyn sektor anahtari. Runner
-    # `domain_taxonomy` turundan SONRA DB'den doldurur; `industry_profile`
-    # yanittaki `sectorKey` ile karsilastirip uyusmazlikta WARNING uretir
-    # (taksonomi kaymasi sinyali, SI S7.3).
+    # Industry key -> parent sector key in the DB. The runner populates
+    # this from the DB after the `domain_taxonomy` pass; `industry_profile`
+    # compares it against the response's `sectorKey` and warns on a
+    # mismatch (a signal of taxonomy drift).
     parents: dict[str, str] = field(default_factory=dict, repr=False)
     _cache: dict[str, Any] = field(default_factory=dict, repr=False)
 
@@ -84,41 +84,41 @@ class DomainContext:
 
     @property
     def fetch_region(self) -> str:
-        """Fiilen istenecek bolge.
+        """The region actually requested.
 
-        Bolgesiz turda `region` `'*'`tir; o istek BIRINCIL bolgeye gider ve
-        onbellegi bolgeli turlarla PAYLASIR -- birincil bolge zaten
-        cekiliyorsa ikinci bir HTTP istegi yapilmaz.
+        In a region-less pass, `region` is `'*'`; that request goes to the
+        primary region and shares its cache with regional passes -- no
+        second HTTP request is made if the primary region is already fetched.
         """
         return self.primary_region if self.region == GLOBAL_REGION_MARKER else self.region
 
     @property
     def target_key(self) -> str:
-        if self.key is None:  # pragma: no cover - savunma
+        if self.key is None:  # pragma: no cover - defensive
             raise ValueError("DomainContext.key ayarlanmadan fetch cagrildi")
         return self.key
 
     @property
     def target_type(self) -> DomainType:
-        if self.domain_type is None:  # pragma: no cover - savunma
+        if self.domain_type is None:  # pragma: no cover - defensive
             raise ValueError("DomainContext.domain_type ayarlanmadan fetch cagrildi")
         return self.domain_type
 
 
 class DomainDataset[RawT](ABC):
-    """Tek bir (anahtar, bolge) ciftinin cekilmesi, normalize edilmesi, yazilmasi."""
+    """Fetching, normalizing, and writing a single (key, region) pair."""
 
     name: str
     depends_on: tuple[str, ...] = ()
-    produces: tuple[str, ...] = ()  # yazdigi TABLO adlari
-    # Hangi anahtar kumesi uzerinde doner
+    produces: tuple[str, ...] = ()  # table names it writes
+    # Which key set it iterates over
     scope: DomainType = "sector"
-    # True ise BOLGE dongusune girer; False ise tek tur (`region='*'`)
+    # True enters the region loop; False runs a single pass (`region='*'`)
     regional: bool = False
-    # False ise dataset ANAHTAR DONGUSUNE GIRMEZ ve tek turda kosar.
-    # Yalnizca bootstrap (`domain_taxonomy`) boyledir: 156 `symbols` +
-    # 156 `domains` satiri TEK TRANSACTION'da yazilir -- taksonomi ya
-    # butun olarak tutarlidir ya hic (SI S6.7).
+    # False means the dataset does not enter the key loop and runs once.
+    # Only bootstrap (`domain_taxonomy`) is like this: 156 `symbols` rows
+    # and 156 `domains` rows are written in one transaction -- the taxonomy
+    # is either consistent as a whole or not written at all.
     per_key: bool = True
 
     @abstractmethod
@@ -135,25 +135,25 @@ class DomainDataset[RawT](ABC):
 
 
 class DomainAsOfDataset[RawT](AsOfGate, DomainDataset[RawT]):
-    """as-of kapili domain dataset'i.
+    """as-of gated domain dataset.
 
-    `AsOfDataset`'ten TUREYEMEZ (SI S6.2): o `Dataset[RawT]`'in altindadir ve
-    `fetch(SyncContext)` / `normalize(raw, symbol)` imzasini tasir. Ortak
-    olan sey kapi mantigidir, hiyerarsi degil -- bu yuzden `AsOfGate` bir
-    mixin'dir.
+    Cannot derive from `AsOfDataset`: that class sits under `Dataset[RawT]`
+    and carries the `fetch(SyncContext)` / `normalize(raw, symbol)`
+    signature. What is shared is the gate logic, not the hierarchy -- which
+    is why `AsOfGate` is a mixin.
     """
 
     asof_gate_table = DOMAIN_GATE_TABLE
     asof_gate_key_columns = DOMAIN_GATE_KEY_COLUMNS
 
     def gate_identity(self, result: NormalizedResult) -> dict[str, Any]:
-        """Kapi anahtari: (domain_key, dataset, region).
+        """Gate key: (domain_key, dataset, region).
 
-        `region` dataset ORNEGINDE DURUM OLARAK TUTULMAZ (registry'deki
-        dataset'ler tekildir ve bolge dongusu onlari yeniden kullanir); tur
-        basina `normalize()`'a `DomainContext`'ten gecen deger SATIRLARA
-        yazilir ve buradan geri okunur. Bolgesiz dataset'lerin satirlarinda
-        `region` kolonu yoktur -> `'*'`.
+        `region` is not kept as state on the dataset instance (registry
+        datasets are singletons reused across the region loop); the value
+        passed from `DomainContext` to `normalize()` per pass is written
+        into rows and read back from there. Region-less datasets have no
+        `region` column in their rows -> defaults to `'*'`.
         """
         first = _first_row(result)
         return {

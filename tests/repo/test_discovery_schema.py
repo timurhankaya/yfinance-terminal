@@ -1,4 +1,4 @@
-"""SQ S5: kesif tablolarinin fiili semasi (gercek PostgreSQL, agsiz)."""
+"""The actual schema of the discovery tables (real PostgreSQL, no network)."""
 
 from __future__ import annotations
 
@@ -44,8 +44,8 @@ def test_primary_keys(db_session: Session) -> None:
         "screens": ["screen_key"],
         "screen_runs": ["screen_key", "as_of_date"],
         "screen_members": ["screen_key", "as_of_date", "symbol"],
-        # SQ K5: EKRANDAN BAGIMSIZ. `screen_key` PK'da OLSAYDI bes ekranda
-        # gorunen sembolun 102 alani bes kez yazilirdi.
+        # Independent of the screen. If `screen_key` were in the PK, a symbol
+        # appearing in five screens would have its 102 fields written five times.
         "screen_quotes": ["symbol", "as_of_date"],
     }
     for table, cols in expected.items():
@@ -53,18 +53,18 @@ def test_primary_keys(db_session: Session) -> None:
 
 
 def test_discovery_gate_has_no_foreign_key(db_session: Session) -> None:
-    """SQ K3a -- bu tablonun VAROLUS SEBEBI.
+    """This is why the table exists at all.
 
-    `asof_state.symbol` `symbols.symbol`a FK tasir; serbest arama terimi
-    orada olmadigi icin kapi satiri `ERROR 1452` alirdi. Bir gun biri
-    "tutarlilik olsun" diye buraya FK eklerse `yfin discover term` sessizce
-    degil, GURULTULU bicimde kirilir -- ve bu test once kirmizi olur.
+    `asof_state.symbol` carries an FK to `symbols.symbol`; a free-text search
+    term isn't there, so the gate row would fail with `ERROR 1452`. If
+    someone adds an FK here later "for consistency", `yfin discover term`
+    breaks loudly, not silently -- and this test goes red first.
     """
     assert _inspector(db_session).get_foreign_keys("discovery_asof_state") == []
 
 
 def test_symbol_columns_have_no_foreign_key(db_session: Session) -> None:
-    """SQ K9: kesif dataset'leri TANIMI GEREGI evren disi sembol dondurur."""
+    """Discovery datasets return out-of-universe symbols by definition."""
     insp = _inspector(db_session)
     for table in ("search_quotes", "lookup_results", "screen_members", "screen_quotes"):
         referred = {fk["referred_table"] for fk in insp.get_foreign_keys(table)}
@@ -72,10 +72,10 @@ def test_symbol_columns_have_no_foreign_key(db_session: Session) -> None:
 
 
 def test_symbol_columns_are_indexed(db_session: Session) -> None:
-    """FK olmadigi icin index ACIKCA tanimlanir (S S5.6).
+    """No FK means the index must be defined explicitly.
 
-    FK'li kolona index kendiliginden olusabilir; FK yoksa olusmaz ve
-    `WHERE symbol = ...` sorgusu tam tarama olurdu.
+    An FK'd column can get an index automatically; without one it does not,
+    and `WHERE symbol = ...` would be a full table scan.
     """
     insp = _inspector(db_session)
     for table in ("search_quotes", "lookup_results", "screen_members"):
@@ -84,9 +84,9 @@ def test_symbol_columns_are_indexed(db_session: Session) -> None:
 
 
 def test_report_hits_has_foreign_key_to_reports(db_session: Session) -> None:
-    """Sembol kolonlarinin aksine BURADA FK VARDIR: `report_id` sembol
-    degildir, evren disilik sorunu yoktur ve ebeveyn ayni transaction'da
-    kapili yazimlardan ONCE yazilir (SQ S6.2.1)."""
+    """Unlike the symbol columns, an FK exists here: `report_id` is not a
+    symbol, has no out-of-universe problem, and the parent is written in the
+    same transaction before the gated writes."""
     fks = _inspector(db_session).get_foreign_keys("search_report_hits")
     assert [(f["referred_table"], f["referred_columns"]) for f in fks] == [
         ("research_reports", ["report_id"])
@@ -94,26 +94,25 @@ def test_report_hits_has_foreign_key_to_reports(db_session: Session) -> None:
 
 
 def test_research_reports_renamed_and_extended(db_session: Session) -> None:
-    """SQ K8: rapor kimlikleri TEK UZAY, tablo da tek."""
+    """Report ids share one namespace, and now one table."""
     insp = _inspector(db_session)
     assert insp.has_table("research_reports")
     assert not insp.has_table("domain_research_reports")
     cols = {c["name"] for c in insp.get_columns("research_reports")}
     assert {"author", "report_headline"} <= cols
-    # Domain tarafinin kolonlari KORUNUR
+    # The domain side's columns are kept
     assert {"head_html", "report_title", "report_type"} <= cols
 
 
 def test_domain_report_links_still_points_to_reports(db_session: Session) -> None:
-    """Bag tablosu ADINI KORUR; yalniz FK hedefi degisir."""
+    """The link table keeps its name; only its FK target changes."""
     fks = _inspector(db_session).get_foreign_keys("domain_report_links")
     referred = {f["referred_table"] for f in fks}
     assert "research_reports" in referred
 
 
 def test_screen_quotes_column_count(db_session: Session) -> None:
-    """SQ S4.5: 102 tipli alan + symbol + as_of_date + is_known +
-    fetched_at + raw_json."""
+    """102 typed fields plus symbol, as_of_date, is_known, fetched_at, raw_json."""
     from yfin.models.fields import SCREENER_QUOTE_FIELDS
 
     cols = {c["name"] for c in _inspector(db_session).get_columns("screen_quotes")}
@@ -122,10 +121,10 @@ def test_screen_quotes_column_count(db_session: Session) -> None:
 
 
 def test_screen_quotes_shares_column_names_with_ticker_info(db_session: Session) -> None:
-    """SQ S4.5: 75 ortak alan kolon adini `ticker_info`dan DEVRALIR.
+    """75 shared fields inherit their column names from `ticker_info`.
 
-    Devralmak yerine yeniden yazilsaydi iki tablo zamanla ayrisir ve
-    JOIN'siz karsilastirma sessizce yanlislanirdi.
+    Redefining them instead would let the two tables drift apart over time,
+    silently breaking any JOIN-free comparison between them.
     """
     insp = _inspector(db_session)
     quotes = {c["name"] for c in insp.get_columns("screen_quotes")}
@@ -139,7 +138,7 @@ def test_screen_quotes_shares_column_names_with_ticker_info(db_session: Session)
 
 
 def test_symbols_discovery_columns(db_session: Session) -> None:
-    """SQ S5.12: mevcut satirlar geriye donuk `manual` etiketlenir."""
+    """Existing rows are retroactively labeled `manual`."""
     cols = {c["name"]: c for c in _inspector(db_session).get_columns("symbols")}
     assert "discovered_by" in cols
     assert "discovered_at" in cols
@@ -148,12 +147,12 @@ def test_symbols_discovery_columns(db_session: Session) -> None:
 
 
 def test_ascii_key_columns_use_binary_collation(db_session: Session) -> None:
-    """Anahtar kolonlar case-SENSITIVE olmalidir.
+    """Key columns must be case-sensitive.
 
-    Duyarsiz bir collation'da 'AAPL' = 'aapl' -> iki farkli sembol ayni
-    satira duser (S S5.1). MySQL'de bu `ascii_bin` ile saglaniyordu;
-    PostgreSQL'de karsiligi COLLATE "C"dir (PG S2.5) ve tum string
-    kolonlarina tekduze uygulanir.
+    Under a case-insensitive collation, 'AAPL' = 'aapl' would collapse two
+    different symbols into one row. MySQL enforced this with `ascii_bin`;
+    the PostgreSQL equivalent is COLLATE "C", applied uniformly to all
+    string columns.
     """
     rows = db_session.execute(
         __import__("sqlalchemy").text(

@@ -1,4 +1,4 @@
-"""`settings` tablosunun sema sozlesmesi. Gercek DB."""
+"""Schema contract of the `settings` table. Real DB."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ pytestmark = pytest.mark.repo
 def test_setting_key_buyuk_kucuk_harf_DUYARLI(
     test_engine: Engine, clean_settings_table: None
 ) -> None:
-    """Duyarliligin amaci cakismayi onlemek DEGILDIR (CLI zaten
-    `strip().lower()` uyguluyor): ham SQL ile sokulmus `YF_MAX_SHARDS`
-    satirinin kanonik satirdan AYRI ve GORUNUR kalip yukleyicinin
-    "bilinmeyen anahtar" uyarisina takilmasidir (CFG S2/S4.1).
+    """The point of case sensitivity is not to prevent collisions (the CLI
+    already applies `strip().lower()`): a `YF_MAX_SHARDS` row inserted via
+    raw SQL must stay separate and visible from the canonical row, so the
+    loader's "unknown key" warning catches it.
     """
     with test_engine.connect() as conn:
         conn.execute(
@@ -25,13 +25,13 @@ def test_setting_key_buyuk_kucuk_harf_DUYARLI(
         )
         conn.commit()
         count = conn.execute(text("SELECT count(*) FROM settings")).scalar()
-    assert count == 2, "duyarsiz collation iki satiri tek satira indirdi"
+    assert count == 2, "a case-insensitive collation collapsed two rows into one"
 
 
 def test_value_NOT_NULL(test_engine: Engine, clean_settings_table: None) -> None:
-    """"Ezme yok" demek satirin OLMAMASIDIR, NULL degil: bos dize mesru
-    bir degerdir (`yf_news_tab=""`) ve NULL'u "ezme yok" saymak o degeri
-    TEMSIL EDILEMEZ kilardi (CFG S2)."""
+    """"No override" means the row is absent, not NULL: an empty string is
+    a legitimate value (`yf_news_tab=""`), and treating NULL as "no
+    override" would make that value unrepresentable."""
     from sqlalchemy.exc import IntegrityError
 
     with test_engine.connect() as conn, pytest.raises(IntegrityError):

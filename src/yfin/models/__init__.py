@@ -1,4 +1,4 @@
-"""Tum modeller. Import edilmesi Base.metadata'yi doldurur."""
+"""All models. Importing this module populates Base.metadata."""
 
 from __future__ import annotations
 
@@ -123,20 +123,19 @@ from yfin.models.views import (
 
 
 def symbol_scoped_tables() -> list[str]:
-    """symbols.symbol'a bagli tablolar, SILME sirasina gore.
+    """Tables scoped to symbols.symbol, in deletion order.
 
-    Liste TAMAMEN metadata'daki FK kenarlarindan turetilir: yeni bir
-    sembol-kapsamli tablo eklendiginde `yfin symbols purge` kendiliginden
-    onu da kapsar (aksi halde ON DELETE RESTRICT hatasi verirdi).
+    Derived entirely from the FK edges in metadata: a new symbol-scoped
+    table is automatically covered by `yfin symbols purge` (otherwise it
+    would raise ON DELETE RESTRICT).
 
-    TURETMENIN KOR NOKTASI: `symbols`a FK TASIMAYAN bir sembol kapsamli
-    tablo buradan GORUNMEZ. MySQL doneminde boyle bir tablo vardi
-    (`price_bars`, partition yuzunden FK tasiyamiyordu) ve elle tutulan
-    bir liste gerekiyordu; TimescaleDB hypertable'i referencing taraf
-    olabildigi icin o istisna ORTADAN KALKTI ve liste kaldirildi.
-    Ileride FK tasiyamayan bir tablo eklenirse listenin geri gelmesi
-    gerekir -- bugun olmayan bir sey icin bos bir uzanti noktasi
-    tutulmadi (YAGNI).
+    Blind spot of this derivation: a symbol-scoped table with no FK to
+    `symbols` is invisible here. Such a table existed under MySQL
+    (`price_bars`, which could not carry an FK due to partitioning) and
+    needed a manually maintained list; a TimescaleDB hypertable can be
+    the referencing side, so that exception is gone and the list was
+    removed. If a table that cannot carry an FK is added again, the list
+    must come back.
     """
     names: list[str] = []
     for table in reversed(Base.metadata.sorted_tables):

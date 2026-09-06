@@ -1,12 +1,12 @@
-"""earnings_estimate + revenue_estimate dataset'leri (AH S6.3).
+"""earnings_estimate + revenue_estimate datasets.
 
-Ikisi TEK tabloya (`analyst_estimates`) yazar ve `metric` ENUM'u PK'nin
-bilesenidir: kolon setleri birebir ayni ve ikisi de AYNI Yahoo modulunden
-(`earningsTrend`) geliyor. Ayri kayit kalirlar cunku ayri `sync_run_items`
-hucresi ve ayri `--datasets` secilebilirligi gerekir.
+Both write to one table (`analyst_estimates`) with `metric` as part of the
+PK: the column sets are identical and both come from the same Yahoo module
+(`earningsTrend`). They stay separate datasets because each needs its own
+`sync_run_items` cell and independent `--datasets` selection.
 
-Tek fark "gecen yilki deger"in kaynak anahtaridir: `yearAgoEps` /
-`yearAgoRevenue` (base.py:325-334).
+The only difference is the source key for "value a year ago": `yearAgoEps`
+vs `yearAgoRevenue`.
 """
 
 from __future__ import annotations
@@ -27,17 +27,17 @@ def _currency(value: object) -> str | None:
 
 def _columns(year_ago_source: str) -> tuple[Column, ...]:
     return (
-        # DECIMAL(38,10) zorunlu: AYNI kolonda AAPL EPS 1.97656 ve THYAO
-        # revenue 1_285_436_390_920 bulunur.
+        # DECIMAL(38,10) is required: the same column holds AAPL EPS 1.97656
+        # and THYAO revenue 1_285_436_390_920.
         Column("avg", "avg", to_fact_value),
         Column("low", "low", to_fact_value),
         Column("high", "high", to_fact_value),
         Column(year_ago_source, "year_ago_value", to_fact_value),
-        # Kaynakta float (1.0) ve NaN gelebiliyor
+        # Source can send float (1.0) or NaN
         Column("numberOfAnalysts", "number_of_analysts", nz.to_int),
-        # Negatif olabilir
+        # Can be negative
         Column("growth", "growth", nz.to_decimal),
-        # yfinance'in ekledigi kolon; resmi dokumantasyonda yok
+        # Column added by yfinance; not in the official docs
         Column("currency", "currency", _currency),
     )
 
@@ -45,10 +45,10 @@ def _columns(year_ago_source: str) -> tuple[Column, ...]:
 class _EstimateDataset(PeriodFrameDataset):
     produces = asof_produces(TABLE)
     table = TABLE
-    # `financial_facts`ten BILINCLI fark: tamami NULL olan donem satiri yine
-    # de yazilir. Orada satirin yoklugu "kalem yok" demekti; burada donem
-    # seti sabit dortludur ve NULL satir "donem var, tahmin yok" bilgisini
-    # tasir. THYAO'nun 0q/+1q donemleri tam olarak boyle olculdu.
+    # Deliberate difference from `financial_facts`: an all-NULL period row is
+    # still written. There, a missing row meant "no such line item"; here the
+    # period set is a fixed four, so a NULL row means "period exists, no
+    # estimate yet" -- measured exactly this way for THYAO's 0q/+1q periods.
 
 
 class EarningsEstimateDataset(_EstimateDataset):

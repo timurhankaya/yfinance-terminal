@@ -1,9 +1,9 @@
-"""fetch -> normalize arasindaki tipli sozlesmeler.
+"""Typed contracts between fetch and normalize.
 
-Bu tipler olmadan iki adim arasinda ad-hoc sozlukler dolasir
-({"info": ..., "fetched_at": ...}) ve `mypy --strict` sinirda hicbir sey
-dogrulayamaz. `Dataset[RawT]` generic'i sayesinde fetch'in dondurdugu tip
-ile normalize'in bekledigi tip artik derleme zamaninda eslesir.
+Without these types, ad-hoc dicts pass between the two steps
+({"info": ..., "fetched_at": ...}) and `mypy --strict` verifies nothing.
+The `Dataset[RawT]` generic makes fetch's return type and normalize's
+expected type match at compile time.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import pandas as pd
 
 @dataclass(frozen=True, slots=True)
 class SymbolsPayload:
-    """fast_info + history_metadata; ikisi de ctx.cached uzerinden gelir."""
+    """fast_info + history_metadata; both come through ctx.cached."""
 
     fast_info: Any
     metadata: Any
@@ -45,10 +45,10 @@ class FastInfoPayload:
 
 @dataclass(frozen=True, slots=True)
 class StatementPayload:
-    """Finansal tablo: index=kalem etiketi, kolonlar=donem sonu.
+    """Financial statement: index=item label, columns=period end.
 
-    Sirket olmayan sembolde (0,0) bos DataFrame doner, exception degil.
-    currency info.financialCurrency'dir ve BEST-EFFORT gelir.
+    A symbol with no company returns an empty (0,0) DataFrame, not an
+    exception. currency is info.financialCurrency and is BEST-EFFORT.
     """
 
     frame: pd.DataFrame | None
@@ -58,7 +58,7 @@ class StatementPayload:
 
 @dataclass(frozen=True, slots=True)
 class CalendarPayload:
-    """get_calendar(): 9 anahtarlik dict; sembole gore eksik anahtar olur."""
+    """get_calendar(): a 9-key dict; keys go missing depending on symbol."""
 
     calendar: Mapping[str, Any] | None
     fetched_at: datetime
@@ -66,7 +66,7 @@ class CalendarPayload:
 
 @dataclass(frozen=True, slots=True)
 class EarningsDatesPayload:
-    """Sayfalanmis kazanc tarihleri; her sayfa TAZE bir Ticker ile cekilir."""
+    """Paginated earnings dates; each page is fetched with a FRESH Ticker."""
 
     frame: pd.DataFrame | None
     fetched_at: datetime
@@ -74,7 +74,7 @@ class EarningsDatesPayload:
 
 @dataclass(frozen=True, slots=True)
 class SecFilingsPayload:
-    """ABD disinda kaynak list degil {} (dict) doner (S8.3)."""
+    """Outside the US, the source returns {} (dict), not a list."""
 
     filings: list[dict[str, Any]]
     fetched_at: datetime
@@ -82,7 +82,7 @@ class SecFilingsPayload:
 
 @dataclass(frozen=True, slots=True)
 class MarketStatusPayload:
-    """Market(region).status; US disindaki 7 bolgede None doner."""
+    """Market(region).status; returns None for 7 regions other than US."""
 
     region: str
     status: Mapping[str, Any] | None
@@ -91,7 +91,7 @@ class MarketStatusPayload:
 
 @dataclass(frozen=True, slots=True)
 class MarketSummaryPayload:
-    """Market(region).summary; board kodu -> quote sozlugu."""
+    """Market(region).summary; board code -> quote dict."""
 
     region: str
     summary: Mapping[str, Any] | None
@@ -100,27 +100,28 @@ class MarketSummaryPayload:
 
 @dataclass(frozen=True, slots=True)
 class CalendarFramePayload:
-    """Sayfalanmis takvim cercevesi; tukendiginde None."""
+    """Paginated calendar frame; None once exhausted."""
 
     frame: pd.DataFrame | None
     fetched_at: datetime
 
 
-# Tarih indeksli tek sutunlu seri; None de gelebilir (S8.3)
+# Single-column, date-indexed series; can also be None.
 SeriesPayload = pd.Series | None
 FramePayload = pd.DataFrame
 NewsPayload = list[dict[str, Any]]
 
 
-# --- AH: analiz / sahiplik / fon ------------------------------------------
+# --- analysis / ownership / funds -----------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class AsOfFramePayload:
-    """Tarih tasimayan cerceve; anlami ancak `fetched_at` ile tamamlanir.
+    """A frame carrying no date; meaning is complete only with `fetched_at`.
 
-    `fetched_at` payload'da TASINIR cunku `normalize(raw, symbol)` imzasi
-    ctx'i gormez ve as_of_date bu damgadan turer (AH S6.1).
+    `fetched_at` is CARRIED in the payload because the `normalize(raw,
+    symbol)` signature does not see ctx, and as_of_date derives from this
+    timestamp.
     """
 
     frame: pd.DataFrame | None
@@ -129,7 +130,7 @@ class AsOfFramePayload:
 
 @dataclass(frozen=True, slots=True)
 class AsOfMappingPayload:
-    """get_analyst_price_targets(): 5 anahtarlik dict."""
+    """get_analyst_price_targets(): a 5-key dict."""
 
     payload: Mapping[str, Any] | None
     fetched_at: datetime
@@ -137,7 +138,7 @@ class AsOfMappingPayload:
 
 @dataclass(frozen=True, slots=True)
 class FundsPayload:
-    """get_funds_data(); fon olmayan sembolde `data=None` (istek YAPILMAZ)."""
+    """get_funds_data(); `data=None` for a non-fund symbol (NO request made)."""
 
     data: Any | None
     fetched_at: datetime
@@ -145,13 +146,13 @@ class FundsPayload:
 
 @dataclass(frozen=True, slots=True)
 class RangedFramePayload:
-    """Kaynak tarihini TASIYAN cerceve + `--start/--end` araligi.
+    """A frame that CARRIES its own source date + a `--start/--end` range.
 
-    Aralik payload'da tasinir cunku `date_range="filter"` elemesi
-    `normalize` icinde yapilir ve normalize ctx'i GORMEZ. Kaynak sabit bir
-    pencere donduruyor (upgrades_downgrades ~1000 satir, insider
-    transactions 150 satir); aralik daha fazla veri GETIRMEZ, kapsami
-    daraltir (AH S4.5, S7.3).
+    The range is carried in the payload because `date_range="filter"`
+    filtering happens inside `normalize`, which does NOT see ctx. The
+    source returns a fixed window (upgrades_downgrades ~1000 rows, insider
+    transactions 150 rows); the range does NOT fetch more data, it only
+    narrows scope.
     """
 
     frame: pd.DataFrame | None

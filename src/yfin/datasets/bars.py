@@ -1,7 +1,6 @@
-"""Cok interval'li bar cekimi -> price_bars (PB S6).
+"""Multi-interval bar fetch -> price_bars.
 
-Bu modul su an yalniz PENCERE PLANLAYICISINI icerir; dataset sinifi ve
-normalize sonraki adimlarda eklenir (PB S10).
+Includes the window planner, the dataset class, and normalize.
 """
 
 from __future__ import annotations
@@ -28,24 +27,25 @@ from yfin.models.bars import (
     bars_table_for,
 )
 
-# (istek basina azami gun, geriye azami derinlik gun) - PB S4.3'te olculdu.
+# (max days per request, max lookback depth in days) - measured values.
 #
-# BU DEGERLER YAHOO'NUN ILAN ETTIGI SINIR DEGIL, OLCUMDE KABUL EDILEN
-# degerlerdir: Yahoo'nun mesajlari "60 gun" / "730 gun" der ama 60 ve 730
-# REDDEDILDI, 59 ve 729 kabul edildi. Sinirlar gun degil SANIYE bazlidir
-# ve "su ana" gorelidir, bu yuzden tam sinir her zaman risklidir. Tampon
-# zaten buradadir; plan_windows UZERINE IKINCI bir tampon uygulamaz.
+# These are NOT the limits Yahoo advertises, but the ones measurement found
+# accepted: Yahoo's messages say "60 days" / "730 days", but exactly 60 and
+# 730 were rejected while 59 and 729 were accepted. The limits are second-
+# based, not day-based, and relative to "now," so an exact boundary is
+# always risky. The margin already lives here; plan_windows does not add a
+# second one on top.
 #
-# None = sinirsiz: 1wk/1mo icin ilk dolum period="max" ile yapilir.
+# None = unbounded: for 1wk/1mo the first fill uses period="max".
 log = get_logger(__name__)
 
 BAR_LIMITS: dict[str, tuple[int | None, int | None]] = {
-    # 1m derinligi 29'dur, 30 DEGIL: Yahoo'nun mesaji "within the last 30
-    # days" der ama tam 30 gun REDDEDILIR (olculdu: -30g RED, -29g 1950
-    # bar). 5m'de 60'in, 60m'de 730'un reddedilmesiyle ayni desen.
-    # Bu deger ilk yazimda 30 birakilmisti ve ILK CANLI KOSUDA yakalandi:
-    # planlayici sinirda bir istek uretti, YFPricesMissingError aldi ve
-    # AAPL'in tum 1m ilk dolumu dustu.
+    # 1m depth is 29, not 30: Yahoo's message says "within the last 30
+    # days" but exactly 30 days is rejected (measured: -30d REJECTED, -29d
+    # 1950 bars). Same pattern as 60 being rejected for 5m and 730 for 60m.
+    # This value was left at 30 in the first cut and caught on the first
+    # live run: the planner produced a request right at the boundary, got
+    # YFPricesMissingError, and AAPL's entire 1m initial fill was dropped.
     "1m": (8, 29),
     "5m": (59, 59),
     "15m": (59, 59),
@@ -57,17 +57,17 @@ BAR_LIMITS: dict[str, tuple[int | None, int | None]] = {
 
 @dataclass(frozen=True)
 class FetchPlan:
-    """Bir interval icin tek kosuluk cekim plani.
+    """One run's fetch plan for a single interval.
 
-    `windows` bos VE `gap` None ise: sinirsiz interval'in ilk dolumu,
-    cagiran period="max" kullanir.
+    If `windows` is empty and `gap` is None: first fill of an unbounded
+    interval, and the caller uses period="max".
     """
 
-    # [start, end) yari acik araliklar; yfinance'in `end` parametresi de
-    # DISLAYICIDIR, yani ardisik dilimler ust uste binmez.
+    # [start, end) half-open ranges; yfinance's `end` parameter is also
+    # exclusive, so consecutive slices do not overlap.
     windows: tuple[tuple[date, date], ...] = ()
-    # Yahoo penceresi gectigi icin ARTIK CEKILEMEYEN aralik. bar_gaps'e
-    # 'retention_expired' olarak yazilir (PB S6.2/4).
+    # Range no longer fetchable because it fell outside Yahoo's retention
+    # window. Written to bar_gaps as 'retention_expired'.
     gap: tuple[datetime, datetime] | None = None
 
 
@@ -76,7 +76,7 @@ def _as_date(value: date | datetime) -> date:
 
 
 def _slice(start: date, end: date, per_request: int | None) -> list[tuple[date, date]]:
-    """[start, end) araligini istek penceresine boler."""
+    """Splits [start, end) into request-sized windows."""
     if end <= start:
         return []
     if per_request is None:
@@ -100,21 +100,21 @@ def plan_windows(
     overlap_days: int = 2,
     open_gaps: Sequence[tuple[datetime, datetime]] = (),
 ) -> FetchPlan:
-    """Bir interval icin cekilecek pencereleri ve kurtarilamayan boslugu hesaplar.
+    """Computes the windows to fetch and any unrecoverable gap for one interval.
 
-    Bes senaryo (PB S6.2):
-      1. Ilk dolum (watermark yok): derinlik kadar geriye, pencereye bolunur.
-      2. Normal artimli: watermark - overlap, tek dilim.
-      3. Duraklama: pencereyi asan aralik BIRDEN COK dilime bolunur - naif
-         tek dilim Yahoo tarafindan reddedilir ve TUM veri kaybedilirdi.
-      4. Derinlik asimi: cekilebilen kisim dilimlenir, gerisi `gap` olur.
-      5. Acik bosluklar: hala pencere icinde olanlar yeniden denenir;
-         bu geri besleme olmadan bar_gaps yalnizca bir mezar tasi olurdu.
+    Five scenarios:
+      1. First fill (no watermark): back to the depth limit, sliced into windows.
+      2. Normal increment: watermark - overlap, single slice.
+      3. Resume after a pause: a range past the per-request limit is split into
+         multiple slices -- a single naive slice would be rejected by Yahoo
+         and lose all the data.
+      4. Depth exceeded: the fetchable part is sliced, the rest becomes `gap`.
+      5. Open gaps: any still within the retention window are retried; without
+         this feedback, bar_gaps would just be a tombstone list.
 
-    `start`/`end` verilirse (--start/--end, date_range="api") watermark ve
-    `open_gaps` YOK SAYILIR ve derinlik asimi icin gap URETILMEZ: elle
-    istenen bir geriye donuk cekimin basarisiz olmasi bir kacirma degil,
-    kullanici hatasidir.
+    If `start`/`end` are given (--start/--end, date_range="api"), watermark
+    and `open_gaps` are ignored and no gap is produced for depth overrun: a
+    manually requested backfill failing is user error, not a missed fetch.
     """
     if interval not in BAR_LIMITS:
         raise ValueError(f"bilinmeyen interval: {interval}; gecerli: {', '.join(BAR_INTERVALS)}")
@@ -123,40 +123,39 @@ def plan_windows(
     today = _as_date(now)
     earliest = today - timedelta(days=depth) if depth is not None else None
 
-    # --- elle aralik: watermark ve acik bosluklar devre disi -------------
+    # --- manual range: watermark and open gaps disabled -------------------
     if start is not None or end is not None:
         window_start = start if start is not None else today - timedelta(days=overlap_days)
         window_end = end if end is not None else today
         return FetchPlan(windows=tuple(_slice(window_start, window_end, per_request)))
 
-    # --- ilk dolum --------------------------------------------------------
+    # --- first fill ---------------------------------------------------------
     if watermark is None:
         if earliest is None:
-            # Sinirsiz interval: period="max" (dilim yok)
+            # Unbounded interval: period="max" (no slicing)
             return FetchPlan()
         return FetchPlan(windows=tuple(_slice(earliest, today, per_request)))
 
-    # --- artimli ----------------------------------------------------------
+    # --- incremental ----------------------------------------------------------
     wanted_start = _as_date(watermark) - timedelta(days=overlap_days)
     gap: tuple[datetime, datetime] | None = None
     if earliest is not None and wanted_start < earliest:
-        # Yahoo penceresi gecmis: kurtarilamayan kisim KAYDEDILIR.
-        # gap'in bitisi ilk dilimin baslangicina esittir; aksi halde arada
-        # ne cekilen ne kaydedilen bir gun kalirdi.
+        # Past Yahoo's retention window: the unrecoverable part is recorded.
+        # The gap ends at the first window's start; otherwise a day in
+        # between would be neither fetched nor recorded.
         gap = (watermark, datetime.combine(earliest, datetime.min.time(), tzinfo=watermark.tzinfo))
         wanted_start = earliest
 
-    # Watermark araligi + hala pencere icinde kalan acik bosluklar
-    # (PB S6.2/5). Bosluklar AYRI aralik olarak eklenir: min(hepsi)'nden
-    # bugune tek bir acik aralik dilimlemek, 25 gun onceki bir bosluk icin
-    # aradaki TUM gunleri yeniden cektirirdi.
+    # Watermark range plus any open gaps still within the retention window.
+    # Gaps are added as separate ranges: slicing one range from min(all) to
+    # today would re-fetch every day in between for a gap 25 days old.
     ranges: list[tuple[date, date]] = [(wanted_start, today)]
     for gap_start, gap_end_ts in open_gaps:
         gap_from = _as_date(gap_start)
         if earliest is not None and gap_from < earliest:
-            continue  # penceresi kapanmis; bosuna istek uretme
-        # Bosluk ucu DAHIL edilsin diye bir gun genisletilir: yfinance'in
-        # `end` parametresi dislayicidir.
+            continue  # retention window closed; do not request it
+        # Gap end is extended by one day to include it: yfinance's `end`
+        # parameter is exclusive.
         gap_to = _as_date(gap_end_ts) + timedelta(days=1)
         ranges.append((gap_from, min(gap_to, today)))
 
@@ -167,10 +166,10 @@ def plan_windows(
 
 
 def _merge(ranges: list[tuple[date, date]]) -> list[tuple[date, date]]:
-    """Ustuste binen/bitisik araliklari birlestirir.
+    """Merges overlapping/adjacent ranges.
 
-    Bitisik olanlar da birlestirilir (`<=`): bosluk watermark penceresinin
-    hemen oncesine dayaniyorsa iki ayri istek yerine tek istek yeterlidir.
+    Adjacent ranges are merged too (`<=`): if a gap butts right up against
+    the watermark window, one request suffices instead of two.
     """
     ordered = sorted(r for r in ranges if r[1] > r[0])
     if not ordered:
@@ -187,33 +186,32 @@ def _merge(ranges: list[tuple[date, date]]) -> list[tuple[date, date]]:
 
 @dataclass(frozen=True)
 class BarPayload:
-    """fetch'in dondurdugu ham veri (PB S6.4).
+    """Raw data returned by fetch.
 
-    `has_prepost` alani BILEREK YOKTUR. Ilk tasarimda
-    has_pre_post_market_data bir erken cikis kapisiydi; olcum onu curuttu:
-    SHEL.L ve VWCE.DE bu alani False bildirdikleri halde 5 ve 8 seans disi
-    bar donduruyor. O kapi onlari NORMAL SEANS sayar ve
-    v_price_bars_regular'a sokardi - yani view'in onlemek icin var oldugu
-    bozulmanin ta kendisi. Tek dogruluk kaynagi tradingPeriods'in
-    start/end araligidir.
+    No `has_prepost` field, deliberately. The first design used
+    has_pre_post_market_data as an early-exit gate; measurement discredited
+    it: SHEL.L and VWCE.DE report False for that field yet still return 5
+    and 8 extended-hours bars. That gate would have counted them as regular
+    session and let them into v_price_bars_regular -- exactly the
+    corruption the view exists to prevent. The only source of truth is
+    tradingPeriods' start/end range.
     """
 
     frame: pd.DataFrame
     trading_periods: pd.DataFrame | None
     interval: str
-    # plan_windows'un bildirdigi KURTARILAMAYAN bosluk; normalize onu
-    # bar_gaps'e 'retention_expired' olarak yazar (PB S8.4).
+    # Unrecoverable gap reported by plan_windows; normalize writes it to
+    # bar_gaps as 'retention_expired'.
     gap: tuple[datetime, datetime] | None = None
-    # Istegi DUSEN dilimler. Pencere hala acik olabilecegi icin
-    # 'fetch_failed' olarak yazilirlar ve planlayici bir sonraki kosuda
-    # onlari YENIDEN DENER (PB S6.2/5).
+    # Slices whose request failed. Written as 'fetch_failed' since the
+    # window may still be open, and the planner retries them next run.
     failed_windows: tuple[tuple[date, date], ...] = ()
-    # Basariyla cekilen dilimler. Icinde kalan ACIK bosluklar kapatilir
-    # (resolved_at); aksi halde bir kez yazilan bosluk sonsuza kadar acik
-    # kalir ve her kosuda bosuna yeniden cekilir.
+    # Successfully fetched slices. Open gaps that fall inside them get
+    # closed (resolved_at); otherwise a gap written once stays open forever
+    # and gets re-fetched uselessly every run.
     fetched_windows: tuple[tuple[date, date], ...] = ()
-    # Bu kosuda DB'den okunan acik bosluklar; hangilerinin kapandigini
-    # normalize bunlarla hesaplar.
+    # Open gaps read from the DB this run; normalize uses these to compute
+    # which ones just closed.
     open_gaps: tuple[tuple[datetime, datetime], ...] = ()
 
 
@@ -237,13 +235,13 @@ _COLUMN_MAP: dict[str, str] = {
 
 
 def _session_bounds(periods: pd.DataFrame | None) -> dict[date, tuple[pd.Timestamp, pd.Timestamp]]:
-    """gun -> (regular seans baslangici, bitisi).
+    """day -> (regular session start, end).
 
-    YALNIZ `start`/`end` okunur. `pre_*`/`post_*` kolonlari iki nedenle
-    KULLANILMAZ: (1) dejenere olabilirler - THYAO'da pre=09:30-09:30 ve
-    post=18:00-18:00 iken reg=09:30-18:00 saglamdir; (2) prepost=False ile
-    yapilan bir cagrida HIC GELMEZLER ve onlara erisen kod KeyError
-    verirdi (PB S4.5/3).
+    Only `start`/`end` are read. `pre_*`/`post_*` columns are not used, for
+    two reasons: (1) they can be degenerate -- THYAO shows pre=09:30-09:30
+    and post=18:00-18:00 while reg=09:30-18:00 is sound; (2) they are absent
+    entirely when the call used prepost=False, and code accessing them
+    would raise KeyError.
     """
     if periods is None or periods.empty:
         return {}
@@ -265,17 +263,17 @@ def is_extended_bar(
     bounds: dict[date, tuple[pd.Timestamp, pd.Timestamp]],
     interval: str,
 ) -> bool:
-    """Bar seans disi mi (PB S6.4).
+    """Whether a bar falls outside the regular session.
 
-    Dort adim:
-      1. interval gun ici degilse (1wk/1mo)      -> False (kavram anlamsiz)
-      2. o gunun seans siniri bilinmiyorsa        -> False (guvenli varsayilan)
-      3. ts < start veya ts >= end                -> True
-      4. aksi halde                               -> False
+    Four steps:
+      1. interval is not intraday (1wk/1mo)   -> False (concept is meaningless)
+      2. that day's session bounds are unknown -> False (safe default)
+      3. ts < start or ts >= end                -> True
+      4. otherwise                              -> False
 
-    2. adimin varsayilani bilincli olarak False'tur: bilinmeyen bir bari
-    seans disi saymak onu v_price_bars_regular'dan GIZLERDI; ters hata
-    (seans disini normal saymak) daha gorunurdur ve denetimde yakalanir.
+    Step 2's default is deliberately False: counting an unknown bar as
+    extended would hide it from v_price_bars_regular; the opposite mistake
+    (counting extended as regular) is more visible and gets caught in audit.
     """
     if interval not in INTRADAY_INTERVALS:
         return False
@@ -287,35 +285,35 @@ def is_extended_bar(
 
 
 def normalize_bars(raw: BarPayload, symbol: str) -> NormalizedResult:
-    """Ham cerceveyi price_bars satirlarina cevirir (PB S8.3)."""
+    """Converts the raw frame into price_bars rows."""
     if raw.interval not in BAR_LIMITS:
         raise ValueError(f"bilinmeyen interval: {raw.interval}")
     if nz.is_empty_result(raw.frame):
-        # ERKEN DONUS YOK: bosluk kayitlari cerceveden BAGIMSIZDIR. Bir
-        # dilim dusup hic bar gelmediginde tam da o boslugun yazilmasi
-        # gerekir; erken donmek onu sessizce yutardi.
+        # No early return: gap records are independent of the frame. If a
+        # slice failed and no bars came back at all, that gap must still be
+        # written; returning early would swallow it silently.
         return NormalizedResult(writes=_gap_writes(raw, symbol))
 
     frame = raw.frame
     table_name = bars_table_for(raw.interval)
     bounds = _session_bounds(raw.trading_periods)
-    # Kolon seti sembole gore DEGISIR (ETF'te 'Capital Gains' eklenir);
-    # sabit siraya veya varliga guvenilmez (S8.3). Bu uc kolon zaten
-    # price_bars'a YAZILMAZ, yalnizca yok sayilir (PB K3).
+    # Column set varies by symbol (ETFs add 'Capital Gains'); do not rely
+    # on a fixed order or presence. These three extra columns are not
+    # written to price_bars at all -- just ignored.
     present = {src: dst for src, dst in _COLUMN_MAP.items() if src in frame.columns}
 
     rows: list[dict[str, Any]] = []
     for index, record in zip(frame.index, frame.to_dict("records"), strict=True):
-        # local_date UTC'den TURETILMEZ: pozitif ofsetli borsalarda tz
-        # cevrimi tarihi bir gun geri kaydirir (S5.4). Kaynak index zaten
-        # yerel tz tasir.
+        # local_date is not derived from UTC: for exchanges with a positive
+        # offset, a tz conversion would push the date back a day. The
+        # source index already carries local tz.
         local_day = nz.to_local_date(index)
         ts_utc = nz.to_datetime_utc(index)
         if local_day is None or ts_utc is None:
             continue
         close = nz.to_decimal(record.get("Close"))
         if close is None:
-            continue  # close NOT NULL; kapanissiz bar anlamsizdir
+            continue  # close is NOT NULL; a bar without a close is meaningless
 
         row: dict[str, Any] = {
             "symbol": symbol,
@@ -324,9 +322,9 @@ def normalize_bars(raw: BarPayload, symbol: str) -> NormalizedResult:
             "local_date": local_day,
             "close": close,
         }
-        # `is_extended` YALNIZ intraday tabloda vardir: seans disi kavrami
-        # gun ustu barda anlamsizdir ve `periodic_bars`ta KOLON YOKTUR
-        # (models/bars.py: PeriodicBar).
+        # `is_extended` exists only on the intraday table: the concept of
+        # an extended session is meaningless for a daily-or-longer bar, and
+        # `periodic_bars` has no such column (models/bars.py: PeriodicBar).
         if table_name == "price_bars":
             row["is_extended"] = is_extended_bar(
                 pd.Timestamp(index), local_day, bounds, raw.interval
@@ -349,9 +347,9 @@ def normalize_bars(raw: BarPayload, symbol: str) -> NormalizedResult:
                 table=table_name,
                 rows=rows,
                 key_columns=("symbol", "bar_interval", "ts_utc"),
-                # `is_extended` intraday'e ozeldir; align_rows zaten
-                # eksik kolonu tolere eder ve `_insert_stmt` guncelleme
-                # kapsamini MEVCUT kolonlarla kesistirir.
+                # `is_extended` is intraday-specific; align_rows already
+                # tolerates the missing column, and `_insert_stmt`
+                # intersects the update scope with the columns present.
                 update_columns=UPDATE_COLUMNS,
             )
         )
@@ -360,15 +358,15 @@ def normalize_bars(raw: BarPayload, symbol: str) -> NormalizedResult:
 
 
 def _gap_writes(raw: BarPayload, symbol: str) -> list[TableWrite]:
-    """bar_gaps satirlari: kayip kaydi, gorev kaydi ve gorev kapatma.
+    """bar_gaps rows: loss record, retry record, and retry closure.
 
-    Uc ayri kaynak, tek tablo:
-      retention_expired  planlayici hesapladi, veri KALICI kayip
-      fetch_failed       dilim dustu; pencere hala aciksa yeniden denenir
-      resolved_at        basarili dilim, icindeki acik boslugu kapatir
+    Three sources, one table:
+      retention_expired  computed by the planner, data permanently lost
+      fetch_failed        a slice failed; retried next run if still in window
+      resolved_at         a successful slice closes an open gap inside it
 
-    Sonuncusu olmadan bar_gaps tek yonlu bir liste olurdu: bir kez yazilan
-    bosluk sonsuza kadar acik kalir ve HER kosuda bosuna yeniden cekilirdi.
+    Without the last case, bar_gaps would be a one-way list: a gap written
+    once would stay open forever and be re-fetched uselessly every run.
     """
     now = datetime.now(UTC)
     rows: list[dict[str, Any]] = []
@@ -383,7 +381,7 @@ def _gap_writes(raw: BarPayload, symbol: str) -> list[TableWrite]:
                 "gap_end_utc": nz.to_datetime_utc(gap_end),
                 "detected_at": now,
                 "reason": GAP_RETENTION_EXPIRED,
-                # DAIMA NULL: bu bir KAYIP KAYDIDIR, gorev degil.
+                # Always NULL: this is a loss record, not a retryable gap.
                 "resolved_at": None,
             }
         )
@@ -408,9 +406,9 @@ def _gap_writes(raw: BarPayload, symbol: str) -> list[TableWrite]:
                 table="bar_gaps",
                 rows=rows,
                 key_columns=("symbol", "bar_interval", "gap_start_utc"),
-                # resolved_at GUNCELLENMEZ: ayni anahtar daha once
-                # cozulmus olabilir ve onu yeniden acmak, kapanmis bir
-                # boslugu her kosuda yeniden cektirirdi.
+                # resolved_at is not updated here: the same key may already
+                # be resolved, and reopening it would re-fetch a closed gap
+                # every run.
                 update_columns=("gap_end_utc", "detected_at", "reason"),
             )
         )
@@ -419,18 +417,18 @@ def _gap_writes(raw: BarPayload, symbol: str) -> list[TableWrite]:
 
 
 def _resolve_writes(raw: BarPayload, symbol: str, now: datetime) -> list[TableWrite]:
-    """Basarili dilimlerin icinde kalan ACIK bosluklari kapatir.
+    """Closes open gaps that fall inside successfully fetched slices.
 
-    `replace_scope` DEGIL, hedefli bir upsert: kapsam silme burada yanlis
-    olurdu cunku ayni sembolun BASKA aralikta duran acik bosluklari
-    silinirdi.
+    A targeted upsert, not `replace_scope`: scope deletion would be wrong
+    here, since it would delete the same symbol's open gaps sitting in
+    other ranges.
     """
     if not raw.fetched_windows or not raw.open_gaps:
         return []
     rows: list[dict[str, Any]] = []
     for gap_start, gap_end in raw.open_gaps:
-        # Pencere sinirlari da UTC-aware kurulur: aware ve naive
-        # datetime karsilastirmasi TypeError verir.
+        # Window bounds are also built as UTC-aware: comparing an aware and
+        # a naive datetime raises TypeError.
         covered = any(
             datetime.combine(w_start, datetime.min.time(), tzinfo=UTC)
             <= _aware(gap_start)
@@ -463,47 +461,46 @@ def _resolve_writes(raw: BarPayload, symbol: str, now: datetime) -> list[TableWr
 
 
 def _aware(value: datetime) -> datetime:
-    """UTC-aware'e cevirir; naive gelen deger UTC KABUL EDILIR.
+    """Converts to UTC-aware; a naive value is treated as already UTC.
 
-    Eskiden tersini yapiyordu (`_naive`): `bar_gaps.gap_start_utc` MySQL
-    DATETIME oldugu icin tz dusuruluyordu. Kolon artik `timestamptz`tir
-    (PG S2.3) ve naive deger yazmak, psycopg'nin baglanti TZ'sine gore
-    yorumlamasina birakmak demekti -- sonuc dogru cikar ama karsilastirma
-    ve depolama farkli farkindalik duzeylerinde kalirdi.
+    Used to strip the tz instead, back when `bar_gaps.gap_start_utc` was a
+    MySQL DATETIME with no timezone. The column is now `timestamptz`, so
+    writing a naive value would leave interpretation to psycopg's
+    connection timezone -- the result could come out right but comparison
+    and storage would operate at different awareness levels.
     """
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 class IntervalBarDataset(Dataset[BarPayload]):
-    """Tek bir interval'in price_bars'a yazilmasi. Ad: bars_<interval>.
+    """Writes one interval to price_bars. Name: bars_<interval>.
 
-    Alti interval icin alti sinif yazmak ayni govdenin alti kopyasidir
-    (PB K9); interval bir ORNEKLEME PARAMETRESIDIR.
+    Writing six classes for six intervals would be six copies of the same
+    body; interval is a sampling parameter instead.
 
-    `name` bu yuzden INSTANCE attribute'tur. Taban sinifta sinif
-    attribute'u olarak taniml; Registrable protokolu `name: str` istedigi
-    icin ikisi de gecerlidir ve sozlesme DARALMAZ (S6.1/6'daki `produces`
-    dersinden farki budur - orada tip degisiyordu).
+    `name` is therefore an instance attribute rather than a class attribute
+    like in the base class. The Registrable protocol only requires
+    `name: str`, so both are valid and the contract does not narrow.
     """
 
-    # `produces` INSTANCE attribute'tur: hangi tabloya yazdigi interval'e
-    # baglidir (intraday -> price_bars, 1wk/1mo -> periodic_bars). Sinif
-    # attribute'u olarak sabitlenseydi denetim yanlis tabloyu bildirirdi
-    # ve rescale kancasi (runner.py) gun ustu kosularda da tetiklenirdi.
+    # `produces` is an instance attribute: which table it writes to depends
+    # on the interval (intraday -> price_bars, 1wk/1mo -> periodic_bars). As
+    # a class attribute, auditing would report the wrong table and the
+    # rescale hook (runner.py) would also fire on daily-or-longer runs.
     produces: tuple[str, ...] = ("price_bars", "bar_gaps")
-    # SADECE "symbols". Once ("symbols", "splits") yazilmisti; iki ayri
-    # nedenle YANLISTI:
-    #   1. "splits" bir TABLO adidir, dataset adi degil - Registry
-    #      cozumlemeyi dataset adlariyla yapar ve cozumleme patlardi.
-    #   2. Dataset adi olsaydi bile SplitsDataset._SeriesDataset.fetch ->
-    #      fetch_history_frame, yani TAM bir 1d history() cagrisi.
-    #      `--datasets bars_1m` bile 1d cekerdi. Proje bu sekle acikca
-    #      karsi: corporate_actions.py ayni gerekceyle
-    #      `depends_on = ("history",)` YAPMIYOR.
-    # Rescale kancasi (PB S6.6) dataset bagimliligiyla degil, `splits`
-    # TABLOSUNU okuyarak calisir.
+    # Just "symbols". Used to be ("symbols", "splits"), which was wrong for
+    # two reasons:
+    #   1. "splits" is a table name, not a dataset name -- the registry
+    #      resolves dependencies by dataset name, so resolution would fail.
+    #   2. Even as a dataset name, SplitsDataset._SeriesDataset.fetch calls
+    #      fetch_history_frame, i.e. a full 1d history() call. Even
+    #      `--datasets bars_1m` would fetch 1d data. The project deliberately
+    #      avoids this: corporate_actions.py has the same reason for not
+    #      declaring `depends_on = ("history",)`.
+    # The rescale hook works by reading the `splits` table, not by dataset
+    # dependency.
     depends_on = ("symbols",)
-    # Aralik yfinance CAGRISINA gecer -> GERCEK geriye donuk cekim.
+    # Range passes through to the yfinance call -> a real backfill.
     date_range = "api"
 
     def __init__(self, interval: str) -> None:
@@ -514,8 +511,8 @@ class IntervalBarDataset(Dataset[BarPayload]):
         self.produces = (bars_table_for(interval), "bar_gaps")
 
     def fetch(self, ctx: SyncContext) -> BarPayload:
-        # Kapsam kapisi AG CAGRISINDAN ONCE (PB S6.5): kapsam disi sembol
-        # icin tek bir istek bile yapilmaz.
+        # Scope gate before the network call: not even one request is made
+        # for a symbol out of scope.
         if not ctx.in_scope(self.interval):
             raise DatasetOutOfScope(self.interval)
 
@@ -535,14 +532,14 @@ class IntervalBarDataset(Dataset[BarPayload]):
 
         windows: list[tuple[date, date] | None] = list(plan.windows)
         if not plan.windows and plan.gap is None:
-            # Sinirsiz interval'in ilk dolumu (1wk/1mo): tek cagri,
+            # First fill of an unbounded interval (1wk/1mo): one call,
             # period="max"
             windows.append(None)
 
-        # DILIM BASINA HATA IZOLASYONU (PB S8.1). Tum fetch'i tek bir
-        # atomik birim saymak, tek bir ag hatasinda 29 gunluk ilk dolumun
-        # TAMAMINI kaybettirirdi. Dusen dilim bar_gaps'e yazilir ve
-        # penceresi hala aciksa bir sonraki kosuda yeniden denenir.
+        # Per-slice error isolation. Treating the whole fetch as one atomic
+        # unit would lose the entire 29-day first fill on a single network
+        # error. A failed slice is written to bar_gaps and retried next run
+        # if its window is still open.
         frames: list[pd.DataFrame] = []
         fetched: list[tuple[date, date]] = []
         failed: list[tuple[date, date]] = []
@@ -550,7 +547,7 @@ class IntervalBarDataset(Dataset[BarPayload]):
         for window in windows:
             try:
                 frames.append(self._fetch_window(ctx, window))
-            except Exception as exc:  # noqa: BLE001 - dilim hata siniri
+            except Exception as exc:  # noqa: BLE001 - per-slice error boundary
                 errors.append(exc)
                 if window is not None:
                     failed.append(window)
@@ -566,16 +563,16 @@ class IntervalBarDataset(Dataset[BarPayload]):
                 fetched.append(window)
 
         if errors and not frames:
-            # HICBIR dilim gelmediyse bu gercek bir hatadir: sessizce bos
-            # donmek `empty` ile `failed`i karistirir ve proxy saglik
-            # muhasebesi de bozulurdu (PB S8.2).
+            # If no slice came back at all, this is a real error: returning
+            # empty silently would conflate `empty` with `failed` and also
+            # break proxy health accounting.
             raise errors[0]
 
         non_empty = [f for f in frames if not nz.is_empty_result(f)]
         frame = pd.concat(non_empty) if non_empty else pd.DataFrame()
         if not frame.empty:
-            # Ortusen dilimler ayni bari iki kez getirebilir; upsert bunu
-            # zaten tolere eder ama gereksiz satir uretmemek daha ucuz.
+            # Overlapping slices can return the same bar twice; upsert
+            # tolerates this already, but avoiding the extra rows is cheaper.
             frame = frame[~frame.index.duplicated(keep="last")]
 
         return BarPayload(
@@ -593,11 +590,11 @@ class IntervalBarDataset(Dataset[BarPayload]):
             "interval": self.interval,
             "auto_adjust": False,
             "actions": True,
-            # Seans disi barlar YAZILIR ve is_extended ile isaretlenir:
-            # kacirilan intraday bar bir daha cekilemez (PB K7).
+            # Extended-hours bars are written and flagged with is_extended:
+            # a missed intraday bar can never be re-fetched.
             "prepost": get_settings().yf_bar_prepost,
-            # repair KAPALI (PB K8): 5m'de 1->6, 15m'de 1->8 istek eder ve
-            # 1wk/1mo'yu 1d'den resample edip satir anahtarlarini kaydirir.
+            # repair is off: it issues 1->6 requests for 5m, 1->8 for 15m,
+            # and resamples 1wk/1mo from 1d, shifting row keys.
             "repair": False,
         }
         if window is None:
@@ -609,10 +606,10 @@ class IntervalBarDataset(Dataset[BarPayload]):
         return call_yahoo(lambda: ctx.ticker.history(**kwargs), what=what)
 
     def _trading_periods(self, ctx: SyncContext) -> pd.DataFrame | None:
-        """history() cagrisindan SONRA metadata'yi okur.
+        """Reads metadata after the history() call.
 
-        EK AG ISTEGI DEGILDIR: history() metadata'yi zaten doldurur ve
-        history_metadata dataset'i de ayni onbellegi paylasir (PB S4.1/7).
+        Not an extra network request: history() already populates the
+        metadata, and the history_metadata dataset shares the same cache.
         """
         metadata = ctx.ticker.get_history_metadata()
         periods = nz.as_mapping(metadata).get("tradingPeriods")

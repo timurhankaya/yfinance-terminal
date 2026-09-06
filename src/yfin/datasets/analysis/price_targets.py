@@ -1,11 +1,11 @@
-"""analyst_price_targets dataset'i (AH S6.3).
+"""analyst_price_targets dataset.
 
-Kaynak DataFrame degil DICT dondurur (analysis.py:81) ve anahtarlari
-`target*Price` -> `low/high/mean/median`, `currentPrice` -> `current`
-donusumunden gecmistir.
+The source returns a dict, not a DataFrame, with keys already mapped:
+`target*Price` -> `low/high/mean/median`, `currentPrice` -> `current`.
 
-TUTARLILIK KISITI KURULMAZ: THYAO'da low(330) > current(294) olculdu.
-`0.0` GERCEK bir degerdir ("hedef yok" degil) ve NULL'a cevrilmez.
+No consistency constraint is enforced: THYAO was measured with
+low(330) > current(294). `0.0` is a real value (not "no target") and is
+not converted to NULL.
 """
 
 from __future__ import annotations

@@ -1,15 +1,15 @@
-"""insider_purchases dataset'i -> insider_activity (AH S6.3).
+"""insider_purchases dataset -> insider_activity.
 
-Kaynak (holders.py:208-240) TEK bir kaydin YEDI SATIRLIK sunumudur: 0. kolon
-satir etiketlerini tasir ve o kolonun ADI dinamiktir
-(`Insider Purchases Last 6m`). Bu yuzden:
+Source (holders.py:208-240) presents ONE record as SEVEN ROWS: column 0
+carries the row labels and that column's NAME is dynamic (`Insider
+Purchases Last 6m`). Consequently:
 
-- donem eki BASLIKTAN ayristirilir (`period_label` NOT NULL),
-- satir etiketleri 0. kolondan KONUMDAN okunur (`df.iloc[:, 0]`), ad
-  sabitine guvenilmez,
-- yedi satir TEK bir tablo satirina pivotlanir.
+- the period suffix is parsed out of the HEADER (`period_label` NOT NULL),
+- row labels are read BY POSITION from column 0 (`df.iloc[:, 0]`), never
+  by a fixed name,
+- the seven rows are pivoted into ONE table row.
 
-Degerler NEGATIF olabilir (KO net -547_806); `Trans` sayaclari da SIGNED.
+Values can be NEGATIVE (KO net -547_806); `Trans` counters are SIGNED too.
 """
 
 from __future__ import annotations
@@ -36,15 +36,15 @@ PERIOD_LABEL_LENGTH = 8
 SHARES_COLUMN = "Shares"
 TRANS_COLUMN = "Trans"
 
-# Satir etiketi -> (Shares kolonu, Trans kolonu). Etiketler 19/19 sembolde
-# sabit olculdu; bilinmeyen etiket veri kaybi degil, terfi sinyalidir.
+# Row label -> (Shares column, Trans column). Labels measured fixed across
+# 19/19 symbols; an unmapped label is a signal to investigate, not data loss.
 SHARE_ROWS: dict[str, tuple[str, str | None]] = {
     "Purchases": ("purchases_shares", "purchases_trans"),
     "Sales": ("sales_shares", "sales_trans"),
     "Net Shares Purchased (Sold)": ("net_shares", "net_trans"),
     "Total Insider Shares Held": ("total_insider_shares", None),
 }
-# Yuzde satirlari `Shares` kolonunda gelir ama PriceType()'tir.
+# Percentage rows arrive in the `Shares` column but are PriceType().
 PCT_ROWS: dict[str, str] = {
     "% Net Shares Purchased (Sold)": "net_pct",
     "% Buy Shares": "buy_pct",
@@ -77,7 +77,7 @@ class InsiderPurchasesDataset(AsOfDataset[AsOfFramePayload]):
         header = str(frame.columns[0])
         match = PERIOD_PATTERN.match(header)
         if match is None:
-            # period_label NOT NULL: desen tutmazsa satir YAZILAMAZ.
+            # period_label is NOT NULL: no row can be written if the pattern fails.
             log.warning("unparsable insider period header", symbol=symbol, header=header)
             return NormalizedResult()
         period_label = match.group(1)[:PERIOD_LABEL_LENGTH]

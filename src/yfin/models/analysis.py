@@ -1,9 +1,9 @@
-"""Analist tablolari (AH S5.1).
+"""Analyst tables.
 
-Sekiz tablonun altisi AS-OF'tur: kaynak yalnizca "su an"i donduruyor ve donem
-etiketi GORELI (0q, +1y, 0m, -1m) -- yani `as_of_date` olmadan veri
-anlamsizdir. Ikisi (analyst_grade_changes, earnings_history) kaynagin kendi
-tarihini tasidigi icin as-of DEGILDIR.
+Six of the eight tables are as-of: the source returns only "now", and the
+period label is relative (0q, +1y, 0m, -1m) -- data is meaningless
+without `as_of_date`. Two (analyst_grade_changes, earnings_history) are
+not as-of, since the source carries its own date.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from yfin.models.base import (
     symbol_fk_column,
 )
 
-# Goreli donem etiketi: '0q', '+1q', '0y', '+1y', 'LTG' / '0m'..'-3m'
+# Relative period label: '0q', '+1q', '0y', '+1y', 'LTG' / '0m'..'-3m'
 PERIOD_LENGTH = 8
 
 
@@ -40,9 +40,9 @@ class EstimateMetric(enum.StrEnum):
     REVENUE = "revenue"
 
 
-# ENUM tanimi tek kaynaktan. PostgreSQL'de deger sirasi ordinal DEGILDIR
-# (pg_enum OID'i saklanir), yani MySQL'deki sessiz-yanlis-deger tuzagi
-# yoktur; tek kaynak yine de BAKIM icin korunur.
+# Single source for the enum definition. PostgreSQL enum order is not
+# ordinal (the pg_enum OID is stored), so it lacks MySQL's silent-wrong-
+# value trap; a single source is still kept for maintainability.
 METRIC_ENUM = Enum(
     EstimateMetric,
     values_callable=lambda e: [m.value for m in e],
@@ -52,7 +52,7 @@ METRIC_ENUM = Enum(
 
 
 class AnalystRecommendation(Base):
-    """strongBuy..strongSell sayaclari; satir sayisi 3 VEYA 4 (olculdu)."""
+    """strongBuy..strongSell counters; row count measured as 3 or 4."""
 
     __tablename__ = "analyst_recommendations"
     __table_args__ = (
@@ -62,7 +62,7 @@ class AnalystRecommendation(Base):
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     period: Mapped[str] = mapped_column(AsciiKeyType(PERIOD_LENGTH), primary_key=True)
-    # 19 sembolde de int64, NaN yok -> NOT NULL savunulabilir
+    # int64 with no NaN in all 19 symbols -> NOT NULL is defensible.
     strong_buy: Mapped[int] = mapped_column(Integer, nullable=False)
     buy: Mapped[int] = mapped_column(Integer, nullable=False)
     hold: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -72,10 +72,10 @@ class AnalystRecommendation(Base):
 
 
 class AnalystGradeChange(Base):
-    """Analist not degisiklikleri. AS-OF DEGIL: kaynak kendi tarihini tasiyor.
+    """Analyst grade changes. Not as-of: the source carries its own date.
 
-    Saf upsert'tir. `replace_scope` olsaydi ~1000 satirlik tavan disinda kalan
-    eski kayitlar her calistirmada silinirdi (AH S4.5).
+    Pure upsert. With `replace_scope`, older records past the ~1000-row
+    cap would be deleted on every run.
     """
 
     __tablename__ = "analyst_grade_changes"
@@ -85,26 +85,25 @@ class AnalystGradeChange(Base):
     )
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
-    # Kaynak tz-naive ama epochGradeDate SANIYESINDEN uretilmis -> UTC'dir;
-    # ikinci bir tz donusumu yapilmaz.
+    # Source is tz-naive but derived from epochGradeDate in seconds -> UTC;
+    # no second tz conversion is applied.
     grade_ts_utc: Mapped[datetime] = mapped_column(TsType(), primary_key=True)
-    # 15 sembol / 8852 satirda (GradeDate, Firm) dup=0; olculen max 26.
+    # (GradeDate, Firm) measured dup=0 across 15 symbols / 8852 rows; max 26 chars.
     firm: Mapped[str] = mapped_column(KeyTextType(64), primary_key=True)
     to_grade: Mapped[str | None] = mapped_column(String(32, collation="C"))
     from_grade: Mapped[str | None] = mapped_column(String(32, collation="C"))
-    # ENUM DEGIL: 5 deger olculdu, bu Yahoo'nun listesinin kapali oldugunu
-    # kanitlamaz.
+    # Not an ENUM: 5 values measured, which does not prove Yahoo's list is closed.
     action: Mapped[str | None] = mapped_column(AsciiKeyType(16))
     price_target_action: Mapped[str | None] = mapped_column(String(16, collation="C"))
-    # 0.0 GERCEK bir degerdir ("hedef yok"), NULL'a cevrilmez.
+    # 0.0 is a real value ("no target"), not converted to NULL.
     current_price_target: Mapped[Decimal | None] = mapped_column(PriceType())
     prior_price_target: Mapped[Decimal | None] = mapped_column(PriceType())
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
 class AnalystPriceTarget(Base):
-    """current/low/high/mean/median. Tutarlilik kisiti YOKTUR: THYAO'da
-    low(330) > current(294) olculdu; kaynak neyse o yazilir."""
+    """current/low/high/mean/median. No consistency constraint: THYAO
+    measured low(330) > current(294); the source value is written as-is."""
 
     __tablename__ = "analyst_price_targets"
     __table_args__ = (
@@ -122,11 +121,11 @@ class AnalystPriceTarget(Base):
 
 
 class AnalystEstimate(Base):
-    """earnings_estimate + revenue_estimate TEK tabloda; kolon setleri birebir
-    ayni ve tek modulden geliyorlar.
+    """earnings_estimate + revenue_estimate in one table; identical column
+    sets, both from a single module.
 
-    FactValueType (DECIMAL(38,10)) zorunlu: AYNI kolonda AAPL EPS 1.97656 ve
-    THYAO revenue 1_285_436_390_920 bulunur.
+    FactValueType (DECIMAL(38,10)) is required: the same column holds
+    AAPL EPS 1.97656 and THYAO revenue 1_285_436_390_920.
     """
 
     __tablename__ = "analyst_estimates"
@@ -142,17 +141,17 @@ class AnalystEstimate(Base):
     low: Mapped[Decimal | None] = mapped_column(FactValueType())
     high: Mapped[Decimal | None] = mapped_column(FactValueType())
     year_ago_value: Mapped[Decimal | None] = mapped_column(FactValueType())
-    # Kaynakta float (1.0) ve NaN gelebiliyor
+    # Source can return a float (1.0) or NaN.
     number_of_analysts: Mapped[int | None] = mapped_column(Integer)
     growth: Mapped[Decimal | None] = mapped_column(PriceType())
-    # yfinance'in ekledigi kolon; dokumantasyonda yok
+    # Column added by yfinance; undocumented.
     currency: Mapped[str | None] = mapped_column(AsciiKeyType(8))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
 class AnalystEpsTrend(Base):
-    """EPS tahmininin zaman icindeki seyri. Kolon adi rakamla baslayamaz:
-    7daysAgo -> days_ago_7."""
+    """EPS estimate trend over time. A column name cannot start with a
+    digit: 7daysAgo -> days_ago_7."""
 
     __tablename__ = "analyst_eps_trend"
     __table_args__ = (
@@ -172,12 +171,12 @@ class AnalystEpsTrend(Base):
 
 
 class AnalystEpsRevision(Base):
-    """Yukari/asagi revizyon SAYACLARI.
+    """Up/down revision counters.
 
-    Kaynak anahtarlari: upLast7days, upLast30days, downLast30days ve
-    downLast7Days -- SONUNCUSUNDA D BUYUK (19/19 sembolde dogrulandi).
-    Dokumantasyon dordunu de kucuk yaziyor; kucuk `d` ile okunursa kolon
-    SESSIZCE hep NULL kalir.
+    Source keys: upLast7days, upLast30days, downLast30days, and
+    downLast7Days -- the last one has a capital D (confirmed 19/19
+    symbols). Documentation shows all four lowercase; reading with a
+    lowercase `d` leaves the column silently NULL forever.
     """
 
     __tablename__ = "analyst_eps_revisions"
@@ -197,15 +196,15 @@ class AnalystEpsRevision(Base):
 
 
 class AnalystGrowthEstimate(Base):
-    """Buyume tahminleri; period 0q/+1q/0y/+1y/LTG.
+    """Growth estimates; period 0q/+1q/0y/+1y/LTG.
 
-    industry_trend ve sector_trend 19 sembolde HIC gelmedi ama yfinance
-    modulleri acikca istiyor (industryTrend,sectorTrend,indexTrend); uc geri
-    acildiginda migration gerekmesin diye kolonlar simdiden acilir.
+    industry_trend and sector_trend never appeared in 19 sample symbols,
+    but yfinance explicitly requests them (industryTrend, sectorTrend,
+    indexTrend); the columns exist now so a future value needs no migration.
 
-    index_trend TUM sembollerde AYNIDIR (piyasa endeksi trendi); sembol basina
-    denormalize saklanmasi bilinclidir -- tek kolon icin ayri bir piyasa
-    tablosu karsiligi olmayan bir soyutlama olurdu.
+    index_trend is identical across all symbols (the market index trend);
+    storing it denormalized per symbol is deliberate -- a separate market
+    table for one column would be an abstraction with no other use.
     """
 
     __tablename__ = "analyst_growth_estimates"
@@ -224,10 +223,11 @@ class AnalystGrowthEstimate(Base):
 
 
 class EarningsHistoryRow(Base):
-    """Gerceklesen vs tahmin EPS. AS-OF DEGIL: kaynak ceyrek sonunu veriyor.
+    """Actual vs. estimated EPS. Not as-of: the source gives quarter-end.
 
-    quarter_end tz-naive Timestamp'ten .date() ile alinir; TZ DONUSUMU
-    YAPILMAZ -- mali ceyrek takvimsel bir etikettir, bir an degil.
+    quarter_end is taken from a tz-naive Timestamp via .date(); no tz
+    conversion is applied -- a fiscal quarter is a calendar label, not an
+    instant.
     """
 
     __tablename__ = "earnings_history"

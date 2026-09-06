@@ -1,4 +1,4 @@
-"""news ve news_symbols (S5.2, S5.5)."""
+"""news and news_symbols tables."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from yfin.models.base import (
 
 
 class News(Base):
-    """symbols'a FK ile bagli DEGILDIR; baglanti news_symbols uzerindendir."""
+    """No FK to symbols; the link goes through news_symbols."""
 
     __tablename__ = "news"
     __table_args__ = (Index("ix_news_pub_date", "pub_date"),)
@@ -34,7 +34,7 @@ class News(Base):
     provider_source_id: Mapped[str | None] = mapped_column(String(64, collation="C"))
     canonical_url: Mapped[str | None] = mapped_column(Text)
     click_through_url: Mapped[str | None] = mapped_column(Text)
-    # tag="original" cozunurlugu; diger cozunurlukler raw_json'da kalir
+    # The tag="original" resolution; other resolutions stay in raw_json.
     thumbnail_url: Mapped[str | None] = mapped_column(Text)
     thumbnail_width: Mapped[int | None] = mapped_column(Integer)
     thumbnail_height: Mapped[int | None] = mapped_column(Integer)
@@ -42,16 +42,17 @@ class News(Base):
 
 
 class NewsSymbol(Base):
-    """symbol uzerinde FK YOKTUR (S5.5).
+    """No FK on `symbol`.
 
-    Kaynakta evren disi semboller geliyor (bir AAPL haberinde 005930.KS,
-    ^GSPC, IRTC). FK olsaydi sembol basina tek transaction geregi TUM
-    sembolun verisi rollback olurdu.
+    Source data includes symbols outside the universe (an AAPL story
+    tagging 005930.KS, ^GSPC, IRTC). An FK would roll back an entire
+    article's data over one unknown symbol, since all its symbols write
+    in one transaction.
     """
 
     __tablename__ = "news_symbols"
     __table_args__ = (
-        # FK olmadigi icin bu index ACIKCA tanimlanir (S5.6)
+        # Defined explicitly since there is no FK to derive it from.
         Index("ix_news_symbols_symbol", "symbol"),
     )
 
@@ -59,5 +60,5 @@ class NewsSymbol(Base):
         NewsIdType(), ForeignKey("news.news_id", ondelete="CASCADE"), primary_key=True
     )
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
-    # sembol symbols tablosunda var mi
+    # Whether the symbol exists in the symbols table.
     is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))

@@ -1,15 +1,15 @@
-"""screener dataset'i (SQ S7.3) -> screens | screen_runs | screen_members |
+"""screener dataset -> screens | screen_runs | screen_members |
 screen_quotes | symbols.
 
-`scope="variant"`: ekran dongusu dataset'in DISINDA doner (SQ K2), tipki
-bolge dongusu gibi. Boylece `sync_run_items` granulerligi dogal olarak
-(dataset x ekran x tablo) olur ve bir ekranin patlamasi komsu ekrani
-`failed` gostermez.
+`scope="variant"`: the screen loop runs OUTSIDE the dataset, same as the
+region loop. This makes `sync_run_items` granularity naturally
+(dataset x screen x table), and one screen failing doesn't mark a
+neighboring screen `failed`.
 
-Kapi `HashGate` mixin'iyle kurulur, `HashGatedDataset` ILE DEGIL: o sinif
-`Dataset[RawT]`in altindadir ve `fetch(SyncContext)` imzasini tasir; burada
-`GlobalDataset` hiyerarsisi vardir (SQ S6.2). Kapi mantigi ikisinde de
-ayni oldugu icin mixin paylasilir.
+The gate is built with the `HashGate` mixin, NOT `HashGatedDataset`: that
+class sits under `Dataset[RawT]` with the `fetch(SyncContext)` signature,
+while this uses the `GlobalDataset` hierarchy. The gate logic is identical
+in both, hence the shared mixin.
 """
 
 from __future__ import annotations
@@ -59,8 +59,9 @@ _SCREEN_UPDATE = (
     "definition_json",
     "updated_at",
 )
-# `is_enabled` KAPSAM DISI: operator DB'de kapattiginda her kosu onu geri
-# acardi. `created_at` de disaridadir (yalniz INSERT'te yazilir).
+# `is_enabled` is OUT OF SCOPE: if it were included, every run would flip a
+# screen the operator disabled in the DB back on. `created_at` is also
+# excluded (written only on INSERT).
 
 _RUN_UPDATE = (
     "total",
@@ -83,13 +84,13 @@ _QUOTE_UPDATE = tuple(f.column for f in SCREENER_QUOTE_FIELDS) + (
     "raw_json",
 )
 
-# SQ K10: kesif yazimi `is_active`, `unknown_streak`, `discovered_by` ve
-# `discovered_at`i GUNCELLEMEZ. Aksi halde operatorun elle aktiflestirdigi
-# sembol ertesi gun ayni ekranda gorulup SESSIZCE pasife donerdi.
+# The discovery write does NOT update `is_active`, `unknown_streak`,
+# `discovered_by`, or `discovered_at`. Otherwise a symbol an operator
+# manually reactivated would SILENTLY go inactive again the next day it
+# shows up in the same screen.
 #
-# Liste, screener'in GERCEKTEN doldurdugu kolonlarla sinirlidir (SQ S5.12):
-# ortak bir liste kullanilsaydi `lookup` yolu `long_name`/`currency`yi
-# NULL'lardi.
+# The list is limited to columns the screener ACTUALLY populates: a shared
+# list would make the `lookup` path NULL out `long_name`/`currency`.
 SYMBOL_UPDATE = (
     "short_name",
     "long_name",
@@ -105,12 +106,12 @@ SYMBOL_UPDATE = (
 
 @dataclass
 class ScreenPage:
-    """Tek bir `yf.screen` yaniti."""
+    """A single `yf.screen` response."""
 
     quotes: list[dict[str, Any]]
     total: int
-    # Yalniz predefined ILK sayfada (GET) dolu; POST yaniti 5 anahtar
-    # tasir ve bunlarin hicbirini icermez (SQ S4.1/13).
+    # Populated only on the FIRST predefined page (GET); the POST response
+    # carries 5 keys and includes none of these.
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -128,17 +129,17 @@ class ScreenPayload:
 def _fetch_page(
     spec: ScreenDef, *, offset: int | None, size: int
 ) -> ScreenPage:
-    """Tek sayfa ceker.
+    """Fetches one page.
 
-    SQ K12 -- ILK sayfa `count`, sonrakiler `size`. `offset` verildiginde
-    `yf.screen` predefined GET yolundan custom POST yoluna geciyor ve
-    `count`u SESSIZCE yok sayiyor: `offset=250, count=250` 25 satir
-    dondurdu, `size=250` ise 250. Hata VERILMEZ; tek parametre adiyla
-    yazilsaydi sayfa basina 225 satir kaybedilir ve kimse fark etmezdi.
+    The FIRST page uses `count`, later ones use `size`. When `offset` is
+    given, `yf.screen` switches from the predefined GET path to the custom
+    POST path and SILENTLY ignores `count`: `offset=250, count=250`
+    returned 25 rows, `size=250` returned 250. No error is raised; using a
+    single parameter name throughout would silently drop 225 rows per page.
 
-    SQ K15 -- `sortField`/`sortAsc` HER istekte acikca verilir. `sortAsc`
-    varsayilani None -> azalan; sayfalar arasi sira kararli olmazsa
-    sayfalar ortusur ya da sembol atlanir.
+    `sortField`/`sortAsc` are given EXPLICITLY on every request. `sortAsc`
+    defaults to None -> descending; if the order isn't stable across pages,
+    pages overlap or symbols get skipped.
     """
     query: Any = spec.key if spec.kind == "predefined" else spec.query
     if offset is None:
@@ -182,15 +183,15 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
     child_table = CHILD_TABLE
     gate_key_columns = GATE_KEY_COLUMNS
 
-    # --- dis dongu ---------------------------------------------------------
+    # --- outer loop -----------------------------------------------------
 
     def variants(self, settings: Settings, session: Session | None) -> list[str]:
-        """Ekran kumesi `screens.py`den, ETKINLIK DB'den (SQ S6.5).
+        """The screen set comes from `screens.py`; enabled state from the DB.
 
-        Yon onemlidir: kume KODDAN gelir, DB yalnizca ELER. Tersi olsaydi
-        (kume DB'den) bos `screens` tablosuyla hicbir ekran hic kosmaz ve
-        seed edilmeden once bootstrap kilitlenirdi -- tablo da yalnizca
-        kosu sirasinda dolduguna gore, kilit hic acilmazdi.
+        Direction matters: the set comes from CODE, the DB only FILTERS.
+        The reverse (set from DB) would deadlock bootstrap with an empty
+        `screens` table before it's ever seeded -- since the table only
+        fills during a run, the lock would never open.
         """
         cfg = settings
         wanted = [k.strip() for k in cfg.yf_screen_keys.split(",") if k.strip()]
@@ -205,11 +206,11 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
             keys = [k for k in keys if k in set(wanted)]
         return [k for k in keys if k not in _disabled_keys(session)]
 
-    # --- fetch -------------------------------------------------------------
+    # --- fetch ------------------------------------------------------------
 
     def fetch(self, mctx: MarketContext) -> ScreenPayload:
         cfg = get_settings()
-        if mctx.variant is None:  # pragma: no cover - savunma
+        if mctx.variant is None:  # pragma: no cover - defensive
             raise ValueError("screener `variant` olmadan cagrilamaz")
         spec = screen_by_key(mctx.variant)
 
@@ -223,17 +224,18 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
             page = _fetch_page(spec, offset=None if pages == 0 else offset, size=cfg.yf_screen_size)
             pages += 1
             if pages == 1:
-                # ILK sayfa ayricalikli: `title`, `description`,
-                # `rawCriteria`, `lastUpdated` yalnizca predefined GET
-                # yanitindadir. Custom ekranda ilk sayfa da POST'tur ve
-                # metadata GELMEZ (olculdu) -- o zaman `ScreenDef` konusur.
+                # The FIRST page is special: `title`, `description`,
+                # `rawCriteria`, `lastUpdated` exist only in the predefined
+                # GET response. For a custom screen, the first page is also
+                # POST and metadata does NOT come back (measured) -- then
+                # `ScreenDef` is the source of truth instead.
                 metadata = page.metadata
                 total = page.total
             quotes.extend(page.quotes)
-            # Durma UC DALLI: bos sayfa / offset >= total / sayfa siniri.
-            # `offset > total` durumunda Yahoo hata vermeden 0 satir
-            # donduruyor, yani bos-sayfa dali tek basina da yeterdi; `total`
-            # kontrolu GEREKSIZ BIR ISTEGI daha bastan engeller.
+            # THREE stop branches: empty page / offset >= total / page limit.
+            # When `offset > total`, Yahoo returns 0 rows without erroring,
+            # so the empty-page branch alone would suffice; the `total`
+            # check just avoids one UNNECESSARY extra request.
             if not page.quotes:
                 break
             offset += len(page.quotes)
@@ -250,7 +252,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
             metadata=metadata,
         )
 
-    # --- normalize ---------------------------------------------------------
+    # --- normalize ----------------------------------------------------
 
     def normalize(self, raw: ScreenPayload) -> NormalizedResult:
         spec = screen_by_key(raw.screen_key)
@@ -262,8 +264,8 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
         for index, quote in enumerate(raw.quotes):
             symbol = nz.to_str(quote.get("symbol"))
             if symbol is None:
-                # `screen` 300 olculen satirin hepsinde `symbol` dondurdu;
-                # yine de PK'ya NULL yazmaktansa satiri elemek dogru.
+                # `screen` returned `symbol` on all 300 rows measured; still,
+                # dropping the row beats writing NULL into the PK.
                 continue
             is_known = symbol_is_writable(symbol)
             members.append(
@@ -271,17 +273,18 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
                     "screen_key": raw.screen_key,
                     "as_of_date": raw.as_of_date,
                     "symbol": symbol,
-                    # `offset + sayfa ici indeks` -> MUTLAK sira.
-                    # `enumerate` bunu dogal olarak verir cunku sayfalar
-                    # SIRAYLA eklendi (SQ S5.14).
+                    # `offset + in-page index` -> ABSOLUTE rank.
+                    # `enumerate` gives this naturally because pages were
+                    # appended IN ORDER.
                     "rank_index": index,
                     "is_known": is_known,
                     "fetched_at": raw.fetched_at,
                 }
             )
             if symbol in seen:
-                # Ayni sembol iki sayfada gorunurse (sira kaymasi) kotasyonu
-                # bir kez yazilir; uyelik satiri PK sayesinde zaten tekil.
+                # If the same symbol appears on two pages (rank shift), the
+                # quote is written once; the membership row is already
+                # unique via its PK.
                 continue
             seen.add(symbol)
             quotes.append(_quote_row(symbol, quote, raw, is_known=is_known))
@@ -324,15 +327,15 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
 
 
 def _disabled_keys(session: Session | None) -> set[str]:
-    """DB'de ACIKCA kapatilmis ekranlar."""
-    if session is None:  # kutuphane kullanimi / testler
+    """Screens EXPLICITLY disabled in the DB."""
+    if session is None:  # library usage / tests
         return set()
     stmt = select(Screen.screen_key).where(Screen.is_enabled.is_(False))
     return set(session.execute(stmt).scalars())
 
 
 def _screen_row(spec: ScreenDef, raw: ScreenPayload) -> dict[str, Any]:
-    """`screens` satiri; metadata varsa ILK GET sayfasindan TAZELENIR."""
+    """`screens` row; if metadata exists, REFRESHED from the FIRST GET page."""
     meta = raw.metadata
     title = nz.to_str(meta.get("title")) or spec.title
     description = nz.to_str(meta.get("description")) or spec.description or None
@@ -356,16 +359,16 @@ def _screen_row(spec: ScreenDef, raw: ScreenPayload) -> dict[str, Any]:
 
 
 def _run_row(raw: ScreenPayload, members: list[dict[str, Any]]) -> dict[str, Any]:
-    """Kapi + veri satiri.
+    """Gate + data row.
 
-    `content_hash` YALNIZ KADROYU kapsar (SQ K4): `(symbol, rank_index)` ciftleri.
-    Kotasyon metrikleri govdeye girseydi `regularMarketPrice` her kosuda
-    oynadigi icin hash HICBIR ZAMAN esitlenmez, `skipped` durumu hic
-    uretilmez ve mekanizma sessizce olurdu -- kimse fark etmezdi cunku
-    sonuc "her gun her satir yeniden yazildi" olurdu.
+    `content_hash` covers ONLY THE ROSTER: `(symbol, rank_index)` pairs. If
+    quote metrics were included, `regularMarketPrice` moves on every run, so
+    the hash would NEVER match, `skipped` would never occur, and the
+    mechanism would silently die -- unnoticed, because the result would
+    just look like "every row rewritten every day".
 
-    `rank_index` govdededir: kadro ayni kalip SIRA degistiginde bu GERCEK bir
-    degisimdir ve yazilmalidir.
+    `rank_index` IS in the body: when the roster stays the same but ORDER
+    changes, that is a REAL change and must be written.
     """
     body = [{"symbol": m["symbol"], "rank_index": m["rank_index"]} for m in members]
     meta = raw.metadata
@@ -401,7 +404,7 @@ def _quote_row(
         "as_of_date": raw.as_of_date,
         **project_fields(quote, SCREENER_QUOTE_FIELDS),
         "is_known": is_known,
-        # `corporateActions` LISTEDIR ve kolona cikmaz; burada durur.
+        # `corporateActions` IS A LIST and doesn't map to a column; it stays here.
         "raw_json": nz.canonical_json(quote),
         "fetched_at": raw.fetched_at,
     }

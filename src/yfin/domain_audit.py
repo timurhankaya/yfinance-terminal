@@ -1,9 +1,9 @@
-"""`yfin domain audit` -- UC BAGIMSIZ KONTROL (SI S8.3).
+"""`yfin domain audit` -- three independent checks.
 
-Ikinci kontrol bu tasarimin cekirdegidir: beklenen deger BIZIM
-LISTEMIZDEN DEGIL, Yahoo'nun `overview.industriesCount` alanindan gelir ve
-11/11 sektorde liste uzunluguna esit olculdu (toplam 145). Yahoo yeni bir
-endustri eklerse ve kesfimiz onu kacirirsa bu kontrol PATLAR.
+The second check is the core of this design: the expected count comes
+from Yahoo's `overview.industriesCount` field, not our own list, and was
+measured equal to list length across 11/11 sectors (145 total). If Yahoo
+adds an industry our discovery misses, this check fails.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def audit_domains(
 ) -> DomainAuditReport:
     report = DomainAuditReport()
 
-    # 1) Sektor sayisi
+    # 1) Sector count
     report.sector_count = int(
         session.execute(
             select(func.count())
@@ -64,12 +64,12 @@ def audit_domains(
         ).scalar_one()
     )
 
-    # 2) Endustri sayisi -- BEKLENEN DEGERI API'NIN KENDISI VERIYOR.
+    # 2) Industry count -- the expected value comes from the API itself.
     #
-    # DIKKAT: `as_of_date = :as_of` KESIN ESITLIK KULLANILAMAZ. Kapi hash'i
-    # esit bulursa o gun HIC `domain_metrics` satiri yazilmaz (`as_of_date`
-    # VOLATILE, satir da yeniden yazilmaz) ve audit SAHTE BASARISIZLIK
-    # verirdi. Her sektorun `:as_of`a KADARKI EN SON satiri alinir.
+    # Cannot use exact equality on `as_of_date = :as_of`: if the change
+    # detection hash matches, no `domain_metrics` row is written that
+    # day, which would make the audit fail falsely. Take each sector's
+    # latest row up to `:as_of`.
     latest = (
         select(
             DomainMetric.domain_key.label("domain_key"),
@@ -102,7 +102,7 @@ def audit_domains(
             f"API'nin bildirdigi toplam {report.expected_industries}"
         )
 
-    # 3) Hucre kapsami ve hata
+    # 3) Cell coverage and failures
     if run_id is not None:
         rows = session.execute(
             select(SyncRunItem.status, func.count())
@@ -118,17 +118,16 @@ def audit_domains(
 
 
 def expected_cell_count(region_count: int, industry_count: int = 145) -> int:
-    """Beklenen `sync_run_items` hucre sayisi (SI S8.3).
+    """Expected `sync_run_items` cell count.
 
-    domain_taxonomy   : 2 tablo x 1 tur
-    sector_profile    : 4 tablo x 11 anahtar x 1 bolge
-    sector_rankings   : 3 tablo x 11 anahtar x R
-    industry_profile  : 5 tablo x N anahtar x 1 bolge
-    industry_rankings : 3 tablo x N anahtar x R
+    domain_taxonomy   : 2 tables x 1 kind
+    sector_profile    : 4 tables x 11 keys x 1 region
+    sector_rankings   : 3 tables x 11 keys x R
+    industry_profile  : 5 tables x N keys x 1 region
+    industry_rankings : 3 tables x N keys x R
 
-    R=1 -> 1239 (spec S8.3 ile ayni). R=5 -> 3111; spec'teki 3143 bir
-    ARITMETIK SLIP'tir: 2 + 44 + 33*5 + 725 + 435*5 = 3111. Beklenen deger
-    burada FORMULDEN uretilir, elle yazilmis bir sabitten degil.
+    R=1 -> 1239. The expected value is generated from this formula, not
+    a hand-written constant.
     """
     sectors = len(SECTOR_KEYS)
     return (

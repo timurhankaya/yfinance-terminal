@@ -1,4 +1,4 @@
-"""`yfin domain audit` -- uc bagimsiz kontrol (SI S9.3, S8.3)."""
+"""`yfin domain audit` -- three independent checks."""
 
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ def test_audit_passes_on_a_consistent_taxonomy(db_session: Session) -> None:
     _seed(db_session)
     report = audit_domains(db_session, as_of=AS_OF)
     assert report.expected_industries == report.industry_count
-    # Fixture evreni 11 sektorun tamami degil; sektor sayisi kontrolu bunu
-    # dogru sekilde SORUN olarak bildirir.
+    # The fixture universe is not all 11 sectors; the sector-count check
+    # correctly flags this as a problem.
     assert report.sector_count == len(FIXTURE_SECTORS)
     assert any("sektor sayisi" in p for p in report.problems)
     assert not any("endustri sayisi" in p for p in report.problems)
@@ -47,9 +47,9 @@ def test_deleting_one_industry_makes_the_audit_fail(db_session: Session) -> None
 
 
 def test_audit_uses_the_latest_row_not_an_exact_day_match(db_session: Session) -> None:
-    """KAPI hash'i esitse o gun HIC `domain_metrics` satiri yazilmaz.
+    """No `domain_metrics` row is written for a day when the gate hash matches.
 
-    Kesin esitlik kullanilsaydi audit SAHTE BASARISIZLIK verirdi.
+    An exact-date match would make the audit fail spuriously on such a day.
     """
     _seed(db_session)
     later = AS_OF + timedelta(days=3)
@@ -59,8 +59,8 @@ def test_audit_uses_the_latest_row_not_an_exact_day_match(db_session: Session) -
 
 def test_audit_reports_failed_cells_of_a_run(db_session: Session) -> None:
     _seed(db_session)
-    # `LAST_INSERT_ID()` PostgreSQL'de YOKTUR; uretilen anahtar
-    # `RETURNING` ile ayni ifadeden alinir -- ustelik yarissiz.
+    # PostgreSQL has no `LAST_INSERT_ID()`; the generated key comes back from
+    # the same statement via `RETURNING`, race-free.
     run_id = int(
         db_session.execute(
             text(

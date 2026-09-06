@@ -1,8 +1,8 @@
-"""Snapshot tablolari: ticker_info(_history), ticker_fast_info(_history),
-history_metadata (S5.2).
+"""Snapshot tables: ticker_info(_history), ticker_fast_info(_history),
+history_metadata.
 
-Bu tablolar Core Table olarak tanimlanir: kolon seti fields.py'deki tek
-dogruluk kaynagindan uretilir ve upsert zaten Core insert ile yapilir.
+Defined as Core Tables: the column set is generated from the single
+source of truth in fields.py, and upsert already uses a Core insert.
 """
 
 from __future__ import annotations
@@ -37,8 +37,8 @@ def _snapshot_table(
 ) -> Table:
     cols: list[Column[Any]] = [_symbol_fk(primary_key=True)]
     if historical:
-        # PK (symbol, fetched_at); DATETIME(6) sayesinde ayni saniyede iki
-        # snapshot cakismaz (S5.4)
+        # PK is (symbol, fetched_at); the microsecond precision means two
+        # snapshots in the same second do not collide.
         cols.append(Column("fetched_at", TsType(), primary_key=True, nullable=False))
     cols.extend(make_column(f, name) for f in fields)
     cols.append(Column("raw_json", RawJsonType(), nullable=False))
@@ -48,7 +48,7 @@ def _snapshot_table(
         cols.append(Column("fetched_at", TsType(), nullable=False))
     args: list[object] = list(cols)
     if historical:
-        # S5.6: en son snapshot'i bulmak icin (symbol, fetched_at DESC)
+        # Finds the latest snapshot via (symbol, fetched_at DESC).
         args.append(Index(f"ix_{name}_symbol_fetched", "symbol", desc(text("fetched_at"))))
     return Table(name, Base.metadata, *args)  # type: ignore[arg-type]
 
@@ -61,5 +61,5 @@ ticker_fast_info_history = _snapshot_table(
     "ticker_fast_info_history", FAST_INFO_FIELDS, historical=True
 )
 
-# history_metadata snapshot gecmisi tutmaz; PK symbol
+# history_metadata keeps no history; PK is symbol.
 history_metadata = _snapshot_table("history_metadata", HISTORY_METADATA_FIELDS, historical=False)

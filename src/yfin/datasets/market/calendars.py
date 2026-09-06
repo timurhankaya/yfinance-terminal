@@ -1,15 +1,16 @@
-"""Takvim dataset'leri: earnings, economic, IPO, splits (S6.5).
+"""Calendar datasets: earnings, economic, IPO, splits.
 
-Uc zorunlu kural:
+Three mandatory rules:
 
-1. `get_earnings_calendar(filter_most_active=True)` VARSAYILANDIR ve filtre
-   YALNIZCA offset==0'da uygulanir (`calendars.py`). Sayfa 0 filtreli, sayfa
-   1+ filtresiz evrenden gelir; birlestirilirse evrenin 1-100. satirlari hic
-   cekilmez. Bu yuzden `filter_most_active=False` verilir.
-2. Durma kosulu BOS SAYFA'dir.
-3. Bos sayfa `_cleanup_df` tarafindan erken dondurulur: `set_index`,
-   `rename` ve `to_datetime` UYGULANMAZ, ham kolon adlari gelir. Bosluk
-   kontrolu kolon/index erisiminden ONCE yapilmalidir.
+1. `get_earnings_calendar(filter_most_active=True)` is the DEFAULT, and the
+   filter applies ONLY at offset==0 (`calendars.py`). Page 0 comes from the
+   filtered universe, pages 1+ from the unfiltered one; concatenating them
+   would skip rows 1-100 of the universe entirely. Hence
+   `filter_most_active=False` is passed explicitly.
+2. The stop condition is an EMPTY PAGE.
+3. An empty page returns early from `_cleanup_df`: `set_index`, `rename`,
+   and `to_datetime` are NOT APPLIED, so raw column names come through.
+   The emptiness check must happen BEFORE any column/index access.
 """
 
 from __future__ import annotations
@@ -67,7 +68,7 @@ def _fetch_pages(mctx: MarketContext, method: str, **extra: Any) -> pd.DataFrame
 
 
 class CalendarDatasetBase(GlobalDataset[CalendarFramePayload]):
-    """Ortak: sayfalama, PK tekillestirmesi ve is_known isaretlemesi."""
+    """Common: pagination, PK deduplication, and is_known marking."""
 
     table: str
     key_columns: tuple[str, ...]
@@ -82,10 +83,10 @@ class CalendarDatasetBase(GlobalDataset[CalendarFramePayload]):
 
     @abstractmethod
     def build_row(self, index: Any, record: Any, fetched_at: datetime) -> dict[str, Any] | None:
-        """Tek bir kaynak satirini tabloya yazilacak sozluge cevirir.
+        """Converts one source row into a dict to write to the table.
 
-        None dondurmek satiri ATLAR (PK bileseni eksik/NaT); abstract'tir
-        cunku her takvim ucunun kolon seti farklidir.
+        Returning None SKIPS the row (a PK component is missing/NaT);
+        abstract because every calendar endpoint has a different column set.
         """
 
     def normalize(self, raw: CalendarFramePayload) -> NormalizedResult:
@@ -99,8 +100,8 @@ class CalendarDatasetBase(GlobalDataset[CalendarFramePayload]):
             row = self.build_row(index, record, raw.fetched_at)
             if row is None:
                 continue
-            # Sayfalar birlestirildikten sonra PK uzerinden tekillestirilir;
-            # aksi halde rows_verified < rows_attempted yanlis `failed` uretir
+            # Deduplicated by PK after pages are concatenated; otherwise
+            # rows_verified < rows_attempted would wrongly produce `failed`.
             rows[tuple(row[c] for c in self.key_columns)] = row
 
         if not rows:
@@ -132,11 +133,11 @@ class CalendarDatasetBase(GlobalDataset[CalendarFramePayload]):
 
 
 def _symbol_of(index: Any, *, dataset: str) -> str | None:
-    """PK'ya giren sembol. KIRPILMAZ (`common.key_value` sozlesmesi).
+    """The symbol feeding the PK. NOT TRUNCATED (`common.key_value` contract).
 
-    `to_str(max_len=32)` kirpardi ve ilk 32 karakteri ayni olan iki farkli
-    sembol tek satirda birlesirdi; `build_rows` sozlugunde ikincisi
-    birincisini sessizce ezerdi.
+    `to_str(max_len=32)` would truncate, and two different symbols sharing
+    the same first 32 characters would collapse into one row; in the
+    `build_rows` dict, the second would silently overwrite the first.
     """
     text = key_value(index, 32, field="symbol", dataset=dataset, symbol=str(index)[:32])
     return nz.normalize_symbol(text) if text else None
@@ -147,8 +148,8 @@ class EarningsCalendarDataset(CalendarDatasetBase):
     produces = ("calendar_earnings",)
     table = "calendar_earnings"
     method = "get_earnings_calendar"
-    # Varsayilan True yalnizca offset==0'da uygulanir -> sayfa 0 ile sayfa 1+
-    # farkli evrenlerden gelir ve veri kaybi olur
+    # The True default applies only at offset==0 -> page 0 and pages 1+ come
+    # from different universes, causing data loss.
     extra_args = {"filter_most_active": False}  # noqa: RUF012
     key_columns = ("symbol", "event_start_ts_utc")
     update_columns = (
@@ -190,13 +191,13 @@ class EconomicCalendarDataset(CalendarDatasetBase):
     table = "calendar_economic"
     method = "get_economic_events_calendar"
     has_symbol = False
-    # Index (Event) tekil DEGIL (100 satirda 29 tekrar); uclu anahtar tekil
+    # Index (Event) is NOT unique (29 repeats in 100 rows); the triple key is.
     key_columns = ("region", "event_time_utc", "event_name")
     update_columns = ("period_for", "actual", "expected", "last_reported", "revised", "fetched_at")
 
     def build_row(self, index: Any, record: Any, fetched_at: datetime) -> dict[str, Any] | None:
-        # Ikisi de PK bilesenidir -> KIRPILMAZ (key_value sozlesmesi):
-        # ilk 64 karakteri ayni iki olay tek satirda birlesirdi.
+        # Both are PK components -> NOT TRUNCATED (key_value contract): two
+        # events sharing the first 64 characters would collapse into one row.
         event_name = key_value(
             index, 64, field="event_name", dataset=self.name, symbol=str(index)[:32]
         )
@@ -214,7 +215,7 @@ class EconomicCalendarDataset(CalendarDatasetBase):
             "period_for": nz.to_str(record.get("For"), max_len=16),
             "actual": nz.to_decimal(record.get("Actual")),
             "expected": nz.to_decimal(record.get("Expected")),
-            # 'last_value' pencere fonksiyonu adidir (PG'de de)
+            # 'last_value' is a window-function name (in PostgreSQL too).
             "last_reported": nz.to_decimal(record.get("Last")),
             "revised": nz.to_decimal(record.get("Revised")),
             "fetched_at": fetched_at,
@@ -256,7 +257,7 @@ class IpoCalendarDataset(CalendarDatasetBase):
             "action": action,
             "company": nz.to_str(record.get("Company"), max_len=255),
             "exchange": nz.to_str(record.get("Exchange"), max_len=32),
-            # Filing/Amended Date siklikla NaT
+            # Filing/Amended Date is often NaT.
             "filing_date": nz.to_local_date(record.get("Filing Date")),
             "amended_date": nz.to_local_date(record.get("Amended Date")),
             "price_from": nz.to_decimal(record.get("Price From")),

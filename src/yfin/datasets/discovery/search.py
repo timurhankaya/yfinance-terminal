@@ -1,25 +1,25 @@
-"""search dataset'i (SQ S7.1).
+"""search dataset.
 
--> symbols | news | news_symbols | research_reports        [kapi disi]
--> search_quotes | search_lists | search_report_hits       [kapili]
+-> symbols | news | news_symbols | research_reports        [ungated]
+-> search_quotes | search_lists | search_report_hits       [gated]
 
-UC OLCULMUS TUZAK bu modulun seklini belirledi:
+Three measured traps shaped this module:
 
-1. `include_research` VARSAYILANI FALSE'tur (search.py:32-34). Acikca
-   verilmezse `researchReports` HIC gelmez ve iki tablo sessizce bos
-   kalirdi -- ustelik S9.6 eksiksizlik kaniti bunu YAKALAMAZDI, cunku
-   "kaynak bos dondu" ile "istemedik" ayni gorunurdu.
+1. `include_research`'s default is False. Without passing it explicitly,
+   `researchReports` never arrives and two tables stay silently empty --
+   and the completeness proof would not catch this, since "source returned
+   empty" and "we didn't ask" look identical.
 
-2. `quotes` blogu SEMBOLSUZ satir tasir. `include_cb=True` varsayilani
-   Crunchbase ozel-sirket kayitlarini getiriyor
-   (`{index, name, permalink, isYahooFinance}`). `yfinance`in `.quotes`
-   ozelligi bunlari suzuyor (search.py:110) ama biz `.response` ham
-   govdesini kullaniyoruz -- suzgec BURADA acikca uygulanir (SQ K14).
+2. The `quotes` block carries rows with no symbol. The `include_cb=True`
+   default pulls in Crunchbase private-company records
+   (`{index, name, permalink, isYahooFinance}`). yfinance's `.quotes`
+   property filters these out, but we use the raw `.response` body, so the
+   filter is applied explicitly here instead.
 
-3. Search haberi `Ticker.news` ILE AYNI KIMLIK UZAYINDA ama govdesi DAR:
-   8 anahtara karsi 17. Kor upsert zengin satiri NULL'lardi; bu yuzden
-   `update_columns` yalnizca GERCEKTEN doldurulan kolonlarla sinirlidir
-   (SQ S8.5).
+3. Search news shares its identity space with `Ticker.news` but has a
+   narrower body: 8 keys against 17. A blind upsert would NULL the richer
+   row, so `update_columns` is limited to the columns this path actually
+   populates.
 """
 
 from __future__ import annotations
@@ -49,11 +49,12 @@ from yfin.logging_setup import get_logger
 
 log = get_logger(__name__)
 
-# SQ S8.5: Search'un GERCEKTEN doldurdugu kolonlar. Kapsam disinda kalan
+# Columns Search actually populates. The ones left out of scope --
 # `summary`, `description`, `canonical_url`, `provider_url`,
-# `provider_source_id`, `display_time`, `thumbnail_*` ve `raw_json`
-# INSERT'te yazilir, sonraki Search gecislerinde DOKUNULMAZ. Boylece
-# `Ticker.news`in zengin govdesi daima fakiri ezer, tersi ASLA olmaz.
+# `provider_source_id`, `display_time`, `thumbnail_*`, and `raw_json` --
+# are written on INSERT and untouched on later Search passes. This way
+# `Ticker.news`'s richer body always overwrites the narrower one, never
+# the reverse.
 NEWS_UPDATE = (
     "title",
     "pub_date",
@@ -106,8 +107,8 @@ _LIST_UPDATE = (
 _REPORT_UPDATE = ("provider", "author", "report_headline", "report_ts_utc", "fetched_at")
 _HIT_UPDATE = ("rank_index", "fetched_at")
 
-# SQ S5.12: search'un doldurdugu tanimlayici kolonlar. `screener`inkinden
-# DAR: Search kotasyonu `currency`/`timezone`/`firstTradeDate` tasimaz.
+# Identifying columns search populates. Narrower than `screener`'s: a
+# Search quote carries no `currency`/`timezone`/`firstTradeDate`.
 SYMBOL_UPDATE = ("short_name", "long_name", "exchange", "quote_type", "last_seen_at")
 
 REPORT_ID_MAX = 64
@@ -146,11 +147,10 @@ class SearchDataset(DiscoveryDataset[SearchPayload]):
                 max_results=cfg.yf_search_max_results,
                 news_count=cfg.yf_search_news_count,
                 lists_count=cfg.yf_search_lists_count,
-                # ACIKCA verilir -- varsayilani False (SQ S4.1/5).
+                # Passed explicitly -- the default is False.
                 include_research=True,
-                # `nav` kapsam disi (SQ S1): iki alan, ikisi de UI
-                # navigasyon baglantisi. Istemek `timeTakenForNav`
-                # maliyetini de ekler.
+                # `nav` is out of scope: both fields are UI navigation
+                # links. Requesting it also adds the `timeTakenForNav` cost.
                 include_nav_links=False,
             ).response,
             what=f"search:{term}",
@@ -173,7 +173,7 @@ class SearchDataset(DiscoveryDataset[SearchPayload]):
 
         return NormalizedResult(
             writes=[
-                # --- kapi disi (SQ S6.2.1) ---
+                # --- ungated ---
                 TableWrite(
                     table="symbols",
                     rows=symbols,
@@ -198,7 +198,7 @@ class SearchDataset(DiscoveryDataset[SearchPayload]):
                     key_columns=("report_id",),
                     update_columns=_REPORT_UPDATE,
                 ),
-                # --- kapili ---
+                # --- gated ---
                 TableWrite(
                     table="search_quotes",
                     rows=quotes,
@@ -230,9 +230,9 @@ def _quote_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str
     for quote in raw.quotes:
         symbol = nz.to_str(quote.get("symbol"))
         if symbol is None:
-            # SQ K14: Crunchbase ozel-sirket kaydi. `rank_index` ARTMAZ -- sira
-            # yazilan satirlar uzerinden sayilir, yoksa 0-tabanli yogun
-            # dizi bozulurdu.
+            # Crunchbase private-company record. `rank_index` does not
+            # advance -- rank counts over written rows, otherwise the
+            # 0-based dense sequence would break.
             continue
         if symbol in seen:
             continue
@@ -251,14 +251,14 @@ def _quote_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str
                 "exch_disp": nz.to_str(quote.get("exchDisp"), max_len=64),
                 "short_name": nz.to_str(quote.get("shortname"), max_len=128),
                 "long_name": nz.to_str(quote.get("longname"), max_len=255),
-                # Sektor/endustri ailesi YALNIZ EQUITY satirlarinda
+                # Sector/industry family is populated for equity rows only
                 "sector": nz.to_str(quote.get("sector"), max_len=64),
                 "sector_disp": nz.to_str(quote.get("sectorDisp"), max_len=64),
                 "industry": nz.to_str(quote.get("industry"), max_len=128),
                 "industry_disp": nz.to_str(quote.get("industryDisp"), max_len=128),
                 "disp_sec_ind_flag": nz.to_bool(quote.get("dispSecIndFlag")),
                 "is_yahoo_finance": nz.to_bool(quote.get("isYahooFinance")),
-                # Bastaki bosluk olculdu; `nz.to_str` kirpar
+                # Leading whitespace measured in the source; `nz.to_str` trims it
                 "prev_name": nz.to_str(quote.get("prevName"), max_len=255),
                 "name_change_date": nz.to_datetime_utc(quote.get("nameChangeDate")),
                 "is_known": is_known,
@@ -273,8 +273,8 @@ def _quote_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str
                     symbol,
                     source="search",
                     fetched_at=raw.fetched_at,
-                    # Search kotasyonu `currency`/`timezone`/`firstTradeDate`
-                    # TASIMAZ; `SYMBOL_UPDATE` da bu dort alanla sinirli.
+                    # A Search quote carries no currency/timezone/firstTradeDate;
+                    # `SYMBOL_UPDATE` is limited to these four fields.
                     short_name=nz.to_str(quote.get("shortname"), max_len=128),
                     long_name=nz.to_str(quote.get("longname"), max_len=255),
                     exchange=nz.to_str(quote.get("exchange"), max_len=32),
@@ -285,12 +285,12 @@ def _quote_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str
 
 
 def _list_rows(raw: SearchPayload) -> list[dict[str, Any]]:
-    """IKI SEKILLI blok (SQ S4.1/6).
+    """A block with two shapes.
 
     `ALGO_WATCHLIST` -> `slug` + `name` + `symbolCount`
     `PREDEFINED_SCREENER` -> `canonicalName` + `title` + `total`
 
-    Ortak alan yalnizca dorttur; ayri tablolar onlari cogaltirdi.
+    Only four fields are common; separate tables would duplicate them.
     """
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -328,7 +328,7 @@ def _list_rows(raw: SearchPayload) -> list[dict[str, Any]]:
 
 
 def _news_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """`Ticker.news` ile AYNI PK, DAR govde (SQ S8.5)."""
+    """Same PK as `Ticker.news`, narrower body."""
     rows: list[dict[str, Any]] = []
     links: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -338,8 +338,8 @@ def _news_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str,
         title = nz.to_str(item.get("title"), max_len=512)
         pub_date = nz.epoch_to_datetime(item.get("providerPublishTime"), unit="s")
         if news_id is None or title is None or pub_date is None:
-            # `title` ve `pub_date` NOT NULL; eksikse satir DUSER ve uyari
-            # loglanir -- hucrenin tamamini dusurmek yerine.
+            # `title` and `pub_date` are NOT NULL; if missing, the row is
+            # dropped and a warning logged -- instead of dropping the whole cell.
             log.warning("search haberi eksik alanla geldi", news_id=news_id)
             continue
         if news_id in seen:
@@ -375,11 +375,11 @@ def _news_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str,
 
 
 def _report_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """PAYLASILAN varlik + bag (SQ K8).
+    """Shared entity plus link.
 
-    `reportDate` burada epoch MILISANIYE gelir; domain yolunda ISO METIN
-    gelir (SQ S4.3). Ortak bir donusturucu varsayilsaydi biri sessizce
-    NULL olurdu.
+    `reportDate` arrives as an epoch in milliseconds here; the domain path
+    gets an ISO text string instead. A shared converter would silently
+    NULL one of the two.
     """
     reports: list[dict[str, Any]] = []
     hits: list[dict[str, Any]] = []
@@ -422,7 +422,7 @@ def _report_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[st
     return reports, hits
 
 
-# OPT-IN: kayitli ama `all` genislemesine GIRMEZ (SQ K11).
-# `yfin sync --datasets search` calisir; ciplak
-# `yfin sync` bu dataset'i CEKMEZ ve maliyeti degismez.
+# Opt-in: registered but excluded from the `all` expansion.
+# `yfin sync --datasets search` runs it; a bare `yfin sync` does not fetch
+# it, so its cost is unchanged.
 register(SearchDataset(), opt_in=True)

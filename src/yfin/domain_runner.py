@@ -1,21 +1,21 @@
-"""Sektor / endustri sync orkestrasyonu (SI S6.7).
+"""Sector / industry sync orchestration.
 
-`market_runner.py`'nin yapisi, ama UCUNCU bir eksende: 156 anahtar, her biri
-kendi HTTP istegi. `market_runner`'in "6 dataset, tek tur" varsayimi burada
-tutmaz ve `SyncContext.ticker` domain icin anlamsizdir -- bu yuzden ayri bir
-runner.
+Structured like `market_runner.py`, but on a third axis: 156 keys, each its
+own HTTP request. `market_runner`'s "6 datasets, one turn" assumption
+doesn't hold here, and `SyncContext.ticker` is meaningless for a domain --
+hence a separate runner.
 
-PARALELLIK / SHARD YOKTUR. 156 istek, tek process, tek proxy. Sembol
-tarafindaki kuyruk/backpressure makinesi burada karsiligi olmayan bir
-karmasiklik olurdu (`market_runner`'in gerekcesi).
+No parallelism, no sharding: 156 requests, one process, one proxy. The
+symbol side's queue/backpressure machinery would be unneeded complexity
+here.
 
-TRANSACTION SINIRI = TUR = (dataset x anahtar x bolge). Bozuk bir endustri
-diger 144'u dusurmez. TEK ISTISNA `domain_taxonomy`: 156 `symbols` + 156
-`domains` satiri tek turda, tek transaction'da yazilir -- taksonomi ya butun
-olarak tutarlidir ya hic.
+Transaction boundary = turn = (dataset x key x region). A broken industry
+doesn't take down the other 144. The one exception is `domain_taxonomy`:
+156 `symbols` rows plus 156 `domains` rows are written in a single turn,
+single transaction -- the taxonomy is consistent as a whole or not at all.
 
-Kilit `yfin_domain_sync`; `yfin_sync` ve `yfin_market_sync` ile catismaz, uc
-komut es zamanli kosabilir.
+Lock is `yfin_domain_sync`; doesn't conflict with `yfin_sync` or
+`yfin_market_sync`, so all three commands can run concurrently.
 """
 
 from __future__ import annotations
@@ -62,26 +62,26 @@ log = get_logger(__name__)
 
 DOMAIN_LOCK_NAME = "yfin_domain_sync"
 
-# Yahoo'nun geri dusus bolgesi. Taban HER ZAMAN budur: birincil bolge taban
-# alinsaydi ve birincil bolgenin KENDISI gecersiz olsaydi
-# (YF_DOMAIN_REGIONS=XX) hicbir sey yakalanmazdi.
+# Yahoo's fallback region. Always the base: if the primary region were used
+# as the base and the primary region itself were invalid
+# (YF_DOMAIN_REGIONS=XX), nothing would catch it.
 US = "US"
 
-# Desteklenen bolgelerin US ile `topCompanies` kesisimi TAM OLARAK 0
-# olculdu (GB, DE, JP, TR -- dordunde de). Geri dusus durumunda kesisim
-# 1,0'dir. %50 esigi iki durumu ayirmak icin fazlasiyla genis pay birakir ve
-# sira/kume kaymasindan etkilenmez.
+# Measured `topCompanies` overlap with US for supported regions is exactly
+# 0 (GB, DE, JP, TR -- all four). In the fallback case overlap is 1.0. The
+# 50% threshold leaves ample margin between the two cases and is not
+# sensitive to ordering/set drift.
 FALLBACK_OVERLAP = 0.5
 
 _REGION_PATTERN = re.compile(r"[A-Z]{2}")
 
-# `sync_run_items.symbol` NOT NULL; bootstrap turunun tek bir domain
-# sembolu yoktur (156'sini birden yazar).
+# `sync_run_items.symbol` is NOT NULL; the bootstrap turn has no single
+# domain symbol (it writes all 156 at once).
 TAXONOMY_SCOPE_MARKER = GLOBAL_REGION_MARKER
 
 
 class RegionValidationError(ValueError):
-    """Yapilandirilmis bolge Yahoo tarafindan desteklenmiyor ya da bicimsiz."""
+    """Configured region is not supported by Yahoo, or malformed."""
 
 
 def domain_regions(
@@ -90,24 +90,24 @@ def domain_regions(
     cache: dict[str, Any] | None = None,
     fetch: Any = None,
 ) -> list[str]:
-    """Bicim + AMPIRIK dogrulama (SI S6.6).
+    """Format check plus empirical validation.
 
-    UC TUZAK VAR VE UCU DE OLCULDU:
+    Three measured traps:
 
-    1. Gecersiz bolge SESSIZCE US donduruyor (`XX`, `EUROPE`, `''`, `us`) --
-       hata yok. Bicim kontrolu tek basina `XX`i gecirir ve US verisi `XX`
-       etiketiyle yazilirdi.
-    2. Taban olarak BIRINCIL bolge alinirsa, birincil bolgenin kendisi
-       gecersizse hicbir sey yakalanmaz. Taban HER ZAMAN `US` olmalidir.
-    3. LISTE ESITLIGI KULLANILAMAZ: `topCompanies` sirasi 15 dakikada 11
-       sektorun 8'inde, `technology`de KUMESI BILE degisti. Iki ardisik
-       istek arasinda liste kayarsa gecersiz bir bolge dogrulamayi GECER --
-       tam olarak probun engellemek icin var oldugu senaryo. Bu yuzden
-       KUME KESISIMI kullanilir.
+    1. An invalid region silently returns US (`XX`, `EUROPE`, `''`, `us`) --
+       no error. Format checking alone lets `XX` through, and US data would
+       get written under the `XX` label.
+    2. Using the primary region as the base misses an invalid primary
+       region entirely. The base must always be `US`.
+    3. List equality doesn't work: `topCompanies` order changed in 8 of 11
+       sectors within 15 minutes, and `technology`'s set itself changed.
+       If the list drifts between two consecutive requests, an invalid
+       region would pass validation -- exactly the scenario the probe
+       exists to catch. Set intersection is used instead.
 
-    Maliyet: US-disi yapilandirilmis bolge basina 1 istek, arti US
-    yapilandirilmamissa 1 taban istegi. `US` tek basinayken SIFIR ek istek
-    -- ve koruma da gerekmez, cunku US geri dususun kendisidir.
+    Cost: 1 request per configured non-US region, plus 1 base request
+    unless US is configured. Zero extra requests when only `US` is
+    configured, and no guard is needed since US is the fallback itself.
     """
     cfg = settings or get_settings()
     getter = fetch or fetch_domain
@@ -122,13 +122,13 @@ def domain_regions(
 
     candidates = [r for r in regions if r != US]
     if not candidates:
-        return regions  # yalniz US: dogrulanacak bir sey yok
+        return regions  # US only: nothing to validate
 
     ref = cfg.yf_domain_reference_sector
     base_payload = getter(ref, "sector", US)
     if cache is not None:
-        # Taban istegin yaniti onbellege konur; `US` yapilandirilmissa
-        # `sector_profile`/`sector_rankings` onu YENIDEN CEKMEZ.
+        # Cache the base request's response so `sector_profile`/
+        # `sector_rankings` don't re-fetch it when `US` is configured.
         cache[f"raw:{ref}:{US}"] = base_payload
     base = {c.get("symbol") for c in base_payload.get("topCompanies") or []}
     base.discard(None)
@@ -153,11 +153,11 @@ def domain_regions(
 def domain_targets(
     factory: sessionmaker[Any], domain_type: DomainType
 ) -> list[tuple[str, str]]:
-    """(anahtar, sembol) ciftleri; kaynak DB'dir.
+    """(key, symbol) pairs, sourced from the DB.
 
-    Bellekte tasinmamasi, `--datasets industry_profile` gibi KISMI
-    kosularda da ayni yolu kullanmasini saglar (SI S6.5). Bootstrap her
-    cozumlemede basa eklendigi icin liste her zaman tazedir.
+    Not held in memory, so partial runs like `--datasets industry_profile`
+    use the same path. The bootstrap turn runs first on every resolution,
+    so the list is always fresh.
     """
     with factory() as session:
         rows = session.execute(
@@ -169,7 +169,7 @@ def domain_targets(
 
 
 def domain_parents(factory: sessionmaker[Any]) -> dict[str, str]:
-    """Endustri anahtari -> DB'deki ebeveyn sektor anahtari (SI S7.3)."""
+    """Industry key -> parent sector key, from the DB."""
     with factory() as session:
         rows = session.execute(
             select(Domain.domain_key, Domain.parent_key).where(
@@ -199,13 +199,13 @@ def _run_turn(
     symbol: str,
     tracker: ProxyTracker | None = None,
 ) -> list[ItemRecord]:
-    """Tek tur: fetch -> normalize -> upsert, KENDI transaction'inda."""
+    """One turn: fetch -> normalize -> upsert, in its own transaction."""
     started = time.perf_counter()
     region = ctx.region
     try:
         raw = dataset.fetch(ctx)
         result = dataset.normalize(raw, key)
-    except Exception as exc:  # noqa: BLE001 - (dataset x anahtar x bolge) siniri
+    except Exception as exc:  # noqa: BLE001 - boundary is (dataset x key x region)
         kind = classify_error(exc)
         log.warning(
             "domain dataset failed",
@@ -248,19 +248,19 @@ def run_domain_sync(
     settings: Settings | None = None,
     acquire_lock: bool = True,
 ) -> RunTally:
-    """SIRA BAGLAYICIDIR (SI S6.7).
+    """Order is load-bearing.
 
-    1. `_setup_proxy()` -- havuzdan tek proxy, `configure_yfinance`
-    2. `domain_regions()` -- bolge dogrulamasi; proxy'den SONRA (aksi halde
-       prob dogrudan baglantidan giderdi ve havuz politikasi disinda
-       kalirdi), `open_run`dan ONCE (hatali yapilandirma `running`
-       durumunda bir `sync_runs` satiri birakmasin)
+    1. `_setup_proxy()` -- one proxy from the pool, `configure_yfinance`
+    2. `domain_regions()` -- region validation; after the proxy step
+       (otherwise the probe would go out over a direct connection, bypassing
+       pool policy), before `open_run` (so bad config doesn't leave a
+       `sync_runs` row stuck in `running`)
     3. `open_run(scope=DOMAIN, symbol_count=0)`
-    4. `domain_taxonomy` turu
-    5. Anahtarlar DB'den okunur
-    6. `scope='sector'` dataset'leri, sonra `scope='industry'`
-    7. Her dataset icin: `regional=False` -> tek tur (`region='*'`);
-       `regional=True` -> bolge basina bir tur
+    4. `domain_taxonomy` turn
+    5. Keys read from the DB
+    6. `scope='sector'` datasets, then `scope='industry'`
+    7. Per dataset: `regional=False` -> one turn (`region='*'`);
+       `regional=True` -> one turn per region
     """
     cfg = settings or get_settings()
     if acquire_lock:
@@ -274,9 +274,9 @@ def run_domain_sync(
     regions = domain_regions(cfg, cache=cache)
     primary = regions[0]
 
-    # symbol_count=0 ZORUNLUDUR: `exit_code()` kod 1'i yalnizca
-    # symbol_count doluysa uretir; anahtar sayisi yazilsaydi "cozulen
-    # sembol" semantigi sessizce kayardi (market_runner ile ayni gerekce).
+    # symbol_count=0 is required: `exit_code()` only produces code 1 when
+    # symbol_count is set. Writing the key count instead would silently
+    # shift "resolved symbol" semantics (same reasoning as market_runner).
     run_id = open_run(
         factory,
         symbol_count=0,
@@ -296,22 +296,22 @@ def run_domain_sync(
     items: list[ItemRecord] = []
     selected = list(datasets)
 
-    # 4. Bootstrap: TEK tur, TEK transaction.
+    # 4. Bootstrap: one turn, one transaction.
     for dataset in [d for d in selected if not d.per_key]:
         items.extend(
             _run_turn(factory, dataset, base_ctx, TAXONOMY_SCOPE_MARKER,
                       TAXONOMY_SCOPE_MARKER, tracker)
         )
 
-    # 5. Anahtarlar DB'den. Bootstrap her cozumlemede basa eklendigi icin
-    #    liste her zaman tazedir.
+    # 5. Keys from the DB. The bootstrap turn runs first on every
+    #    resolution, so the list is always fresh.
     base_ctx.parents.update(domain_parents(factory))
     targets = {
         "sector": domain_targets(factory, DomainType.SECTOR),
         "industry": domain_targets(factory, DomainType.INDUSTRY),
     }
 
-    # 6. Once sektor, sonra endustri.
+    # 6. Sectors first, then industries.
     per_key = [d for d in selected if d.per_key]
     ordered = [d for d in per_key if d.scope == "sector"] + [
         d for d in per_key if d.scope == "industry"
@@ -337,10 +337,11 @@ def run_domain_sync(
 def _setup_proxy(
     factory: sessionmaker[Any], settings: Settings
 ) -> tuple[int | None, str | None, ProxyTracker | None]:
-    """Havuzdan TEK proxy secip yfinance'i ona baglar.
+    """Picks one proxy from the pool and points yfinance at it.
 
-    `market_runner._setup_proxy` ile AYNI politika: uygun proxy yoksa
-    dogrudan baglanti; parolasi cozulemeyen proxy dead YAPILMAZ, atlanir.
+    Same policy as `market_runner._setup_proxy`: falls back to a direct
+    connection if no proxy is eligible; a proxy whose password can't be
+    decrypted is skipped, not marked dead.
     """
     with factory() as session:
         for row in select_eligible(session, limit=1):

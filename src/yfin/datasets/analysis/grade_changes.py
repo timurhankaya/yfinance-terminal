@@ -1,12 +1,12 @@
-"""upgrades_downgrades dataset'i -> analyst_grade_changes (AH S6.3).
+"""upgrades_downgrades dataset -> analyst_grade_changes.
 
-AS-OF DEGILDIR: kaynak her satirin kendi tarihini (`epochGradeDate`)
-tasiyor. SAF UPSERT'tir; `replace_scope` olsaydi ~1000 satirlik kaynak
-tavaninin disinda kalan eski kayitlar her calistirmada silinirdi (AH S4.5).
+Not as-of: the source carries each row's own date (`epochGradeDate`). A
+pure upsert -- with `replace_scope`, old records that fall off the
+source's ~1000-row cap would be deleted on every run.
 
-Resmi dokumantasyon dort kolon yaziyor (base.py:227-231); olcum YEDI buldu:
-`priceTargetAction`, `currentPriceTarget`, `priorPriceTarget` de geliyor
-(15 sembolde ayni).
+The official docs list four columns; measurement found seven:
+`priceTargetAction`, `currentPriceTarget`, `priorPriceTarget` also appear
+(consistent across 15 symbols).
 """
 
 from __future__ import annotations
@@ -37,8 +37,8 @@ UPDATE_COLUMNS = (
     "prior_price_target",
     "fetched_at",
 )
-# Tabloya tasinan kaynak kolonlari; disinda kalan her anahtar S8.5 uyarisi
-# uretir (kaynak yeni bir kolon eklerse sessizce kaybolmasin).
+# Source columns mapped into the table; any other key logs a warning so a
+# new source column does not silently vanish.
 MAPPED_SOURCES = frozenset(
     {
         "Firm",
@@ -56,7 +56,7 @@ class UpgradesDowngradesDataset(Dataset[RangedFramePayload]):
     name = "upgrades_downgrades"
     depends_on = ("symbols",)
     produces = (TABLE,)
-    # Kaynak sabit bir pencere donduruyor; aralik satir eler (AH S6.2).
+    # Source returns a fixed window; the date range only filters rows.
     date_range = "filter"
 
     def fetch(self, ctx: SyncContext) -> RangedFramePayload:
@@ -81,8 +81,8 @@ class UpgradesDowngradesDataset(Dataset[RangedFramePayload]):
         rows: dict[tuple[Any, ...], dict[str, Any]] = {}
 
         for index, record in frame.iterrows():
-            # Kaynak tz-naive AMA epochGradeDate SANIYESINDEN uretilmis
-            # (quote.py:577) -> UTC'dir; ikinci bir tz donusumu YAPILMAZ.
+            # Index is tz-naive but built from epochGradeDate (a UTC epoch
+            # second), so it is already UTC -- no second tz conversion.
             ts_utc = nz.to_datetime_utc(index)
             if ts_utc is None:
                 log.warning("grade change has no timestamp", symbol=symbol)
@@ -90,8 +90,8 @@ class UpgradesDowngradesDataset(Dataset[RangedFramePayload]):
             if ranged and not in_range(ts_utc.date(), raw.start, raw.end):
                 continue
 
-            # firm PK bilesenidir: bos dize iki FARKLI kaydi tek satirda
-            # birlestirirdi, kirpilmis bir ad da oyle.
+            # firm is part of the PK: a blank string would collapse two
+            # distinct records into one row, and so would a truncated name.
             firm = key_value(
                 record.get("Firm"),
                 FIRM_LENGTH,
@@ -112,7 +112,7 @@ class UpgradesDowngradesDataset(Dataset[RangedFramePayload]):
                 "price_target_action": blank_to_none(
                     record.get("priceTargetAction"), max_len=16
                 ),
-                # 0.0 GERCEK bir degerdir; NULL'a cevrilmez.
+                # 0.0 is a real value; it is not converted to NULL.
                 "current_price_target": nz.to_decimal(record.get("currentPriceTarget")),
                 "prior_price_target": nz.to_decimal(record.get("priorPriceTarget")),
                 "fetched_at": raw.fetched_at,

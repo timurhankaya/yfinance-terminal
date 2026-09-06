@@ -1,11 +1,11 @@
-"""Financials + market canli entegrasyon testi (S9.3).
+"""Live integration test for financials + market.
 
-Varsayilan olarak ATLANIR. Elle calistirmak icin:  pytest -m live
-Gercek Yahoo API + gercek PostgreSQL; CI'da calistirilmaz.
+Skipped by default. Run manually with: pytest -m live
+Uses the real Yahoo API and a real PostgreSQL; not run in CI.
 
-DIKKAT: `run_sync` 'yfin_sync' advisory kilidini alir. Baska bir sync
-calisiyorken bu modul `LockNotAcquired` ile duser -- bu, es zamanlilik
-korumasinin DOGRU calistiginin isaretidir, test hatasi degildir (S8.6).
+`run_sync` takes the 'yfin_sync' advisory lock. If another sync is running,
+this module fails with `LockNotAcquired` -- that means the concurrency
+protection works, it is not a test bug.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ class TestLiveFinancials:
     def test_valuation_measures_land_in_the_same_eav(  # type: ignore[no-untyped-def]
         self, test_engine: Engine, live_financials
     ) -> None:
-        """Ayri tablo YOK: olcutler `statement='valuation'` ile ayni EAV'de."""
+        """No separate table: measures live in the same EAV with `statement='valuation'`."""
         with Session(test_engine) as session:
             rows = int(
                 session.execute(
@@ -91,7 +91,7 @@ class TestLiveFinancials:
     def test_etf_has_no_valuation_measures(  # type: ignore[no-untyped-def]
         self, test_engine: Engine, live_financials
     ) -> None:
-        """SPY'de kaynak (0,0) doner: `empty`, `failed` degil."""
+        """The source returns (0,0) for SPY: `empty`, not `failed`."""
         with Session(test_engine) as session:
             rows = int(
                 session.execute(
@@ -106,15 +106,15 @@ class TestLiveFinancials:
     def test_etf_statements_are_empty_not_failed(  # type: ignore[no-untyped-def]
         self, test_engine: Engine, live_financials
     ) -> None:
-        """SPY sirket degildir: 404 ve IndexError `empty`ye cevrilir (S8.2)."""
+        """SPY is not a company: 404 and IndexError are translated to `empty`."""
         with Session(test_engine) as session:
             assert _count(session, "financial_periods", "SPY") == 0
             statuses = set(
                 session.execute(
                     text(
                         "SELECT DISTINCT status FROM sync_run_items "
-                        # bootstrap `symbols` SPY icin dogru sekilde `ok`tur:
-                        # sembol cozulur, yalnizca financials verisi yoktur
+                        # bootstrap `symbols` is correctly `ok` for SPY: the
+                        # symbol resolves, only financials data is missing.
                         "WHERE run_id = :r AND symbol = 'SPY' AND dataset <> 'symbols'"
                     ),
                     {"r": live_financials.run_id},
@@ -125,7 +125,7 @@ class TestLiveFinancials:
     def test_fact_count_matches_item_count_sum(  # type: ignore[no-untyped-def]
         self, test_engine: Engine, live_financials
     ) -> None:
-        """Eksiksizligin makine tarafindan dogrulanabilir hali (S9.3)."""
+        """The machine-checkable form of completeness."""
         with Session(test_engine) as session:
             facts = _count(session, "financial_facts")
             total = session.execute(
@@ -136,7 +136,7 @@ class TestLiveFinancials:
     def test_currency_recorded_for_foreign_symbol(  # type: ignore[no-untyped-def]
         self, test_engine: Engine, live_financials
     ) -> None:
-        """THYAO.IS tablolari USD raporlanir (fiyatlari TRY)."""
+        """THYAO.IS tables report in USD (its prices are in TRY)."""
         with Session(test_engine) as session:
             currencies = set(
                 session.execute(
@@ -150,20 +150,20 @@ class TestLiveFinancials:
     ) -> None:
         with Session(test_engine) as session:
             assert _count(session, "sec_filings", "AAPL") > 0
-            assert _count(session, "sec_filings", "THYAO.IS") == 0  # kaynak {} doner
+            assert _count(session, "sec_filings", "THYAO.IS") == 0  # source returns {}
 
     def test_earnings_dates_written_for_companies(  # type: ignore[no-untyped-def]
         self, test_engine: Engine, live_financials
     ) -> None:
         with Session(test_engine) as session:
             assert _count(session, "earnings_dates", "AAPL") > 0
-            assert _count(session, "earnings_dates", "SPY") == 0  # kaynak None doner
+            assert _count(session, "earnings_dates", "SPY") == 0  # source returns None
 
     def test_second_run_is_idempotent_and_skips(  # type: ignore[no-untyped-def]
         self, test_engine: Engine, live_financials
     ) -> None:
-        """Ikinci calistirma ayni satir sayisini birakir ve donemleri
-        `skipped` isaretler (content_hash degismedi)."""
+        """A second run leaves the same row count and marks periods `skipped`
+        (content_hash unchanged)."""
         with Session(test_engine) as session:
             before = _count(session, "financial_facts")
 
@@ -174,7 +174,7 @@ class TestLiveFinancials:
             after = _count(session, "financial_facts")
         assert after == before
         assert summary.exit_code() == EXIT_OK
-        # Hash degismedi -> kalemler yeniden yazilmadi
+        # Hash unchanged -> items were not rewritten
         assert summary.totals["rows_skipped"] > 0
 
 
@@ -185,12 +185,12 @@ class TestLiveMarket:
 
     def test_market_run_succeeds(self, market_summary_run) -> None:  # type: ignore[no-untyped-def]
         assert market_summary_run.exit_code() == EXIT_OK
-        assert market_summary_run.symbol_count == 0  # bolge sayisi YAZILMAZ
+        assert market_summary_run.symbol_count == 0  # region count is not written
 
     def test_only_us_has_status(  # type: ignore[no-untyped-def]
         self, test_engine: Engine, market_summary_run
     ) -> None:
-        """7 bolgede status None doner (deterministik, flaky degil)."""
+        """Status is None in 7 regions (deterministic, not flaky)."""
         with Session(test_engine) as session:
             regions = set(session.execute(text("SELECT region FROM market_status")).scalars())
         assert regions == {"US"}

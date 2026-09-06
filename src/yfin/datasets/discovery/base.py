@@ -1,25 +1,25 @@
-"""Kesif dataset'lerinin ortak tabani (SQ S6.2).
+"""Common base for discovery datasets.
 
-Iki sey yapar:
+Does two things:
 
-1. KAPI TABLOSUNU degistirir. `asof_state` KULLANILAMAZ (SQ K3a): o
-   tablonun `symbol` kolonu `symbol_fk_column` ile tanimlidir, yani
-   `symbols.symbol`a `ON DELETE RESTRICT` FK tasir. Serbest arama terimi
-   (`"Turkish Airlines"`) `symbols`ta YOKTUR ve kapi satiri FK ihlali (23503)
-   alirdi. Uzunluk siniri bu sorunu COZMEZ. SI ayni duvara carpip
-   `domain_asof_state`i acmisti; burada `discovery_asof_state` acilir ve
-   `AsOfGate`in `asof_gate_table` / `asof_gate_key_columns` /
-   `gate_identity` uzatma noktalari kullanilir -- YENI BIR KAPI SINIFI
-   YAZILMAZ (SQ K3).
+1. Swaps the gate table. `asof_state` cannot be used: that table's
+   `symbol` column is defined with `symbol_fk_column`, i.e. it carries an
+   `ON DELETE RESTRICT` FK to `symbols.symbol`. A free-text search term
+   (`"Turkish Airlines"`) does not exist in `symbols`, so the gate row
+   would hit an FK violation (23503). A length limit does not fix this.
+   Domain hit the same wall and opened `domain_asof_state`; here
+   `discovery_asof_state` is opened instead, reusing `AsOfGate`'s
+   `asof_gate_table` / `asof_gate_key_columns` / `gate_identity` extension
+   points -- no new gate class is written.
 
-2. KAPI KAPSAMINI boler. `AsOfGate._gate_write` kapi satirinin
-   `as_of_date` ve `fetched_at` alanlarini `_first_row(result)`tan, yani
-   `writes` listesindeki ILK DOLU satirdan okur; `gate_identity` override'i
-   da ayni satirdan `query_term` bekler. Dort tablo bu sozlesmeyi
-   karsilamaz (asagida). "Siralamaya dikkat ederiz" YETMEZ: `search_quotes`
-   bos kalabilirken `news` ya da `research_reports` dolu olabiliyor
-   ("Turkish Airlines" olcumu) -- o durumda ilk dolu write onlardan biri
-   olur ve siralama disiplini ise yaramaz.
+2. Splits the gate scope. `AsOfGate._gate_write` reads the gate row's
+   `as_of_date` and `fetched_at` from `_first_row(result)`, i.e. the first
+   populated row in `writes`; the `gate_identity` override expects
+   `query_term` from that same row. Four tables do not satisfy this
+   contract (see below). "Just being careful about ordering" is not
+   enough: `search_quotes` can be empty while `news` or `research_reports`
+   is populated (measured for "Turkish Airlines") -- in that case the
+   first populated write is one of those, and ordering discipline does not help.
 """
 
 from __future__ import annotations
@@ -33,16 +33,18 @@ from yfin.persistence import RowWriter, apply_write
 DISCOVERY_GATE_TABLE = "discovery_asof_state"
 DISCOVERY_GATE_KEY_COLUMNS = ("query_term", "dataset")
 
-# Kapinin DISINDA kalan tablolar.
+# Tables left out of the gate.
 #
-# `symbols` EVREN KAYDIDIR; `news`/`news_symbols`/`research_reports` ise
-# KENDI kimlik uzayina sahip PAYLASILAN varliklardir. Bir arama teriminin
-# icerik hash'i onlarin yazilip yazilmayacagini belirleyemez -- ayni haberi
-# `Ticker.news` de, ayni raporu `Sector.research_reports` da yaziyor.
+# `symbols` is the universe record; `news`/`news_symbols`/`research_reports`
+# are shared entities with their own identity space. A search term's
+# content hash cannot decide whether they get written -- `Ticker.news`
+# writes the same news item, and `Sector.research_reports` writes the same
+# report.
 #
-# Dordunun de ORTAK teknik ozelligi: `query_term` kolonu YOKTUR (ilk ucunde
-# `as_of_date`/`fetched_at` de yoktur). Kapili tarafa girselerdi
-# `_first_row` yanlis satiri dondurur ve kapi yazimi KeyError verirdi.
+# All four share one technical trait: no `query_term` column (the first
+# three also lack `as_of_date`/`fetched_at`). Inside the gated side,
+# `_first_row` would return the wrong row and the gate write would raise
+# KeyError.
 UNGATED_TABLES = frozenset({"symbols", "news", "news_symbols", "research_reports"})
 
 
@@ -51,11 +53,11 @@ class DiscoveryDataset[RawT](AsOfDataset[RawT]):
     asof_gate_key_columns = DISCOVERY_GATE_KEY_COLUMNS
 
     def gate_identity(self, result: NormalizedResult) -> dict[str, Any]:
-        """Kapi anahtari: (query_term, dataset).
+        """Gate key: (query_term, dataset).
 
-        Varsayilan `_first_row(result)["symbol"]` okurdu; burada kapsam
-        sembol DEGIL terimdir -- bir arama teriminin sonucu birden cok
-        sembol tasir.
+        The default would read `_first_row(result)["symbol"]`; here the
+        scope is the search term, not a symbol -- one search term's result
+        can carry multiple symbols.
         """
         return {"query_term": _first_row(result)["query_term"], "dataset": self.name}
 
@@ -63,18 +65,18 @@ class DiscoveryDataset[RawT](AsOfDataset[RawT]):
         ungated = [w for w in result.writes if w.table in UNGATED_TABLES]
         gated = [w for w in result.writes if w.table not in UNGATED_TABLES]
 
-        # 1. Kapisiz yazimlar ONCE: `search_report_hits`in FK'si
-        #    `research_reports`e bakar ve ebeveyn once yazilmalidir.
+        # 1. Ungated writes first: `search_report_hits`'s FK points at
+        #    `research_reports`, so the parent must be written first.
         stats = WriteStats(skipped=dict(result.skipped))
         for write in ungated:
             apply_write(writer, write, stats)
 
-        # 2. `skipped` BOS gecirilir. Iki gerekce:
-        #    (a) dis `stats` onu zaten tohumladi; ikisi toplanirsa
-        #        `rows_skipped` denetimi IKIYE KATLANIR.
-        #    (b) `NormalizedResult.is_empty` "satir yok VE skipped bos"
-        #        demektir (base.py). `gated` satirsiz ama `skipped` doluyken
-        #        `is_empty` False olur, `_first_row` ValueError firlatir ve
-        #        hucre HAKSIZ YERE `failed`a duserdi.
+        # 2. `skipped` is passed empty. Two reasons:
+        #    (a) the outer `stats` already seeded it; summing both would
+        #        double the `rows_skipped` count.
+        #    (b) `NormalizedResult.is_empty` means "no rows AND skipped is
+        #        empty" (base.py). If `gated` has no rows but `skipped` is
+        #        populated, `is_empty` is False, `_first_row` raises
+        #        ValueError, and the cell would be wrongly marked `failed`.
         gated_result = NormalizedResult(writes=gated, skipped={})
         return merge_stats(stats, super().upsert(writer, gated_result))

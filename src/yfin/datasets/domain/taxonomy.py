@@ -1,10 +1,11 @@
-"""domain_taxonomy -- bootstrap dataset'i (SI S7.2).
+"""domain_taxonomy -- bootstrap dataset.
 
-Bolgesiz ve as-of DEGIL: duz upsert. Ad, aciklama, sembol ve ebeveyn yilda
-birkac kez degisir; gunluk anlik goruntu almanin karsiligi yoktur.
+Region-less and not as-of: a plain upsert. Name, description, symbol, and
+parent change a few times a year; taking a daily snapshot buys nothing.
 
-TEK TURDA kosar (`per_key = False`): 156 `symbols` + 156 `domains` satiri
-tek transaction'da yazilir -- taksonomi ya butun olarak tutarlidir ya hic.
+Runs in a single pass (`per_key = False`): 156 `symbols` rows and 156
+`domains` rows are written in one transaction -- the taxonomy is either
+consistent as a whole or not written at all.
 """
 
 from __future__ import annotations
@@ -27,16 +28,17 @@ from yfin.logging_setup import get_logger
 
 log = get_logger(__name__)
 
-# 6/6 domain sembolunde AYNI olculdu (ayri bir canli `fast_info` olcumu;
-# bu alanlar sector/industry yanitinda YOKTUR).
+# Measured identical across all 6 domain symbols (a separate live
+# `fast_info` measurement; these fields are absent from the sector/industry
+# response).
 DOMAIN_QUOTE_TYPE = "INDEX"
 DOMAIN_EXCHANGE = "YHD"
 DOMAIN_CURRENCY = "USD"
 DOMAIN_TIMEZONE = "America/New_York"
 
-# `is_active` ve `unknown_streak` update_columns DISINDADIR: kullanici
-# `^YH311`i elle etkinlestirmisse bir sonraki domain sync onu GERI
-# KAPATMAZ (SI S7.8).
+# `is_active` and `unknown_streak` are outside update_columns: if a user
+# manually activates `^YH311`, the next domain sync will not deactivate it
+# again.
 SYMBOL_UPDATE_COLUMNS = (
     "short_name",
     "quote_type",
@@ -45,10 +47,10 @@ SYMBOL_UPDATE_COLUMNS = (
     "timezone",
     "last_seen_at",
 )
-# `first_seen_at` DISARIDA (AH S5.4). `description` / `message_board_id` de
-# disaridadir: endustri tarafinda onlari `industry_profile` yazar ve iki
-# yazicinin AYRIK kolon kumeleri guncellemesi birbirini ezmelerini onler
-# (SI S5.11).
+# `first_seen_at` is excluded. `description` / `message_board_id` are also
+# excluded: on the industry side `industry_profile` writes them, and having
+# the two writers update disjoint column sets keeps them from overwriting
+# each other.
 DOMAIN_UPDATE_COLUMNS = ("symbol", "parent_key", "name", "fetched_at")
 
 
@@ -63,8 +65,8 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
         region = ctx.fetch_region
         sectors: dict[str, dict[str, Any]] = {}
         for key in SECTOR_KEYS:
-            # `partial`, dongu degiskenini lambda varsayilanina baglamaktan
-            # daha durustur ve mypy da onu cozebiliyor.
+            # `partial` is more honest than binding the loop variable to a
+            # lambda default, and mypy can resolve it too.
             sectors[key] = ctx.cached(
                 f"raw:{key}:{region}", partial(fetch_domain, key, "sector", region)
             )
@@ -83,8 +85,8 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
             sector_symbol = text_of(data, "symbol", 32)
             sector_name = text_of(data, "name", 64)
             if sector_symbol is None or sector_name is None:
-                # `symbol` UNIQUE NOT NULL, `name` NOT NULL: eksikse satir
-                # NOT NULL ihlali (23502) verir ve TURUN tamamini dusururdu.
+                # `symbol` is UNIQUE NOT NULL, `name` is NOT NULL: if missing,
+                # the row hits a NOT NULL violation (23502) and drops the whole pass.
                 log.warning("sektor kimlik alani eksik", domain_key=sector_key)
                 continue
 
@@ -103,17 +105,17 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
                 }
             )
 
-            # SATIR SIRASI TEK `TableWrite` ICINDE BAGLAYICIDIR: `parent_key`
-            # bir SELF-FK'dir, bu yuzden sektorun satiri kendi
-            # endustrilerinden ONCE gelmelidir. `apply_write` satirlari
-            # verilen sirayla gonderir.
+            # Row order within a single `TableWrite` matters: `parent_key`
+            # is a self-FK, so the sector's row must come before its own
+            # industries. `apply_write` sends rows in the order given.
             for row in data.get("industries") or []:
-                # "ALL INDUSTRIES" ELEME KURALI: `key` ALANININ YOKLUGU.
-                # yfinance `i.get('name') != 'All Industries'` ile eliyor;
-                # bu ADA bakan, DILE BAGLI bir kural. Olcum: 13 satirin
-                # 12'sinde `key` ve `symbol` var, o satirda ikisi de yok.
-                # Elenen satirin verisi KAYBOLMAZ: degerleri `performance`
-                # bloguyla ozdes olculdu.
+                # Rule for filtering out "All Industries": the absence of a
+                # `key` field. yfinance filters by
+                # `i.get('name') != 'All Industries'` instead, a
+                # name-based, language-dependent rule. Measured: 12 of 13
+                # rows have both `key` and `symbol`; that one row has
+                # neither. No data is lost by filtering it: its values were
+                # measured identical to the `performance` block.
                 industry_key = text_of(row, "key", 48)
                 if industry_key is None:
                     continue
@@ -130,9 +132,9 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
                         "symbol": industry_symbol,
                         "parent_key": sector_key,
                         "name": industry_name,
-                        # `industries[]` blogunda BU IKI ALAN YOKTUR
-                        # (SI S4.3); endustri icin onlari
-                        # `industry_profile` doldurur.
+                        # These two fields are absent from the
+                        # `industries[]` block; `industry_profile` fills
+                        # them in for an industry.
                         "description": None,
                         "message_board_id": None,
                         "first_seen_at": fetched_at,
@@ -142,8 +144,8 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
 
         return NormalizedResult(
             writes=[
-                # TABLO SIRASI BAGLAYICIDIR: `symbols` yazimi
-                # `domains.symbol` FK'sinden ONCE gelmelidir.
+                # Table order matters: writing `symbols` must precede
+                # `domains.symbol`'s FK.
                 TableWrite(
                     table=SYMBOLS_TABLE,
                     rows=symbol_rows,
@@ -161,13 +163,13 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
 
 
 def _symbol_row(symbol: str, name: str, fetched_at: Any) -> dict[str, Any]:
-    """`symbols` satiri; `is_active` ACIKCA 0 verilir (server_default '1').
+    """`symbols` row; `is_active` is explicitly set to 0 (server_default is '1').
 
-    Sektor/endustri indeksleri varsayilan `yfin sync` evrenine GIRMEZ;
-    kullanici isterse `--include-inactive` ya da `--quote-type INDEX` ile
-    onlarin fiyat gecmisini ve `info`/`fast_info` verisini mevcut
-    dataset'lerle toplayabilir (`^YH311.history(period='5d')` -> (5,7)
-    olculdu).
+    Sector/industry indices are excluded from the default `yfin sync`
+    universe; a user can still collect their price history and
+    `info`/`fast_info` data with the existing datasets via
+    `--include-inactive` or `--quote-type INDEX` (measured
+    `^YH311.history(period='5d')` -> (5, 7)).
     """
     return {
         "symbol": symbol,

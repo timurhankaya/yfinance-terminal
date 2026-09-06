@@ -1,4 +1,4 @@
-"""shares_full dataset'i (S6.3 #7)."""
+"""shares_full dataset."""
 
 from __future__ import annotations
 
@@ -23,14 +23,14 @@ class SharesFullDataset(Dataset[SeriesPayload]):
     date_range = "api"
 
     def fetch(self, ctx: SyncContext) -> SeriesPayload:
-        # --start/--end WATERMARK'I GECERSIZ KILAR (AH S7.3).
+        # --start/--end OVERRIDES the watermark.
         if ctx.start is not None or ctx.end is not None:
             kwargs = date_range_kwargs(ctx.start, ctx.end)
         else:
             watermark = ctx.watermark("shares_full", "as_of_date")
             if watermark is None:
-                # start=None yfinance icinde 'end - 548 gun' olur ve AAPL'de
-                # 420 satirin 353'u SESSIZCE kaybolur (base.py:511).
+                # start=None becomes 'end - 548 days' inside yfinance; for
+                # AAPL, 353 of 420 rows are SILENTLY dropped (base.py:511).
                 kwargs = {"start": EPOCH_START.isoformat()}
             else:
                 overlap = get_settings().yf_incremental_overlap_days
@@ -43,8 +43,8 @@ class SharesFullDataset(Dataset[SeriesPayload]):
         return result
 
     def normalize(self, raw: SeriesPayload, symbol: str) -> NormalizedResult:
-        # SPY, BTC-USD, EURUSD=X, GC=F, ^GSPC -> None doner; 'raw.empty'
-        # cagrisi AttributeError verirdi (S8.3)
+        # SPY, BTC-USD, EURUSD=X, GC=F, ^GSPC -> returns None; calling
+        # 'raw.empty' would raise AttributeError.
         if nz.is_empty_result(raw):
             return NormalizedResult()
 
@@ -56,8 +56,9 @@ class SharesFullDataset(Dataset[SeriesPayload]):
             shares = nz.to_int(value)
             if as_of is None or shares is None or shares < 0:
                 continue
-            # PK (symbol, as_of_date, shares): kaynakta ayni tarihte farkli
-            # degerler var. Ayni tarih+deger ikilisi tekrarlanirsa tek satir.
+            # PK (symbol, as_of_date, shares): the source has different
+            # values on the same date. A repeated date+value pair collapses
+            # to one row.
             key = (as_of, shares)
             if key in seen:
                 continue

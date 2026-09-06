@@ -1,18 +1,21 @@
-"""Proxy havuzunu toplu doldurur.
+"""Bulk-loads the proxy pool.
 
-Kullanim:
-    python scripts/seed_proxies.py [DOSYA] [--scheme http] [--prefix p]
-    cat liste.txt | python scripts/seed_proxies.py
+Usage:
+    python scripts/seed_proxies.py [FILE] [--scheme http] [--prefix p]
+    cat list.txt | python scripts/seed_proxies.py
 
-Girdi formati satir basina `host:port:kullanici:parola` (kullanici ve
-parola istege bagli). Bos satirlar ve '#' ile baslayanlar atlanir.
+Input format is one `host:port:username:password` per line (username
+and password optional). Blank lines and lines starting with '#' are
+skipped.
 
-Parolalar DB'ye DUZ METIN YAZILMAZ: YF_PROXY_SECRET_KEY altinda Fernet
-ile sifrelenir. Anahtar tanimli degilse betik ACIK hata verir - sessizce
-parolasiz kayit olusturmaz, cunku o proxy'ler calismaz.
+Passwords are never written to the DB in plain text: they're encrypted
+with Fernet under YF_PROXY_SECRET_KEY. If the key isn't set, the script
+raises rather than silently creating passwordless records, since those
+proxies wouldn't work.
 
-Idempotenttir: (scheme, host, port, username) demeti zaten varsa satir
-atlanir. Girdi dosyasi kimlik bilgisi tasidigi icin depoya KONMAMALIDIR.
+Idempotent: a line is skipped if its (scheme, host, port, username)
+tuple already exists. The input file carries credentials and must not
+be committed to the repo.
 """
 
 from __future__ import annotations
@@ -33,19 +36,18 @@ from yfin.proxy import ProxyEndpoint, SecretKeyMissing, encrypt_password
 
 
 def parse_line(line: str, scheme: ProxyScheme) -> ProxyEndpoint | None:
-    """`host:port[:user[:pass]]` -> ProxyEndpoint. Yorum/bos satir -> None."""
+    """`host:port[:user[:pass]]` -> ProxyEndpoint. Comment/blank line -> None."""
     text = line.strip()
     if not text or text.startswith("#"):
         return None
     parts = text.split(":")
     if len(parts) < 2:
         raise ValueError(f"gecersiz satir (host:port bekleniyor): {text[:24]}...")
-    # .lower() SART: hostname'ler buyuk/kucuk harf duyarsizdir (RFC 4343)
-    # ve `uq_proxies_endpoint` buna dayanir. MySQL bunu SEMADA sagliyordu
-    # (ascii_general_ci); PostgreSQL'de kolon COLLATE "C"dir, yani
-    # duyarsizlik YAZMA YOLUNDA saglanmali -- aksi halde
-    # HOST.example.com ve host.example.com AYRI iki proxy olur
-    # (PG S2.5.2). `parse_dsn` yolunda urlsplit bunu zaten yapiyor.
+    # .lower() is required: hostnames are case-insensitive (RFC 4343) and
+    # `uq_proxies_endpoint` relies on that. PostgreSQL's column is
+    # COLLATE "C", so case-insensitivity must be enforced on the write
+    # path -- otherwise HOST.example.com and host.example.com become two
+    # separate proxies. `parse_dsn`'s urlsplit path already does this.
     host, port = parts[0].strip().lower(), parts[1].strip()
     if not port.isdigit():
         raise ValueError(f"gecersiz port: {port!r}")
@@ -54,7 +56,7 @@ def parse_line(line: str, scheme: ProxyScheme) -> ProxyEndpoint | None:
         host=host,
         port=int(port),
         username=parts[2].strip() if len(parts) > 2 else "",
-        # Parolada ':' bulunabilir; kalan parcalar geri birlestirilir
+        # Password can contain ':'; remaining parts are rejoined
         password=":".join(parts[3:]).strip() if len(parts) > 3 else "",
     )
 
@@ -64,7 +66,7 @@ def parse_lines(lines: Iterable[str], scheme: ProxyScheme) -> Iterator[ProxyEndp
         try:
             endpoint = parse_line(line, scheme)
         except ValueError as exc:
-            # Mesaj parolayi TASIMAZ: yalnizca satir numarasi ve sebep
+            # Message carries no password: only the line number and reason
             raise ValueError(f"satir {number}: {exc}") from None
         if endpoint is not None:
             yield endpoint
@@ -106,14 +108,14 @@ def seed(session: Session, endpoints: list[ProxyEndpoint], *, prefix: str) -> tu
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("path", nargs="?", help="girdi dosyasi (yoksa stdin)")
+    parser.add_argument("path", nargs="?", help="input file (stdin if omitted)")
     parser.add_argument(
         "--scheme",
         default=ProxyScheme.HTTP.value,
         choices=[s.value for s in ProxyScheme],
-        help="tum satirlara uygulanacak sema",
+        help="scheme applied to all lines",
     )
-    parser.add_argument("--prefix", default="px", help="label oneki")
+    parser.add_argument("--prefix", default="px", help="label prefix")
     args = parser.parse_args(argv)
 
     settings = get_settings()

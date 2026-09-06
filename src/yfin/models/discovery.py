@@ -1,24 +1,24 @@
-"""Kesif tablolari: Search, Lookup, Screener (SQ S5).
+"""Discovery tables: Search, Lookup, Screener.
 
-On tablo. Uc grup:
+Ten tables in three groups:
 
-1. KAPI -- `discovery_asof_state`. `asof_state` KULLANILAMAZ (SQ K3a):
-   onun `symbol` kolonu `symbol_fk_column` ile tanimlidir, yani
-   `symbols.symbol`'a `ON DELETE RESTRICT` FK tasir. Serbest terim
-   (`"Turkish Airlines"`) `symbols`ta YOKTUR ve kapi satiri FK ihlali (23503)
-   alirdi. SI ayni duvara carpip `domain_asof_state`i acmisti.
+1. Gate -- `discovery_asof_state`. `asof_state` cannot be reused: its
+   `symbol` column is `symbol_fk_column`, carrying an ON DELETE RESTRICT
+   FK to `symbols.symbol`. A free-text term (`"Turkish Airlines"`) is
+   not in `symbols`, so the gate row would hit an FK violation (23503).
+   Domain hit the same wall and opened `domain_asof_state` for it.
 
-2. SEARCH / LOOKUP -- terim kapsamli, as-of. Anahtarlari `query_term`dir,
-   `symbol` DEGIL: bir arama teriminin sonucu birden cok sembol tasir.
+2. Search / Lookup -- term-scoped, as-of. Keyed on `query_term`, not
+   `symbol`: one search term's result carries multiple symbols.
 
-3. SCREENER -- `screen_runs` (kapi + veri), `screen_members` (cocuk) ve
-   `screen_quotes` (EKRANDAN BAGIMSIZ, SQ K5).
+3. Screener -- `screen_runs` (gate + data), `screen_members` (child),
+   and `screen_quotes` (independent of any screen).
 
-Sembol kolonlarinda FK YOKTUR (SQ K9): kesif dataset'leri TANIMI GEREGI
-evren disi sembol dondurur. FK olsaydi `symbols` yazimi herhangi bir
-nedenle dustugunde o hucrenin TUM verisi rollback olurdu -- `news_symbols`
-ile ayni gerekce (models/news.py:45-51). FK olmadigi icin her sembol
-kolonunda index ACIKCA tanimlanir (S S5.6).
+Symbol columns carry no FK: discovery datasets return symbols outside
+the universe by definition. An FK would roll back a cell's entire data
+whenever a `symbols` write failed for any reason -- same reasoning as
+news_symbols (models/news.py:45-51). Since there is no FK, every symbol
+column gets an explicit index.
 """
 
 from __future__ import annotations
@@ -57,30 +57,30 @@ from yfin.models.columns import make_column
 from yfin.models.domains import REPORT_ID_LENGTH
 from yfin.models.fields import SCREENER_QUOTE_FIELDS
 
-# Serbest arama terimi. UZUNLUK `SYMBOL_LENGTH` ILE AYNIDIR ve bu bir
-# tercih degil ZORUNLULUKTUR: terim, denetim kaydinda
-# `sync_run_items.symbol` (= `SymbolType()`) kolonuna da yazilir. Daha
-# genis bir sinir olculdu ve deger tasmasi (22001) verdi -- ustelik VERI
-# YAZILDIKTAN SONRA, `write_items` asamasinda, yani kosunun en gec aninda.
+# Free-text search term. Its length matches `SYMBOL_LENGTH` by necessity,
+# not preference: the term is also written to `sync_run_items.symbol`
+# (= `SymbolType()`) as an audit record. A wider limit was tried and
+# overflowed (22001) -- after the data was already written, at
+# `write_items`, the latest possible point in the run.
 #
-# Ilk tasarim 64 secip "denetim kaydinda kirpilir" demisti; kirpma hicbir
-# zaman uygulanmadi ve iki sabitin ayrisimi hatayi gorunmez kildi. Tek
-# sayi bu sinifi hatayi yapisal olarak imkansiz kilar.
+# An earlier design used 64 and assumed the audit record would truncate
+# it; truncation was never implemented, and the two constants drifting
+# apart hid the bug. One shared constant makes the class of bug
+# structurally impossible.
 QUERY_TERM_LENGTH = SYMBOL_LENGTH
 
-# `ALGO_WATCHLIST` seklinde `slug`, `PREDEFINED_SCREENER` seklinde
-# `canonicalName` (SQ S4.1/6). Olculen en uzun:
-# `most-bought-by-activist-hedge-funds` = 35.
+# `slug` for `ALGO_WATCHLIST`, `canonicalName` for `PREDEFINED_SCREENER`.
+# Measured max: `most-bought-by-activist-hedge-funds` = 35.
 LIST_KEY_LENGTH = 128
 
-# `lookupTotals` DOKUZ tip bildirir; `LOOKUP_TYPES` sabiti sekiz tanir --
-# `privateCompany` orada YOKTUR (lookup.py:31). Bu yuzden ENUM DEGIL,
-# serbest metin: kaynak yeni bir tip bildirdiginde sema degisikligi
-# gerektirmez.
+# `lookupTotals` reports nine types; the `LOOKUP_TYPES` constant lists
+# eight -- `privateCompany` is not among them (lookup.py:31). Free text
+# rather than an ENUM, so a new type reported by the source needs no
+# schema change.
 LOOKUP_TYPE_LENGTH = 24
 
-# Ekran anahtari da `sync_run_items.symbol`e kapsam etiketi olarak yazilir
-# (SQ S5.13), yani ayni sinira tabidir.
+# The screen key is also written to `sync_run_items.symbol` as a scope
+# label, so it is bound by the same limit.
 SCREEN_KEY_LENGTH = SYMBOL_LENGTH
 
 
@@ -94,9 +94,9 @@ class ScreenKind(enum.StrEnum):
 
 
 class ScreenQuoteType(enum.StrEnum):
-    """`yf.screen`in POST govdesine yazdigi `quoteType`.
+    """The `quoteType` written into `yf.screen`'s POST body.
 
-    Uc deger, uc sorgu sinifi: EquityQuery / FundQuery / ETFQuery.
+    Three values, three query classes: EquityQuery / FundQuery / ETFQuery.
     """
 
     EQUITY = "EQUITY"
@@ -105,19 +105,19 @@ class ScreenQuoteType(enum.StrEnum):
 
 
 def _enum(kind: type[enum.StrEnum], name: str) -> Enum:
-    """`name` ACIKCA verilir: PostgreSQL'de ENUM adi kalici bir tip
-    adidir ve SQLAlchemy'nin sinif adindan turettigi bicim
-    (`screenkind`) snake_case konvansiyonuna uymaz."""
+    """`name` is given explicitly: on PostgreSQL an ENUM name is
+    permanent, and SQLAlchemy's class-derived name (`screenkind`) breaks
+    the project's snake_case convention."""
     return Enum(kind, values_callable=lambda e: [m.value for m in e], name=name)
 
 
-# --- 1. kapi ---------------------------------------------------------------
+# --- 1. gate -----------------------------------------------------------
 
 
 class DiscoveryAsOfState(Base):
-    """Search / Lookup kapisi (SQ S5.1).
+    """Search / Lookup gate.
 
-    `query_term`de FK YOKTUR ve bu tablonun VAROLUS SEBEBI budur (SQ K3a).
+    Has no FK on `query_term`; that is this table's reason to exist.
     """
 
     __tablename__ = "discovery_asof_state"
@@ -127,25 +127,26 @@ class DiscoveryAsOfState(Base):
 
     query_term: Mapped[str] = _query_term_column(primary_key=True)
     dataset: Mapped[str] = mapped_column(AsciiKeyType(32), primary_key=True)
-    # Son DEGISIMIN as-of gunu
+    # As-of date of the last change.
     as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
     content_hash: Mapped[str] = mapped_column(HashType(), nullable=False)
     row_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    # Ilk INSERT'te yazilir, bir daha guncellenmez (AH S5.4)
+    # Written on first INSERT, never updated again.
     first_seen_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
-    # Son DOGRULAMA zamani: hash esitse de guncellenir
+    # Last verification time: updated even when the hash is unchanged.
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
-# --- 2. search / lookup ----------------------------------------------------
+# --- 2. search / lookup --------------------------------------------------
 
 
 class SearchQuote(Base):
-    """`Search.quotes` -- bir terimin dondurdugu semboller (SQ S5.2).
+    """`Search.quotes` -- symbols returned by a term.
 
-    SEMBOLSUZ satirlar bu tabloya GIRMEZ (SQ K14): `include_cb=True`
-    varsayilani Crunchbase ozel-sirket kayitlari dondururor
-    (`{index, name, permalink, isYahooFinance}`) ve normalize onlari eler.
+    Rows without a symbol never enter this table: the `include_cb=True`
+    default also returns Crunchbase private-company records
+    (`{index, name, permalink, isYahooFinance}`), and normalize filters
+    them out.
     """
 
     __tablename__ = "search_quotes"
@@ -155,10 +156,10 @@ class SearchQuote(Base):
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
 
-    # Yanittaki 0-TABANLI sira (SQ S5.14). Kaynagin kendi siralamasi
-    # skorudur; sembolsuz satirlar ELENDIKTEN SONRA numaralandirilir.
+    # 0-based order in the response. The source's own ordering is a
+    # score; rows without a symbol are numbered after being filtered out.
     rank_index: Mapped[int] = mapped_column(SmallInteger, nullable=False)
-    # Olculen aralik 12,2 - 16.067.500,0
+    # Measured range 12.2 - 16,067,500.0.
     score: Mapped[Decimal | None] = mapped_column(PriceType())
     quote_type: Mapped[str | None] = mapped_column(String(32, collation="C"))
     type_disp: Mapped[str | None] = mapped_column(String(64, collation="C"))
@@ -166,8 +167,8 @@ class SearchQuote(Base):
     exch_disp: Mapped[str | None] = mapped_column(String(64, collation="C"))
     short_name: Mapped[str | None] = mapped_column(String(128, collation="C"))
     long_name: Mapped[str | None] = mapped_column(String(255, collation="C"))
-    # Sektor/endustri ailesi YALNIZ EQUITY satirlarinda gelir (SQ S4.1/2);
-    # eksiklik hata degil, NULL.
+    # Sector/industry family only appears on EQUITY rows; absence is not
+    # an error, just NULL.
     sector: Mapped[str | None] = mapped_column(String(64, collation="C"))
     sector_disp: Mapped[str | None] = mapped_column(String(64, collation="C"))
     industry: Mapped[str | None] = mapped_column(String(128, collation="C"))
@@ -176,25 +177,26 @@ class SearchQuote(Base):
     is_yahoo_finance: Mapped[bool | None] = mapped_column(Boolean)
     prev_name: Mapped[str | None] = mapped_column(String(255, collation="C"))
     name_change_date: Mapped[datetime | None] = mapped_column(TsType())
-    # Sembol `symbols` yazimina dahil edilebildi mi (SQ S8.3)
+    # Whether the symbol could be included in the symbols write.
     is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     raw_json: Mapped[str] = mapped_column(RawJsonType(), nullable=False)
 
 
 class SearchList(Base):
-    """`Search.lists` -- IKI SEKILLI blok (SQ S5.3, S4.1/6).
+    """`Search.lists` -- a block with two shapes.
 
-    `list_type` AYIRICIDIR: `ALGO_WATCHLIST` (12 anahtar, `slug`+`pfId`) ve
-    `PREDEFINED_SCREENER` (9 anahtar, `canonicalName`+`total`). Ortak alan
-    yalnizca dorttur; ayri tablolar onlari cogaltirdi. Kod tabaninin kendi
-    kurali (ozdes olmayan ama akraba sekiller -> tek tablo + ENUM ayirici)
-    `institutional_holders`+`mutualfund_holders` deseninden gelir.
+    `list_type` discriminates: `ALGO_WATCHLIST` (12 keys, `slug`+`pfId`)
+    vs. `PREDEFINED_SCREENER` (9 keys, `canonicalName`+`total`). Only four
+    fields are shared; separate tables would duplicate those. Follows the
+    codebase's own rule for related-but-non-identical shapes (one table +
+    an ENUM discriminator), the same pattern as
+    institutional_holders+mutualfund_holders.
 
-    UYELIK SATIRI YOKTUR: blok sembol TASIMAZ. Ama "yalniz sayi var" da
-    dogru degildir -- satir uyeligi cozecek KIMLIGI tasir (`pfId`+`userId`
-    ya da `canonicalName`). Kapsam disi birakma sebebi MALIYET (ikinci bir
-    istek), veri yoklugu degil (SQ S1).
+    No membership row: the block carries no symbol. But it is not "just a
+    count" either -- the row carries the identity needed to resolve
+    membership (`pfId`+`userId` or `canonicalName`). It is out of scope
+    because of cost (a second request), not absence of data.
     """
 
     __tablename__ = "search_lists"
@@ -205,18 +207,18 @@ class SearchList(Base):
 
     rank_index: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     list_type: Mapped[str | None] = mapped_column(String(32, collation="C"))
-    # ALGO_WATCHLIST'te `name`, PREDEFINED_SCREENER'da `title`
+    # `name` for ALGO_WATCHLIST, `title` for PREDEFINED_SCREENER.
     name: Mapped[str | None] = mapped_column(String(255, collation="C"))
     score: Mapped[Decimal | None] = mapped_column(PriceType())
     icon_url: Mapped[str | None] = mapped_column(Text)
-    # --- yalniz ALGO_WATCHLIST ---
+    # --- ALGO_WATCHLIST only ---
     brand_slug: Mapped[str | None] = mapped_column(String(64, collation="C"))
     pf_id: Mapped[str | None] = mapped_column(String(128, collation="C"))
     user_id: Mapped[str | None] = mapped_column(String(64, collation="C"))
     symbol_count: Mapped[int | None] = mapped_column(Integer)
     daily_percent_gain: Mapped[Decimal | None] = mapped_column(PriceType())
     follower_count: Mapped[int | None] = mapped_column(Integer)
-    # --- yalniz PREDEFINED_SCREENER ---
+    # --- PREDEFINED_SCREENER only ---
     yahoo_id: Mapped[str | None] = mapped_column(String(64, collation="C"))
     total: Mapped[int | None] = mapped_column(Integer)
     is_premium: Mapped[bool | None] = mapped_column(Boolean)
@@ -226,12 +228,12 @@ class SearchList(Base):
 
 
 class SearchReportHit(Base):
-    """Terim <-> rapor bagi (SQ S5.5).
+    """Term <-> report link.
 
-    `domain_report_links`in kardesi. FK BURADA VARDIR (sembol kolonlarinin
-    aksine): `report_id` sembol degildir, evren disilik sorunu yoktur ve
-    ebeveyn satiri ayni transaction'da, kapili yazimlardan ONCE yazilir
-    (SQ S6.2.1).
+    Sibling of `domain_report_links`. Carries an FK here, unlike symbol
+    columns: `report_id` is not a symbol, so there is no out-of-universe
+    problem, and the parent row is written in the same transaction,
+    before the gated writes.
     """
 
     __tablename__ = "search_report_hits"
@@ -248,7 +250,7 @@ class SearchReportHit(Base):
 
 
 class LookupResult(Base):
-    """`Lookup` belgeleri (SQ S5.6)."""
+    """`Lookup` documents."""
 
     __tablename__ = "lookup_results"
     __table_args__ = (Index("ix_lookup_results_symbol", "symbol"),)
@@ -257,20 +259,21 @@ class LookupResult(Base):
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
 
-    # Yanittaki 0-tabanli sira (SQ S5.14)
+    # 0-based order in the response.
     rank_index: Mapped[int] = mapped_column(SmallInteger, nullable=False)
-    # Kaynagin KENDI `rank_index` alani -- bir sira DEGIL, Yahoo'nun siralama
-    # skoru (olculen ornek 30007). Adi ayrilmasaydi `rank_index` ile karisirdi.
+    # The source's own `rank_index` field -- not an order but Yahoo's
+    # ranking score (measured example 30007). A shared name would
+    # collide with `rank_index` above.
     source_rank: Mapped[int | None] = mapped_column(Integer)
-    # Hangi cagridan geldigi. K6 ADAPTIF oldugu icin ZORUNLU: ayni sembol
-    # `equity` ve `etf` cagrilarinin ikisinde birden donebiliyor ve PK'da
-    # olmadigi icin son yazan kazanir -- hangi cagrinin yazdigi
-    # denetlenebilir olmalidir.
+    # Which call this came from. Required because of the adaptive call
+    # strategy: the same symbol can be returned by both `equity` and
+    # `etf` calls, and since this is not in the PK, the last write wins
+    # -- so which call wrote it must be auditable.
     lookup_type: Mapped[str | None] = mapped_column(String(LOOKUP_TYPE_LENGTH, collation="C"))
     quote_type: Mapped[str | None] = mapped_column(String(32, collation="C"))
     exchange: Mapped[str | None] = mapped_column(String(32, collation="C"))
     short_name: Mapped[str | None] = mapped_column(String(128, collation="C"))
-    # YALNIZ `equity` belgelerinde dolu (SQ S4.1/9)
+    # Populated only on `equity` documents.
     industry_name: Mapped[str | None] = mapped_column(String(128, collation="C"))
     industry_link: Mapped[str | None] = mapped_column(Text)
     fullday_price: Mapped[Decimal | None] = mapped_column(PriceType())
@@ -285,32 +288,31 @@ class LookupResult(Base):
 
 
 class LookupTotal(Base):
-    """`lookupTotals` -- eksiksizlik kanitinin tasiyicisi (SQ S5.7, S9.6/2).
+    """`lookupTotals` -- carries the completeness evidence.
 
-    Ayni yanitta bedava gelir. `total` ile fiili belge sayisinin farki
-    KIRPILMAYI belgeler: olculdu, `GOLD` icin `lookupTotals.all` 7.273
-    bildirirken `documents` 995 dondu. Bu fark ayni zamanda K6'nin adaptif
-    dalini TETIKLEYEN sinyaldir.
+    Comes free in the same response. The gap between `total` and the
+    actual document count documents truncation: measured, `GOLD`'s
+    `lookupTotals.all` reported 7,273 while `documents` returned 995.
+    This same gap is the signal that triggers the adaptive call branch.
     """
 
     __tablename__ = "lookup_totals"
 
     query_term: Mapped[str] = _query_term_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
-    # NORMALIZE EDILMEZ ve bu bilinclidir (PG S2.5.4 taramasinin tek
-    # bulgusu). Bu kolon MySQL'de duz `String(...)` idi, yani tablo
-    # varsayilani `utf8mb4_0900_ai_ci`yi aliyordu -- PK bileseni olan tek
-    # BUYUK/KUCUK HARF DUYARSIZ kolondu. Simdi COLLATE "C".
+    # Deliberately not normalized. This column was a plain `String(...)`
+    # under MySQL, taking the table default `utf8mb4_0900_ai_ci` -- the
+    # only case-insensitive column in the PK. Now COLLATE "C".
     #
-    # Deger dogrudan Yahoo yanitinin SOZLUK ANAHTARIDIR
+    # The value is exactly Yahoo's response dict key
     # (`raw.totals.items()`: 'equity', 'mutualfund', 'privateCompany').
-    # Iki gerekceyle `.lower()` UYGULANMAZ:
-    #   1. `privateCompany` camelCase'tir; kucultmek kaynak tanimlayicisini
-    #      bozar ve o anahtara gore eslesen kodu kirar.
-    #   2. Davranis farki SESSIZ DEGIL GORUNURDUR: ai_ci altinda kaynak bir
-    #      gun 'Equity' bildirseydi ayni satir sessizce guncellenirdi;
-    #      "C" ile IKINCI bir satir olusur ve fark denetimde gorulur.
-    #      Projenin tercihi zaten gurultulu hatadir.
+    # `.lower()` is not applied, for two reasons:
+    #   1. `privateCompany` is camelCase; lowercasing it breaks the
+    #      source identifier and any code matching on that key.
+    #   2. The behavior difference is visible, not silent: under ai_ci a
+    #      source reporting 'Equity' one day would silently update the
+    #      same row; under "C" it creates a second row and the mismatch
+    #      shows up in an audit. A loud failure is the intended tradeoff.
     lookup_type: Mapped[str] = mapped_column(
         String(LOOKUP_TYPE_LENGTH, collation="C"), primary_key=True
     )
@@ -318,15 +320,16 @@ class LookupTotal(Base):
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
-# --- 3. screener -----------------------------------------------------------
+# --- 3. screener ---------------------------------------------------------
 
 
 class Screen(Base):
-    """Ekranin STATIK kimligi (SQ S5.8) -- `domains` tablosunun kardesi.
+    """A screen's static identity -- sibling of the `domains` table.
 
-    `screens.py`deki `ScreenDef` kumesinden seed edilir. TANIMIN kaynagi o
-    dosya, KOSU ANINDAKI ETKINLIGIN kaynagi bu tablonun `is_enabled`
-    kolonudur; operator DB'de kapattiginda dosya onu geri acmaz.
+    Seeded from the `ScreenDef` set in `screens.py`. That file is the
+    source of the definition; this table's `is_enabled` column is the
+    source of runtime activity -- once an operator disables it in the
+    DB, the file does not turn it back on.
     """
 
     __tablename__ = "screens"
@@ -336,12 +339,13 @@ class Screen(Base):
     quote_type: Mapped[ScreenQuoteType] = mapped_column(
         _enum(ScreenQuoteType, "screen_quote_type"), nullable=False
     )
-    # Predefined'da ILK GET sayfasindan TAZELENIR (SQ S4.1/13); custom'da
-    # `ScreenDef`ten gelir ve tazelenmez -- POST yaniti metadata tasimaz.
+    # Refreshed from the first GET page for predefined screens; for
+    # custom screens it comes from `ScreenDef` and is never refreshed --
+    # the POST response carries no metadata.
     title: Mapped[str] = mapped_column(String(255, collation="C"), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    # SQ K15: `sortAsc` varsayilani AZALAN; sira acikca tutulmazsa sayfalar
-    # arasi tutarsizlik sembol atlatir.
+    # `sortAsc` defaults to descending; without tracking sort order
+    # explicitly, page-to-page inconsistency skips symbols.
     sort_field: Mapped[str] = mapped_column(String(64, collation="C"), nullable=False)
     sort_asc: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     definition_json: Mapped[str | None] = mapped_column(RawJsonType())
@@ -351,15 +355,15 @@ class Screen(Base):
 
 
 class ScreenRun(Base):
-    """Ekranin gunluk basligi -- HEM kapi HEM veri (SQ S5.9).
+    """A screen's daily header -- both gate and data.
 
-    `HashGatedDataset`in `financial_periods` deseni: kapi bir VERI
-    tablosudur ve `content_hash` degismediginde cocuk (`screen_members`)
-    hic yazilmaz.
+    `HashGatedDataset`'s `financial_periods` pattern: the gate is itself
+    a data table, and the child (`screen_members`) is not written at all
+    when `content_hash` is unchanged.
 
-    `content_hash` YALNIZ KADROYU kapsar (SQ K4). Kotasyon metrikleri
-    govdeye girseydi fiyat her gun oynadigi icin hash HICBIR ZAMAN
-    esitlenmez ve mekanizma sessizce olurdu.
+    `content_hash` covers only the roster. If quote metrics entered the
+    hash body, daily price movement would mean the hash never matched,
+    silently killing the mechanism.
     """
 
     __tablename__ = "screen_runs"
@@ -368,12 +372,12 @@ class ScreenRun(Base):
     screen_key: Mapped[str] = mapped_column(AsciiKeyType(SCREEN_KEY_LENGTH), primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
 
-    # Yahoo'nun bildirdigi GERCEK eslesme sayisi
+    # The actual match count reported by Yahoo.
     total: Mapped[int] = mapped_column(Integer, nullable=False)
-    # Yanittan alinan kotasyon sayisi. `total` ile farki, ekranin sayfa
-    # sinirina takildigini SESSIZ DEGIL KAYITLA gosterir (SQ S9.6/1).
+    # Number of quotes actually returned. Its gap with `total` records,
+    # rather than silently hiding, that the screen hit a page limit.
     fetched_rows: Mapped[int] = mapped_column(Integer, nullable=False)
-    # Kapi sozlesmesi kolonu: `screen_members` satir sayisi
+    # Gate-contract column: the row count of `screen_members`.
     row_count: Mapped[int] = mapped_column(Integer, nullable=False)
     page_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     yahoo_id: Mapped[str | None] = mapped_column(String(64, collation="C"))
@@ -385,12 +389,13 @@ class ScreenRun(Base):
 
 
 class ScreenMember(Base):
-    """Ekranin o gunku kadrosu -- kapinin COCUGU (SQ S5.10).
+    """A screen's roster for the day -- the gate's child.
 
-    `replace_scope` kapsami `(screen_key, as_of_date)`: kadro gun icinde
-    degistiginde (olculdu, `day_gainers` 122 -> 117) gunun SON kosusu
-    kazanir. Duz upsert olsaydi sabah cikip oglen dusen sembol o gunun
-    kadrosunda KALICI olarak yanlis gorunurdu.
+    `replace_scope` is `(screen_key, as_of_date)`: when the roster
+    changes within a day (measured: `day_gainers` 122 -> 117), the day's
+    last run wins. A plain upsert would leave a symbol that appeared in
+    the morning and dropped by noon permanently, incorrectly, in that
+    day's roster.
     """
 
     __tablename__ = "screen_members"
@@ -400,24 +405,24 @@ class ScreenMember(Base):
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
 
-    # `offset + sayfa ici 0-tabanli indeks` = ekranin `sort_field`ina gore
-    # MUTLAK sira. Hash govdesindedir: kadro ayni kalip sira degistiginde
-    # bu GERCEK bir degisimdir.
+    # `offset + within-page 0-based index` = absolute order by the
+    # screen's `sort_field`. Part of the hash body: if the roster stays
+    # the same but the order changes, that is a real change.
     rank_index: Mapped[int] = mapped_column(Integer, nullable=False)
     is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
-# `screen_quotes` -- EKRANDAN BAGIMSIZ (SQ K5).
+# `screen_quotes` -- independent of any single screen.
 #
-# PK `(symbol, as_of_date)`: bes ekranda birden gorunen sembolun 102 alani
-# bes kez yazilmaz. Kapinin SILME KAPSAMINA GIRMEZ ve bu ZORUNLUDUR --
-# bir sembolun kotasyonu tek bir ekranin mali degildir; kadrodan cikmasi
-# kotasyonunu silmez.
+# PK (symbol, as_of_date): a symbol appearing in five screens does not
+# get its 102 fields written five times. Not covered by the gate's
+# delete scope, deliberately -- a symbol's quote does not belong to one
+# screen, so dropping out of a roster does not delete its quote.
 #
-# Kolonlarin 75'i `INFO_FIELDS` ile ayni kaynak anahtarindan uretilir, yani
-# `ticker_info` ile AYNI kolon adlarini tasir ve iki tablo JOIN'siz
-# karsilastirilabilir (SQ S4.5).
+# 75 of the columns are generated from the same source keys as
+# `INFO_FIELDS`, so they share column names with `ticker_info` and the
+# two tables can be compared without a JOIN.
 screen_quotes = Table(
     "screen_quotes",
     Base.metadata,
@@ -426,6 +431,6 @@ screen_quotes = Table(
     *(make_column(f, "screen_quotes") for f in SCREENER_QUOTE_FIELDS),
     Column("is_known", Boolean, nullable=False, server_default=text("false")),
     Column("fetched_at", TsType(), nullable=False),
-    # `corporateActions` LISTEDIR ve kolona cikmaz; burada kalir.
+    # `corporateActions` is a list and does not become a column; it stays here.
     Column("raw_json", RawJsonType(), nullable=False)
 )

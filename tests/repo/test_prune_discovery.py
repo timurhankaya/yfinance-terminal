@@ -1,4 +1,4 @@
-"""SQ S12.2: kesif ve ekran tablolarinin budanmasi (gercek PostgreSQL)."""
+"""Pruning of discovery and screen tables (real PostgreSQL)."""
 
 from __future__ import annotations
 
@@ -34,13 +34,12 @@ def _seed_report(db_session: Session, report_id: str) -> None:
 
 class TestOrphanReports:
     def test_search_linked_report_survives(self, db_session: Session) -> None:
-        """REGRESYON (SQ S12.2/4) -- VERI KAYBI hatasi.
+        """Regression test for a data-loss bug.
 
-        Yetim temizligi eskiden YALNIZ `domain_report_links`e bakiyordu.
-        Search yolunun buldugu her rapor -- domain tarafinda bagi
-        olmadigi icin -- yetim sayilip SILINIRDI. Ustelik sessizce: rapor
-        ertesi gun yeniden cekilir, `first_seen_at` sifirlanir ve kimse
-        fark etmezdi.
+        Orphan cleanup used to look only at `domain_report_links`. Any
+        report found via the search path -- having no domain-side link --
+        was counted as orphaned and deleted. Silently: the report gets
+        re-fetched the next day, `first_seen_at` resets, and nobody notices.
         """
         _seed_report(db_session, "SEARCH_ONLY")
         db_session.execute(
@@ -59,7 +58,7 @@ class TestOrphanReports:
         )
 
     def test_unlinked_report_is_removed(self, db_session: Session) -> None:
-        """Iki bag tablosunun IKISINDE de karsiligi olmayan rapor gider."""
+        """A report with no match in either link table is removed."""
         _seed_report(db_session, "ORPHAN")
         db_session.flush()
         assert prune_orphan_reports(db_session, dry_run=True) >= 1
@@ -94,7 +93,7 @@ class TestPruneScreens:
         db_session.flush()
 
     def test_last_day_is_protected(self, db_session: Session) -> None:
-        """As-of budamasinin ilkesi: SON GUN her zaman korunur."""
+        """As-of pruning's principle: the latest day is always protected."""
         self._seed_screen(db_session, OLD, ("ZZOLD",))
         self._seed_screen(db_session, NEW, ("ZZNEW",))
 
@@ -112,12 +111,12 @@ class TestPruneScreens:
         )
 
     def test_quotes_keep_their_own_last_day(self, db_session: Session) -> None:
-        """`screen_quotes` KAPISIZDIR (SQ K5): `screen_key` kolonu yok.
+        """`screen_quotes` has no gate: it has no `screen_key` column.
 
-        Kapsam sutunuyla gruplanamaz; sembol basina son gun korunur.
-        `prune_asof` ile budanmaya calisilsaydi bu tablo
-        `scope_column not in table.c` dalindan SESSIZCE atlanirdi ve hic
-        budanmazdi.
+        It cannot be grouped by scope column, so the latest day is kept
+        per symbol instead. If pruned via `prune_asof`, this table would be
+        silently skipped by the `scope_column not in table.c` branch and
+        never pruned at all.
         """
         self._seed_screen(db_session, OLD, ("ZZQ",))
         self._seed_screen(db_session, NEW, ("ZZQ",))

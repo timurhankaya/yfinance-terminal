@@ -1,4 +1,4 @@
-"""symbols tablosu (S5.2) - altyapi dataset'i, her calistirmada ilk kosar."""
+"""symbols table -- an infrastructure dataset, run first on every invocation."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ class Symbol(Base):
 
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
 
-    # isin UNIQUE DEGILDIR: ayni ISIN farkli borsalarda listelenebilir (S5.2)
+    # isin is not UNIQUE: the same ISIN can be listed on different exchanges.
     isin: Mapped[str | None] = mapped_column(String(16, collation="C"))
     quote_type: Mapped[str | None] = mapped_column(String(32, collation="C"))
     exchange: Mapped[str | None] = mapped_column(String(32, collation="C"))
@@ -31,29 +31,28 @@ class Symbol(Base):
     first_trade_date: Mapped[datetime | None] = mapped_column(TsType())
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
-    # SQ S5.12: sembolu evrene KIM soktu. Kesif yollari (`search`, `lookup`,
-    # `screener`) yeni sembolu `is_active=0` ile yazar; aktiflestirme ELLE
-    # yapilir (`yfin symbols activate --discovered-by ...`).
+    # Who brought the symbol into the universe. Discovery paths (`search`,
+    # `lookup`, `screener`) write new symbols with `is_active=0`;
+    # activation is manual (`yfin symbols activate --discovered-by ...`).
     #
-    # DIKKAT -- bu kolon ve `discovered_at`, kesif yazimlarinin
-    # `update_columns` KAPSAMI DISINDADIR (SQ K10), `is_active` ve
-    # `unknown_streak` ile birlikte. Kapsama girselerdi operatorun elle
-    # aktiflestirdigi bir sembol, ertesi gun ayni ekranda yeniden
-    # gorulduğunde SESSIZCE `is_active=0`a doner ve `yfin sync` onu
-    # cekmeyi birakirdi. `first_seen_at`in AH S5.4'te kurdugu "yalniz
-    # INSERT'te yazilir" kuralinin aynisi.
+    # This column and `discovered_at` are kept out of discovery writes'
+    # `update_columns` scope, along with `is_active` and `unknown_streak`.
+    # Otherwise a symbol an operator manually activated would silently
+    # flip back to `is_active=0` the next time discovery saw it again, and
+    # `yfin sync` would stop pulling it. Same "written only on INSERT"
+    # rule as `first_seen_at`.
     discovered_by: Mapped[str] = mapped_column(
         String(16, collation="C"), nullable=False, server_default="manual"
     )
     discovered_at: Mapped[datetime | None] = mapped_column(TsType())
-    # S8.8: ardisik unknown_symbol sayaci; esik asilinca is_active=0
+    # Consecutive unknown_symbol counter; past the threshold, is_active=0.
     unknown_streak: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     last_seen_at: Mapped[datetime | None] = mapped_column(TsType())
 
-    # `func.now()`, `func.now(6)` DEGIL: PostgreSQL'de `now()` arguman
-    # ALMAZ ve `now(6)` "function now(integer) does not exist" verir
-    # (olculdu, migration uygulanirken). Hassasiyet KOLON tipinden gelir
-    # (TsType = TIMESTAMP(6) WITH TIME ZONE), fonksiyondan degil.
+    # `func.now()`, not `func.now(6)`: PostgreSQL's `now()` takes no
+    # argument, and `now(6)` raises "function now(integer) does not exist"
+    # (measured, during migration). Precision comes from the column type
+    # (TsType = TIMESTAMP(6) WITH TIME ZONE), not the function.
     created_at: Mapped[datetime] = mapped_column(
         TsType(), nullable=False, server_default=func.now()
     )
@@ -61,8 +60,8 @@ class Symbol(Base):
         TsType(),
         nullable=False,
         server_default=func.now(),
-        # `server_onupdate` PostgreSQL'de DDL uretmez (ON UPDATE kolon
-        # cumlecigi yoktur, PG S2.11); yalnizca SQLAlchemy'ye degerin
-        # sunucu tarafindan degisebilecegini bildirir.
+        # `server_onupdate` generates no DDL on PostgreSQL (there is no ON
+        # UPDATE column clause); it only tells SQLAlchemy the value may
+        # change server-side.
         server_onupdate=func.now(),
     )

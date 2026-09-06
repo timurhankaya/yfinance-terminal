@@ -1,12 +1,12 @@
-"""sector_profile / industry_profile -- as-of, BOLGESIZ (SI S7.3).
+"""sector_profile / industry_profile -- as-of, region-less.
 
 `overview` + `performance` + `performanceOverviewBenchmark` -> 1
-`domain_metrics` satiri; `researchReports[]` -> 4 `research_reports`
-(upsert) + 4 `domain_report_links` satiri.
+`domain_metrics` row; `researchReports[]` -> 4 `research_reports`
+(upsert) + 4 `domain_report_links` rows.
 
-Bes blogun besi de US/GB/DE/JP/TR'de BIREBIR AYNI olculdu, bu yuzden bu
-dataset'ler bolge dongusune GIRMEZ ve BIRINCIL bolgenin yanitini kullanir
-(`ctx.cached` sayesinde ek HTTP istegi de uretmezler).
+All five blocks were measured byte-identical across US/GB/DE/JP/TR, so
+these datasets skip the region loop and use the primary region's response
+(and, thanks to `ctx.cached`, produce no extra HTTP request).
 """
 
 from __future__ import annotations
@@ -37,12 +37,12 @@ from yfin.logging_setup import get_logger
 
 log = get_logger(__name__)
 
-# `raw_json`a giren top-level anahtarlar: yanitin LISTE-DISI kismi.
-# Liste bloklari DISARIDADIR (SI S2/S5.2): `nz.canonical_json` yalniz SOZLUK
-# anahtarlarini siralar, LISTE SIRASINI KORUR (normalize.py:317-329). Tam
-# zarf saklansaydi `topCompanies` sirasi (11 sektorun 8'inde 15 dk'da
-# degisti) kapiyi HER KOSUDA acardi ve as-of mekanizmasi sessizce hic
-# calismazdi.
+# Top-level keys stored in `raw_json`: the non-list part of the response.
+# List blocks are excluded: `nz.canonical_json` only sorts dict keys and
+# preserves list order. Storing the full envelope would let
+# `topCompanies`'s order (observed to change within 15 minutes for 8 of 11
+# sectors) reopen the gate on every run, silently disabling the as-of
+# mechanism.
 RAW_JSON_KEYS = (
     "key",
     "name",
@@ -86,8 +86,8 @@ REPORT_COLUMNS = (
     "as_of_date",
 )
 
-# `performance` -> kolon; `performanceOverviewBenchmark` ayni anahtarlari
-# `benchmark_` onekiyle tasir.
+# `performance` -> column; `performanceOverviewBenchmark` carries the same
+# keys with a `benchmark_` prefix.
 _PERFORMANCE_COLUMNS = {
     "ytdChangePercent": "ytd_change_pct",
     "regMarketChangePercent": "reg_market_change_pct",
@@ -98,7 +98,7 @@ _PERFORMANCE_COLUMNS = {
 
 
 class _DomainProfileDataset(DomainAsOfDataset[DomainPayload]):
-    """Sektor ve endustri profilinin ortak govdesi."""
+    """Shared body for sector and industry profile."""
 
     regional = False
 
@@ -117,7 +117,7 @@ class _DomainProfileDataset(DomainAsOfDataset[DomainPayload]):
             expected_parent=ctx.parents.get(key),
         )
 
-    # --- normalizasyon ----------------------------------------------------
+    # --- normalize ----------------------------------------------------
 
     def normalize(self, raw: DomainPayload, key: str) -> NormalizedResult:
         data = raw.data
@@ -146,10 +146,10 @@ class _DomainProfileDataset(DomainAsOfDataset[DomainPayload]):
             self._metrics_write(raw, key, overview, performance, benchmark),
             *self._report_writes(raw, key),
         ]
-        # `domains` EN SONA konur ve bunun FK ile ILGISI YOKTUR: `AsOfGate`
-        # kapi satirinin `as_of_date`/`fetched_at`'ini `writes`'in ILK
-        # satirindan okur ve `domains` satirinda `as_of_date` kolonu
-        # YOKTUR -- basta olsaydi KeyError verirdi (SI S7.3).
+        # `domains` is placed last, and this has nothing to do with FKs:
+        # `AsOfGate` reads the gate row's `as_of_date`/`fetched_at` from the
+        # first row in `writes`, and the `domains` row has no `as_of_date`
+        # column -- placing it first would raise KeyError.
         extra = self._domains_write(raw, key)
         if extra is not None:
             writes.append(extra)
@@ -167,7 +167,7 @@ class _DomainProfileDataset(DomainAsOfDataset[DomainPayload]):
             "domain_key": key,
             "as_of_date": raw.as_of_date,
             "companies_count": int_of(overview, "companiesCount"),
-            # ENDUSTRIDE ANAHTAR HAM JSON'DA HIC YOK -> None -> NULL
+            # Key is entirely absent from the raw JSON for an industry -> None -> NULL
             "industries_count": int_of(overview, "industriesCount"),
             "market_cap": big_of(overview, "marketCap"),
             "market_weight": dec_of(overview, "marketWeight"),
@@ -208,9 +208,9 @@ class _DomainProfileDataset(DomainAsOfDataset[DomainPayload]):
                 "provider": text_of(report, "provider", 64),
                 "report_type": text_of(report, "reportType", 64),
                 "head_html": text_of(report, "headHtml", 255),
-                # Kolon sinirsiz `text`tir: olculen max 23 570 karakter
+                # Column is unbounded `text`: measured max 23,570 characters
                 "report_title": text_of(report, "reportTitle"),
-                # CIPLAK float gelir; 104 raporun 17'sinde ANAHTAR HIC YOK
+                # Arrives as a bare float; missing entirely in 17 of 104 reports measured
                 "target_price": dec_of(report, "targetPrice"),
                 "target_price_status": text_of(report, "targetPriceStatus", 32),
                 "investment_rating": text_of(report, "investmentRating", 32),
@@ -229,9 +229,9 @@ class _DomainProfileDataset(DomainAsOfDataset[DomainPayload]):
             )
 
         return [
-            # `replace_scope` OLAMAZ: tablo PAYLASIMLIDIR (gunde 624 satirin
-            # yalniz 516'si tekil; 37 tekil sektor raporunun HEPSI bir
-            # endustride de goruluyor) ve kapsam kolonu yoktur.
+            # Cannot use `replace_scope`: the table is shared (only 516 of
+            # 624 daily rows measured were unique; all 37 unique sector
+            # reports also appear under an industry) and has no scope column.
             TableWrite(
                 table=REPORTS_TABLE,
                 rows=list(report_rows.values()),
@@ -249,7 +249,7 @@ class _DomainProfileDataset(DomainAsOfDataset[DomainPayload]):
         ]
 
     def _domains_write(self, raw: DomainPayload, key: str) -> TableWrite | None:
-        """Varsayilan: yazmaz. `industry_profile` bunu ezer."""
+        """Default: writes nothing. `industry_profile` overrides this."""
         return None
 
 
@@ -257,9 +257,9 @@ class SectorProfileDataset(_DomainProfileDataset):
     name = "sector_profile"
     depends_on = ("domain_taxonomy",)
     scope = "sector"
-    # DORT tablo: sektorun `description`/`message_board_id` alanlarini zaten
-    # bootstrap dolduruyor, cunku onlar sektor yanitinin `overview`
-    # blogunda VAR.
+    # Four tables: bootstrap already populates the sector's
+    # `description`/`message_board_id` fields, since they exist in the
+    # sector response's `overview` block.
     produces = asof_produces(
         METRICS_TABLE, REPORTS_TABLE, REPORT_LINKS_TABLE, gate=DOMAIN_GATE_TABLE
     )
@@ -269,7 +269,7 @@ class IndustryProfileDataset(_DomainProfileDataset):
     name = "industry_profile"
     depends_on = ("domain_taxonomy",)
     scope = "industry"
-    # BES tablo: `domains` DAHIL (SI S8.3)
+    # Five tables: includes `domains`
     produces = asof_produces(
         METRICS_TABLE,
         REPORTS_TABLE,
@@ -279,20 +279,20 @@ class IndustryProfileDataset(_DomainProfileDataset):
     )
 
     def _domains_write(self, raw: DomainPayload, key: str) -> TableWrite | None:
-        """`description` + `message_board_id`; KIMLIK ALANLARINA DOKUNMAZ.
+        """`description` + `message_board_id`; does not touch identity fields.
 
-        Bu iki alan `industries[]` blogunda YOKTUR (SI S4.3), dolayisiyla
-        bootstrap onlari endustriler icin dolduramaz. Kimlik alanlari
-        (`symbol`, `parent_key`, `name`, `domain_type`) bootstrap'in isidir
-        ve S5.11'deki AYRIK `update_columns` bunu zorlar -- satirda deger
-        olarak bulunmalari yalnizca (hic olmamasi gereken) INSERT dali
-        icindir.
+        These two fields are absent from the `industries[]` block, so
+        bootstrap cannot populate them for industries. Identity fields
+        (`symbol`, `parent_key`, `name`, `domain_type`) are bootstrap's job,
+        enforced by the separate `update_columns` here -- their presence as
+        values in the row only matters for the INSERT branch, which should
+        never actually fire.
         """
         overview = raw.data.get("overview") or {}
         parent = text_of(raw.data, "sectorKey", 48)
         if parent is not None and raw.expected_parent and parent != raw.expected_parent:
-            # TAKSONOMI KAYMASI SINYALI. Satir `parent_key`i GUNCELLEMEZ
-            # (update_columns disinda), bu yuzden sessiz bir ezme olmaz.
+            # Signal of taxonomy drift. The row does not update `parent_key`
+            # (outside update_columns), so this cannot silently overwrite it.
             log.warning(
                 "sectorKey domains.parent_key ile uyusmuyor",
                 dataset=self.name,

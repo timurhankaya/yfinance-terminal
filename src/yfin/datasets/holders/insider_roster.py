@@ -1,13 +1,13 @@
-"""insider_roster_holders dataset'i -> insider_roster (AH S6.3).
+"""insider_roster_holders dataset -> insider_roster.
 
-Kaynak kolon seti sembole gore 7 / 9 / 11'dir ve SIRASI DA SABIT DEGILDIR
-(holders.py:186-200 alanlari kosullu yeniden adlandiriyor). Bu yuzden her
-alan `record.get(...)` ile okunur; konum veya sabit sira varsayimi sessiz
-veri kaybi olurdu.
+Source column set is 7 / 9 / 11 depending on symbol, and the ORDER IS NOT
+FIXED either (holders.py:186-200 conditionally renames fields). Every field
+is therefore read with `record.get(...)`; assuming position or a fixed
+order would silently lose data.
 
-`positionSummary` / `positionSummaryDate` yalnizca NVDA'da goruldu ama orada
-bir kisinin TEK hisse bilgisiydi; kolona alinmasaydi o satirin TUM hisse
-alanlari NULL kalirdi.
+`positionSummary` / `positionSummaryDate` were seen only for NVDA, but there
+they were the ONLY share info for a person; without a column for them, that
+row's entire share data would be NULL.
 """
 
 from __future__ import annotations
@@ -126,8 +126,9 @@ class InsiderRosterDataset(AsOfDataset[AsOfFramePayload]):
                     update_columns=(*DATA_COLUMNS, "fetched_at"),
                     mode="replace_scope",
                     scope_columns=SCOPE_COLUMNS,
-                    # Kadro kuculdugunde eski kisiler AYNI as-of gununde
-                    # kalmasin diye kapsam acikca verilir (AH S7.2).
+                    # Scope is given explicitly so that when the roster
+                    # shrinks, stale people don't linger under the SAME as-of
+                    # date.
                     scope_values=({"symbol": symbol, "as_of_date": as_of},),
                 )
             ]

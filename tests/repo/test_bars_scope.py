@@ -1,8 +1,8 @@
-"""intraday_scope cozumlemesi ve kapsam kapisi (PB S5.4, S6.5).
+"""intraday_scope resolution and the scope gate.
 
-Asimetri BILINCLIDIR ve tehlikelidir; bu yuzden testle sabitlenir:
-  1m       -> tabloda kayit yoksa HICBIR sembol (1,21 milyar satir/yil)
-  digerleri -> tabloda kayit yoksa TUM EVREN
+The asymmetry is deliberate and dangerous, hence pinned by tests:
+  1m       -> empty table means NO symbol is in scope (1.21B rows/year)
+  others   -> empty table means the WHOLE universe is in scope
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 
 @pytest.fixture
 def factory(db_session: Session) -> sessionmaker[Session]:
-    """ScopeReader kendi oturumunu acar; testte AYNI baglantiya baglanir,
-    yoksa rollback edilen fixture verisini goremez."""
+    """ScopeReader opens its own session; bind it to the same connection here,
+    or it won't see fixture data that gets rolled back."""
     return sessionmaker(bind=db_session.connection(), expire_on_commit=False)
 
 
@@ -43,8 +43,8 @@ def _scope(session: Session, symbol: str, interval: str, *, enabled: bool = True
 def test_1m_with_empty_table_covers_nobody(
     db_session: Session, factory: sessionmaker[Session]
 ) -> None:
-    """Bos tabloda 1m'in tum evrene acilmasi 1,21 milyar satir/yil
-    demekti; sessizce oraya kaymaktansa hic kosmamasi guvenli taraftir."""
+    """1m opening to the whole universe on an empty table would mean 1.21B
+    rows/year; failing to run is the safe side to fall to."""
     _symbol(db_session, "AAPL")
 
     assert ScopeReader(factory)("AAPL", "1m") is False
@@ -70,8 +70,8 @@ def test_listed_symbol_is_in_scope(db_session: Session, factory: sessionmaker[Se
 def test_unlisted_symbol_is_out_of_scope_once_the_interval_has_any_row(
     db_session: Session, factory: sessionmaker[Session]
 ) -> None:
-    """TEHLIKELI ASIMETRI: 5m icin tek bir satir eklemek, diger TUM
-    sembolleri kapsam disina atar (PB S5.4). Test bunu belgeler."""
+    """Dangerous asymmetry: adding one row for 5m pushes every other symbol
+    out of scope. This test documents that."""
     _symbol(db_session, "AAPL")
     _symbol(db_session, "MSFT")
     _scope(db_session, "AAPL", "5m")
@@ -84,8 +84,8 @@ def test_unlisted_symbol_is_out_of_scope_once_the_interval_has_any_row(
 def test_disabled_row_still_counts_as_a_registered_interval(
     db_session: Session, factory: sessionmaker[Session]
 ) -> None:
-    """Yalniz enabled=0 satirlari olan bir interval de 'kayit var'
-    sayilir -> hicbir sembol kosar."""
+    """An interval with only enabled=0 rows still counts as "has a record" ->
+    no symbol runs."""
     _symbol(db_session, "AAPL")
     _scope(db_session, "AAPL", "5m", enabled=False)
 
@@ -93,17 +93,17 @@ def test_disabled_row_still_counts_as_a_registered_interval(
 
 
 def test_scope_is_read_once_per_run(db_session: Session, factory: sessionmaker[Session]) -> None:
-    """Kume ORNEKTE onbelleklenir: sembol basina sorgu kosu basina ~5.000
-    sorgu demekti (PB S6.5a)."""
+    """The set is cached on the instance: one query per symbol per run would
+    mean ~5,000 queries."""
     _symbol(db_session, "AAPL")
     _scope(db_session, "AAPL", "1m")
     reader = ScopeReader(factory)
 
     assert reader("AAPL", "1m") is True
-    # Ikinci sembol eklendikten SONRA bile onbellek degismez
+    # The cache does not change even after a second symbol is added
     _symbol(db_session, "MSFT")
     _scope(db_session, "MSFT", "1m")
-    assert reader("MSFT", "1m") is False, "kapsam kumesi yeniden okunmus"
+    assert reader("MSFT", "1m") is False, "scope set was re-read"
 
 
 def test_gap_reader_returns_only_unresolved_fetch_failures(
@@ -123,15 +123,14 @@ def test_gap_reader_returns_only_unresolved_fetch_failures(
 
     gaps = GapReader(factory)("AAPL", "1m")
 
-    # Cozulmus olan ve retention_expired olan DISLANIR: ilki artik gorev
-    # degil, ikincisi zaten cekilemez.
+    # Resolved gaps and retention_expired gaps are excluded: the first is no
+    # longer actionable, the second can no longer be fetched at all.
     assert [g[0] for g in gaps] == [datetime(2026, 8, 1, tzinfo=UTC)]
 
 
 def test_out_of_scope_exception_is_not_a_value_error() -> None:
-    """errors._NEVER_RETRYABLE ValueError'i iceriyor; ValueError'dan
-    tureseydi kapsam disilik sessizce bir VERI HATASI olarak
-    siniflandirilirdi (PB S6.5b)."""
+    """errors._NEVER_RETRYABLE includes ValueError; if this inherited from it,
+    being out of scope would be silently classified as a data error."""
     exc = DatasetOutOfScope("1m")
 
     assert not isinstance(exc, ValueError)
@@ -139,10 +138,14 @@ def test_out_of_scope_exception_is_not_a_value_error() -> None:
 
 
 def test_purge_removes_price_bars_leaving_no_orphans(db_session: Session) -> None:
-    """price_bars FK TASIMAZ (partition), bu yuzden purge onu FK
-    kenarlarindan bulamaz: sembol gider, barlar oksuz kalir ve ERROR 1451
-    uyarisi da gelmez. Daha kotusu bar_rescales FK tasidigi icin SILINIR -
-    olcekleme defteri kaybolur (PB S8.7).
+    """price_bars carries an FK to symbols, so purge finds it by following
+    FK edges and deletes the bars with the symbol.
+
+    It did not always: while the table was partitioned it could not carry
+    an FK, so purge had to be told about it by hand or the bars were left
+    orphaned with no warning -- while bar_rescales, which did have an FK,
+    was deleted and took the rescale ledger with it. A hypertable can be
+    the referencing side, so that special case is gone.
     """
     from sqlalchemy import delete
 
@@ -163,8 +166,8 @@ def test_purge_removes_price_bars_leaving_no_orphans(db_session: Session) -> Non
     db_session.flush()
 
     names = symbol_scoped_tables()
-    assert "price_bars" in names, "purge price_bars'i hic gormuyor"
-    # Defter EN SONDA silinmeli
+    assert "price_bars" in names, "purge does not see price_bars at all"
+    # The ledger must be deleted last
     assert names.index("price_bars") < names.index("bar_rescales")
 
     for name in names:

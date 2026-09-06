@@ -1,16 +1,16 @@
-"""KIRILGANLIK CITI: endustri anahtarlarinin kaynagi (SI S9.2, S14/0).
+"""Proof of the source of industry keys.
 
-Bu dosya spec'in VARLIK NEDENIDIR ve hicbir uygulama kodundan once
-yazilmistir. Kanitladigi sey su: `SECTOR_INDUSTY_MAPPING_LC`'den turetilen
-endustri anahtarlari CANLI API ILE UYUSMUYOR -- `const.py:313-318`
-`k.lower().replace('& ','')...` uyguluyor ama EM-DASH ve ampersand
-karakterine dokunmuyor.
+This file is the reason the spec exists and was written before any
+implementation code. What it proves: industry keys derived from
+`SECTOR_INDUSTY_MAPPING_LC` do NOT match the live API -- `const.py:313-318`
+applies `k.lower().replace('& ','')...` but does not touch the em-dash or
+ampersand characters.
 
-Kutuphane bunu bir gun duzeltirse test PATLAR ve o gun `SECTOR_KEYS`in
-yaninda endustri anahtarlarini da sabitten almak yeniden tartisilabilir.
-Duzeltilmeden bir gelecek degisiklik sabitten seed ederse 32 endustri
-sessizce `empty` yazilir, DB'de 145 yerine 113 endustri olur ve denetim
-"hata yok" derdi.
+If the library ever fixes this, this test breaks, and taking industry keys
+from the constant (like `SECTOR_KEYS`) becomes worth reconsidering. Until
+it's fixed, a future change that seeds from the constant would silently
+write 32 industries as `empty`, leave the DB with 113 industries instead of
+145, and an audit would say "no error".
 """
 
 from __future__ import annotations
@@ -32,15 +32,15 @@ def _library_mapping() -> dict[str, list[str]]:
 
 
 def test_sector_keys_match_the_library_top_level_keys() -> None:
-    """SEKTOR anahtarlari icin sabit GUVENILIR: 11/11 canlida dogrulandi."""
+    """The constant is reliable for sector keys: verified 11/11 live."""
     assert set(SECTOR_KEYS) == set(_library_mapping())
     assert len(SECTOR_KEYS) == 11
 
 
 def test_industry_keys_from_the_library_differ_from_the_live_response() -> None:
-    """Fixture'lardan kesfedilen anahtar kumesi ile kutuphaneninki AYNI DEGIL.
+    """The key set discovered from fixtures does NOT match the library's.
 
-    Fark tam olarak em-dash / ampersand tasiyan anahtarlardadir.
+    The difference is exactly in keys carrying an em-dash or ampersand.
     """
     library = _library_mapping()
     mismatched: dict[str, tuple[set[str], set[str]]] = {}
@@ -55,14 +55,14 @@ def test_industry_keys_from_the_library_differ_from_the_live_response() -> None:
             mismatched[key] = (discovered - expected, expected - discovered)
 
     assert mismatched, (
-        "kutuphane sabiti ile canli anahtarlar artik AYNI. "
-        "SI S4.1'in bulgusu gecersizlesmis olabilir: endustri anahtar "
-        "kaynagi kararini yeniden degerlendirin."
+        "the library constant and the live keys now match. "
+        "The earlier finding may be invalidated: reconsider the industry "
+        "key source decision."
     )
-    # Kaybolan her anahtar em-dash ya da ampersand tasiyor; canli karsiligi
-    # duz tire kullaniyor.
+    # Every missing key carries an em-dash or ampersand; its live
+    # counterpart uses a plain hyphen instead.
     for _key, (only_live, only_library) in mismatched.items():
-        assert only_library, "kutuphanede fazladan anahtar bekleniyordu"
+        assert only_library, "expected extra keys in the library"
         for name in only_library:
             assert EM_DASH in name or AMPERSAND in name, name
         for name in only_live:
@@ -70,7 +70,7 @@ def test_industry_keys_from_the_library_differ_from_the_live_response() -> None:
 
 
 def test_utilities_is_the_core_evidence() -> None:
-    """`utilities`in ALTI anahtarinin ALTISI da sabitten farkli."""
+    """All six of `utilities`' keys differ from the constant."""
     library = set(_library_mapping()["utilities"])
     live = {row["key"] for row in domain_data("sector", "utilities")["industries"] if "key" in row}
     assert len(live) == 6
@@ -78,11 +78,11 @@ def test_utilities_is_the_core_evidence() -> None:
 
 
 def test_industry_keys_are_never_imported_from_the_library() -> None:
-    """Kutuphanenin endustri haritasi HICBIR uygulama modulunde IMPORT EDILMEZ.
+    """The library's industry map is not imported by any application module.
 
-    Kontrol AST uzerindedir, metin aramasi degil: `common.py` bu sabitin
-    ADINI bir YORUMDA anip neden kullanilmadigini anlatiyor ve bu istenen
-    seydir. Yasak olan sey ondan VERI ALMAK.
+    The check runs on the AST, not a text search: `common.py` mentions this
+    constant's name in a comment to explain why it is not used, which is
+    fine. What is forbidden is pulling data from it.
     """
     root = pathlib.Path(__file__).resolve().parents[2] / "src" / "yfin"
     offenders: list[str] = []

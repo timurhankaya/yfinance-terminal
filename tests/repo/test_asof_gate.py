@@ -1,10 +1,10 @@
-"""AsOfDataset'in GERCEK PostgreSQL uzerindeki davranisi (AH S9.2).
+"""AsOfDataset's actual behavior against PostgreSQL.
 
-`tests/unit/test_asof_base.py` kapinin karar mantigini sahte bir writer ile
-baglar; burada ayni akis `PostgresRowWriter` ile kosar. Ikisi ayri sorulari
-yanitlar: karar dogru mu (unit) ve MySQL o karari GERCEKTEN uyguluyor mu
-(repo) -- upsert kapsamı, replace_scope silme ve `first_seen_at`in
-korunmasi yalnizca burada gorulur.
+`tests/unit/test_asof_base.py` pins the gate's decision logic with a fake
+writer; here the same flow runs through `PostgresRowWriter`. Separate
+questions: is the decision correct (unit) vs. does the database actually
+apply it (repo) -- upsert scope, replace_scope deletion, and `first_seen_at`
+preservation only show up here.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def _holders(session: Session, symbol: str) -> list[str]:
     )
 
 
-# --- ilk calistirma --------------------------------------------------------
+# --- first run --------------------------------------------------------
 
 
 def test_first_run_writes_data_and_opens_the_gate(db_session: Session, symbol: str) -> None:
@@ -104,16 +104,16 @@ def test_first_run_writes_data_and_opens_the_gate(db_session: Session, symbol: s
     assert stats.verified["institutional_holders"] == 2
 
 
-# --- ikinci calistirma, ayni icerik ----------------------------------------
+# --- second run, same content ----------------------------------------
 
 
 def test_unchanged_content_skips_data_but_refreshes_verification_time(
     db_session: Session, symbol: str
 ) -> None:
-    """Kapi satiri HER DURUMDA yazilir; hash esitse yalnizca `fetched_at`.
+    """The gate row is always written; on a matching hash only `fetched_at` moves.
 
-    Sapilsaydi "bu sembol en son ne zaman KONTROL EDILDI" sorusu cevapsiz
-    kalirdi (hash_gated.py'nin kurdugu ilke).
+    Otherwise "when was this symbol last checked" would be unanswerable --
+    the invariant hash_gated.py establishes.
     """
     _run(db_session, symbol, ["Vanguard"], fetched_at=NOW)
     stats = _run(db_session, symbol, ["Vanguard"], fetched_at=LATER)
@@ -125,10 +125,10 @@ def test_unchanged_content_skips_data_but_refreshes_verification_time(
 
 
 def test_first_seen_at_is_never_overwritten(db_session: Session, symbol: str) -> None:
-    """`first_seen_at` `update_columns` KAPSAMI DISINDADIR; girseydi
-    guncelleme kapsami "ilk INSERT'te yazilir" kuralini bozardi."""
+    """`first_seen_at` is outside `update_columns`; including it would break the
+    rule that it is written only on the first INSERT."""
     _run(db_session, symbol, ["Vanguard"], fetched_at=NOW)
-    # Icerik degisir -> kapi TAM yazilir; first_seen_at yine de korunmali
+    # Content changes -> gate is fully rewritten; first_seen_at must still be kept
     _run(db_session, symbol, ["Vanguard", "Blackrock"], fetched_at=LATER)
 
     gate = _gate(db_session, symbol)
@@ -137,23 +137,23 @@ def test_first_seen_at_is_never_overwritten(db_session: Session, symbol: str) ->
 
 
 def test_hash_survives_a_new_fetched_at(db_session: Session, symbol: str) -> None:
-    """Hash `as_of_date`/`fetched_at`ten BAGIMSIZDIR. Bu iddia olmadan
-    VOLATILE_COLUMNS bir gun sessizce daralir ve mekanizma hic
-    calismaz hale gelirdi."""
+    """The hash is independent of `as_of_date`/`fetched_at`. Without this
+    invariant, VOLATILE_COLUMNS could silently shrink one day and disable
+    the whole mechanism."""
     _run(db_session, symbol, ["Vanguard"], fetched_at=NOW)
     before = _gate(db_session, symbol).content_hash
     _run(db_session, symbol, ["Vanguard"], fetched_at=LATER)
     assert _gate(db_session, symbol).content_hash == before
 
 
-# --- icerik degisimi -------------------------------------------------------
+# --- content change -------------------------------------------------------
 
 
 def test_shrinking_source_deletes_stale_rows_in_the_same_day(
     db_session: Session, symbol: str
 ) -> None:
-    """`replace_scope` + ACIK `scope_values`: liste kuculdugunde eski satir
-    AYNI as-of gununde kalmaz."""
+    """`replace_scope` + explicit `scope_values`: a shrinking list drops the
+    stale row within the same as-of day."""
     _run(db_session, symbol, ["Vanguard", "Blackrock"], fetched_at=NOW)
     _run(db_session, symbol, ["Vanguard"], fetched_at=LATER)
 
@@ -161,7 +161,7 @@ def test_shrinking_source_deletes_stale_rows_in_the_same_day(
 
 
 def test_sibling_holder_type_is_untouched(db_session: Session, symbol: str) -> None:
-    """Iki dataset ayni tabloda yasar; kapsam `holder_type` ile ayrisir."""
+    """Two datasets share one table; `holder_type` separates their scope."""
     mutualfund = SYMBOL_DATASETS["mutualfund_holders"]
     writer = PostgresRowWriter(db_session)
     mutualfund.upsert(
@@ -181,7 +181,7 @@ def test_sibling_holder_type_is_untouched(db_session: Session, symbol: str) -> N
 
 
 def test_next_day_creates_a_second_as_of_row(db_session: Session, symbol: str) -> None:
-    """Gecmis ILERIYE dogru birikir: dunun satiri korunur."""
+    """History accumulates forward: yesterday's row is kept."""
     _run(db_session, symbol, ["Vanguard"], fetched_at=NOW)
     _run(db_session, symbol, ["Vanguard", "Blackrock"], fetched_at=TOMORROW)
 
@@ -198,12 +198,12 @@ def test_next_day_creates_a_second_as_of_row(db_session: Session, symbol: str) -
     assert _gate(db_session, symbol).as_of_date == NEXT_DAY
 
 
-# --- bos sonuc -------------------------------------------------------------
+# --- empty result -------------------------------------------------------------
 
 
 def test_empty_source_never_opens_the_gate(db_session: Session, symbol: str) -> None:
-    """Aksi halde her fon-olmayan sembol icin olu bir kapi satiri birikir ve
-    `first_seen_at` "ilk kez BOS donuldu" anlamina kayardi (AH S6.1/3)."""
+    """Otherwise every non-fund symbol would accumulate a dead gate row, and
+    `first_seen_at` would come to mean "first time an empty result came back"."""
     import pandas as pd
 
     stats = DATASET.upsert(
@@ -215,27 +215,27 @@ def test_empty_source_never_opens_the_gate(db_session: Session, symbol: str) -> 
     assert stats.tables() == []
 
 
-# --- denetim kaydi ---------------------------------------------------------
+# --- audit record ---------------------------------------------------------
 
 
 def test_audit_cell_is_skipped_when_content_is_unchanged(
     db_session: Session, symbol: str
 ) -> None:
-    """`runner._record_items` bunu `skipped` sayar: attempted=0, skipped>0."""
+    """`runner._record_items` counts this as `skipped`: attempted=0, skipped>0."""
     _run(db_session, symbol, ["Vanguard"], fetched_at=NOW)
     stats = _run(db_session, symbol, ["Vanguard"], fetched_at=LATER)
 
     records = {r.table_name: r for r in _record_items(DATASET, symbol, stats, 1, 0)}
     assert records["institutional_holders"].status is ItemStatus.SKIPPED
-    # Kapi satiri her calistirmada YAZILIR -> kendi hucresi `ok` kalir
+    # The gate row is written on every run -> its own cell stays `ok`
     assert records["asof_state"].status is ItemStatus.OK
 
 
 def test_multi_table_dataset_can_be_empty_and_skipped_at_once(
     db_session: Session, symbol: str
 ) -> None:
-    """BND'de `fund_top_holdings` bostur, kardes tablolar `skipped` olur --
-    tek dataset ayni calistirmada IKI farkli durum uretebilir (AH S7.2)."""
+    """On BND `fund_top_holdings` is empty and the sibling table is `skipped` --
+    one dataset can produce two different statuses in the same run."""
     funds = SYMBOL_DATASETS["funds_data"]
     writer = PostgresRowWriter(db_session)
     result = NormalizedResult(

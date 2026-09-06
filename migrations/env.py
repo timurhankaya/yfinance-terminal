@@ -1,4 +1,4 @@
-"""Alembic ortami: baglanti bilgisi .env'den gelir, alembic.ini'ye yazilmaz."""
+"""Alembic environment: connection info comes from .env, not alembic.ini."""
 
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Alembic ifade tabanli indexleri (fetched_at DESC) DB'den geri okuyup
-# karsilastiramaz; her calistirmada sahte bir "degisti" uretir. Bu iki
-# index elle yonetilir ve autogenerate karsilastirmasindan haric tutulur.
+# Alembic cannot read expression-based indexes (fetched_at DESC) back from
+# the DB to compare them, so it reports a false "changed" every run. These
+# indexes are managed by hand and excluded from autogenerate comparison.
 EXPRESSION_INDEXES = frozenset(
     {
         "ix_ticker_info_history_symbol_fetched",
@@ -30,16 +30,16 @@ EXPRESSION_INDEXES = frozenset(
 
 
 def include_object(obj, name, type_, reflected, compare_to):  # type: ignore[no-untyped-def]
-    """Yalnizca ifade tabanli indeksleri haric tutar.
+    """Exclude only the expression-based indexes.
 
-    BIR `_timescaledb` FILTRESI EKLENMEDI ve bu bilincli. `include_schemas`
-    VARSAYILAN (False) birakildigi icin Alembic yalnizca search_path'in
-    ilk semasina bakar; TimescaleDB'nin ic semalarindaki
-    (`_timescaledb_internal`) chunk tablolari autogenerate ciktisinda HIC
-    GORUNMEZ (olculdu). Boyle bir filtre gereksiz olmakla kalmaz, asil
-    problemi de gizlerdi: `create_hypertable`in VARSAYILAN indeksi
-    `public` semasinda durur ve filtreye takilmaz -- o yuzden
-    `create_default_indexes => FALSE` kullanilir (PG S7.1).
+    No `_timescaledb` schema filter is added here, deliberately.
+    `include_schemas` stays at its default (False), so Alembic only looks
+    at the first schema on search_path; TimescaleDB's internal schema
+    (`_timescaledb_internal`) chunk tables never appear in autogenerate
+    output (verified). Such a filter would be not just unnecessary but
+    would hide the real issue: `create_hypertable`'s default index lives
+    in the `public` schema and would not be caught by the filter anyway
+    -- hence `create_default_indexes=False` is used instead.
     """
     return not (type_ == "index" and name in EXPRESSION_INDEXES)
 

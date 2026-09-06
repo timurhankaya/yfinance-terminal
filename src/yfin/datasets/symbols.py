@@ -1,4 +1,4 @@
-"""symbols dataset'i (S6.3 #0) - altyapi, her calistirmada ilk kosar."""
+"""symbols dataset - infrastructure, always runs first."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from yfin.datasets.payloads import SymbolsPayload
 from yfin.datasets.registry import register
 from yfin.models.fields import HISTORY_METADATA_FIELDS, Field
 
-# fast_info + history_metadata ayni iki cagriyi paylasir; ctx.cached tekrar
-# istegini onler (S6.3)
+# fast_info and history_metadata share the same two calls; ctx.cached
+# prevents a repeat request.
 CACHE_FAST_INFO = "fast_info"
 CACHE_HISTORY_METADATA = "history_metadata"
 
@@ -36,10 +36,10 @@ _HM: dict[str, Field] = {f.source: f for f in HISTORY_METADATA_FIELDS}
 
 
 def _upper(value: str | None) -> str | None:
-    """None'i gecirir; aksi halde buyuk harfe cevirir (PG S2.5.1).
+    """Passes None through; otherwise uppercases.
 
-    `yfin symbols add` ile eklenen sembolde `exchange`/`quote_type` ILK
-    SYNC'E KADAR NULL'dur; None'i patlatmamak sart.
+    A symbol added via `yfin symbols add` has `exchange`/`quote_type` NULL
+    UNTIL THE FIRST SYNC; must not raise on None.
     """
     return value.upper() if value is not None else None
 
@@ -64,12 +64,12 @@ class SymbolsDataset(Dataset[SymbolsPayload]):
 
         row: dict[str, Any] = {
             "symbol": symbol,
-            # .upper() SART: kolonlar artik COLLATE "C"dir (buyuk/kucuk
-            # harf DUYARLI). MySQL'de tablo varsayilani ai_ci oldugu icin
-            # `--exchange nms` calisiyordu; duyarsizlik simdi YAZMA ve
-            # SORGU yollarinda saglanir (PG S2.5.1). Yahoo bu iki alani
-            # zaten buyuk harfle donduruyor -- yani bu veride kimliktir --
-            # ama tek normalizasyon yeri burasi olmali.
+            # .upper() is MANDATORY: columns are now COLLATE "C" (case
+            # SENSITIVE). MySQL's table default was ai_ci, so `--exchange
+            # nms` used to work; case-insensitivity is now enforced on the
+            # WRITE and QUERY paths instead. Yahoo already returns these two
+            # fields uppercase -- so this is a no-op on the data -- but this
+            # must be the single place normalization happens.
             "quote_type": _upper(nz.to_str(fi.get("quoteType") or md.get("instrumentType"), 32)),
             "exchange": _upper(nz.to_str(fi.get("exchange") or md.get("exchangeName"), 32)),
             "full_exchange_name": nz.to_str(md.get("fullExchangeName"), 64),
@@ -83,14 +83,14 @@ class SymbolsDataset(Dataset[SymbolsPayload]):
             "last_seen_at": raw.fetched_at,
         }
 
-        # Kolon sahipligi dataset basina tekildir (S6.1/3). Iki kolon
-        # bilincli olarak update kapsaminin DISINDA birakilir:
-        #   - isin: sahibi `isin` dataset'idir; kapsama girseydi ikinci
-        #     symbols calistirmasi ISIN'i NULL'a ezerdi.
-        #   - is_active: kullanici karari (`symbols deactivate`) ile delist
-        #     sayaci ayri tutulur; kapsama girseydi basarili bir sync elle
-        #     pasiflestirilmis sembolu sessizce yeniden aktiflestirirdi.
-        #     Satirda yine bulunur, boylece ILK INSERT varsayilani 1 olur.
+        # Column ownership is unique per dataset. Two columns are
+        # deliberately left OUT of the update scope:
+        #   - isin: owned by the `isin` dataset; if included, a second
+        #     symbols run would overwrite ISIN back to NULL.
+        #   - is_active: kept separate from the delist counter by user
+        #     decision (`symbols deactivate`); if included, a successful
+        #     sync would silently reactivate a manually deactivated symbol.
+        #     Still present in the row so the FIRST INSERT defaults to 1.
         frozen = {"symbol", "is_active"}
         update_columns = tuple(c for c in row if c not in frozen)
 

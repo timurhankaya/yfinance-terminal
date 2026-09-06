@@ -1,19 +1,20 @@
-"""dividends, splits, capital_gains dataset'leri (S6.3 #4-#6).
+"""dividends, splits, capital_gains datasets.
 
-Ucu de ONARILMIS history cercevesinin bir KOLONUNDAN beslenir; kendi
-get_dividends/get_splits/get_capital_gains cagrilarini YAPMAZLAR.
+All three feed from a column of the repaired history frame; none makes its
+own get_dividends/get_splits/get_capital_gains call.
 
-Gerekce (kaynaktan dogrulandi): `base.py:479-486` `repair` parametresini
-`PriceHistory.get_dividends`'e forward ETMEZ ve `history.py:646` onbellek
-anahtari `(interval, period, repair)`'dir. Yani `ticker.dividends` hem
-ONARIMSIZ veri doner hem de IKINCI bir tam history() ag cagrisi yapar.
-Bu tasarimda `price_history.dividend` (onarilmis) ile `dividends` tablosu
-(onarimsiz) CELISIRDI - ustelik otorite olan taraf `dividends`'tir.
+Rationale (verified against the source): `base.py`'s `repair` parameter is
+not forwarded to `PriceHistory.get_dividends`, and the cache key is
+`(interval, period, repair)`. So `ticker.dividends` both returns unrepaired
+data and makes a second, full history() network call. That would have
+`price_history.dividend` (repaired) disagree with the `dividends` table
+(unrepaired) -- with `dividends` as the authoritative side.
 
-Uc kazanc: otorite tablolar onarilmis veri alir; iki kaynak arasindaki
-celiski kalkar; sembol basina UC ag cagrisi kaybolur.
+Three gains: authoritative tables get repaired data; the cross-source
+conflict disappears; three network calls per symbol are eliminated.
 
-'actions' bunlarin alias'idir; v_actions view'i yalniz bu uc tabloyu okur.
+'actions' is an alias for these; the v_actions view only reads these three
+tables.
 """
 
 from __future__ import annotations
@@ -30,12 +31,12 @@ from yfin.datasets.registry import register
 
 
 class _SeriesDataset(Dataset[FramePayload]):
-    # Ucu de PAYLASILAN history cercevesinden beslenir; aralik o cagriya
-    # gecer, satir elemesi degildir (AH S6.2).
+    # All three feed from the shared history frame; the range passes to
+    # that call, it does not filter rows.
     date_range = "api"
-    # depends_on ("history",) YAPILMAZ: o zaman `--datasets dividends`
-    # calistirmasi price_history'ye de yazardi. Cerceve dogrudan
-    # cagrilir; history de seciliyse ctx.cached ayni cagriyi paylasir.
+    # depends_on is not ("history",): that would make `--datasets
+    # dividends` also write to price_history. The frame is called directly;
+    # if history is also selected, ctx.cached shares the same call.
     depends_on = ("symbols",)
     table: str
     date_column: str
@@ -46,28 +47,28 @@ class _SeriesDataset(Dataset[FramePayload]):
         return fetch_history_frame(ctx)
 
     def normalize(self, raw: FramePayload, symbol: str) -> NormalizedResult:
-        # None de gelebilir; '.empty' tek basina yetmez (S8.3)
+        # Can also be None; '.empty' alone is not enough
         if nz.is_empty_result(raw):
             return NormalizedResult()
 
         frame: pd.DataFrame = raw
         if self.frame_column not in frame.columns:
-            # Kolon sembole gore DEGISIR (fon olmayan sembolde 'Capital
-            # Gains' yoktur). Bos sonuc 'empty'dir, 'failed' degil (S8.2).
+            # Column set varies by symbol ('Capital Gains' is absent for a
+            # non-fund symbol). An empty result is 'empty', not 'failed'.
             return NormalizedResult()
         series = frame[self.frame_column]
-        # Anahtar bazinda dedupe: kaynakta ayni YEREL tarihe dusen iki kayit
-        # gelirse (farkli saatlerdeki iki damga) attempted=2 / verified=1
-        # olur ve hucre yanlislikla 'failed' isaretlenirdi (S8.6). Son kayit
-        # kazanir - shares_full'daki desenin aynisi.
+        # Dedupe by key: if the source has two records land on the same
+        # local date (two timestamps at different times), attempted=2 /
+        # verified=1 would mark the cell 'failed' incorrectly. Last record
+        # wins -- same pattern as shares_full.
         by_date: dict[Any, dict[str, Any]] = {}
         for index, value in series.items():
-            # Cerceve olaysiz gunlerde 0 tasir; yalnizca gercek olaylar
-            # tabloya girer.
+            # The frame carries 0 on event-free days; only real events
+            # enter the table.
             if value is None or float(value) == 0.0:
                 continue
-            # ex_date de YEREL tarihtir; dividends/splits index'i history'den
-            # farkli saatte gelir (THYAO: 09:30 vs 00:00) - S8.3
+            # ex_date is also a local date; the dividends/splits index comes
+            # at a different time of day than history's (THYAO: 09:30 vs 00:00)
             when = nz.to_local_date(index)
             amount = nz.to_decimal(value)
             if when is None or amount is None:
@@ -113,11 +114,11 @@ class SplitsDataset(_SeriesDataset):
 
 
 class CapitalGainsDataset(_SeriesDataset):
-    """Hicbir sembolde dolu gelmiyor - test edilen 7 fon/ETF dahil (S8.2).
+    """Never returns data for any symbol tested, including 7 funds/ETFs.
 
-    Bos sonuc 'empty'dir, 'failed' degil. Boslugu hata sayan sistem her
-    calistirmada yanlis alarm verir. 'Capital Gains' kolonu yalnizca
-    fonlarda gelir; yoksa normalize bos sonuc doner.
+    An empty result is 'empty', not 'failed'. A system that treats empty as
+    an error would false-alarm on every run. The 'Capital Gains' column
+    only appears for funds; otherwise normalize returns an empty result.
     """
 
     name = "capital_gains"

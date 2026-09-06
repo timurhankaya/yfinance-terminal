@@ -1,14 +1,16 @@
-"""sustainability IZLEME dataset'i (AH S6.3).
+"""sustainability monitoring dataset.
 
-Tablosu YOKTUR (`produces = ()`): `esgScores` modulu 19 sembolun 19'unda da
-404 dondu -- 8 sektor, 6 ulke (AAPL, MSFT, KO, XOM, TSLA, JPM, NVDA, GE,
-PFE, WMT, BA, INTC, DIS, F, THYAO.IS, NESN.SW, BP.L, 005930.KS, BABA). Hic
-dolmayacak bir tablo acmak yerine ucun geri acilip acilmadigini IZLEYEN bir
-dataset kalir; kaynak dolu gelirse WARNING ile haber verir.
+No table (`produces = ()`): the `esgScores` module returned 404 for 19 of
+19 symbols tested, across 8 sectors and 6 countries (AAPL, MSFT, KO, XOM,
+TSLA, JPM, NVDA, GE, PFE, WMT, BA, INTC, DIS, F, THYAO.IS, NESN.SW, BP.L,
+005930.KS, BABA). Rather than keep a table that will never fill, this
+dataset just watches for the endpoint coming back and logs a warning if
+data ever arrives.
 
-`all` GENISLEMESINDE YOKTUR (`opt_in=True`): kosturulursa her sembolde bir
-bosa istek ve bir `empty` hucre uretir. Kayit KOSULSUZDUR ama opt-in'dir --
-dataset `--datasets sustainability` ile ADIYLA istendiginde kosar.
+Excluded from the `all` expansion (`opt_in=True`): running it for every
+symbol would just produce a wasted request and an `empty` cell each time.
+Registration is unconditional, but the dataset only runs when named
+explicitly via `--datasets sustainability`.
 """
 
 from __future__ import annotations
@@ -26,9 +28,9 @@ log = get_logger(__name__)
 class SustainabilityDataset(Dataset[AsOfFramePayload]):
     name = "sustainability"
     depends_on = ("symbols",)
-    # HICBIR tabloya yazmaz. `runner._record_items` bu bosluga karsi
-    # `or dataset.produces or [None]` ile korunur (AH S6.5/1); aksi halde
-    # dataset denetimden butunuyle kaybolurdu.
+    # Writes to no table. `runner._record_items` guards against this empty
+    # tuple with `or dataset.produces or [None]`; otherwise the dataset would
+    # disappear from auditing entirely.
     produces = ()
 
     def fetch(self, ctx: SyncContext) -> AsOfFramePayload:
@@ -45,24 +47,24 @@ class SustainabilityDataset(Dataset[AsOfFramePayload]):
                 shape=str(getattr(frame, "shape", None)),
                 columns=[str(c) for c in getattr(frame, "columns", [])],
             )
-        # Dolu gelse de YAZILMAZ: tablo yok. Terfi karari olcumle verilir.
+        # Even if data does arrive, it is not written: there is no table.
+        # Promoting the dataset to write is a decision for measurement to make.
         return NormalizedResult()
 
 
-# KOSULSUZ KAYIT, `opt_in=True` ILE (CFG S3.4).
+# Unconditional registration, gated by `opt_in=True`.
 #
-# Onceki hali `if get_settings().yf_probe_sustainability:` idi ve bu, kod
-# tabanindaki TEK modul-govdesi `get_settings()` cagrisiydi. Zincir
-# `cli.py -> yfin.datasets -> analysis -> sustainability` oldugu icin
-# `yfin --help` bile Settings'i kurmaya zorluyordu; DB katmani
-# eklendiginde bu, DB'ye hic dokunmayan komutlarin DB'ye baglanmasi ve DB
-# kapaliyken KURTARMA komutlarinin bile calismamasi demek olurdu.
+# This used to be `if get_settings().yf_probe_sustainability:`, the only
+# module-level `get_settings()` call in the codebase. Because the import
+# chain is `cli.py -> yfin.datasets -> analysis -> sustainability`, even
+# `yfin --help` was forced to build Settings; once a DB layer existed, that
+# meant commands touching no DB would still connect to one, and recovery
+# commands would fail while the DB was down.
 #
-# `yf_discovery_enabled` ayni tuzaga dusmus ve kaldirilmisti
-# (config.py'deki not); `sustainability` o gocte atlanmisti. Davranis
-# ayni kalir: dataset `--datasets sustainability` ile ADIYLA istendiginde
-# kosar, `all` genislemesinde HIC gorunmez. `yf_probe_sustainability`
-# alani ise TAMAMEN KALDIRILDI: bu degisiklikten sonra onu okuyan kimse
-# kalmiyordu ve etkisiz bir ayar, bir yonetim panelini besleyen
-# yapilandirma katmaninda yanlis bilgi demektir (config.py'deki not).
+# `yf_discovery_enabled` hit the same trap and was fixed the same way (see
+# the note in config.py); `sustainability` was missed in that pass.
+# Behavior is unchanged: the dataset runs only when named explicitly via
+# `--datasets sustainability`, never as part of `all`. The
+# `yf_probe_sustainability` setting itself was removed outright, since
+# nothing read it anymore.
 register(SustainabilityDataset(), opt_in=True)

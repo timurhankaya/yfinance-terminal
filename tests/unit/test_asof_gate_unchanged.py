@@ -1,13 +1,13 @@
-"""`AsOfGate` ayristirmasinin SIFIR DAVRANIS DEGISIKLIGI kaniti (SI S9.2, S14/1).
+"""Proof that extracting `AsOfGate` changed zero behavior.
 
-Mixin `Dataset` hiyerarsisinden ayrildi ve `VOLATILE_COLUMNS`a
-`first_seen_at` eklendi. Bu dosya iki seyi surer:
+The mixin was split out of the `Dataset` hierarchy and `first_seen_at` was
+added to `VOLATILE_COLUMNS`. This file proves two things:
 
-1. Mevcut 13 as-of dataset'inin kapi tablosu, anahtar kolonlari ve kapi
-   kimligi BIREBIR eskisi gibidir.
-2. `first_seen_at` eklemesi HICBIR mevcut hash'i degistiremez -- cunku
-   sembol tarafindaki hicbir VERI tablosunda o kolon yoktur. Kanit sema
-   uzerinden uretilir, elle yazilmis bir liste degildir.
+1. The existing 13 as-of datasets' gate table, key columns, and gate
+   identity are exactly what they were before.
+2. Adding `first_seen_at` cannot change any existing hash -- because no
+   data table on the symbol side carries that column. The proof is derived
+   from the schema, not from a hand-written list.
 """
 
 from __future__ import annotations
@@ -30,10 +30,9 @@ from yfin.models import Base
 AS_OF = date(2026, 9, 4)
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 
-# ALTIN DEGER: asagidaki deterministik govdenin SHA-256'si. Fixture'a
-# BAGLI DEGILDIR (fixture'lar yeniden yakalandiginda kirilmasin diye);
-# fenceledigi sey `content_hash`in ALGORITMASIDIR -- kolon eleme, tablo
-# siralama ve satir siralama.
+# GOLDEN VALUE: SHA-256 of the deterministic body below. Not tied to a
+# fixture (so it survives fixtures being recaptured); what it fences is the
+# `content_hash` ALGORITHM -- column exclusion, table ordering, row ordering.
 GOLDEN_HASH = "2a49b87018fd6c89edce127efc34f7c15df1baf6241c27eb479fd09b618076fe"
 
 

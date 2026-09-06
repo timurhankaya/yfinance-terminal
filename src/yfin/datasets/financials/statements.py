@@ -1,8 +1,9 @@
-"""Gelir tablosu / bilanco / nakit akisi dataset'leri (S6.5).
+"""Income statement / balance sheet / cash flow datasets.
 
-Sekiz kayit tek bir `StatementDataset` sinifinin parametreli ornegidir.
-Ayri kayit olmalarinin nedeni HATA IZOLASYONU: her (tablo, frekans) ayri bir
-HTTP istegidir, biri patladiginda digerleri yazilmalidir.
+Eight registrations are parameterized instances of one `StatementDataset`
+class. They are registered separately for ERROR ISOLATION: each (table,
+frequency) is a separate HTTP request, and the others must still write if
+one fails.
 """
 
 from __future__ import annotations
@@ -47,17 +48,18 @@ def _api_getter(ticker: Any, statement: StatementKind) -> Any:
 
 
 def financial_currency(ctx: SyncContext) -> str | None:
-    """info.financialCurrency; BEST-EFFORT. `valuation` dataset'i de kullanir.
+    """info.financialCurrency; BEST-EFFORT. Also used by the `valuation` dataset.
 
-    THYAO.IS tablolari USD, fiyatlari TRY: para birimi saklanmazsa veri
-    yanlis okunur. Ancak `currency` NULL kabul eden ikincil bir alandir;
-    info cagrisi (uc wire istegi) patlarsa statement hucresi DUSMEZ.
+    THYAO.IS statements are in USD, prices in TRY: without storing the
+    currency, data is misread. `currency` is a nullable secondary field
+    though; if the info call (a third wire request) fails, the statement
+    cell does NOT fail.
     """
     try:
         info = ctx.cached(
             "info", lambda: call_yahoo(ctx.ticker.get_info, what=f"info:{ctx.symbol}")
         )
-    except Exception as exc:  # noqa: BLE001 - ikincil alan, hucreyi dusurmez
+    except Exception as exc:  # noqa: BLE001 - secondary field, does not fail the cell
         log.warning("financialCurrency unavailable", symbol=ctx.symbol, error=str(exc))
         return None
     if not isinstance(info, dict):
@@ -79,13 +81,13 @@ class StatementDataset(HashGatedDataset[StatementPayload]):
 
     def fetch(self, ctx: SyncContext) -> StatementPayload:
         api_freq = API_FREQ[self.freq]
-        # yfinance her (tablo, freq) icin ayri HTTP istegi yapar ve sonucu
-        # Ticker ornegi icinde onbellege alir; ctx.cached ayni turda ikinci
-        # istegi de onler.
+        # yfinance makes a separate HTTP request per (table, freq) and caches
+        # the result on the Ticker instance; ctx.cached also blocks a second
+        # request for the same key.
         key = f"stmt:{self.statement.value}:{api_freq}"
-        # Sirket olmayan sembolde Yahoo 404 doner, trailing uclarinda ise
-        # yfinance bos cerceveyi .iloc ile okuyup IndexError firlatir;
-        # ikisi de `empty`tir, `failed` degil (S8.2).
+        # Yahoo 404s for a symbol with no company; for trailing endpoints
+        # yfinance instead reads an empty frame via .iloc and raises
+        # IndexError. Both count as `empty`, not `failed`.
         frame = ctx.cached(
             key,
             lambda: call_optional(
@@ -123,13 +125,15 @@ class StatementDataset(HashGatedDataset[StatementPayload]):
                 item_key = str(label).strip()
                 if not item_key:
                     continue
-                # NaN -> raw_json'da null olarak durur, tabloya satir YAZILMAZ:
-                # "kalem o donemde yok" bilgisi satirin yoklugudur
+                # NaN -> stays as null in raw_json; NO row is written to the
+                # table: "item absent this period" is expressed by the row's
+                # absence.
                 items[item_key] = None if nz.is_missing(value) else float(value)
                 if len(item_key) > ITEM_KEY_LENGTH:
-                    # Etiket evreni const.fundamentals_keys ile kapali ve max
-                    # 60 karakter; bu yol kutuphane yukseltmelerine karsi
-                    # emniyet valfidir. Hucre `ok` kalir, veri raw_json'da.
+                    # The label universe is closed by const.fundamentals_keys
+                    # at max 60 chars; this path is a safety valve against
+                    # library upgrades. The cell stays `ok`, data lives in
+                    # raw_json.
                     log.warning(
                         "item_key too long",
                         symbol=symbol,
@@ -197,8 +201,8 @@ _SPECS: tuple[tuple[str, StatementKind, StatementFreq], ...] = (
     ("ttm_income_stmt", StatementKind.INCOME, StatementFreq.TTM),
     ("balance_sheet", StatementKind.BALANCE_SHEET, StatementFreq.ANNUAL),
     ("quarterly_balance_sheet", StatementKind.BALANCE_SHEET, StatementFreq.QUARTERLY),
-    # ttm_balance_sheet YOKTUR: freq="trailing" bilancoda
-    # ValueError: Illegal argument firlatir (fundamentals.py:80-82)
+    # ttm_balance_sheet DOES NOT EXIST: freq="trailing" on the balance sheet
+    # raises ValueError: Illegal argument (fundamentals.py:80-82).
     ("cashflow", StatementKind.CASH_FLOW, StatementFreq.ANNUAL),
     ("quarterly_cashflow", StatementKind.CASH_FLOW, StatementFreq.QUARTERLY),
     ("ttm_cashflow", StatementKind.CASH_FLOW, StatementFreq.TTM),

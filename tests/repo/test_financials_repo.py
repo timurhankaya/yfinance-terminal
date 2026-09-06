@@ -1,4 +1,4 @@
-"""Financials/market repository testleri: gercek PostgreSQL + TimescaleDB, agsiz (S9.2)."""
+"""Financials/market repository tests: real PostgreSQL + TimescaleDB, no network."""
 
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ pytestmark = pytest.mark.repo
 GATE_KEY = ("symbol", "statement", "freq", "period_end")
 PERIOD_END = date(2025, 9, 30)
 FETCHED_AT = datetime(2026, 9, 4, 10, 0, 0, 500000, tzinfo=UTC)
-# Gercek accession numarasi ayristirmasi unit testte dogrulanir; burada
-# yalnizca anahtar davranisi onemli oldugu icin sade bir deger kullanilir
+# Real accession-number parsing is covered by a unit test; only key behavior
+# matters here, so a plain value is used.
 FILING_ID = "acc-test-a1"
-# 7203.T'de olculen en buyuk mutlak deger mertebesi
+# Largest absolute value magnitude measured on 7203.T
 HUGE_VALUE = Decimal("1.05522331e14").quantize(Decimal("1E-10"))
 
 
@@ -96,7 +96,7 @@ def _count(session: Session, table: str) -> int:
 
 class TestFinancialWrites:
     def test_decimal_round_trip_keeps_ratio_and_huge_value(self, db_session: Session) -> None:
-        """DECIMAL(38,10): oran ve cok buyuk deger ayni kolonda kayipsiz."""
+        """DECIMAL(38,10) holds a ratio and a huge value in the same column without loss."""
         _seed_symbol(db_session)
         stats = WriteStats()
         writer = PostgresRowWriter(db_session)
@@ -145,8 +145,7 @@ class TestFinancialWrites:
         db_session.rollback()
 
     def test_replace_scope_only_touches_its_period(self, db_session: Session) -> None:
-        """Kapsam (symbol, statement, freq, period_end); komsu frekans
-        dokunulmadan kalir."""
+        """Scope is (symbol, statement, freq, period_end); a neighboring freq is untouched."""
         _seed_symbol(db_session)
         writer = PostgresRowWriter(db_session)
         stats = WriteStats()
@@ -168,17 +167,17 @@ class TestFinancialWrites:
         )
         assert _count(db_session, "financial_facts") == 3
 
-        # Yalnizca annual kapsami yeniden yazilir
+        # Only the annual scope gets rewritten
         apply_write(writer, _fact_write([_fact_row("A", "9")]), WriteStats())
         remaining = db_session.execute(
             text("SELECT freq, item_key, value FROM financial_facts ORDER BY freq, item_key")
         ).all()
         assert [(str(r[0]), r[1]) for r in remaining] == [("annual", "A"), ("quarterly", "A")]
-        assert remaining[1][2] == Decimal("3.0000000000")  # quarterly degeri korundu
+        assert remaining[1][2] == Decimal("3.0000000000")  # quarterly value preserved
 
     def test_empty_rows_still_delete_scope(self, db_session: Session) -> None:
-        """Donemin TUM kalemleri NaN geldiginde (rows bos) eski satirlar
-        kalici olarak kalirdi: erken cikis silmeden ONCE oldugu icin."""
+        """If every item of a period comes back NaN (rows empty), old rows would
+        stay forever: an early return would happen before the delete."""
         _seed_symbol(db_session)
         writer = PostgresRowWriter(db_session)
         apply_write(writer, _period_write([_period_row()]), WriteStats())
@@ -244,7 +243,7 @@ class TestHashGateAgainstMySQL:
         stored = db_session.execute(
             text("SELECT fetched_at, content_hash FROM financial_periods WHERE symbol='AAPL'")
         ).one()
-        # fetched_at "son dogrulama zamani"dir: hash esitse bile ilerler
+        # fetched_at is "last verified time": it advances even when the hash matches
         assert stored[0] == later
         assert stored[1] == "h1"
 
@@ -263,7 +262,7 @@ class TestHashGateAgainstMySQL:
         stats = dataset.upsert(writer, changed)
         assert stats.attempted["financial_facts"] == 1
         rows = db_session.execute(text("SELECT item_key, value FROM financial_facts")).all()
-        # B kalemi kaynaktan kalkti -> replace_scope onu da sildi
+        # item B dropped out of the source -> replace_scope deleted it too
         assert [(r[0], r[1]) for r in rows] == [("A", Decimal("5.0000000000"))]
 
     def test_fact_count_matches_item_count_sum(self, db_session: Session) -> None:
@@ -279,8 +278,8 @@ class TestHashGateAgainstMySQL:
 
 class TestSchemaInvariants:
     def test_statement_and_freq_enums_have_single_definition(self, db_session: Session) -> None:
-        """Iki tabloda ENUM tanimi ayrisirsa FK ORDINAL uzerinden sessizce
-        yanlis satira baglanir; MySQL ne CREATE ne INSERT'te uyarir."""
+        """If two tables' ENUM definitions diverge, an FK over the ordinal silently
+        links to the wrong row; MySQL warns on neither CREATE nor INSERT."""
         rows = db_session.execute(
             text(
                 "SELECT column_name, COUNT(DISTINCT data_type) FROM information_schema.columns "
@@ -292,7 +291,7 @@ class TestSchemaInvariants:
         assert all(r[1] == 1 for r in rows)
 
     def test_key_text_columns_are_case_and_accent_sensitive(self, db_session: Session) -> None:
-        """Duyarsiz bir collation 'Enflasyon' = 'ENFLASYON' sayardi."""
+        """A case-insensitive collation would treat 'Enflasyon' == 'ENFLASYON'."""
         rows = [
             {
                 "region": "TR",
@@ -348,8 +347,8 @@ class TestSchemaInvariants:
         assert _count(db_session, "earnings_dates") == 2
 
     def test_same_filing_two_exhibits_same_type(self, db_session: Session) -> None:
-        """Ayni dosyalamada iki farkli URL'li EX-99.1 gercekte olur;
-        url_hash PK'da olmasaydi ikincisi ERROR 1062 ile duserdi."""
+        """Two EX-99.1 exhibits with different URLs in the same filing happen in
+        practice; without url_hash in the PK the second would fail as a duplicate."""
         _seed_symbol(db_session)
         writer = PostgresRowWriter(db_session)
         apply_write(
@@ -410,15 +409,12 @@ class TestSchemaInvariants:
         assert scope == "symbols"
 
     def test_period_end_index_is_used(self, db_session: Session) -> None:
-        """financial_facts (period_end, item_key) olmadan full scan olurdu.
+        """Without an index on (period_end, item_key), financial_facts would full-scan.
 
-        MySQL EXPLAIN'i satir bicimindeydi ve `key` kolonu okunuyordu;
-        PostgreSQL EXPLAIN metin satirlari dondurur.
-
-        `enable_seqscan = off` gerekir: bos bir tabloda planlayici HER
-        ZAMAN Seq Scan secer (dogru karardir, indeks aramak daha
-        pahalidir). Test indeksin VAR ve KULLANILABILIR oldugunu
-        dogrular, planlayicinin bos tablodaki tercihini degil.
+        `enable_seqscan = off` is required: on an empty table the planner always
+        picks a Seq Scan (correctly -- an index lookup is more expensive there).
+        The test checks the index exists and is usable, not the planner's choice
+        on an empty table.
         """
         db_session.execute(text("SET LOCAL enable_seqscan = off"))
         plan = "\n".join(
@@ -431,12 +427,11 @@ class TestSchemaInvariants:
             .scalars()
             .all()
         )
-        assert "Index" in plan, f"indeks kullanilmadi:\n{plan}"
+        assert "Index" in plan, f"index not used:\n{plan}"
 
 
 class TestPrune:
-    """Budama VARSAYILAN KAPALI (S7.4); tarih sinirli silme acikca
-    etkinlestirilmeden calismaz."""
+    """Pruning is disabled by default; date-bounded deletes need explicit enabling."""
 
     def _splits_row(self, when: datetime) -> dict[str, Any]:
         return {
@@ -471,7 +466,7 @@ class TestPrune:
         self._seed_calendar(db_session, old)
         with pytest.raises(PruneDisabledError, match="YF_PRUNE_ENABLED"):
             run_prune(db_session, enabled=False, calendars_before=datetime(2024, 1, 1))
-        assert _count(db_session, "calendar_splits") == 1  # satir DURUYOR
+        assert _count(db_session, "calendar_splits") == 1  # row still there
 
     def test_default_settings_have_prune_disabled(self) -> None:
         from yfin.config import Settings
@@ -479,7 +474,7 @@ class TestPrune:
         assert Settings().yf_prune_enabled is False
 
     def test_orphan_news_still_runs_when_disabled(self, db_session: Session) -> None:
-        """Oksuz haber temizligi tarih sinirli DEGIL; kapali modda da calisir."""
+        """Orphan-news cleanup is not date-bounded; it runs even when disabled."""
         from yfin.prune import run_prune
 
         report = run_prune(db_session, enabled=False)
@@ -516,10 +511,11 @@ class TestPrune:
             dry_run=True,
         )
         assert report.calendars["calendar_splits"] == 1
-        assert _count(db_session, "calendar_splits") == 1  # SILINMEDI
+        assert _count(db_session, "calendar_splits") == 1  # not deleted
 
     def test_history_tables_are_derived_from_metadata(self) -> None:
-        """Elle liste yerine metadata: yeni snapshot cifti otomatik kapsanir."""
+        """Derived from metadata, not a hand-written list: a new snapshot pair is
+        covered automatically."""
         from yfin.prune import history_tables
 
         derived = set(history_tables())
@@ -566,11 +562,11 @@ class TestPrune:
 
 
 class TestValuationStatementKind:
-    """'valuation' ENUM degeri ve onu ekleyen migration (gercek PostgreSQL)."""
+    """The 'valuation' ENUM value and the migration that added it (real PostgreSQL)."""
 
     def test_valuation_period_and_facts_are_accepted(self, db_session: Session) -> None:
-        """Ayni (sembol, freq, donem) hem income hem valuation tasiyabilir;
-        ayrimi PK'daki `statement` yapar."""
+        """The same (symbol, freq, period) can carry both income and valuation;
+        `statement` in the PK is what tells them apart."""
         _seed_symbol(db_session)
         stats = WriteStats()
         writer = PostgresRowWriter(db_session)
@@ -597,7 +593,7 @@ class TestValuationStatementKind:
         assert kinds == {"income", "valuation"}
 
     def test_orphan_valuation_fact_is_rejected(self, db_session: Session) -> None:
-        """Bilesik FK yeni ENUM degerinde de zorlanir."""
+        """The composite FK is still enforced for the new ENUM value."""
         _seed_symbol(db_session)
         writer = PostgresRowWriter(db_session)
         with pytest.raises(IntegrityError):
@@ -609,21 +605,14 @@ class TestValuationStatementKind:
             db_session.flush()
 
     def test_enum_carries_every_statement_kind(self, db_session: Session) -> None:
-        """ENUM tipi StatementKind'in TUM uyelerini tasimali.
+        """The ENUM type must carry every member of StatementKind.
 
-        Bu test bir MIGRATION testinin yerine gecti. MySQL'de 'valuation'
-        degerini ekleyen ayri bir revizyon vardi ve test onu yukleyip
-        downgrade/upgrade ediyordu; migration gecmisi PostgreSQL gecisinde
-        TEK bir initial revizyona indirildigi icin (PG S12) o dosya artik
-        yok.
-
-        Korunan invaryant ayni: sema, kodun bildigi her degeri kabul
-        etmeli. Kaybolan sey MySQL'e ozgu ZORLUKTU -- orada FK'li bir
-        kolonun ENUM tipini degistirmek reddediliyordu ve migration bunu
-        FOREIGN_KEY_CHECKS=0 arasinda, once daraltip sonra genisleterek
-        yapiyordu. PostgreSQL'de ENUM ayri bir TIP nesnesidir; deger
-        eklemek FK'ye HIC dokunmaz (olculdu: ALTER TYPE ... ADD VALUE
-        sonrasi bilesik FK'li satir saglam kaldi).
+        This replaces a former migration test: MySQL had a separate revision
+        adding 'valuation', requiring careful downgrade/upgrade around FK
+        checks. PostgreSQL's ENUM is its own type object, so adding a value
+        never touches the FK (measured: ALTER TYPE ... ADD VALUE leaves a
+        row with a composite FK intact). The invariant that matters --
+        the schema accepts every value the code knows -- is unchanged.
         """
         from yfin.models import StatementKind
 
@@ -641,10 +630,10 @@ class TestValuationStatementKind:
 
 
 class TestSchemaIsolation:
-    """Surece ozel sema temizligi (S9.2 notu)."""
+    """Per-process schema cleanup."""
 
     def test_stale_schema_dropped_but_live_and_base_kept(self, settings: Any) -> None:
-        """Es zamanli kosunun semasina DOKUNULMAZ; yalnizca olu PID silinir."""
+        """A concurrent run's schema is untouched; only dead PIDs get dropped."""
         import os
 
         from sqlalchemy import create_engine
@@ -652,17 +641,16 @@ class TestSchemaIsolation:
         from helpers import drop_stale_schemas
 
         base = settings.db_test_name
-        # TEST VERITABANINA baglanilir, bootstrap'a (postgres) DEGIL:
-        # information_schema VERITABANINA OZELDIR ve bootstrap
-        # baglantisi bu semalari GOREMEZ (PG S9.1).
+        # Connect to the test database, not the bootstrap one (postgres):
+        # information_schema is per-database, so a bootstrap connection
+        # cannot see these schemas.
         engine = create_engine(settings.db_url(base), isolation_level="AUTOCOMMIT")
         stale = f"{base}_999999"
         live = f"{base}_{os.getpid()}"
         with engine.connect() as conn:
             conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{stale}"'))
-            # Taban ad (sayisal son eki YOK) korunmali: temizlik yalnizca
-            # `<base>_<pid>` bicimini hedefler. MySQL'de bu bir VERITABANI
-            # idi ve kendiliginden vardi; sema modelinde acikca kurulur.
+            # The base name (no numeric suffix) must survive: cleanup only
+            # targets the `<base>_<pid>` pattern.
             conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{base}"'))
 
         dropped = drop_stale_schemas(engine, base)
@@ -678,5 +666,5 @@ class TestSchemaIsolation:
         engine.dispose()
         assert stale in dropped
         assert stale not in names
-        assert live in names  # bu kosunun kendi semasi durur
-        assert base in names  # taban sema durur
+        assert live in names  # this run's own schema stays
+        assert base in names  # base schema stays

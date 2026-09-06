@@ -1,24 +1,23 @@
-"""v_actions ve v_price_bars_regular VIEW'lari (PG S8).
+"""v_actions and v_price_bars_regular VIEWs.
 
-actions tablo degildir; dividends + splits + capital_gains birlesimidir.
+actions is not a table; it is the union of dividends + splits + capital_gains.
 """
 
 from __future__ import annotations
 
-# CAST(... AS VARCHAR(16)): literal uzunlugu view'in kolon tipini belirler;
-# sabitlenmezse yeni bir action turu eklendiginde tip SESSIZCE degisir.
-# PostgreSQL'de tirnakli literal `unknown` tipindedir ve UNION icinde
-# `text`e cozulur, bu yuzden acik cast korunur.
+# CAST(... AS VARCHAR(16)): the literal's length fixes the view's column
+# type. Without it, adding a new action type would silently change the
+# type. A quoted PostgreSQL literal is `unknown` and resolves to `text`
+# inside a UNION, so the explicit cast is kept.
 #
-# CHAR(16) KULLANILMAZ: PostgreSQL'de `bpchar`tir ve sonda BOSLUK DOLDURUR
-# ('DIVIDEND        '). MySQL'de CHAR bu baglamda kirpiliyordu; VARCHAR
-# dogru karsiliktir.
+# Not CHAR(16): PostgreSQL's `bpchar` pads with trailing spaces
+# ('DIVIDEND        '). VARCHAR is the correct equivalent.
 #
-# action_value adi value'dan yeglenir (ORM/dialect tasinabilirligi).
+# Named action_value rather than value for ORM/dialect portability.
 #
-# security_invoker = true (PG 15+, 18.6'da dogrulandi): view CAGIRANIN
-# yetkisiyle okur. MySQL'deki `SQL SECURITY INVOKER` ile ayni niyet;
-# varsayilan DEFINER davranisindan daha dogru bir varsayilandir.
+# security_invoker = true (PG 15+, verified on 18.6): the view reads with
+# the CALLER's privileges, matching MySQL's `SQL SECURITY INVOKER` intent
+# -- a safer default than DEFINER.
 V_ACTIONS_CREATE = """
 CREATE OR REPLACE VIEW v_actions
   WITH (security_invoker = true) AS
@@ -33,14 +32,14 @@ CREATE OR REPLACE VIEW v_actions
 
 V_ACTIONS_DROP = "DROP VIEW IF EXISTS v_actions"
 
-# Yalniz normal seans barlari. Amaci kolaylik degil KAZA ONLEMEDIR:
-# is_extended filtresini unutmak, seans disi dusuk hacimli barlari normal
-# seansa karistirir ve bu, hesaplanan her gostergeyi sessizce bozar.
-# Varsayilan okuma yolu view olmalidir (PB S5.10).
+# Regular-session bars only. This exists to prevent accidents, not for
+# convenience: forgetting the is_extended filter mixes low-volume
+# after-hours bars into the regular session and silently corrupts every
+# computed indicator. This view should be the default read path.
 #
-# price_bars artik bir HYPERTABLE'dir; duz view uzerinde chunk exclusion
-# CALISIR (olculdu: Custom Scan (ChunkAppend) ve Index Cond chunk
-# seviyesine iniyor). Continuous aggregate'e gerek yok (PG S7.5).
+# price_bars is a hypertable; chunk exclusion works on a plain view over
+# it (measured: Custom Scan (ChunkAppend) with Index Cond pushed down to
+# the chunk level). No continuous aggregate is needed.
 V_PRICE_BARS_REGULAR_CREATE = """
 CREATE OR REPLACE VIEW v_price_bars_regular
   WITH (security_invoker = true) AS

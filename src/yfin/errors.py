@@ -1,9 +1,8 @@
-"""Hata siniflandirmasi (P5.2).
+"""Error classification.
 
-Bu modul yfinance sarmalayicisindan (client.py) AYRIDIR ve ona bagimli
-DEGILDIR. Boylece proxy alan modeli (proxy paketi) ErrorKind'i, yfinance
-sarmalayicisini import etmeden kullanabilir; bagimlilik oku dogru yone
-bakar.
+Separate from and not dependent on client.py, so the proxy domain model
+(proxy package) can use ErrorKind without importing the yfinance wrapper;
+the dependency arrow points the right way.
 """
 
 from __future__ import annotations
@@ -14,10 +13,10 @@ from http import HTTPStatus
 
 from yfinance import exceptions as yf_exceptions
 
-# curl_cffi yfinance'in tercih ettigi backend'dir ama zorunlu degildir
-# (_http.py YF_DISABLE_CURL_CFFI ile duz requests'e duser). Tipli
-# siniflandirma varsa kullanilir, yoksa metin geri dususu devreye girer.
-try:  # pragma: no cover - ortama bagli
+# curl_cffi is yfinance's preferred backend but not required (_http.py falls
+# back to plain requests via YF_DISABLE_CURL_CFFI). Typed classification is
+# used when available, text matching otherwise.
+try:  # pragma: no cover - environment dependent
     from curl_cffi.requests import exceptions as _curl_exc
 
     _NETWORK_EXC: tuple[type[BaseException], ...] = (
@@ -42,11 +41,8 @@ except ImportError:  # pragma: no cover
     _DATA_EXC = ()
 
 
-# --- hata siniflandirmasi (P5.2) ------------------------------------------
-#
-# "Retry edilebilir mi" sorusu proxy sagligi icin YETMEZ: her hata
-# proxy'nin sucu degildir. Gecersiz sembol veya parse hatasi proxy'yi
-# cooldown'a atmamalidir.
+# "Is this retryable" is not the same as "is this the proxy's fault": an
+# invalid symbol or parse error must not send a proxy into cooldown.
 
 
 class ErrorKind(enum.StrEnum):
@@ -57,25 +53,25 @@ class ErrorKind(enum.StrEnum):
     UNKNOWN_SYMBOL = "unknown_symbol"
 
 
-# Proxy sagligini YALNIZ bunlar etkiler
+# Only these kinds affect proxy health.
 PROXY_FAULT_KINDS = frozenset({ErrorKind.RATE_LIMITED, ErrorKind.BLOCKED, ErrorKind.NETWORK})
 
-# Programlama/veri hatalari ASLA tekrarlanmaz. Bunlar deterministiktir;
-# 5 kez denemek yalnizca ~30 sn kaybettirir. Metin eslesmesinden ONCE
-# elenirler: ValueError("invalid connection string") gibi bir mesaj aksi
-# halde "connection" markerina takilirdi.
-class DatasetOutOfScope(Exception):
-    """Dataset bu sembol icin kapsam disi; AG CAGRISI YAPILMADI (PB S6.5).
 
-    ValueError'DAN TUREMEZ: _NEVER_RETRYABLE ValueError'i iceriyor ve
-    boyle bir taban, kapsam disiligi sessizce bir VERI HATASI olarak
-    siniflandirip proxy saglik muhasebesini kirletirdi. Zaten
-    `_worker` bunu jenerik `except`ten ONCE yakalar ve
-    classify_error'a hic ugramaz.
+# Programming/data errors are never retried: they are deterministic, so 5
+# attempts just waste ~30s. Checked before text matching, since a message
+# like ValueError("invalid connection string") would otherwise match the
+# "connection" marker.
+class DatasetOutOfScope(Exception):
+    """Dataset is out of scope for this symbol; no network call was made.
+
+    Does not subclass ValueError: _NEVER_RETRYABLE includes ValueError, and
+    that base would silently classify an out-of-scope symbol as a DATA
+    error and pollute proxy health accounting. `_worker` already catches
+    this before the generic `except`, so it never reaches classify_error.
     """
 
     def __init__(self, interval: str) -> None:
-        super().__init__(f"kapsam disi: {interval}")
+        super().__init__(f"out of scope: {interval}")
         self.interval = interval
 
 
@@ -89,9 +85,9 @@ _NEVER_RETRYABLE: tuple[type[BaseException], ...] = (
     NotImplementedError,
 )
 
-# Metin eslesmesi SON CAREDIR ve dar tutulur. Durum kodu ANCAK bir HTTP
-# baglami ile birlikte gorulurse retry sayilir; ciplak bir sayi aramasi
-# "Symbol 500 not found" gibi mesajlarda yanlis eslesirdi.
+# Text matching is a last resort and kept narrow. A status code only counts
+# as retryable alongside HTTP context, so a bare number in a message like
+# "Symbol 500 not found" doesn't false-match.
 _HTTP_STATUS_RE = re.compile(r"\b(?:429|5\d\d)\b")
 _HTTP_CONTEXT_RE = re.compile(r"\b(?:http|https|status|error|client|server|url)\b")
 
@@ -112,15 +108,15 @@ _RETRYABLE_MARKERS = (
 _BLOCKED_MARKERS = ("forbidden", "consent", "captcha", "unauthorized")
 
 
-# Gecerli en kucuk HTTP durum kodu. curl_cffi BAGLANTI hatalarina da bir
-# Response ilistirir ve status_code'u 0'dir; bu esik olmadan 0 "gecerli bir
-# yanit" sayilir, _kind_from_status'un son dalindan DATA olarak doner ve
-# olu bir proxy hicbir zaman cezalandirilmazdi (canli kosuda dogrulandi).
+# Smallest valid HTTP status. curl_cffi attaches a Response to connection
+# errors too, with status_code 0; without this floor, 0 counts as "a valid
+# response", falls through to DATA in _kind_from_status, and a dead proxy is
+# never penalized (confirmed in a live run).
 _MIN_HTTP_STATUS = 100
 
 
 def _status_code(exc: BaseException) -> int | None:
-    """Istisnanin tasidigi GERCEK HTTP durum kodu; yoksa None."""
+    """Real HTTP status code carried by the exception, if any."""
     response = getattr(exc, "response", None)
     code = getattr(response, "status_code", None)
     if isinstance(code, int) and code >= _MIN_HTTP_STATUS:
@@ -139,25 +135,26 @@ def _kind_from_status(code: int) -> ErrorKind:
 
 
 def classify_error(exc: BaseException) -> ErrorKind:
-    """Istisnayi proxy politikasinin anladigi sinifa indirir.
+    """Map an exception to the class the proxy policy understands.
 
-    SIRA BAGLAYICIDIR. curl_cffi'nin RequestException'i OSError
-    TUREVIDIR (HTTPError -> RequestException -> CurlError -> OSError);
-    bu yuzden bir "OSError -> NETWORK" kurali 403'leri de NETWORK sanar
-    ve proxy'yi haksiz cezalandirirdi. HTTP durum kontrolu once gelir.
+    Order matters: curl_cffi's RequestException derives from OSError
+    (HTTPError -> RequestException -> CurlError -> OSError), so a plain
+    "OSError -> NETWORK" rule would treat 403s as NETWORK and unfairly
+    penalize the proxy. The HTTP status check runs first.
     """
-    # 1) yfinance'in tek tipli rate-limit istisnasi
+    # 1) yfinance's dedicated rate-limit exception
     if isinstance(exc, yf_exceptions.YFRateLimitError):
         return ErrorKind.RATE_LIMITED
 
-    # 2) HTTP durum kodu (OSError kontrolunden ONCE)
+    # 2) HTTP status code (before the OSError check)
     code = _status_code(exc)
     if code is not None:
         return _kind_from_status(code)
 
-    # 3) yfinance tipleri. YFPricesMissingError "sembol gecersiz" DEGIL
-    #    "bu aralikta fiyat yok" demektir (tatil, yeni IPO, kapali borsa)
-    #    ve DATA'ya duser; aksi halde her tatil gunu unknown_symbol olurdu.
+    # 3) yfinance types. YFPricesMissingError means "no price in this
+    #    range" (holiday, new IPO, closed exchange), not "invalid symbol",
+    #    and falls to DATA; otherwise every holiday would look like
+    #    unknown_symbol.
     if isinstance(exc, yf_exceptions.YFTzMissingError):
         return ErrorKind.UNKNOWN_SYMBOL
     if isinstance(
@@ -170,21 +167,21 @@ def classify_error(exc: BaseException) -> ErrorKind:
     if isinstance(exc, yf_exceptions.YFTickerMissingError):
         return ErrorKind.UNKNOWN_SYMBOL
 
-    # 4) Tasima katmani (curl_cffi tipleri)
+    # 4) Transport layer (curl_cffi types)
     if _NETWORK_EXC and isinstance(exc, _NETWORK_EXC):
         return ErrorKind.NETWORK
     if _DATA_EXC and isinstance(exc, _DATA_EXC):
         return ErrorKind.DATA
 
-    # 5) Deterministik programlama/veri hatalari
+    # 5) Deterministic programming/data errors
     if isinstance(exc, _NEVER_RETRYABLE):
         return ErrorKind.DATA
 
-    # 6) Yerlesik ag istisnalari
+    # 6) Built-in network exceptions
     if isinstance(exc, TimeoutError | ConnectionError):
         return ErrorKind.NETWORK
 
-    # 7) Metin geri dususu
+    # 7) Text fallback
     text = f"{type(exc).__name__} {exc}".lower()
     if _HTTP_STATUS_RE.search(text) and _HTTP_CONTEXT_RE.search(text):
         return ErrorKind.RATE_LIMITED if "429" in text else ErrorKind.NETWORK
@@ -195,9 +192,9 @@ def classify_error(exc: BaseException) -> ErrorKind:
     return ErrorKind.DATA
 
 
-# BLOCKED RETRY EDILMEZ: banlanmis bir proxy'de 5 deneme x jitter'li
-# backoff ~30 sn ve token-bucket bosa gider, ustelik saglik durum makinesi
-# zaten o proxy'yi cooldown'a alacaktir.
+# BLOCKED is never retried: 5 attempts with jittered backoff on a banned
+# proxy burns ~30s and the token bucket for nothing, and the health state
+# machine will cooldown that proxy anyway.
 _RETRY_KINDS = frozenset({ErrorKind.RATE_LIMITED, ErrorKind.NETWORK})
 
 
@@ -205,19 +202,19 @@ def is_retryable(exc: BaseException) -> bool:
     return classify_error(exc) in _RETRY_KINDS
 
 
-# yfinance trailing veriyi bos oldugunda .iloc ile okur ve bu mesajla patlar
+# yfinance reads trailing data with .iloc when it is empty and raises this message.
 _ABSENT_INDEX_MESSAGE = "positional indexers are out-of-bounds"
 
 
 def is_absent_data(exc: BaseException) -> bool:
-    """ "Bu sembolde bu veri YOK" durumu mu? (S8.2)
+    """Is this "no such data for this symbol", rather than a real failure?
 
-    Proje `yf.config.debug.hide_exceptions = False` yapar; bu, gercek
-    hatalarin yutulmasini onler ama yfinance'in "404 -> bos sozluk"
-    davranisini da ISTISNAYA cevirir. Sirket olmayan sembolde (ETF, fon,
-    kripto) Yahoo fundamentals uclarina 404 doner:
+    The project sets `yf.config.debug.hide_exceptions = False` so real
+    errors aren't swallowed, but this also turns yfinance's "404 -> empty
+    dict" behavior into an exception. A symbol that isn't a company (ETF,
+    fund, crypto) gets a 404 from Yahoo's fundamentals endpoints:
     `{"error":{"code":"Not Found","description":"No fundamentals data found
-    for symbol: SPY"}}`. Bu bir `empty`tir, `failed` degil.
+    for symbol: SPY"}}`. That is `empty`, not `failed`.
     """
     if _status_code(exc) == HTTPStatus.NOT_FOUND:
         return True

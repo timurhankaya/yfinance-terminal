@@ -1,9 +1,9 @@
-"""Gercek API'den bir kez veri cekip fixture olarak kaydeder (S9.1).
+"""Fetches data once from the real API and saves it as a fixture.
 
-Kullanim:  python scripts/capture_fixtures.py [SEMBOL ...]
-           python scripts/capture_fixtures.py --bars [SEMBOL ...]
-           python scripts/capture_fixtures.py --domain
-           python scripts/capture_fixtures.py _market
+Usage:  python scripts/capture_fixtures.py [SYMBOL ...]
+        python scripts/capture_fixtures.py --bars [SYMBOL ...]
+        python scripts/capture_fixtures.py --domain
+        python scripts/capture_fixtures.py _market
 """
 
 from __future__ import annotations
@@ -18,15 +18,15 @@ from yfin import normalize as nz
 from yfin.config import get_settings
 from yfin.datasets.funds import _collect
 
-# Kapsam S4.3 matrisine gore secildi. MSFT ZORUNLUDUR: Haziran mali yili
-# (donem sonunun takvim yilina sabit olmadigini kanitlar) ve 60 karakterlik
-# item_key (FinancialAssetsDesignatedasFairValueThroughProfitorLossTotal)
-# yalnizca onda var.
-# AH S9.1 alti sembol daha ekler; her biri TEK BASINA bir kenar durumun
-# kanitidir: PFE dokuz kolonda ozdes iki insider satiri, XOM `Ownership='D/I'`,
-# NVDA 11 kolonlu insider_roster + float epoch tarih, WMT 56 karakterlik
-# position ve 150 satirlik pencere, KO negatif net_shares, BND tahvil fonu
-# (0 sektor + 9 rating, top_holdings BOS), ^GSPC 16 dataset'in tamami bos.
+# MSFT is required: its June fiscal year proves the period end isn't
+# pinned to the calendar year, and it's the only one with the 60-character
+# item_key FinancialAssetsDesignatedasFairValueThroughProfitorLossTotal.
+# Six more symbols each prove one edge case on their own: PFE has two
+# identical insider rows across nine columns, XOM has `Ownership='D/I'`,
+# NVDA has an 11-column insider_roster plus a float epoch date, WMT has a
+# 56-character position and a 150-row window, KO has negative net_shares,
+# BND is a bond fund (0 sectors + 9 ratings, top_holdings empty), and
+# ^GSPC returns all 16 datasets empty.
 REFERENCE_SYMBOLS = (
     "AAPL",
     "MSFT",
@@ -42,8 +42,8 @@ REFERENCE_SYMBOLS = (
     "^GSPC",
 )
 
-# Tek `Ticker` uzerinden YEDI istekle beslenen 16 dataset (AH S4.4).
-# `sustainability` BILEREK YOKTUR: 19 sembolde de 404 doner.
+# 16 datasets served by 7 requests through one `Ticker`.
+# `sustainability` is deliberately absent: it returns 404 on all 19 symbols.
 ANALYSIS_GETTERS = (
     "get_recommendations",
     "get_upgrades_downgrades",
@@ -76,8 +76,8 @@ STATEMENT_SPECS = (
     ("ttm_cashflow", "get_cashflow", "trailing"),
 )
 
-# (dataset adi, freq). 'trailing' ve 'monthly' YOKTUR; gerekce
-# `datasets/financials/valuation.py` sonundaki nottadir.
+# (dataset name, freq). 'trailing' and 'monthly' don't exist here; see the
+# note at the end of `datasets/financials/valuation.py`.
 VALUATION_SPECS = (
     ("valuation_measures", "yearly"),
     ("quarterly_valuation_measures", "quarterly"),
@@ -85,17 +85,16 @@ VALUATION_SPECS = (
 
 FIXTURE_ROOT = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 
-# price_bars fixture sembolleri (PB S9.1). Her biri TEK BASINA bir kenar
-# durumun kanitidir:
-#   AAPL     hasPrePost=True, start=09:30/end=16:00 -> 04:00 ve 16:00
-#            sonrasi barlar is_extended=1
-#   SHEL.L   REGRESYON: hasPrePost=FALSE bildirdigi halde 16:30/16:35
-#            barlari donuyor. Silinen "kapi 1" bunlari normal seans
-#            sayardi; bu fixture onun geri gelmesini engeller.
-#   VWCE.DE  ayni desen, 17:30/17:35
-#   THYAO.IS start=09:30/end=18:00; dejenere olan pre_*/post_* kolonlari
-#   BTC-USD  7/24, start=00:00/end=23:59 -> hepsi 0
-#   GC=F     bar 18:10'da acilir; local_date seans gunu DEGILDIR
+# price_bars fixture symbols. Each proves one edge case on its own:
+#   AAPL     hasPrePost=True, start=09:30/end=16:00 -> bars before 04:00 and
+#            after 16:00 are is_extended=1
+#   SHEL.L   regression: reports hasPrePost=FALSE yet still returns
+#            16:30/16:35 bars. A removed earlier check counted these as
+#            regular session; this fixture guards against that regressing.
+#   VWCE.DE  same pattern, 17:30/17:35
+#   THYAO.IS start=09:30/end=18:00; degenerate pre_*/post_* columns
+#   BTC-USD  24/7, start=00:00/end=23:59 -> all zero
+#   GC=F     bar opens at 18:10; local_date is not the session day
 BAR_FIXTURE_SYMBOLS = ("AAPL", "SHEL.L", "VWCE.DE", "THYAO.IS", "BTC-USD", "GC=F")
 
 
@@ -103,8 +102,8 @@ def _frame_records(obj: Any) -> Any:
     import pandas as pd
 
     if isinstance(obj, pd.DataFrame):
-        # Index'i to_json'a birakmak tz bilgisini UTC'ye duzler ve yerel
-        # seans tarihi testi anlamini yitirir; bu yuzden ayri yazilir.
+        # Leaving the index to to_json flattens tz info to UTC, losing the
+        # point of the local-session-date test; so it's written separately.
         records = []
         for idx, row in zip(obj.index, obj.to_dict("records"), strict=True):
             entry: dict[str, Any] = {"index": str(idx)}
@@ -120,30 +119,30 @@ def _frame_records(obj: Any) -> Any:
 
 
 def _capture_optional(ticker: Any, getter: str) -> Any:
-    """404 ve ayristirma hatasi VERI YOKLUGUDUR; fixture `null` tasir.
+    """404 and a parse error both mean no data; fixture stores `null`.
 
-    Yakalama betigi tek bir egzotik sembolde patlamamalidir: ^GSPC'de 16
-    dataset'in TAMAMI 404 doner ve bu beklenen durumdur (AH S8.2).
+    This capture script must not crash on one exotic symbol: ^GSPC returns
+    404 for all 16 datasets, and that's expected.
     """
     try:
         return _frame_records(getattr(ticker, getter)())
-    except Exception as exc:  # noqa: BLE001 - yakalama betigi, hat degil
-        print(f"  {getter}: veri yok ({type(exc).__name__})")
+    except Exception as exc:  # noqa: BLE001 - capture script, not a code path
+        print(f"  {getter}: no data ({type(exc).__name__})")
         return None
 
 
 def _capture_funds(ticker: Any) -> Any:
-    """Fon olmayan sembolde ham `KeyError('topHoldings')` firlar."""
+    """A non-fund symbol raises a raw `KeyError('topHoldings')`."""
     try:
-        # `_read` ZORUNLUDUR: `quote_type` yfinance 1.7.0'da @property
-        # tasimiyor, kardes dokuz alan tasiyor (canli olculdu).
+        # `_read` is required: `quote_type` isn't a @property in yfinance
+        # 1.7.0, unlike its nine sibling fields (measured live).
         collected = _collect(ticker.get_funds_data())
         return {
             key: (_frame_records(value) if hasattr(value, "columns") else value)
             for key, value in collected.items()
         }
     except Exception as exc:  # noqa: BLE001
-        print(f"  funds_data: fon degil ({type(exc).__name__})")
+        print(f"  funds_data: not a fund ({type(exc).__name__})")
         return None
 
 
@@ -156,7 +155,7 @@ def capture(symbol: str) -> dict[str, Any]:
     fast = ticker.get_fast_info()
     out["fast_info"] = {k: fast[k] for k in fast}
     out["history_metadata"] = dict(ticker.get_history_metadata())
-    # Fixture boyutunu makul tutmak icin son 400 seans
+    # Last 400 sessions, to keep fixture size reasonable
     out["history"] = _frame_records(
         ticker.history(period="2y", interval="1d", auto_adjust=False, actions=True)
     )
@@ -173,15 +172,16 @@ def capture(symbol: str) -> dict[str, Any]:
     for name, method, freq in STATEMENT_SPECS:
         frame = getattr(ticker, method)(pretty=False, freq=freq)
         out[name] = _frame_records(frame)
-    # Kolon etiketleri ('Current', 'M/D/YYYY') fixture'da HAM birakilir:
-    # tarihe cevrim dataset'in isidir ve test onu dogrulamalidir.
+    # Column labels ('Current', 'M/D/YYYY') are kept raw in the fixture:
+    # converting to a date is the dataset's job, and the test must verify it.
     for name, freq in VALUATION_SPECS:
         out[name] = _frame_records(ticker.get_valuation_measures(freq=freq, periods=None))
     out["calendar"] = dict(ticker.get_calendar() or {})
-    # Sayfalama TAZE Ticker ister (base.py:637 onbellegi offset'i yok sayar)
+    # Pagination needs a fresh Ticker (base.py:637's cache ignores offset)
     earnings = yf.Ticker(symbol).get_earnings_dates(limit=100, offset=0)
-    # ISO string yalnizca OFSETI korur; tz ADI ayrica saklanir, aksi halde
-    # "THYAO'da bile America/New_York" bulgusu fixture'da kaybolur
+    # The ISO string only preserves the offset; the tz name is stored
+    # separately, or the "America/New_York even for THYAO" finding would
+    # be lost in the fixture
     out["earnings_dates"] = {
         "tz": str(getattr(earnings, "index", None).tz) if earnings is not None else None,
         "records": _frame_records(earnings),
@@ -189,8 +189,8 @@ def capture(symbol: str) -> dict[str, Any]:
     sec = ticker.get_sec_filings()
     out["sec_filings"] = sec if isinstance(sec, list) else []
 
-    # AH: analist + sahiplik. AYNI Ticker kullanilir; taze bir Ticker
-    # kurmak maliyeti 7 istekten 16'ya cikarirdi (AH S4.4).
+    # Analyst + ownership: reuses the same Ticker; a fresh Ticker would
+    # raise the cost from 7 requests to 16.
     for getter in (*ANALYSIS_GETTERS, *HOLDERS_GETTERS):
         name = getter.removeprefix("get_")
         out[name] = _capture_optional(ticker, getter)
@@ -199,11 +199,11 @@ def capture(symbol: str) -> dict[str, Any]:
 
 
 def capture_bars(symbol: str) -> dict[str, Any]:
-    """price_bars fixture'i: cerceve + tradingPeriods (PB S9.1).
+    """price_bars fixture: frame + tradingPeriods.
 
-    1m FIXTURE'I 30 GUN SONRA YENIDEN YAKALANAMAZ; yakalananlar repoya
-    girer. Burada 5m kullanilir cunku ayni is_extended mantigini test eder
-    ve penceresi 59 gundur.
+    A 1m fixture can't be recaptured after 30 days, so what's captured
+    goes into the repo. 5m is used here because it tests the same
+    is_extended logic and has a 59-day window.
     """
     ticker = yf.Ticker(symbol)
     frame = ticker.history(
@@ -220,8 +220,8 @@ def capture_bars(symbol: str) -> dict[str, Any]:
         "bars_5m": {
             "frame": _frame_records(frame),
             "trading_periods": _frame_records(periods),
-            # Kurala GIRMEZ; SHEL.L/VWCE.DE'de False oldugu halde ek bar
-            # geldigini BELGELEMEK icin saklanir (PB S4.5/1).
+            # Not part of any rule; kept to document that SHEL.L/VWCE.DE
+            # return extra bars despite reporting False here.
             "has_pre_post_market_data": metadata.get("hasPrePostMarketData"),
             "exchange_timezone": metadata.get("exchangeTimezoneName"),
         }
@@ -229,7 +229,7 @@ def capture_bars(symbol: str) -> dict[str, Any]:
 
 
 def capture_weekly(symbol: str) -> dict[str, Any]:
-    """1wk/1mo fixture'i: is_extended DAIMA 0 olmali (PB S6.4 kural 1)."""
+    """1wk/1mo fixture: is_extended must always be 0."""
     ticker = yf.Ticker(symbol)
     out: dict[str, Any] = {}
     for name, interval in (("bars_1wk", "1wk"), ("bars_1mo", "1mo")):
@@ -246,7 +246,7 @@ def capture_weekly(symbol: str) -> dict[str, Any]:
 
 
 def capture_market() -> dict[str, Any]:
-    """Piyasa fixture'lari: US disi 7 bolgede status None beklenir."""
+    """Market fixtures: status is expected to be None in the 7 non-US regions."""
     from yfinance import Calendars, Market
 
     out: dict[str, Any] = {}
@@ -263,45 +263,47 @@ def capture_market() -> dict[str, Any]:
     return out
 
 
-# --- domain (sektor / endustri) fixture'lari (SI S9.1) --------------------
+# --- domain (sector / industry) fixtures -----------------------------
 #
-# Her referans anahtar TEK BASINA bir kenar durumun kanitidir:
+# Each reference key proves one edge case on its own:
 DOMAIN_SECTOR_FIXTURES: tuple[tuple[str, str], ...] = (
-    # Tam yanit: 12 endustri, 10 ETF + 10 fon, 4 rapor, performance + benchmark
+    # Full response: 12 industries, 10 ETFs + 10 funds, 4 reports,
+    # performance + benchmark
     ("technology", "US"),
-    # 6/6 endustri anahtari kutuphane sabitinden FARKLI -- anahtar kaynagi
-    # kuralinin cekirdek kaniti
+    # 6/6 industry keys differ from the library constant -- core proof of
+    # the key-source rule
     ("utilities", "US"),
-    # Fon sembolu 0P0001WO1I (Morningstar kimligi, ticker degil) -> is_known=0
+    # Fund symbol 0P0001WO1I (Morningstar id, not a ticker) -> is_known=0
     ("healthcare", "US"),
-    # companiesCount ust siniri (1517) -- INTEGER yeterliliginin kaniti
+    # companiesCount upper bound (1517) -- proves INTEGER is sufficient
     ("financial-services", "US"),
-    # Bolge kapsami: topETFs BOS, topCompanies tamamen farkli;
-    # overview/performance US ile birebir ayni
+    # Region coverage: topETFs empty, topCompanies entirely different;
+    # overview/performance identical to US
     ("technology", "GB"),
 )
 DOMAIN_INDUSTRY_FIXTURES: tuple[tuple[str, str], ...] = (
-    # Iki mover listesi dolu, sectorKey bagi, industriesCount YOK
+    # Both mover lists populated, sectorKey link, no industriesCount
     ("semiconductors", "US"),
-    # UC liste blogunun HICBIRI yok (companiesCount=1)
+    # None of the three list blocks present (companiesCount=1)
     ("infrastructure-operations", "US"),
-    # ytdReturn = 9999.0 sentinel degil
+    # ytdReturn = 9999.0, not a sentinel
     ("biotechnology", "US"),
-    # Ayni sembol iki listede birden; growthEstimate / name eksikleri
+    # Same symbol in both lists; growthEstimate / name missing
     ("pharmaceutical-retailers", "US"),
-    # growthEstimate ust ucu
+    # growthEstimate upper extreme
     ("electronic-components", "US"),
-    # topPerforming'te name eksik
+    # name missing in topPerforming
     ("gold", "US"),
 )
 
 
 def capture_domain() -> None:
-    """Ham JSON zarflarini ({"data": {...}}) fixture olarak kaydeder.
+    """Saves raw JSON envelopes ({"data": {...}}) as fixtures.
 
-    Zarf OLDUGU GIBI saklanir: `fetch_domain` `payload["data"]` okur ve
-    testler ayni yoldan gecmelidir -- fixture zaten acilmis olsaydi
-    `KeyError('data')` -> DATA -> failed yolu hic sinanamazdi.
+    The envelope is stored as-is: `fetch_domain` reads `payload["data"]`,
+    and tests must go through the same path -- if the fixture were
+    already unwrapped, the `KeyError('data')` -> DATA -> failed path
+    could never be tested.
     """
     from yfin.datasets.domain.common import _QUERY
 
@@ -329,66 +331,66 @@ def capture_domain() -> None:
             print(f"_domain/{kind}/{file.name}  ({file.stat().st_size} byte)")
 
 
-# --- SQ S10.1: kesif ve ekran fixture'lari -------------------------------
-# Her giris TEK BASINA bir kenar durumun kanitidir; listeden bir sey
-# silinirse o durumun testi sessizce ornekten yoksun kalir.
+# --- discovery and screen fixtures ---------------------------------------
+# Each entry proves one edge case on its own; removing one silently drops
+# coverage for that case.
 DISCOVERY_SEARCH_FIXTURES = (
-    # sembollu + Crunchbase SEMBOLSUZ satir bir arada (SQ S4.1/3, K14)
+    # symbol-bearing row + a symbol-less Crunchbase row together
     ("AAPL", "search_AAPL"),
-    # `lists` dolu; ayni EQUITY tipinde 12 ve 16 anahtarli iki satir;
-    # prevName + nameChangeDate (SQ S4.1/2)
+    # `lists` populated; two rows of the same EQUITY type with 12 and 16
+    # keys; prevName + nameChangeDate
     ("GC=F", "search_GC=F"),
-    # 0 quote ama dolu haber + rapor: `search_quotes` bos kalirken hucre
-    # `ok` (SQ S4.1/5, S9.2)
+    # 0 quotes but populated news + reports: `search_quotes` empty while
+    # the cell is `ok`
     ("Turkish Airlines", "search_Turkish-Airlines"),
-    # tum bloklar bos -> kapi satiri YAZILMAZ (SQ S9.2)
+    # all blocks empty -> gate row not written
     ("zzzqqxnope", "search_zzzqqxnope"),
-    # CRYPTOCURRENCY: dar alan seti, sektor/endustri YOK
+    # CRYPTOCURRENCY: narrow field set, no sector/industry
     ("BTC-USD", "search_BTC-USD"),
-    # `lists` IKI SEKILLI: ALGO_WATCHLIST + PREDEFINED_SCREENER (SQ S4.1/6)
+    # `lists` in two shapes: ALGO_WATCHLIST + PREDEFINED_SCREENER
     ("gold", "search_lists_two_shapes"),
 )
 
 DISCOVERY_LOOKUP_FIXTURES = (
-    # DAR terim: `all` tam kumeyi verir, 9 tipli lookupTotals,
-    # privateCompany dahil (SQ S4.1/8, S4.1/10)
+    # narrow term: `all` returns the full set, 9-type lookupTotals,
+    # includes privateCompany
     ("BTC", "all", "lookup_BTC_all"),
-    # GENIS terim: `all` ~1.000'de KIRPILIR (996 belge / 7.261 total).
-    # K6'nin adaptif dalinin kaniti.
+    # broad term: `all` truncates around 1,000 (996 documents / 7,261
+    # total) -- proves the adaptive branch
     ("GOLD", "all", "lookup_GOLD_all"),
-    # Ayni terimin tipli cagrisi: industryLink/industryName YALNIZ burada
-    # (SQ S4.1/9)
+    # typed call for the same term: industryLink/industryName appear only
+    # here
     ("GOLD", "equity", "lookup_GOLD_equity"),
-    # total=0, hatasiz -> `empty`
+    # total=0, no error -> `empty`
     ("zzzqqxnope", "all", "lookup_zzzqqxnope"),
 )
 
-# (ekran, offset, size, dosya). Sayfa boyutu KUCUK tutulur: normalize
-# testleri icin yapi yeterlidir, 250 satirlik sayfa fixture'i megabaytlik
-# olurdu. `total` sayfa boyutundan BAGIMSIZ gelir, bu yuzden durma kosulu
-# yine gercek degerle sinanir.
+# (screen, offset, size, file). Page size is kept small: enough to prove
+# structure for normalize tests, while a 250-row page fixture would be
+# megabytes. `total` comes back independent of page size, so the stop
+# condition is still tested against the real value.
 SCREEN_FIXTURES = (
-    # predefined GET: 17 anahtar, metadata dolu (SQ S4.1/13)
+    # predefined GET: 17 keys, metadata populated
     ("day_gainers", None, 25, "day_gainers_p0"),
     ("top_mutual_funds", None, 25, "top_mutual_funds_p0"),
-    # POST: 5 anahtar, metadata YOK
+    # POST: 5 keys, no metadata
     ("top_mutual_funds", 25, 25, "top_mutual_funds_p1"),
-    # son sayfa: offset + len < total kosulunun bittigi yer
+    # last page: where the offset + len < total condition ends
     ("top_mutual_funds", 1750, 250, "top_mutual_funds_last"),
-    # karisik quoteType (EQUITY + ETF) tek ekranda
+    # mixed quoteType (EQUITY + ETF) in one screen
     ("bond_etfs", None, 25, "bond_etfs_p0"),
 )
 
 
 def capture_discovery() -> None:
-    """`Search` ve `Lookup` ham govdelerini kaydeder (SQ S10.1).
+    """Saves raw `Search` and `Lookup` response bodies.
 
-    `include_research=True` ve `include_nav_links=True` ACIKCA verilir:
-    ikisinin de varsayilani False'tur (search.py:32-34) ve verilmezse
-    `researchReports` HIC gelmez -- fixture'lar sessizce eksik kalirdi
-    (SQ S4.1/5).
+    `include_research=True` and `include_nav_links=True` are given
+    explicitly: both default to False (search.py:32-34), and without them
+    `researchReports` never comes back -- fixtures would be silently
+    incomplete.
     """
-    from yfin.screens import SCREEN_KEY_MAX_LENGTH  # noqa: F401  (import kontrolu)
+    from yfin.screens import SCREEN_KEY_MAX_LENGTH  # noqa: F401  (import check)
 
     target = FIXTURE_ROOT / "_discovery"
     target.mkdir(parents=True, exist_ok=True)
@@ -407,9 +409,9 @@ def capture_discovery() -> None:
         print(f"_discovery/{file.name}  ({file.stat().st_size} byte)")
 
     for query, lookup_type, name in DISCOVERY_LOOKUP_FIXTURES:
-        # `_fetch_lookup` sarmalayicinin KENDI metodudur (K7 korunur) ve
-        # `_parse_response`in attigi `lookupTotals` + `total` alanlarini
-        # tasiyan tek yoldur (lookup.py:96-104).
+        # `_fetch_lookup` is the wrapper's own method, and the only path
+        # that carries the `lookupTotals` + `total` fields thrown in by
+        # `_parse_response` (lookup.py:96-104).
         payload = yf.Lookup(query)._fetch_lookup(lookup_type, 1000)
         file = target / f"{name}.json"
         file.write_text(nz.canonical_json(payload), encoding="utf-8")
@@ -417,10 +419,11 @@ def capture_discovery() -> None:
 
 
 def capture_screen() -> None:
-    """`yf.screen` yanitlarini kaydeder (SQ S10.1).
+    """Saves `yf.screen` responses.
 
-    SQ K12: ILK sayfa `count`, sonrakiler `size` ile istenir. `offset` ile
-    `count` gonderilseydi Yahoo onu SESSIZCE yok sayip 25 satir dondururdu.
+    The first page is requested with `count`, later pages with `size`.
+    Sending `count` together with `offset` would make Yahoo silently
+    ignore it and return 25 rows.
     """
     from yfin.screens import screen_by_key
 
@@ -441,7 +444,7 @@ def capture_screen() -> None:
         file.write_text(nz.canonical_json(payload), encoding="utf-8")
         print(f"_screen/{file.name}  ({file.stat().st_size} byte)")
 
-    # Custom ekran: ILK sayfa da POST'tur ve metadata GELMEZ (SQ S4.1/13).
+    # Custom screen: even the first page is POST, and no metadata comes back.
     spec = screen_by_key("tr_equity")
     assert spec.query is not None
     payload = yf.screen(
@@ -480,8 +483,8 @@ def main(symbols: list[str]) -> None:
         capture_screen()
         return
     if symbols and symbols[0] == "--bars":
-        # Yalniz bar fixture'lari: tum dataset'leri yeniden cekmeden
-        # (12 sembol x 7 istek) 7 istekle isi bitirir.
+        # Bar fixtures only: 7 requests instead of re-fetching everything
+        # (12 symbols x 7 requests).
         for symbol in symbols[1:] or list(BAR_FIXTURE_SYMBOLS):
             _write(FIXTURE_ROOT / symbol, capture_bars(symbol))
         _write(FIXTURE_ROOT / "AAPL", capture_weekly("AAPL"))

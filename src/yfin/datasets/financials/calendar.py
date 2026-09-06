@@ -1,9 +1,9 @@
-"""ticker calendar dataset'i (S6.5).
+"""ticker calendar dataset.
 
-Kaynak dokuz anahtarlik bir dict'tir (`quote.py:_fetch_calendar` tam olarak
-bu dokuzunu yazar, daha fazlasi imkansiz); sembole gore anahtar EKSIK olur:
-MSFT'te Ex-Dividend Date, THYAO'da Dividend Date, TSLA/BRK-B'de ikisi de yok.
-Bu yuzden tum kolonlar NULL kabul eder.
+Source is a nine-key dict (`quote.py:_fetch_calendar` writes exactly these
+nine, no more possible); keys go missing per symbol: MSFT lacks
+Ex-Dividend Date, THYAO lacks Dividend Date, TSLA/BRK-B lack both. All
+columns are therefore nullable.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ class CalendarDataset(SnapshotDataset[CalendarPayload]):
     key_columns = ("symbol",)
 
     def fetch(self, ctx: SyncContext) -> CalendarPayload:
-        # Sirket olmayan sembolde 404 -> empty (S8.2)
+        # A symbol with no company returns 404 -> empty.
         calendar = ctx.cached(
             "calendar",
             lambda: call_optional(ctx.ticker.get_calendar, what=f"calendar:{ctx.symbol}"),
@@ -64,8 +64,8 @@ class CalendarDataset(SnapshotDataset[CalendarPayload]):
         if not isinstance(dates, list | tuple):
             dates = [dates]
         if len(dates) > 2:
-            # Kaynakta liste uzunluguna sinir YOK; olculen 6 sembolde len=1.
-            # Ara elemanlar kaybolur, bu yuzden uyarilir.
+            # Source has no documented list-length limit; measured len=1 across
+            # 6 symbols. Middle entries are dropped, hence the warning.
             log.warning("earnings date list has extra entries", symbol=symbol, count=len(dates))
 
         row: dict[str, Any] = {

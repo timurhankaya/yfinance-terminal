@@ -1,4 +1,4 @@
-"""structlog yapilandirmasi ve yfinance log koprusu (P6.5)."""
+"""structlog configuration and the yfinance logging bridge."""
 
 from __future__ import annotations
 
@@ -32,11 +32,11 @@ def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     return structlog.get_logger(name)  # type: ignore[no-any-return]
 
 
-# --- kimlik bilgisi redaction (P3.4) ---------------------------------------
+# --- credential redaction --------------------------------------------------
 #
-# Proxy DSN'i yf.config.network.proxy'ye DUZ METIN yazilir; upstream'in
-# debug loglari veya bir traceback parolayi basabilir. Bu kod yolu bizim
-# kontrolumuzde olmadigi icin redaction processor ZORUNLUDUR.
+# The proxy DSN is written to yf.config.network.proxy in plain text;
+# upstream debug logs or a traceback could print the password. That code
+# path is outside our control, so the redaction processor is required.
 _CREDENTIAL_RE = re.compile(r"(?P<scheme>\w+://)(?P<user>[^:/@\s]+):[^@/\s]*@")
 
 
@@ -55,41 +55,41 @@ def redact_credentials(
 
 
 class _ScrubbingHandler(logging.Handler):
-    """yfinance'in stdlib loglarini structlog'a koprular.
+    """Bridges yfinance's stdlib logs into structlog.
 
-    Koprunun VARLIGI onemlidir: yf.config.debug.logging = True atamasi
-    _enable_debug_mode()'u tetikler ve yfinance, logger'da hic handler
-    yoksa kendi StreamHandler'ini ekleyip seviyeyi DEBUG'a zorlar. Once
-    baglanirsak len(handlers) > 0 olur ve cift cikti olusmaz.
+    The bridge must exist before yf.config.debug.logging = True is set:
+    that assignment triggers _enable_debug_mode(), and yfinance adds its own
+    StreamHandler and forces DEBUG level if the logger has no handler yet.
+    Attaching first (len(handlers) > 0) avoids duplicate output.
     """
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
             message = scrub(record.getMessage())
-        except Exception:  # pragma: no cover - formatlama hatasi log'u dusurmesin
+        except Exception:  # pragma: no cover - a formatting error must not drop the log
             return
         logger = structlog.get_logger("yfinance")
         logger.log(record.levelno, message, logger_name=record.name)
 
 
 def bridge_yfinance_logging() -> None:
-    """Idempotent; yfinance logger'ina koprunun tek ornegini ekler."""
+    """Idempotent; attaches a single instance of the bridge to yfinance's logger."""
     yf_logger = logging.getLogger("yfinance")
     if any(isinstance(h, _ScrubbingHandler) for h in yf_logger.handlers):
         return
     yf_logger.addHandler(_ScrubbingHandler())
-    # Kendi seviyemiz structlog tarafinda suzuluyor; propagate acik kalirsa
-    # root handler ayni satiri ikinci kez basar.
+    # Our own level is filtered on the structlog side; leaving propagate on
+    # would make the root handler print the same line a second time.
     yf_logger.propagate = False
 
 
 def bind_shard_context(run_id: int, shard_index: int, proxy_label: str | None) -> None:
-    """Worker THREAD'inin basinda cagrilir.
+    """Called at the start of a worker thread.
 
-    structlog.contextvars degerleri ThreadPoolExecutor worker'larina
-    KOPYALANMAZ (executor copy_context kullanmaz) ve fetch/normalize ile
-    yfinance'in kendi loglari tam olarak o thread'lerde uretilir; bu
-    yuzden baglama her thread'de yeniden yapilir.
+    structlog.contextvars values are not copied into ThreadPoolExecutor
+    workers (the executor doesn't use copy_context), and fetch/normalize
+    plus yfinance's own logs are produced in exactly those threads, so the
+    context is bound again in each thread.
     """
     structlog.contextvars.bind_contextvars(
         run_id=run_id, shard=shard_index, proxy=proxy_label or "direct"

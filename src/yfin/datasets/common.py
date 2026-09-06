@@ -1,4 +1,4 @@
-"""Dataset'ler arasi ortak yardimcilar."""
+"""Helpers shared across datasets."""
 
 from __future__ import annotations
 
@@ -15,21 +15,21 @@ from yfin.models.kinds import KINDS
 
 log = get_logger(__name__)
 
-# yfinance'in kendi varsayilan penceresi yerine acik alt sinir (S6.3 #7)
+# Explicit lower bound instead of yfinance's own default window
 EPOCH_START = date(1970, 1, 1)
 
 
 def convert_field(field: Field, value: Any) -> Any:
-    """Field.kind'a gore tipli donusum (S8.3, S8.4).
+    """Typed conversion based on Field.kind.
 
-    Donusturucu, kolon tipiyle ayni yerde tanimlidir (models/kinds.py);
-    ikisinin ayrisma ihtimali boylece ortadan kalkar.
+    The converter is defined alongside the column type (models/kinds.py),
+    which removes any chance of the two drifting apart.
     """
     return KINDS[field.kind].convert(value)
 
 
 def project_fields(payload: Mapping[str, Any], fields: tuple[Field, ...]) -> dict[str, Any]:
-    """Kaynak sozlugu tipli kolon sozlugune indirger."""
+    """Reduces the source dict to a dict of typed columns."""
     row: dict[str, Any] = {}
     for field in fields:
         row[field.column] = convert_field(field, payload.get(field.source))
@@ -43,8 +43,8 @@ def warn_unmapped(
     dataset: str,
     ignore: frozenset[str] = frozenset(),
 ) -> list[str]:
-    """S8.5: haritalanmamis anahtarlari loglar. Ham veri raw_json'da oldugu
-    icin VERI KAYBI YOKTUR; log yalnizca terfi sinyalidir."""
+    """Logs unmapped keys. No data loss occurs since the raw payload is
+    kept in raw_json; the log is only a promotion signal."""
     mapped = {f.source for f in fields}
     unmapped = sorted(k for k in payload if k not in mapped and k not in ignore)
     if unmapped:
@@ -58,8 +58,9 @@ def snapshot_rows(
     fields: tuple[Field, ...],
     fetched_at: Any,
 ) -> tuple[dict[str, Any], str]:
-    """(satir, content_hash). Kanonik JSON hem hash'e hem raw_json'a gider,
-    boylece DB'den okunan govdeden hash yeniden dogrulanabilir (S7.2)."""
+    """(row, content_hash). The canonical JSON feeds both the hash and
+    raw_json, so the hash can be re-verified from the body read back from
+    the DB."""
     canonical = nz.canonical_json(payload)
     digest = nz.content_hash(canonical=canonical)
     row = {"symbol": symbol, **project_fields(payload, fields)}
@@ -73,24 +74,25 @@ def data_columns(fields: tuple[Field, ...], *, extra: tuple[str, ...] = ()) -> t
     return tuple(f.column for f in fields) + extra
 
 
-# --- AH S8.3 ortak normalizasyon kurallari --------------------------------
+# --- shared AH normalization rules --------------------------------
 
-# NUMERIC(38,10): PostgreSQL 11. basamagi SESSIZCE yuvarlar (olculdu),
-# bu yuzden yuvarlama Python tarafinda bilincli yapilir (S5.7).
+# NUMERIC(38,10): PostgreSQL silently rounds the 11th digit (measured), so
+# rounding is done deliberately on the Python side instead.
 FACT_QUANTUM = Decimal("1E-10")
 
 
 def to_fact_value(value: Any) -> Decimal | None:
-    """FactValueType() = DECIMAL(38,10) icin degeri quantize eder.
+    """Quantizes a value for FactValueType() = DECIMAL(38,10).
 
-    `localcontext(prec=FACT_PRECISION)` ZORUNLUDUR: Python'un varsayilan
-    context'i 28 ANLAMLI hane tasir, kolon ise 38 (28 tam + 10 ondalik).
-    Varsayilanla 1e18 `InvalidOperation` firlatir -- kolon 1e28'e kadar
-    kabul ederken. Istisna `normalize` icinden cikip `runner`'a ulasir ve o
-    (sembol x dataset) hucresinin TUM satirlarini dusururdu: tek bir buyuk
-    degerin bedeli donemin butun kalemleri olurdu. prec=38 ile Python siniri
-    kolonun gercek sinirina esitlenir; GERCEKTEN tasan deger satiri dusurur
-    ve hucre `ok` kalir (`key_value` deseni).
+    `localcontext(prec=FACT_PRECISION)` is required: Python's default
+    context carries 28 significant digits while the column holds 38 (28
+    integer + 10 fractional). With the default, 1e18 raises
+    `InvalidOperation` even though the column accepts up to 1e28. That
+    exception would escape `normalize` into `runner` and drop every row of
+    that (symbol x dataset) cell -- one oversized value costing the whole
+    period's line items. With prec=38, Python's limit matches the column's
+    actual limit; only a value that truly overflows drops its row, and the
+    cell of the dataset stays `ok` (the `key_value` pattern).
     """
     dec = nz.to_decimal(value)
     if dec is None:
@@ -105,11 +107,12 @@ def to_fact_value(value: Any) -> Decimal | None:
 
 
 def blank_to_none(value: Any, *, max_len: int | None = None) -> str | None:
-    """Sentinel bos dize -> NULL (AH S8.3).
+    """Sentinel blank string -> NULL.
 
-    Kaynak `ToGrade`, `Position`, `Transaction`, `URL`, `priceTargetAction`
-    alanlarinda "deger yok"u `''` ile bildiriyor. Duz `to_str` bunu bos bir
-    dize olarak yazar ve "bos" ile "bilinmiyor" ayrimi kaybolurdu.
+    The source signals "no value" as `''` for `ToGrade`, `Position`,
+    `Transaction`, `URL`, and `priceTargetAction`. A plain `to_str` would
+    write that as an empty string, losing the distinction between "blank"
+    and "unknown".
     """
     text = nz.to_str(value, max_len=max_len)
     if text is None:
@@ -126,12 +129,12 @@ def key_value(
     dataset: str,
     symbol: str,
 ) -> str | None:
-    """PK bilesenine giren metin; sinirdan uzunsa None + WARNING (AH S8.3).
+    """Text going into a PK component; returns None + warns if over the limit.
 
-    KIRPILMAZ: kirpilmis bir anahtar iki FARKLI kaydi tek satirda birlestirir
-    ve bu sessiz bir veri kaybidir. Satiri dusurmek F S8.4'un desenidir --
-    tek bozuk anahtar yuzunden ayni cagrinin gecerli satirlarini da
-    kaybetmemek icin hucre `failed` yapilmaz, kayip loga yazilir.
+    Never truncated: a truncated key would collapse two distinct records
+    into one row, a silent data loss. Dropping the row is the pattern
+    instead -- the cell is not marked `failed` just because one key is bad,
+    so the same call's valid rows are not lost with it; the loss is logged.
     """
     text = nz.to_str(value, max_len=None)
     if text is not None:
@@ -153,10 +156,10 @@ def key_value(
 
 
 def in_range(value: date | None, start: date | None, end: date | None) -> bool:
-    """`date_range="filter"` elemesi (AH S6.2).
+    """Filter used by `date_range="filter"`.
 
-    Aralik verilmemisse (None/None) hicbir satir elenmez: filtresiz
-    calistirma Yahoo'nun verdigi TUM gecmisi yazar.
+    No row is filtered if no range is given (None/None): an unfiltered run
+    writes all history Yahoo returns.
     """
     if value is None:
         return False
@@ -166,34 +169,34 @@ def in_range(value: date | None, start: date | None, end: date | None) -> bool:
 
 
 def to_big_value(value: Any) -> Any:
-    """BigNumType() = DECIMAL(38,0); kesirli deger Python tarafinda yuvarlanir.
+    """BigNumType() = DECIMAL(38,0); the fractional part is rounded in Python.
 
-    PostgreSQL kesirli kismi SESSIZCE yuvarlar (olculdu:
-    olculdu); yuvarlamayi burada yapmak `kinds.py`'nin `big` kuralini
-    tek dogruluk kaynagi olarak korur.
+    PostgreSQL silently rounds the fractional part (measured); rounding
+    here instead keeps `kinds.py`'s `big` rule as the single source of truth.
     """
     return KINDS["big"].convert(value)
 
 
 def to_datetime_value(value: Any) -> Any:
-    """TsType() kolonu; kaynak `datetime64` VEYA ham epoch `float64` verir.
+    """TsType() column; the source sends either `datetime64` or raw epoch `float64`.
 
-    `kinds.py`'nin `dt` kurali iki bicimi de kabul eder; `insider_roster`in
-    Position Direct/Indirect Date alanlari sembole gore ikisi arasinda
-    degisiyor (6 sembolde dolu float olculdu).
+    `kinds.py`'s `dt` rule accepts both forms; `insider_roster`'s Position
+    Direct/Indirect Date fields switch between them depending on the
+    symbol (measured populated float on 6 symbols).
     """
     return KINDS["dt"].convert(value)
 
 
 def date_range_kwargs(start: date | None, end: date | None) -> dict[str, str]:
-    """`date_range="api"` dataset'lerinin yfinance cagri argumanlari.
+    """yfinance call arguments for `date_range="api"` datasets.
 
-    Alt sinir ACIKCA konur: `start=None` ile cagrildiginda yfinance kendi
-    varsayilan penceresini uygular (`get_shares_full` icin 'end - 548 gun')
-    ve yalnizca `--end` verilmis bir calistirma sessizce daralirdi.
+    The lower bound is set explicitly: calling with `start=None` makes
+    yfinance apply its own default window (`end - 548 days` for
+    `get_shares_full`), which would silently narrow a run that only gave
+    `--end`.
 
-    Ust sinir BIR GUN ILERI tasinir: Yahoo `period2`yi DISLAYICI okur;
-    `--end 2018-12-31` o gunu KAPSAMALIDIR.
+    The upper bound is shifted one day forward: Yahoo reads `period2` as
+    exclusive, but `--end 2018-12-31` must include that day.
     """
     kwargs = {"start": (start or EPOCH_START).isoformat()}
     if end is not None:
@@ -201,25 +204,23 @@ def date_range_kwargs(start: date | None, end: date | None) -> dict[str, str]:
     return kwargs
 
 
-# --- kesif dataset'lerinin ortak yardimcilari (SQ denetimi) ---------------
-# Uc kesif dataset'i (`search`, `lookup`, `screener`) ayni dort isi
-# yapiyordu ve dordu de UC KEZ kopyalanmisti. `domain/common.py` ayni
-# durumu ayni bicimde cozuyor.
+# --- shared helpers for discovery datasets --------------------------------
+# The three discovery datasets (`search`, `lookup`, `screener`) each did the
+# same four things, copied three times over. `domain/common.py` solves the
+# same problem the same way.
 
 
 def symbol_is_writable(symbol: str) -> bool:
-    """Sembol `symbols` tablosuna yazilabilir mi (SQ S8.3).
+    """Whether the symbol can be written to the `symbols` table.
 
-    Kisit `SymbolType()` = VARCHAR(SYMBOL_LENGTH) COLLATE "C"den TURETILIR;
-    uzunluk burada sabit olarak yazilmaz.
+    The constraint is derived from `SymbolType()` = VARCHAR(SYMBOL_LENGTH)
+    COLLATE "C"; the length is not hardcoded here.
 
-    `^` KAPSAM ICINDEDIR: olculen 9.243 sembolun 93'u onunla basliyor
-    (endeksler). Karakter kumesini daraltan bir dogrulama endeksleri
-    toptan reddederdi.
+    `^` is in scope: 93 of 9,243 symbols measured start with it (indices).
+    A validation that narrows the character set would reject indices wholesale.
 
-    Yazma SIRASINDAN turetilmez, `normalize` icinde hesaplanir: siraya
-    bagli bir turetme kapi kapsami degistiginde sessizce bozulurdu
-    (SQ S6.2.1).
+    Not derived from write order -- computed inside `normalize` instead: an
+    order-dependent derivation would silently break if the gate's scope changed.
     """
     from yfin.models.base import SYMBOL_LENGTH
 
@@ -227,25 +228,24 @@ def symbol_is_writable(symbol: str) -> bool:
 
 
 def utc_as_of_day(fetched_at: datetime) -> date:
-    """`as_of_date`i CEKIM DAMGASINDAN turetir, `now()`tan degil.
+    """Derives `as_of_date` from the fetch timestamp, not from `now()`.
 
-    Uc dataset de `datetime.now(UTC).date()` cagiriyordu; o durumda kapi
-    satirinin `as_of_date`i ile `fetched_at`i FARKLI zaman kaynaklarindan
-    gelir ve gece yarisi gecisinde ayrisir -- satirlar 5 Eylul damgasiyla
-    6 Eylul gunune yazilabilirdi. `domain/common.as_of_day` ayni ilkeyi
-    piyasa saat dilimi icin uyguluyor; kesif tarafi bolge-bagimsiz oldugu
-    icin UTC kullanir.
+    Three datasets used to call `datetime.now(UTC).date()`; that made the
+    gate row's `as_of_date` and `fetched_at` come from different time
+    sources and diverge across midnight -- rows could get a September 5
+    timestamp but land on the September 6 day. `domain/common.as_of_day`
+    applies the same principle for the market timezone; discovery is
+    region-independent, so it uses UTC.
     """
     moment = fetched_at if fetched_at.tzinfo is not None else fetched_at.replace(tzinfo=UTC)
     return moment.astimezone(UTC).date()
 
 
 def expect_dict(value: Any, *, what: str) -> dict[str, Any]:
-    """Yanit sozluk degilse YUKSEK SESLE patlar.
+    """Raises loudly if the response is not a dict.
 
-    Sessizce bos donmek "veri yok" (`empty`) ile "yanit sekli degisti"
-    (`failed`) durumlarini birbirine karistirirdi; ikincisi acilen
-    gorulmesi gereken bir seydir.
+    Returning empty silently would conflate "no data" (`empty`) with "the
+    response shape changed" (`failed`); the latter needs to be seen right away.
     """
     if not isinstance(value, dict):
         raise TypeError(f"{what} yaniti sozluk degil: {type(value).__name__}")
@@ -253,10 +253,10 @@ def expect_dict(value: Any, *, what: str) -> dict[str, Any]:
 
 
 def dict_items(payload: Mapping[str, Any], key: str) -> list[dict[str, Any]]:
-    """`payload[key]` listesindeki SOZLUK ogeleri; digerleri elenir.
+    """Dict items in the `payload[key]` list; other items are filtered out.
 
-    Kaynak bir blokta beklenmedik bir skaler dondurdugunde tek satir
-    dusmeli, hucrenin tamami degil.
+    If a source block returns an unexpected scalar, only that one row
+    should drop, not the whole cell.
     """
     return [item for item in payload.get(key) or [] if isinstance(item, dict)]
 
@@ -268,17 +268,17 @@ def discovered_symbol_row(
     fetched_at: datetime,
     **typed_fields: Any,
 ) -> dict[str, Any]:
-    """Kesfedilen sembolun `symbols` satiri (SQ K10).
+    """`symbols` row for a discovered symbol.
 
-    Dort ortak alan BURADA, tek yerde durur. Kaynaga ozgu tanimlayici
-    alanlar `typed_fields` ile gecer -- her yol yalnizca GERCEKTEN
-    doldurdugunu verir ve `update_columns` demeti de ona gore dar tutulur
-    (SQ S5.12).
+    The four common fields live here, in one place. Source-specific
+    identifying fields pass through `typed_fields` -- each path supplies
+    only what it actually populates, and `update_columns` is kept narrow
+    to match.
 
-    `is_active`, `discovered_by` ve `discovered_at` YALNIZ INSERT'te
-    etkilidir: uc yolun da `update_columns` demeti bunlari DISLAR. Kapsama
-    girselerdi operatorun elle aktiflestirdigi bir sembol, ertesi gun
-    yeniden kesfedildiginde SESSIZCE pasife donerdi.
+    `is_active`, `discovered_by`, and `discovered_at` take effect only on
+    INSERT: all three paths' `update_columns` exclude them. If they were in
+    scope, a symbol an operator manually activated would silently flip back
+    to inactive the next time it was rediscovered.
     """
     return {
         "symbol": symbol,

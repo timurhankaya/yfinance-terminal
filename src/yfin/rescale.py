@@ -1,18 +1,18 @@
-"""Split'te geriye donuk yeniden olcekleme (PB S6.6).
+"""Retroactive rescaling of the archive on a split.
 
-Tasarimin en kritik parcasi ve en kolay yanlis yazilani.
+The most critical part of the design, and the easiest to get wrong.
 
-SORUN: Yahoo HAM FIYAT VERMIYOR. `auto_adjust=False` yalnizca TEMETTU
-duzeltmesini `Adj Close`'a ayirir; SPLIT duzeltmesi OHLC'ye zaten
-uygulanmis gelir. Olculdu (NVDA, 2024-06-10, 10:1):
+PROBLEM: Yahoo does not give raw prices. `auto_adjust=False` only splits the
+DIVIDEND adjustment into `Adj Close`; SPLIT adjustment is already baked into
+OHLC. Measured (NVDA, 2024-06-10, 10:1):
 
-    2024-06-05  Close=122.44  Volume=528.402.000   <- split ONCESI gun
-                (o gun gercekte ~1224.40 ve ~52,84 M idi)
+    2024-06-05  Close=122.44  Volume=528.402.000   <- day BEFORE the split
+                (actually ~1224.40 and ~52.84M that day)
 
-price_history bunu umursamaz: her kosuda TUM gecmisi yeniden yazar.
-price_bars yazamaz - 30 gunu gecmis bir 1m bari yeniden CEKILEMEZ. Yani
-arsivin olcegini korumak bize duser; aksi halde tablo karisik olcekli
-olur ve split gununde sahte bir 10x sicrama gorunur.
+price_history doesn't care: it rewrites the whole history every run.
+price_bars can't -- a 1m bar over 30 days old cannot be refetched. So keeping
+the archive's scale consistent is on us; otherwise the table ends up mixed-
+scale and the split day shows a fake 10x jump.
 """
 
 from __future__ import annotations
@@ -32,28 +32,30 @@ log = get_logger(__name__)
 
 
 def _rowcount(result: Any) -> int:
-    """Etkilenen satir sayisi.
+    """Rows affected.
 
-    `Session.execute` statik olarak `Result` doner ve `rowcount` yalniz
-    `CursorResult`ta tanimlidir; cast yerine tek noktada okunur.
+    `Session.execute` is statically typed to return `Result`, and `rowcount`
+    is only defined on `CursorResult`; read here once instead of casting
+    everywhere.
     """
     return int(getattr(result, "rowcount", 0) or 0)
 
 
 class RescaleSkipped(Exception):
-    """Bu split uygulanamaz; kayit da YAZILMAZ.
+    """This split cannot be applied; no record is written either.
 
-    Yazilsaydi split "uygulandi" sayilir ve dogru veri bir daha asla
-    olceklenmezdi - sessiz ve kalici bir bozulma.
+    Writing one would count the split as "applied", and the correct data
+    would never be rescaled again -- a silent, permanent corruption.
     """
 
 
 def rescale_factors(ratio: Decimal) -> tuple[Decimal, Decimal]:
-    """(fiyat carpani, hacim carpani).
+    """(price factor, volume factor).
 
-    Yahoo split sonrasi gecmis fiyati BOLER, hacmi CARPAR; UPDATE ayni
-    yonu uygular ve arsivi Yahoo'nun guncel olcegine hizalar. Ters split
-    (ratio < 1) ayni formulle dogru calisir, ozel dal yoktur.
+    Yahoo divides historical price and multiplies volume after a split; the
+    UPDATE applies the same direction and aligns the archive to Yahoo's
+    current scale. A reverse split (ratio < 1) works correctly with the same
+    formula, no special case.
     """
     if ratio <= 0:
         raise RescaleSkipped(f"gecersiz split orani: {ratio}")
@@ -61,27 +63,27 @@ def rescale_factors(ratio: Decimal) -> tuple[Decimal, Decimal]:
 
 
 def split_boundary_utc(split_day: date, timezone_name: str | None) -> datetime:
-    """Split gununun YEREL 00:00'inin UTC karsiligi (tz-naive).
+    """UTC equivalent of local midnight on the split day (tz-naive).
 
-    Ham UTC gece yarisi alinamaz: pozitif ofsetli borsalarda (BIST +03)
-    yerel 00:00, UTC'de ONCEKI gunun 21:00'idir; aradaki barlar yanlis
-    tarafta kalir ve ya olceklenmeden kalir ya iki kez olceklenir.
+    Raw UTC midnight can't be used: for positive-offset exchanges (BIST
+    +03), local 00:00 is 21:00 UTC the PREVIOUS day; bars in between end up
+    on the wrong side and are either never rescaled or rescaled twice.
 
-    tz bilinmiyorsa UTC VARSAYILMAZ: yanlis sinirla olceklemek, hic
-    olceklememekten daha kotudur cunku sonucu geri alinamaz.
+    An unknown tz is never assumed to be UTC: rescaling against the wrong
+    boundary is worse than not rescaling at all, because the result can't be
+    undone.
     """
     if not timezone_name:
         raise RescaleSkipped("sembolun IANA tz adi bilinmiyor")
     try:
         zone = ZoneInfo(timezone_name)
     except (ZoneInfoNotFoundError, ValueError) as exc:
-        # `timezone` kolonu "EDT"/"TRT" gibi kisaltmalar tasir ve buraya
-        # duserse acikca reddedilir (PB S6.6/2).
+        # The `timezone` column can carry abbreviations like "EDT"/"TRT";
+        # if one lands here it's explicitly rejected.
         raise RescaleSkipped(f"gecersiz tz adi: {timezone_name}") from exc
     local_midnight = datetime.combine(split_day, datetime.min.time(), tzinfo=zone)
-    # UTC-AWARE doner: `price_bars.ts_utc` artik timestamptz'dir
-    # (PG S2.3) ve karsilastirma ayni farkindalik duzeyinde
-    # yapilmalidir.
+    # Returned UTC-aware: `price_bars.ts_utc` is timestamptz, and the
+    # comparison must be at the same awareness level.
     return local_midnight.astimezone(UTC)
 
 
@@ -93,25 +95,26 @@ def _symbol_timezone(session: Session, symbol: str) -> str | None:
 
 
 def pending_splits(session: Session, symbol: str) -> list[tuple[date, Decimal]]:
-    """Uygulanabilir split satirlari: kaydi olmayan VE arsivden YENI olanlar.
+    """Applicable split rows: not yet recorded AND newer than the archive.
 
-    `splits` TABLOSUNDAN okur, dataset bagimliligindan DEGIL: `history` o
-    kosuda hic secilmemis olsa bile DB'deki mevcut split'lere gore dogru
-    davranir (PB S6.1).
+    Reads from the `splits` table, not from dataset scheduling: this stays
+    correct against the DB's current splits even if `history` was never
+    selected in a given run.
 
-    IKI KAPI VARDIR ve ikisi de gereklidir:
+    TWO gates, both required:
 
-      1. `bar_rescales`te kaydi yok  - idempotency (ayni split iki kez
-         uygulanmaz).
-      2. `split_date` > sembolun EN ERKEN bar tarihi - YAPISAL KORUMA.
+      1. No record in `bar_rescales` -- idempotency (the same split is
+         never applied twice).
+      2. `split_date` > the symbol's earliest bar date -- a structural
+         safeguard.
 
-    Ikincisi olmadan tasarim OPERASYONEL BIR ADIMA (`rescale --seed`)
-    bagimli kalir: taze bir kurulumda seed atlanirsa ilk kosu, splits
-    tablosundaki TUM tarihsel split'leri uygular ve Yahoo'dan ZATEN guncel
-    olcekte gelmis barlari yeniden boler. Arsivden eski bir split'in
-    uygulanacak bir isi yoktur - o barlar zaten split sonrasi olcekte
-    geldi. Seed hala anlamlidir (denetim izi ve niyet beyani) ama artik
-    dogrulugun TEK dayanagi degildir.
+    Without the second, the design would depend on an operational step
+    (`rescale --seed`): on a fresh setup where seeding was skipped, the
+    first run would apply every historical split in the `splits` table and
+    re-divide bars that Yahoo already delivered at the current scale. An
+    old split predating the archive has nothing to do -- those bars already
+    arrived at the post-split scale. Seeding still matters (audit trail and
+    stated intent), but it's no longer the sole guarantee of correctness.
     """
     splits = Base.metadata.tables["splits"]
     applied = Base.metadata.tables["bar_rescales"]
@@ -129,8 +132,9 @@ def pending_splits(session: Session, symbol: str) -> list[tuple[date, Decimal]]:
         .where(
             splits.c["symbol"] == symbol,
             applied.c["symbol"].is_(None),
-            # earliest NULL ise (sembolun hic bari yok) kosul NULL doner ve
-            # satir ELENIR - dogrusu budur: olceklenecek arsiv yoktur.
+            # If earliest is NULL (symbol has no bars), the condition is
+            # NULL and the row is excluded -- correct, since there's no
+            # archive to rescale.
             splits.c["split_date"] > earliest,
         )
         .order_by(splits.c["split_date"])
@@ -139,17 +143,17 @@ def pending_splits(session: Session, symbol: str) -> list[tuple[date, Decimal]]:
 
 
 def seed_baseline(session: Session) -> int:
-    """`yfin rescale --seed`: mevcut TUM split'ler icin baseline kaydi.
+    """`yfin rescale --seed`: baseline record for every existing split.
 
-    BU ADIM ATLANIRSA ARSIV YOK OLUR. `splits` tablosu mevcut hat
-    tarafindan zaten doludur (AAPL'in 1987, 2000, 2005, 2014, 2020
-    split'leri dahil). Tetikleyici "karsiligi olmayan her split" oldugu
-    icin, bos bir bar_rescales ile yapilan ILK KOSU tarihsel split'lerin
-    tamamini uygular ve AAPL arsivini 2*2*2*7*4 = 224'e boler - oysa o
-    barlar Yahoo'dan ZATEN guncel olcekte gelmistir.
+    Skipping this step wipes out the archive. The `splits` table is already
+    populated from the existing line (including AAPL's 1987, 2000, 2005,
+    2014, 2020 splits). Since the trigger is "every split with no matching
+    record", a first run against an empty bar_rescales would apply every
+    historical split and divide the AAPL archive by 2*2*2*7*4 = 224, even
+    though those bars already came from Yahoo at the current scale.
 
-    Idempotenttir: var olan kayitlara dokunmaz. `bars_*` ilk kez kosmadan
-    ONCE calismak zorundadir (PB S10/9a).
+    Idempotent: existing records are untouched. Must run before `bars_*`
+    runs for the first time.
     """
     now = datetime.now(UTC)
     result = session.execute(
@@ -168,11 +172,11 @@ def seed_baseline(session: Session) -> int:
 
 
 def apply_pending(session: Session, symbol: str) -> int:
-    """Bu sembolun bekleyen split'lerini uygular; uygulanan sayisini doner.
+    """Apply this symbol's pending splits; returns the count applied.
 
-    CAGRI YERI: sembolun KENDI yazma transaction'i icinde, `bars_*`
-    yazimindan ONCE (PB S6.6). Ters sirada, ayni kosuda yazilan yeni
-    barlar (zaten yeni olcekte) bir kez daha bolunurdu.
+    Call site: inside the symbol's own write transaction, before `bars_*` is
+    written. In the reverse order, new bars written in the same run
+    (already at the new scale) would be divided a second time.
     """
     pending = pending_splits(session, symbol)
     if not pending:
@@ -185,8 +189,8 @@ def apply_pending(session: Session, symbol: str) -> int:
             price_factor, volume_factor = rescale_factors(ratio)
             boundary = split_boundary_utc(split_day, timezone_name)
         except RescaleSkipped as exc:
-            # Kayit YAZILMAZ: yazilsaydi split "uygulandi" sayilir ve
-            # dogru veri bir daha asla olceklenmezdi.
+            # No record written: writing one would count the split as
+            # "applied", and the correct data would never be rescaled again.
             log.error("rescale atlandi", symbol=symbol, split_date=str(split_day), reason=str(exc))
             continue
         applied += _apply_one(
@@ -204,17 +208,17 @@ def _apply_one(
     volume_factor: Decimal,
     boundary: datetime,
 ) -> int:
-    """Tek split: once SLOTU AL, sonra UPDATE et.
+    """One split: claim the slot first, then UPDATE.
 
-    Slot `INSERT ... ON CONFLICT DO NOTHING` ile alinir, kilitle DEGIL.
-    Ilk tasarim `SELECT ... FOR UPDATE` oneriyordu; olcum bunun
-    CALISMADIGINI gosterdi: var olmayan bir PK uzerindeki FOR UPDATE
-    yalnizca bir GAP LOCK alir, gap lock'lar birbiriyle uyumludur, iki
-    oturum da "satir yok, uygulayacagim" der ve cakisma INSERT aninda
-    tekillik ihlali (23505) olarak patlar.
+    The slot is claimed with `INSERT ... ON CONFLICT DO NOTHING`, not a
+    lock. An earlier design used `SELECT ... FOR UPDATE`; testing showed it
+    doesn't work: `FOR UPDATE` on a non-existent PK only takes a gap lock,
+    gap locks are compatible with each other, so two sessions both see "no
+    row, I'll apply it" and the conflict surfaces as a uniqueness violation
+    (23505) at INSERT time instead.
 
-    rowcount 1 ise slot bizimdir; 0 ise baska bir oturum onceden
-    almistir ve UPDATE calistirilmaz.
+    rowcount 1 means we own the slot; 0 means another session claimed it
+    first and the UPDATE is skipped.
     """
     now = datetime.now(UTC)
     claim = session.execute(
@@ -226,18 +230,18 @@ def _apply_one(
         {"symbol": symbol, "split_date": split_day, "ratio": ratio, "now": now},
     )
     if not _rowcount(claim):
-        return 0  # baska bir oturum almis
+        return 0  # another session claimed it first
 
-    # 1wk/1mo KAPSAM DISI (PB S6.6/1): bu iki interval her kosuda
-    # period="max" ile bastan cekilir, yani daima Yahoo'nun guncel
-    # olcegindedir. Olceklenirlerse ve o kosuda fetch duserse satirlar
-    # CIFT duzeltilmis kalir; bar_rescales split'i "uygulandi" saydigi
-    # icin de bir daha duzelmez.
+    # 1wk/1mo are out of scope: those two intervals are refetched from
+    # scratch every run with period="max", so they're always at Yahoo's
+    # current scale. Rescaling them, followed by a dropped fetch that run,
+    # would leave rows double-adjusted -- and since bar_rescales already
+    # counts the split as "applied", it would never self-correct.
     #
-    # FILTRE ARTIK YAPISAL OLARAK GEREKSIZ -- `price_bars` yalnizca
-    # intraday tasiyor, 1wk/1mo `periodic_bars`ta (PG S7.1). Yine de
-    # BIRAKILDI: kural kodda GORUNUR kalsin ve tablo bir gun yeniden
-    # birlestirilirse sessizce bozulmasin. Maliyeti bir IN yan tumcesi.
+    # This filter is now structurally redundant -- `price_bars` only holds
+    # intraday data, 1wk/1mo live in `periodic_bars`. Kept anyway: the rule
+    # stays visible in the code and won't silently break if the tables are
+    # ever merged back. Cost is one IN clause.
     placeholders = ", ".join(f":iv{i}" for i in range(len(INTRADAY_INTERVALS)))
     params: dict[str, object] = {
         "symbol": symbol,
@@ -253,15 +257,16 @@ def _apply_one(
             "  high = high * :price_factor, "
             "  low = low * :price_factor, "
             "  close = close * :price_factor, "
-            # FLOOR SART: 3:2 split'te volume*1.5 kesirli cikar. FLOOR
-            # olmadan `numeric` deger `bigint` kolona atanirken YUVARLANIR;
-            # FLOOR ile kesme davranisi ACIKTIR ve niyet kodda gorunur.
+            # FLOOR is required: a 3:2 split makes volume*1.5 fractional.
+            # Without FLOOR, assigning a `numeric` value to a `bigint`
+            # column rounds; FLOOR makes the truncation explicit in code.
             #
-            # Bu UPDATE artik bir HYPERTABLE'a gidiyor; `ts_utc < :boundary`
-            # kosulu sayesinde yalnizca ilgili chunk'lara dokunur. Tam da
-            # bu geriye donuk yazma yuzunden compression ACILMADI
-            # (PG S7.3): sikistirilmis chunk'ta UPDATE chunk'i acmayi
-            # gerektirir ve bir split tum tarihsel arsive dokunabilir.
+            # This UPDATE now hits a hypertable; the `ts_utc < :boundary`
+            # condition means it only touches the relevant chunks.
+            # Compression was left off specifically because of this
+            # backfill write: an UPDATE on a compressed chunk requires
+            # decompressing it, and a single split can touch the entire
+            # historical archive.
             "  volume = FLOOR(volume * :volume_factor) "
             "WHERE symbol = :symbol AND ts_utc < :boundary "
             f"  AND bar_interval IN ({placeholders})"
@@ -287,10 +292,10 @@ def _apply_one(
 
 
 def unseeded_historic_splits(session: Session) -> int:
-    """Tohumlanmamis TARIHSEL split sayisi (bakim isi uyarisi, PB S10/9a).
+    """Count of unseeded HISTORICAL splits (a maintenance-hygiene warning).
 
-    price_bars'in en erken barindan ESKI olup bar_rescales'te karsiligi
-    olmayan split, `--seed`in atlandigina isarettir.
+    A split older than price_bars's earliest bar with no matching
+    `bar_rescales` record is a sign that `--seed` was skipped.
     """
     splits = Base.metadata.tables["splits"]
     applied = Base.metadata.tables["bar_rescales"]

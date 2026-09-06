@@ -1,11 +1,11 @@
-"""Snapshot dataset'leri icin ortak taban (S6.3/a).
+"""Common base for snapshot datasets.
 
-Snapshot tablosu satiri gunceller; _history tablosu YALNIZCA content_hash
-degistiyse yeni satir ekler. Degismediginde bu bir 'skipped'tir, hata degil.
+The snapshot table updates its row; the _history table adds a new row ONLY
+if content_hash changed. When unchanged, that's a 'skipped', not an error.
 
-Karsilastirilan tablo (snapshot) ile yazilan tablo (_history) FARKLI oldugu
-icin "once karsilastir, sonra yaz" sirasi guvenlidir. Ayni tabloya yazan
-hash kapisi icin `HashGatedDataset` kullanilir.
+The compared table (snapshot) and the written table (_history) are
+DIFFERENT, so "compare first, then write" is safe. For a hash gate that
+writes to the same table, use `HashGatedDataset` instead.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ def snapshot_upsert(
     history_table: str,
     key_columns: tuple[str, ...],
 ) -> WriteStats:
-    """Snapshot + gecmis yazimi; sembol veya bolge anahtarli calisir."""
+    """Snapshot + history write; works keyed on symbol or region."""
     stats = WriteStats(skipped=dict(result.skipped))
     history_writes: list[TableWrite] = []
     other_writes: list[TableWrite] = []
@@ -32,9 +32,9 @@ def snapshot_upsert(
     for write in result.writes:
         (history_writes if write.table == history_table else other_writes).append(write)
 
-    # Hash karsilastirmasi snapshot tablosu GUNCELLENMEDEN ONCE yapilir;
-    # aksi halde karsilastirma her zaman esitlenir ve _history hicbir
-    # zaman yeni satir almaz.
+    # The hash comparison happens BEFORE the snapshot table is updated;
+    # otherwise the comparison would always match and _history would never
+    # get a new row.
     keep: list[TableWrite] = []
     for write in history_writes:
         kept: list[dict[str, Any]] = []
@@ -69,17 +69,16 @@ def snapshot_upsert(
 
 
 class SnapshotDataset[RawT](Dataset[RawT]):
-    """Iki tabloya yazar: guncel snapshot + gecmis.
+    """Writes to two tables: current snapshot + history.
 
-    Hash karsilastirmasi DB okumasi gerektirdigi icin normalize() icinde
-    degil, upsert() icinde yapilir; normalize saf kalir.
+    The hash comparison needs a DB read, so it happens in upsert(), not
+    normalize(); normalize stays pure.
     """
 
     snapshot_table: str
     history_table: str
-    # Snapshot tablosunun anahtar kolonlari: ticker_* icin ("symbol",),
-    # market_status icin ("region",), market_summary icin
-    # ("region", "board_code").
+    # Snapshot table's key columns: ("symbol",) for ticker_*, ("region",)
+    # for market_status, ("region", "board_code") for market_summary.
     key_columns: tuple[str, ...] = ("symbol",)
 
     def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:

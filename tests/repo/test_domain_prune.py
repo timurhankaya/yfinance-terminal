@@ -1,4 +1,4 @@
-"""Genellestirilmis `prune_asof` + oksuz rapor temizligi (SI S9.3, S11.2)."""
+"""Generalized `prune_asof` plus orphan report cleanup."""
 
 from __future__ import annotations
 
@@ -31,12 +31,12 @@ def _count(session: Session, table: str, where: str = "1=1") -> int:
 
 
 def test_symbol_side_defaults_are_unchanged() -> None:
-    """Parametrelestirme SIFIR DAVRANIS DEGISIKLIGI (SI S14/3)."""
+    """Parameterizing this introduces zero behavior change."""
     mapping = asof_table_datasets()
     assert "asof_state" not in mapping
     assert len(mapping) == 14
     assert mapping["institutional_holders"] == ["institutional_holders", "mutualfund_holders"]
-    # Domain tablolari sembol tarafinin kapsamina SIZMAZ
+    # Domain tables do not leak into the symbol side's scope
     assert not any(name.startswith("domain_") for name in mapping)
 
 
@@ -44,10 +44,11 @@ def test_domain_side_mapping_excludes_the_gate_and_the_shared_report_table() -> 
     mapping = asof_table_datasets(DOMAIN_DATASETS, "domain_asof_state")
     assert "domain_asof_state" not in mapping
     assert mapping["domain_top_companies"] == ["sector_rankings", "industry_rankings"]
-    # `domains` ARTIK YOK: statik kimlik tablosudur ve `as_of_date`
-    # TASIMAZ. `prune_asof` onu zaten atliyordu (`"as_of_date" not in
-    # table.c` dali); haritada gorunmesi "budaniyor" izlenimi veriyordu.
-    # SQ denetiminde `asof_table_datasets` bu suzgeci ONE aldi.
+    # `domains` is gone now: it's a static identity table with no `as_of_date`
+    # column. `prune_asof` already skipped it (the `"as_of_date" not in
+    # table.c` branch); showing it in the map gave the false impression it
+    # gets pruned. `asof_table_datasets` moved this filter upfront during the
+    # SQ audit.
     assert set(mapping) == {
         "domain_metrics",
         "research_reports",
@@ -60,12 +61,12 @@ def test_domain_side_mapping_excludes_the_gate_and_the_shared_report_table() -> 
 
 
 def _seed_two_days(session: Session) -> None:
-    """Iki AYRI gun, IKI FARKLI icerik.
+    """Two separate days, two different content.
 
-    Ikinci gun ayni fixture'la kosulsaydi `content_hash` esitlenir ve kapi
-    HICBIR SEY YAZMAZDI (`as_of_date` VOLATILE) -- budanacak ikinci satir
-    hic olusmazdi. Bu, as-of mekanizmasinin dogru davranisidir; testin
-    kurgusu ona uymak zorundadir.
+    Running the second day with the identical fixture would match the
+    content_hash and the gate would write nothing (`as_of_date` is
+    volatile) -- the row meant to be pruned would never exist. That's
+    correct as-of behavior, and the test setup has to accommodate it.
     """
     import copy
 
@@ -78,8 +79,7 @@ def _seed_two_days(session: Session) -> None:
         ((AS_OF, NOW), (AS_OF + timedelta(days=1), NOW + timedelta(days=1)))
     ):
         data = copy.deepcopy(domain_data("sector", "technology"))
-        # Gercekte de boyle olur: `marketCap` 11/11 sektorde 15 dakikada
-        # degisti.
+        # Mirrors reality: `marketCap` changed in 11/11 sectors within 15 minutes.
         data["overview"]["marketCap"]["raw"] += offset
         data["topCompanies"][0]["lastPrice"]["raw"] += offset
         for name in ("sector_profile", "sector_rankings"):
@@ -109,8 +109,8 @@ def test_domain_prune_keeps_the_latest_day(db_session: Session) -> None:
 def test_domain_prune_never_touches_the_gate_or_the_identity_table(
     db_session: Session,
 ) -> None:
-    """Kapi satiri silinseydi `first_seen_at` kaybolur ve BUTUN gecmis
-    bir sonraki kosuda yeniden yazilirdi."""
+    """Deleting the gate row would lose `first_seen_at` and rewrite the entire
+    history on the next run."""
     _seed_two_days(db_session)
     gates = _count(db_session, "domain_asof_state")
     domains = _count(db_session, "domains")
@@ -121,7 +121,7 @@ def test_domain_prune_never_touches_the_gate_or_the_identity_table(
 
 
 def test_shared_report_table_is_not_pruned_by_scope(db_session: Session) -> None:
-    """`research_reports`ta `domain_key` kolonu YOK -- budanamaz."""
+    """`research_reports` has no `domain_key` column -- it cannot be pruned by scope."""
     _seed_two_days(db_session)
     reports = _count(db_session, "research_reports")
     removed = prune_asof(db_session, AS_OF + timedelta(days=90), **DOMAIN_TRIPLE)
@@ -140,7 +140,7 @@ def test_orphan_reports_are_removed_only_after_links_go(db_session: Session) -> 
 
 
 def test_symbol_side_pruning_behaviour_is_unchanged(db_session: Session) -> None:
-    """Domain uclusu sembol tarafina SIZMAZ."""
+    """The domain triple does not leak into the symbol side."""
     _seed_two_days(db_session)
     removed = prune_asof(db_session, AS_OF + timedelta(days=90))
     assert set(removed) == set(asof_table_datasets())
@@ -165,12 +165,11 @@ def test_run_prune_calls_both_registries(db_session: Session) -> None:
 
 
 def test_symbol_side_registry_still_has_thirteen_asof_datasets() -> None:
-    """`asof_state` KAPI AILESI hala 13.
+    """The `asof_state` gate family is still 13.
 
-    Sayim KAPI TABLOSUNA gore yapilir, yalnizca tipe gore DEGIL: SQ ile
-    gelen `search`/`lookup` da `AsOfDataset`tir ama kendi kapisini
-    kullanir (`discovery_asof_state`, SQ K3a). Tipe gore sayilsaydi bu
-    test, ilgisiz bir ailenin buyumesiyle her seferinde kirilirdi.
+    Counted by gate table, not just by type: `search`/`lookup` are also
+    `AsOfDataset` but use their own gate (`discovery_asof_state`). Counting
+    by type alone would break this test every time an unrelated family grows.
     """
     from yfin.datasets.asof_base import GATE_TABLE, AsOfDataset
 

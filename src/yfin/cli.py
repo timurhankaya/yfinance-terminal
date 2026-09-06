@@ -1,4 +1,4 @@
-"""Komut satiri arayuzu (S11)."""
+"""Command-line interface."""
 
 from __future__ import annotations
 
@@ -45,44 +45,44 @@ from yfin.shard import NoEligibleProxy, run_sharded
 log = get_logger(__name__)
 
 app = typer.Typer(
-    help="yfinance -> PostgreSQL 18 + TimescaleDB veri hatti", no_args_is_help=True
+    help="yfinance -> PostgreSQL 18 + TimescaleDB data pipeline", no_args_is_help=True
 )
-db_app = typer.Typer(help="Veritabani islemleri", no_args_is_help=True)
-symbols_app = typer.Typer(help="Sembol evreni yonetimi", no_args_is_help=True)
-proxy_app = typer.Typer(help="Proxy havuzu yonetimi", no_args_is_help=True)
+db_app = typer.Typer(help="Database operations", no_args_is_help=True)
+symbols_app = typer.Typer(help="Symbol universe management", no_args_is_help=True)
+proxy_app = typer.Typer(help="Proxy pool management", no_args_is_help=True)
 app.add_typer(db_app, name="db")
-market_app = typer.Typer(help="Piyasa (Market/Calendars) verisi", no_args_is_help=True)
-screen_app = typer.Typer(help="Screener ekranlari (SQ S13.2)", no_args_is_help=True)
-discover_app = typer.Typer(help="Serbest terim kesfi (SQ S8.2)", no_args_is_help=True)
-domain_app = typer.Typer(help="Sektor / endustri verisi", no_args_is_help=True)
+market_app = typer.Typer(help="Market (Market/Calendars) data", no_args_is_help=True)
+screen_app = typer.Typer(help="Screener screens", no_args_is_help=True)
+discover_app = typer.Typer(help="Free-text term discovery", no_args_is_help=True)
+domain_app = typer.Typer(help="Sector / industry data", no_args_is_help=True)
 app.add_typer(symbols_app, name="symbols")
 app.add_typer(proxy_app, name="proxy")
 app.add_typer(market_app, name="market")
 app.add_typer(screen_app, name="screen")
 app.add_typer(discover_app, name="discover")
 app.add_typer(domain_app, name="domain")
-# price_bars komutlari ayri modulde (PB S11): cli.py 630 satirdi ve bu
-# komutlarin hicbiri mevcut komutlarla durum paylasmiyor.
+# price_bars commands live in their own module: cli.py was already 630 lines and
+# none of them share state with the existing commands.
 app.add_typer(bars_app, name="bars")
 app.add_typer(scope_app, name="scope")
-# DB tabanli yapilandirma (CFG S6.2). Ayri modulde: hicbir komutu
-# mevcutlarla durum paylasmiyor ve cli.py zaten 1000 satiri asti.
+# DB-backed configuration lives in its own module: none of its commands share
+# state with the existing ones, and cli.py had already passed 1000 lines.
 app.add_typer(config_app, name="config")
 
 
 def _parse_date(value: str | None) -> datetime | None:
-    """YYYY-MM-DD -> UTC-AWARE datetime.
+    """YYYY-MM-DD -> UTC-aware datetime.
 
-    Kolonlar `timestamptz`tir (PG S2.3); naive bir sinir degeri
-    psycopg tarafindan baglanti TZ'sine gore yorumlanirdi -- sonuc dogru
-    cikar ama karsilastirma farkli farkindalik duzeyinde kalirdi.
+    Columns are timestamptz. A naive bound would be interpreted by psycopg using
+    the connection's timezone -- the value comes out correct but compares at a
+    different awareness level than the column.
     """
     return datetime.strptime(value.strip(), "%Y-%m-%d").replace(tzinfo=UTC) if value else None
 
 
 def _parse_day(value: str | None, *, option: str) -> date | None:
-    """YYYY-MM-DD -> date. Gecersiz deger sessizce None olmaz: aralik
-    yanlissa kullanici "aralik uygulandi" sanirdi."""
+    """YYYY-MM-DD -> date. An invalid value never silently becomes None: a wrong
+    range would otherwise look like it was applied."""
     if not value:
         return None
     try:
@@ -104,11 +104,11 @@ def _selector(
     start: date | None,
     end: date | None,
 ) -> str | None:
-    """Calistirmanin sembol evrenini ve araligini INSAN-OKUNUR kaydeder.
+    """Records the run's symbol universe and date range in human-readable form.
 
-    `scope` kolonu yalnizca symbols/market ayrimini tasiyor; hangi run'in
-    hangi evreni kapsadigi aksi halde geriye donuk bilinemez ve
-    "eksiksizlik" iddiasi denetlenemez (AH S5.6).
+    The `scope` column only carries the symbols/market split; without this,
+    which universe a given run covered would be unknowable in retrospect and
+    any completeness claim would be unverifiable.
     """
     parts: list[str] = []
     if exchange:
@@ -125,11 +125,11 @@ def _selector(
 
 
 def _normalize_filter_values(values: list[str]) -> list[str]:
-    """--exchange / --quote-type girdisini yazma yolunun bicimine cevirir.
+    """Converts --exchange / --quote-type input to match the write path's casing.
 
-    `datasets/symbols.py` bu iki kolonu `.upper()` ile yaziyor; filtre de
-    ayni bicime gelmezse `--exchange nms` SESSIZCE bos sonuc dondururdu
-    (PG S2.5.1).
+    `datasets/symbols.py` writes these two columns with `.upper()`; if the
+    filter did not match that casing, `--exchange nms` would silently return
+    an empty result.
     """
     return [v.strip().upper() for v in values]
 
@@ -142,16 +142,16 @@ def _filtered_symbols(
     quote_types: list[str],
     suffix: str | None,
 ) -> list[str]:
-    """--exchange / --quote-type / --suffix filtreleri; AND'lenir (AH S6.4).
+    """--exchange / --quote-type / --suffix filters, AND-ed together.
 
-    Girdi `.upper()` ile normalize edilir. Kolonlar artik COLLATE "C"dir
-    (duyarli) ve YAZMA YOLU da buyuk harfe cevirir (datasets/symbols.py),
-    yani iki taraf ayni bicimde bulusur (PG S2.5.1).
+    Input is normalized with `.upper()`. Columns are COLLATE "C" (case
+    sensitive) and the write path also upper-cases (datasets/symbols.py), so
+    both sides meet in the same casing.
 
-    `func.upper` YINE KULLANILMAZ ama gerekcesi degisti: eskiden kolon
-    zaten duyarsiz oldugu icin gereksizdi; simdi kolonu fonksiyonla
-    sarmalamak `ix_symbols_exchange` indeksini kullanilamaz hale
-    getirecegi icin kacinilir. Normalizasyon KOLONDA degil GIRDIDE yapilir.
+    `func.upper` is still avoided, though the reason changed: it used to be
+    unnecessary because the column was case-insensitive; now wrapping the
+    column in a function would make the `ix_symbols_exchange` index unusable.
+    Normalization happens on the input, not the column.
     """
     stmt = base_stmt
     if exchanges:
@@ -159,13 +159,13 @@ def _filtered_symbols(
     if quote_types:
         stmt = stmt.where(Symbol.quote_type.in_(_normalize_filter_values(quote_types)))
     if suffix:
-        # Borsa COZULMEDEN de calisir; NULL tuzagina takilmaz.
+        # Works even before the exchange is resolved; does not hit the NULL trap.
         stmt = stmt.where(Symbol.symbol.like(f"%{suffix.strip().upper()}"))
     codes = list(session.execute(stmt).scalars())
 
-    # NULL TUZAGI: exchange/quote_type kolonlarini bootstrap `symbols`
-    # dataset'i doldurur; `yfin symbols add` ile eklenen sembolde ILK
-    # SYNC'E KADAR NULL'durlar ve filtre onlari sessizce elerdi.
+    # NULL trap: the bootstrap `symbols` dataset fills the exchange/quote_type
+    # columns; a symbol added via `yfin symbols add` has them NULL until its
+    # first sync, and the filter would silently exclude it.
     null_columns = [
         (name, column)
         for name, column, active in (
@@ -208,9 +208,9 @@ def _session_factory() -> sessionmaker[Session]:
 
 @db_app.command("upgrade")
 def db_upgrade(
-    revision: Annotated[str, typer.Argument(help="Hedef revizyon")] = "head",
+    revision: Annotated[str, typer.Argument(help="Target revision")] = "head",
 ) -> None:
-    """Alembic migration'larini uygular."""
+    """Applies Alembic migrations."""
     from alembic import command
     from alembic.config import Config
 
@@ -222,16 +222,16 @@ def db_upgrade(
 
 
 def _warn_missing_settings_rows() -> None:
-    """Satiri OLMAYAN DB-yonetimli anahtarlari tek satirda uyarir (CFG S5.4).
+    """Warns in one line about DB-managed keys that have no settings row.
 
-    Goc sonrasi `.env` katmani fiilen BOSTUR; `Settings`e sonradan eklenen
-    bir alan icin `yfin config seed` calistirilmazsa deger artik `.env`e
-    degil DOGRUDAN model varsayilanina duser. Bu yuzden `seed` her
-    `upgrade` sonrasi standart adimdir ve komut bunu HATIRLATIR.
+    After migrating to the DB-backed layer, the `.env` layer is effectively
+    empty; if `yfin config seed` is not run for a field newly added to
+    `Settings`, its value falls through to the model default instead of
+    `.env`. `seed` is therefore a standard step after every `upgrade`, and
+    this command reminds the operator of that.
 
-    Komut `Settings.model_fields`i okur; bu bir MIGRATION degil bir
-    KOMUTTUR, dolayisiyla "migration uygulama kodunu import etmesin"
-    ilkesi ihlal edilmez (CFG S5.4).
+    This reads `Settings.model_fields` from a command, not a migration, so it
+    does not violate the rule against migrations importing application code.
     """
     from yfin.config import DB_MANAGED_FIELDS, bootstrap_settings, source_is_env
     from yfin.settings_store import fetch_rows
@@ -240,7 +240,7 @@ def _warn_missing_settings_rows() -> None:
         return
     try:
         rows = fetch_rows(bootstrap_settings())
-    except Exception as exc:  # noqa: BLE001 - uyari yolu, komutu coktrmez
+    except Exception as exc:  # noqa: BLE001 - warning path, must not crash the command
         typer.echo(f"settings tablosu okunamadi, eksik satir denetimi atlandi: {exc}", err=True)
         return
     if rows is None:
@@ -256,23 +256,23 @@ def _warn_missing_settings_rows() -> None:
 
 @db_app.command("create")
 def db_create() -> None:
-    """Veritabani semalarini olusturur (yoksa).
+    """Creates the database if it does not exist.
 
-    DB YAPILANDIRMA KATMANINI HIC KULLANMAZ (CFG S7): veritabanini
-    YARATAN komut, var olmayan veritabanina baglanamaz. `get_settings()`
-    cagrilsaydi yukleyici `settings` tablosunu okumak icin tam o
-    veritabanina baglanmayi denerdi.
+    Never touches the DB-backed configuration layer: the command that creates
+    the database cannot connect to a database that does not exist yet, but
+    `get_settings()` would try to connect to exactly that database to read
+    the `settings` table.
     """
     from sqlalchemy import create_engine
 
     settings = bootstrap_settings()
-    # AUTOCOMMIT SART: `CREATE DATABASE` PostgreSQL'de transaction blogu
-    # icinde CALISMAZ.
+    # AUTOCOMMIT is required: PostgreSQL rejects `CREATE DATABASE` inside a
+    # transaction block.
     engine = create_engine(settings.bootstrap_url(), isolation_level="AUTOCOMMIT")
     with engine.connect() as conn:
         for name in (settings.db_name, settings.db_test_name):
-            # `CREATE DATABASE IF NOT EXISTS` PostgreSQL'de YOKTUR;
-            # varlik kontrolu pg_database uzerinden yapilir.
+            # PostgreSQL has no `CREATE DATABASE IF NOT EXISTS`; existence is
+            # checked via pg_database instead.
             exists = conn.execute(
                 text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": name}
             ).scalar()
@@ -280,9 +280,9 @@ def db_create() -> None:
                 conn.execute(text(f'CREATE DATABASE "{name}"'))
     engine.dispose()
 
-    # Eklenti HER VERITABANINDA AYRI kurulur: `CREATE EXTENSION`
-    # veritabani duzeyindedir. Migration'a KONMAZ -- `downgrade` ile
-    # simetrisi bozulurdu ve eklenti `db create`in urunudur (PG S12).
+    # The extension is installed separately per database: `CREATE EXTENSION`
+    # is database-scoped. It does not go in a migration -- that would break
+    # symmetry with `downgrade`, and the extension is a product of `db create`.
     for name in (settings.db_name, settings.db_test_name):
         db_engine = create_engine(settings.db_url(name), isolation_level="AUTOCOMMIT")
         with db_engine.connect() as conn:
@@ -294,13 +294,13 @@ def db_create() -> None:
 
 @db_app.command("revision")
 def db_revision(message: Annotated[str, typer.Option("-m", "--message")]) -> None:
-    """Modellerden yeni bir migration uretir.
+    """Generates a new migration from the models.
 
-    DB yapilandirma katmani KAPATILIR (CFG S7). `migrations/env.py`
-    `get_settings()` cagirir; sema henuz olusmadan calistirilan bir
-    `revision` aksi halde `settings` tablosunu ararken patlardi. Ortam
-    degiskeni kurulur, cunku katmani kapatan anahtarin kendisi
-    katmandan okunamaz (tavuk-yumurta).
+    Disables the DB-backed configuration layer. `migrations/env.py` calls
+    `get_settings()`; a `revision` run before the schema exists would
+    otherwise fail looking for the `settings` table. The env var has to be
+    set directly, since the key that disables the layer cannot itself be
+    read from the layer (chicken-and-egg).
     """
     import os
 
@@ -318,9 +318,9 @@ def db_revision(message: Annotated[str, typer.Option("-m", "--message")]) -> Non
 
 @symbols_app.command("add")
 def symbols_add(
-    symbols: Annotated[list[str], typer.Argument(help="Sembol kodlari")],
+    symbols: Annotated[list[str], typer.Argument(help="Symbol codes")],
 ) -> None:
-    """Sembol ekler. strip().upper() uygulanir (S8.3)."""
+    """Adds symbols. strip().upper() is applied."""
     factory = _session_factory()
     added, existing = [], []
     with factory() as session:
@@ -344,7 +344,7 @@ def symbols_add(
 def symbols_list(
     include_inactive: Annotated[bool, typer.Option("--include-inactive")] = False,
 ) -> None:
-    """Sembol evrenini listeler."""
+    """Lists the symbol universe."""
     factory = _session_factory()
     stmt = select(Symbol).order_by(Symbol.symbol)
     if not include_inactive:
@@ -363,10 +363,10 @@ def symbols_list(
 def symbols_exchanges(
     include_inactive: Annotated[bool, typer.Option("--include-inactive")] = False,
 ) -> None:
-    """Evrendeki (exchange, tam ad, tip) uclulerini sayilariyla listeler.
+    """Lists (exchange, full name, type) triples in the universe with counts.
 
-    --exchange/--quote-type degerlerinin KESFEDILEBILIR olmasi icin vardir;
-    NULL satiri "henuz cozulmemis" sembolleri gorunur kilar (AH S6.4).
+    Exists so --exchange/--quote-type values are discoverable; the NULL row
+    surfaces symbols that are not yet resolved.
     """
     factory = _session_factory()
     stmt = (
@@ -393,7 +393,7 @@ def symbols_exchanges(
 
 @symbols_app.command("deactivate")
 def symbols_deactivate(symbol: str) -> None:
-    """Soft delete: is_active=0. Veri silinmez (S5.5)."""
+    """Soft delete: is_active=0. No data is deleted."""
     code = nz.normalize_symbol(symbol)
     factory = _session_factory()
     with factory() as session:
@@ -408,10 +408,10 @@ def symbols_deactivate(symbol: str) -> None:
 @symbols_app.command("purge")
 def symbols_purge(
     symbol: str,
-    force: Annotated[bool, typer.Option("--force", help="Gercek silme; VERI KAYBI")] = False,
+    force: Annotated[bool, typer.Option("--force", help="Hard delete; data loss")] = False,
 ) -> None:
-    """Gercek silme (S5.5). ON DELETE RESTRICT nedeniyle ilgili satirlar
-    acikca, sirayla silinir."""
+    """Hard delete. Related rows are deleted explicitly, in order, because of
+    ON DELETE RESTRICT."""
     code = nz.normalize_symbol(symbol)
     if not force:
         typer.echo("bu komut geri donusumsuzdur; onaylamak icin --force verin")
@@ -435,41 +435,41 @@ def symbols_purge(
 
 @app.command("sync")
 def sync(
-    symbols: Annotated[str | None, typer.Option("--symbols", help="Virgullu liste")] = None,
+    symbols: Annotated[str | None, typer.Option("--symbols", help="Comma-separated list")] = None,
     datasets: Annotated[str, typer.Option("--datasets")] = "all",
     full_refresh: Annotated[bool, typer.Option("--full-refresh")] = False,
     include_inactive: Annotated[bool, typer.Option("--include-inactive")] = False,
     shards: Annotated[
-        int | None, typer.Option("--shards", help="YF_MAX_SHARDS'i gecici olarak ezer")
+        int | None, typer.Option("--shards", help="Temporarily overrides YF_MAX_SHARDS")
     ] = None,
     no_proxy: Annotated[
-        bool, typer.Option("--no-proxy", help="Havuzu yok say; tek shard, dogrudan baglanti")
+        bool, typer.Option("--no-proxy", help="Ignore the pool; single shard, direct connection")
     ] = False,
     require_proxy: Annotated[
-        bool, typer.Option("--require-proxy", help="Uygun proxy yoksa calisma")
+        bool, typer.Option("--require-proxy", help="Do not run if no eligible proxy")
     ] = False,
     start: Annotated[str | None, typer.Option("--start", help="YYYY-MM-DD")] = None,
     end: Annotated[str | None, typer.Option("--end", help="YYYY-MM-DD")] = None,
     exchange: Annotated[
-        str | None, typer.Option("--exchange", help="Virgullu borsa kodu (NMS,NYQ,IST)")
+        str | None, typer.Option("--exchange", help="Comma-separated exchange code (NMS,NYQ,IST)")
     ] = None,
     quote_type: Annotated[
-        str | None, typer.Option("--quote-type", help="Virgullu tip (EQUITY,ETF)")
+        str | None, typer.Option("--quote-type", help="Comma-separated type (EQUITY,ETF)")
     ] = None,
     suffix: Annotated[
-        str | None, typer.Option("--suffix", help="Sembol soneki (.IS) -- borsa cozulmeden calisir")
+        str | None,
+        typer.Option("--suffix", help="Symbol suffix (.IS) -- works before exchange is resolved"),
     ] = None,
 ) -> None:
-    """Veri cekip PostgreSQL'e yazar.
+    """Fetches data and writes it to PostgreSQL.
 
-    Proxy havuzunda uygun proxy varsa calistirma SHARD'LARA bolunur:
-    proxy basina bir OS process. Onarim (history repair) gecmisi geriye
-    donuk degistirebildigi icin duzeltmelerin tamaminin inmesi periyodik
-    --full-refresh gerektirir.
+    If the proxy pool has eligible proxies, the run is split into shards: one
+    OS process per proxy. History repair can rewrite the past, so getting all
+    corrections down requires a periodic --full-refresh.
 
-    --start/--end araligi `date_range="api"` dataset'lerinde GERCEK geriye
-    donuk cekim, `"filter"` olanlarda satir elemesi yapar; `"none"` olanlar
-    HIC CALISTIRILMAZ (AH S6.2).
+    --start/--end does a real backward fetch on datasets with
+    `date_range="api"`, filters rows on `"filter"` datasets, and is not
+    applied at all on `"none"` datasets.
     """
     settings = get_settings()
     configure_logging(settings.log_level)
@@ -488,8 +488,8 @@ def sync(
     filtered = bool(exchanges or quote_types or suffix)
 
     if symbols and filtered:
-        # Ikisi ayni anda verilseydi hangisinin kazandigi sessiz bir
-        # varsayim olurdu; kullanici evreni ya acikca sayar ya filtreler.
+        # If both were given, which one wins would be a silent assumption; the
+        # user must either enumerate the universe explicitly or filter it.
         typer.echo("--symbols ile --exchange/--quote-type/--suffix birlikte kullanilamaz", err=True)
         raise typer.Exit(code=1)
 
@@ -523,8 +523,8 @@ def sync(
         raise typer.Exit(code=0)
 
     try:
-        # Kilit koordinatorde alinir (S8.7); child'lar kilit ALMAZ.
-        # Gecikmis bir cron tetiklemesi calisan sync'in uzerine binemez.
+        # The lock is taken by the coordinator; children do not take a lock.
+        # A delayed cron trigger cannot stack on top of a running sync.
         tally = run_sharded(
             engine,
             codes,
@@ -560,7 +560,7 @@ def status(
     limit: Annotated[int, typer.Option("--limit")] = 1,
     scope: Annotated[str | None, typer.Option("--scope", help="symbols | market")] = None,
 ) -> None:
-    """Son sync run ozeti."""
+    """Summary of the most recent sync run."""
     factory = _session_factory()
     with factory() as session:
         stmt = select(SyncRun).order_by(SyncRun.started_at.desc()).limit(limit)
@@ -572,8 +572,8 @@ def status(
             typer.echo("henuz sync calistirilmadi")
             return
         for run in runs:
-            # Piyasa run'inda "sembol" diye bir sey yoktur; bolge sayisi
-            # symbol_count'a YAZILMAZ (S7.2), bu yuzden etiket de degisir
+            # A market run has no "symbol"; region count is not written into
+            # symbol_count, so the label changes too
             keyless = run.scope in (RunScope.MARKET, RunScope.DOMAIN)
             unit = "bolgeler" if run.scope is RunScope.MARKET else "semboller"
             if run.scope is RunScope.DOMAIN:
@@ -600,44 +600,44 @@ def status(
 def prune(
     calendars_before: Annotated[
         str | None,
-        typer.Option("--calendars-before", help="YYYY-MM-DD; eski takvim satirlarini siler"),
+        typer.Option("--calendars-before", help="YYYY-MM-DD; deletes old calendar rows"),
     ] = None,
     history_before: Annotated[
         str | None,
-        typer.Option("--history-before", help="YYYY-MM-DD; eski _history anlik goruntuleri"),
+        typer.Option("--history-before", help="YYYY-MM-DD; old _history snapshots"),
     ] = None,
     asof_before: Annotated[
         str | None,
-        typer.Option("--asof-before", help="YYYY-MM-DD; eski as-of satirlari (son gun korunur)"),
+        typer.Option("--asof-before", help="YYYY-MM-DD; old as-of rows (last day kept)"),
     ] = None,
     orphan_news: Annotated[
-        bool, typer.Option("--orphan-news/--no-orphan-news", help="Oksuz haberleri sil")
+        bool, typer.Option("--orphan-news/--no-orphan-news", help="Delete orphaned news")
     ] = True,
     orphan_reports: Annotated[
         bool,
         typer.Option(
             "--orphan-reports/--no-orphan-reports",
-            help="Hicbir domain'e bagli olmayan analist raporlarini sil",
+            help="Delete analyst reports not linked to any domain",
         ),
     ] = True,
     dry_run: Annotated[
-        bool, typer.Option("--dry-run", help="Silmez, yalnizca sayar")
+        bool, typer.Option("--dry-run", help="Do not delete, only count")
     ] = False,
     force: Annotated[
-        bool, typer.Option("--force", help="YF_PRUNE_ENABLED=false iken de budar")
+        bool, typer.Option("--force", help="Prune even when YF_PRUNE_ENABLED=false")
     ] = False,
 ) -> None:
-    """Oksuz haberleri ve (istege bagli) eski takvim/_history/as-of satirlarini siler.
+    """Deletes orphaned news and, optionally, old calendar/_history/as-of rows.
 
-    Tarih sinirli budama VARSAYILAN OLARAK KAPALIDIR: `YF_PRUNE_ENABLED=true`
-    ya da `--force` gerekir. Gerekce: takvim uclari pencere tabanlidir ve
-    `_history` anlik goruntulerinin kaynakta karsiligi yoktur; silinen satir
-    geri getirilemez.
+    Date-bounded pruning is disabled by default: it needs `YF_PRUNE_ENABLED=true`
+    or `--force`. Reason: calendar ends are window-based and `_history` snapshots
+    have no source-of-truth counterpart, so a deleted row cannot be recovered.
 
-    --asof-before her sembolun EN GUNCEL as-of gununu korur: as-of veri
-    satiri silinse bile `asof_state` kapisi yerinde kalir ve bir sonraki
-    kosu "degismedi" deyip hicbir sey yazmaz -- son gun silinseydi kayip
-    kaynak hala veriyi verirken bile kalici olurdu (AH S5.4).
+    --asof-before always keeps each symbol's most recent as-of day: even if
+    that row's data is deleted, the `asof_state` gate stays in place, so the
+    next run says "unchanged" and writes nothing -- if the last day were
+    deleted, that gap would persist even while the source still serves the
+    data.
     """
     settings = get_settings()
     factory = _session_factory()
@@ -674,7 +674,7 @@ def prune(
 
 
 def _echo_tally(tally: Any) -> None:
-    """Kosu ozeti -- `sync` ve `market sync`in yazdigi uc satirin aynisi."""
+    """Run summary -- the same three lines `sync` and `market sync` print."""
     typer.echo(f"run #{tally.run_id}  semboller={tally.symbol_count}")
     typer.echo("  " + "  ".join(f"{k}={v}" for k, v in sorted(tally.counts.items())))
     typer.echo("  " + "  ".join(f"{k}={v}" for k, v in tally.totals.items()))
@@ -685,10 +685,10 @@ def discover_term(
     query: str,
     datasets: Annotated[str, typer.Option("--datasets")] = "search,lookup",
 ) -> None:
-    """Serbest terimle Search/Lookup kosar (SQ S8.2).
+    """Runs Search/Lookup with a free-text term.
 
-    Sembol dongusu KURMAZ: birkac terim icin shard makinesi anlamsiz
-    olurdu; `market_runner` olceginde tek process calisir.
+    Does not loop over symbols: the shard machinery would be pointless for a
+    handful of terms, so it runs as a single process at `market_runner` scale.
     """
     settings = get_settings()
     configure_logging(settings.log_level)
@@ -720,9 +720,9 @@ def screen_sync(
     screens: Annotated[str | None, typer.Option("--screens")] = None,
     max_pages: Annotated[int | None, typer.Option("--max-pages")] = None,
 ) -> None:
-    """Ekranlari ceker (SQ S7.3).
+    """Fetches screens.
 
-    `yfin_market_sync` kilidini alir; sembol sync'i ile es zamanli kosar.
+    Takes the `yfin_market_sync` lock; can run concurrently with symbol sync.
     """
     settings = get_settings()
     if screens:
@@ -745,20 +745,20 @@ def screen_sync(
 @screen_app.command("list")
 def screen_list(
     discovered: Annotated[
-        bool, typer.Option("--discovered", help="search_lists'ten kesfedilen ekranlar")
+        bool, typer.Option("--discovered", help="Screens discovered from search_lists")
     ] = False,
 ) -> None:
-    """Ekranlari ve son kosularini listeler.
+    """Lists screens and their most recent runs.
 
-    `total` != `fetched_rows` sayfa sinirina takilmayi SESSIZ DEGIL
-    GORUNUR kilar (SQ S9.6/1).
+    `total` != `fetched_rows` makes hitting the page limit visible instead of
+    silent.
     """
     factory = _session_factory()
     with factory() as session:
         if discovered:
-            # SQ S8.3: `search_lists`in PREDEFINED_SCREENER satirlari,
-            # `screens.py`de tanimli olmayan Yahoo ekran adlarini bildirir.
-            # Otomatik KOSTURULMAZ; tabloya girmeleri operator kararidir.
+            # The PREDEFINED_SCREENER rows of `search_lists` report Yahoo screen
+            # names not defined in `screens.py`. Never run automatically; adding
+            # them to the table is an operator decision.
             rows = session.execute(
                 text(
                     "SELECT DISTINCT list_key, name, total FROM search_lists "
@@ -795,9 +795,9 @@ def screen_list(
     )
     for key, kind, quote_type, enabled, as_of, total, fetched, pages in rows:
         flag = "evet" if enabled else "HAYIR"
-        # `total` > `fetched_rows` -> ekran sayfa sinirina TAKILDI. Bu fark
-        # eksiksizlik iddiasinin uc kanitindan biridir (SQ S9.6/1) ve
-        # sessiz kalmamalidir.
+        # `total` > `fetched_rows` -> the screen hit the page limit. This gap is
+        # one of the edge-case proofs of a completeness claim and must not be
+        # silent.
         truncated = "  KIRPILDI" if total and fetched and total > fetched else ""
         typer.echo(
             f"{key:<28} {kind:<11} {quote_type:<11} {flag:<5} "
@@ -815,11 +815,11 @@ def symbols_activate(
     quote_type: Annotated[str | None, typer.Option("--quote-type")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ) -> None:
-    """Kesfedilmis pasif sembolleri aktiflestirir (SQ S8.3).
+    """Activates discovered, inactive symbols.
 
-    `--dry-run` KASITLIDIR: `most_shorted_stocks` tek basina 4.022 sembol
-    bildiriyor. Hepsini gormeden aktiflestirmek `yfin sync`in gunluk istek
-    sayisini sessizce kat kat buyutebilir.
+    `--dry-run` is deliberate: `most_shorted_stocks` alone reports 4,022
+    symbols. Activating them without a preview could silently multiply
+    `yfin sync`'s daily request count.
     """
     conditions: list[Any] = [Symbol.is_active.is_(False)]
     if discovered_by:
@@ -855,19 +855,19 @@ def market_sync(
     start: Annotated[str | None, typer.Option("--start", help="YYYY-MM-DD")] = None,
     end: Annotated[str | None, typer.Option("--end", help="YYYY-MM-DD")] = None,
 ) -> None:
-    """Piyasa (Market/Calendars) verisini ceker.
+    """Fetches market (Market/Calendars) data.
 
-    Kendi advisory lock'unu (yfin_market_sync) kullanir; sembol sync'i ile
-    es zamanli kosabilir.
+    Uses its own advisory lock (yfin_market_sync); can run concurrently with
+    symbol sync.
     """
     settings = get_settings()
     configure_logging(settings.log_level)
     engine = create_db_engine(settings)
 
     selected = MARKET_DATASETS.resolve(None if datasets.strip() == "all" else datasets.split(","))
-    # `_parse_day`: gecersiz tarihte anlamli mesaj + exit 1. Ham strptime
-    # ValueError'i main()'in genel dalina duser ve kullanici
-    # "beklenmeyen hata" gorurdu -- `sync` bunu zaten dogru yapiyordu.
+    # `_parse_day` gives a meaningful message + exit 1 on an invalid date. A raw
+    # strptime ValueError would fall through to main()'s generic handler and
+    # show the user "unexpected error" -- `sync` already did this correctly.
     window_start = _parse_day(start, option="--start")
     window_end = _parse_day(end, option="--end")
 
@@ -887,7 +887,7 @@ def market_sync(
 
 @market_app.command("datasets")
 def market_datasets() -> None:
-    """Piyasa dataset adlarini listeler."""
+    """Lists market dataset names."""
     typer.echo(", ".join(MARKET_DATASETS.user_visible_names()))
 
 
@@ -896,21 +896,21 @@ def domain_sync(
     datasets: Annotated[str, typer.Option("--datasets")] = "all",
     regions: Annotated[
         str | None,
-        typer.Option("--regions", help="YF_DOMAIN_REGIONS'i ezer (or. US,GB)"),
+        typer.Option("--regions", help="Overrides YF_DOMAIN_REGIONS (e.g. US,GB)"),
     ] = None,
 ) -> None:
-    """Sektor / endustri verisini ceker.
+    """Fetches sector / industry data.
 
-    Kendi advisory lock'unu (yfin_domain_sync) kullanir; sembol ve piyasa
-    sync'leriyle es zamanli kosabilir.
+    Uses its own advisory lock (yfin_domain_sync); can run concurrently with
+    symbol and market sync.
     """
     settings = get_settings()
     if regions is not None:
-        # `--regions` ezmesi Settings'in KOPYASI uzerinden yapilir:
-        # `domain_regions()` yalniz `settings.yf_domain_regions` okur, bu
-        # yuzden dogrulama (bicim + ampirik prob) CLI'dan gelen degere de
-        # AYNEN uygulanir. `--shards`in YF_MAX_SHARDS'i ezmesiyle ayni
-        # desen; fark, oradaki degerin dogrulanacak bir seyi olmamasi.
+        # The `--regions` override goes through a copy of Settings:
+        # `domain_regions()` only reads `settings.yf_domain_regions`, so
+        # validation (format + empirical probe) applies to the CLI value the
+        # same way. Same pattern as `--shards` overriding YF_MAX_SHARDS; the
+        # difference is that value has nothing to validate.
         settings = settings.model_copy(update={"yf_domain_regions": regions})
     configure_logging(settings.log_level)
     engine = create_db_engine(settings)
@@ -937,10 +937,10 @@ def domain_audit(
     as_of: Annotated[str | None, typer.Option("--as-of", help="YYYY-MM-DD")] = None,
     run: Annotated[int | None, typer.Option("--run", help="sync_runs.id")] = None,
 ) -> None:
-    """Taksonomi eksiksizligini UC BAGIMSIZ kontrolle dogrular.
+    """Verifies taxonomy completeness with three independent checks.
 
-    Beklenen endustri sayisi BIZIM LISTEMIZDEN DEGIL, Yahoo'nun
-    `overview.industriesCount` alanindan gelir. Basarisizlikta cikis kodu 1.
+    The expected industry count comes from Yahoo's `overview.industriesCount`
+    field, not from our own list. Exit code 1 on failure.
     """
     factory = _session_factory()
     day = _parse_day(as_of, option="--as-of")
@@ -965,7 +965,7 @@ def domain_audit(
 
 @domain_app.command("datasets")
 def domain_datasets() -> None:
-    """Domain dataset adlarini listeler."""
+    """Lists domain dataset names."""
     typer.echo(", ".join(DOMAIN_DATASETS.user_visible_names()))
 
 
@@ -975,10 +975,10 @@ def domain_list(
         str | None, typer.Option("--type", help="sector | industry")
     ] = None,
     parent: Annotated[
-        str | None, typer.Option("--parent", help="ebeveyn sektor anahtari")
+        str | None, typer.Option("--parent", help="parent sector key")
     ] = None,
 ) -> None:
-    """Kayitli sektor ve endustrileri listeler."""
+    """Lists registered sectors and industries."""
     factory = _session_factory()
     stmt = select(Domain).order_by(Domain.domain_type, Domain.domain_key)
     if domain_type:
@@ -997,7 +997,7 @@ def domain_list(
 
 @app.command("datasets")
 def list_datasets() -> None:
-    """Kullanilabilir dataset adlarini listeler (uc registry)."""
+    """Lists available dataset names (all three registries)."""
     typer.echo("sembol : " + ", ".join(SYMBOL_DATASETS.user_visible_names()))
     typer.echo("piyasa : " + ", ".join(MARKET_DATASETS.user_visible_names()))
     typer.echo("domain : " + ", ".join(DOMAIN_DATASETS.user_visible_names()))
@@ -1035,7 +1035,7 @@ def proxy_add(
     url: Annotated[str, typer.Argument(help="scheme://[user:pass@]host:port")],
     label: Annotated[str | None, typer.Option("--label")] = None,
 ) -> None:
-    """Havuza proxy ekler. Parola Fernet ile SIFRELENEREK saklanir."""
+    """Adds a proxy to the pool. The password is stored encrypted with Fernet."""
     settings = get_settings()
     configure_logging(settings.log_level)
     try:
@@ -1045,8 +1045,8 @@ def proxy_add(
         raise typer.Exit(code=1) from None
 
     if endpoint.scheme is ProxyScheme.HTTPS:
-        # curl_cffi bu semada CurlCffiWarning uretir; kullanicilarin
-        # cogu aslinda CONNECT-tunel icin http:// ister.
+        # curl_cffi emits a CurlCffiWarning for this scheme; most users actually
+        # want http:// for a CONNECT tunnel.
         typer.echo("uyari: 'https' proxy'ye TLS demektir; CONNECT-tunel icin 'http' kullanin")
 
     try:
@@ -1082,9 +1082,9 @@ def proxy_add(
         try:
             session.commit()
         except IntegrityError:
-            # `label` UNIQUE'tir. Yukaridaki varlik kontrolu ENDPOINT'e
-            # bakar, etikete degil: farkli bir endpoint ayni etiketle
-            # eklenmek istendiginde ham SQLAlchemy traceback'i basardi.
+            # `label` is UNIQUE. The existence check above looks at the endpoint,
+            # not the label: adding a different endpoint under the same label
+            # used to print a raw SQLAlchemy traceback.
             session.rollback()
             typer.echo(f"bu etiket zaten kullanimda: {name}", err=True)
             raise typer.Exit(code=1) from None
@@ -1093,9 +1093,9 @@ def proxy_add(
 
 @proxy_app.command("list")
 def proxy_list(
-    show_all: Annotated[bool, typer.Option("--all", help="Devre disi olanlari da goster")] = False,
+    show_all: Annotated[bool, typer.Option("--all", help="Also show disabled proxies")] = False,
 ) -> None:
-    """Havuzu listeler. PAROLA HICBIR ZAMAN BASILMAZ."""
+    """Lists the pool. The password is never printed."""
     factory = _session_factory()
     now = datetime.now(UTC)
     stmt = select(Proxy).order_by(Proxy.label)
@@ -1110,9 +1110,9 @@ def proxy_list(
     for row in rows:
         health = row.health.value
         if row.health is ProxyHealth.COOLDOWN and row.cooldown_until and row.cooldown_until <= now:
-            # ENUM'un yalan soylemesi operatore yansimasin: cooldown suresi
-            # dolmustur ve proxy yeniden UYGUNDUR, ama ilk basariya kadar
-            # health 'cooldown' kalir.
+            # Don't let the stale enum mislead the operator: the cooldown has
+            # expired and the proxy is eligible again, but health stays
+            # 'cooldown' until the next success.
             health = "cooldown (expired)"
         latency = f"{row.last_latency_ms} ms" if row.last_latency_ms is not None else "-"
         typer.echo(
@@ -1124,13 +1124,13 @@ def proxy_list(
 
 @proxy_app.command("enable")
 def proxy_enable(label: str) -> None:
-    """Operatör karari: havuza geri al (health'e DOKUNMAZ)."""
+    """Operator decision: re-add to the pool (does not touch health)."""
     _set_enabled(label, True)
 
 
 @proxy_app.command("disable")
 def proxy_disable(label: str) -> None:
-    """Operatör karari: havuzdan cikar (health'e DOKUNMAZ)."""
+    """Operator decision: remove from the pool (does not touch health)."""
     _set_enabled(label, False)
 
 
@@ -1145,9 +1145,10 @@ def _set_enabled(label: str, value: bool) -> None:
 
 @proxy_app.command("reset")
 def proxy_reset(label: str) -> None:
-    """Saglik durumunu sifirlar; dead bir proxy'yi geri getirir.
+    """Resets health state; brings a dead proxy back.
 
-    KUMULATIF success_count/failure_count KORUNUR: gecmis bilgi silinmez.
+    Cumulative success_count/failure_count are preserved: past data is not
+    deleted.
     """
     factory = _session_factory()
     with factory() as session:
@@ -1169,7 +1170,7 @@ def proxy_reset(label: str) -> None:
 
 @proxy_app.command("remove")
 def proxy_remove(label: str) -> None:
-    """Havuzdan siler. sync_run_items.proxy_label kopyasi KALIR."""
+    """Deletes from the pool. The copy in sync_run_items.proxy_label remains."""
     factory = _session_factory()
     with factory() as session:
         row = _proxy_by_label(session, label)
@@ -1180,14 +1181,14 @@ def proxy_remove(label: str) -> None:
 
 @proxy_app.command("check")
 def proxy_check(
-    label: Annotated[str | None, typer.Option("--label", help="Yalnizca bu proxy")] = None,
+    label: Annotated[str | None, typer.Option("--label", help="Only this proxy")] = None,
 ) -> None:
-    """Her proxy'yi Yahoo'ya karsi dogrular ve sagligini tazeler.
+    """Verifies each proxy against Yahoo and refreshes its health.
 
-    yfinance KULLANILMAZ (yf.config process-global oldugu icin N proxy'yi
-    paralel kontrol etmek N process gerektirirdi); ham curl_cffi istegi
-    atilir. Iki endpoint denenir: chart crumb istemez ama gercek trafik
-    /v1/test/getcrumb'dan da gecer.
+    Does not use yfinance: yf.config is process-global, so checking N proxies
+    in parallel would need N processes. A raw curl_cffi request is sent
+    instead. Two endpoints are tried: chart does not require a crumb, but
+    real traffic also goes through /v1/test/getcrumb.
     """
     settings = get_settings()
     configure_logging(settings.log_level)
@@ -1204,7 +1205,7 @@ def proxy_check(
             try:
                 targets.append((int(row.id), row.label, px.endpoint_of(row, settings), ""))
             except px.PasswordUndecryptable as exc:
-                # Durum DEGISTIRILMEZ: yanlis teshis uretmemek icin.
+                # State is not changed, to avoid producing a false diagnosis.
                 targets.append((int(row.id), row.label, None, str(exc)))
 
     if not targets:

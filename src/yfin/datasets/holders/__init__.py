@@ -1,9 +1,9 @@
-"""Sahiplik/insider dataset'leri; import registry kayitlarini tetikler.
+"""Ownership/insider datasets; importing triggers registry registration.
 
-Alti dataset TEK bir Yahoo istegini paylasir (holders demeti, 7 modul).
-Paylasilan istek PAYLASILAN KADER demektir: istek patarsa altisi da `failed`
-olur. Bu dogru davranistir ve maliyeti yoktur -- yfinance sonucu (hatayi da)
-`Ticker` uzerinde onbellege aldigi icin alti hucre TEK istek harcar (AH S8.1).
+Six datasets SHARE ONE Yahoo request (the holders bundle, 7 modules). A
+shared request means SHARED FATE: if the request fails, all six become
+`failed`. This is correct and free -- yfinance caches the result (and the
+error) on the `Ticker`, so the six cells together cost ONE request.
 """
 
 from __future__ import annotations

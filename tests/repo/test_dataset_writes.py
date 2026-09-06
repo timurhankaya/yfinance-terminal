@@ -1,12 +1,12 @@
-"""ONYEDI dataset'in GERCEK PostgreSQL'e yazimi (AH S8.5).
+"""Seventeen datasets writing to actual PostgreSQL.
 
-Unit testler `normalize`in URETTIGI satiri dogrular; burada o satirin
-MySQL'e GERCEKTEN yazilabildigi dogrulanir. Ikisi ayri sinif hata yakalar:
-yanlis ENUM degeri, tasan DECIMAL, NOT NULL ihlali, ayrilmis sozcuk ve
-tip uyusmazligi yalnizca gercek bir INSERT'te gorunur -- ve sembol basina
-tek transaction geregi bunlardan biri SEMBOLUN TAMAMINI dusururdu (S8.7).
+Unit tests verify the row `normalize` produces; here that row is actually
+written. Different failure classes: a bad ENUM value, DECIMAL overflow, a
+NOT NULL violation, a reserved word, a type mismatch -- these only show up
+in a real INSERT, and since each symbol is one transaction, any one of them
+would drop the entire symbol.
 
-Her dataset icin tek iddia: `rows_verified == rows_attempted` (S8.6).
+The single assertion for every dataset: `rows_verified == rows_attempted`.
 """
 
 from __future__ import annotations
@@ -51,13 +51,13 @@ def symbol(db_session: Session) -> Iterator[str]:
 
 def _write(session: Session, dataset: Dataset[Any], payload: Any) -> WriteStats:
     result = dataset.normalize(payload, SYMBOL)
-    assert not result.is_empty, f"{dataset.name}: test payload'i bos sonuc uretti"
+    assert not result.is_empty, f"{dataset.name}: test payload produced an empty result"
     return dataset.upsert(PostgresRowWriter(session), result)
 
 
 def _assert_complete(stats: WriteStats, dataset: Dataset[Any]) -> None:
-    """S8.6: yazilan her tabloda dogrulanmis satir = denenen satir."""
-    assert stats.attempted, f"{dataset.name}: hicbir tabloya yazilmadi"
+    """Every table written must have verified rows == attempted rows."""
+    assert stats.attempted, f"{dataset.name}: nothing was written to any table"
     for table, attempted in stats.attempted.items():
         assert stats.verified[table] == attempted, f"{dataset.name}/{table}"
 
@@ -66,7 +66,7 @@ def _period_frame(columns: dict[str, list[Any]], periods: list[str]) -> pd.DataF
     return pd.DataFrame(columns, index=pd.Index(periods, name="period"))
 
 
-# --- analist ---------------------------------------------------------------
+# --- analyst ---------------------------------------------------------------
 
 
 def test_recommendations_writes(db_session: Session, symbol: str) -> None:
@@ -91,7 +91,7 @@ def test_recommendations_writes(db_session: Session, symbol: str) -> None:
 def test_estimates_write_with_enum_and_extreme_magnitudes(
     db_session: Session, symbol: str, name: str, year_ago: str
 ) -> None:
-    """`metric` ENUM'u ve DECIMAL(38,10): AYNI kolonda 1.97656 ve 1.28e12."""
+    """The `metric` ENUM and DECIMAL(38,10): 1.97656 and 1.28e12 in the same column."""
     frame = _period_frame(
         {
             "numberOfAnalysts": [30.0, float("nan")],
@@ -109,7 +109,7 @@ def test_estimates_write_with_enum_and_extreme_magnitudes(
 
 
 def test_both_estimate_datasets_coexist_in_one_table(db_session: Session, symbol: str) -> None:
-    """`metric` PK'da olmasaydi ikinci dataset birincinin satirini EZERDI."""
+    """Without `metric` in the PK, the second dataset would overwrite the first's row."""
     specs = (("earnings_estimate", "yearAgoEps"), ("revenue_estimate", "yearAgoRevenue"))
     for name, year_ago in specs:
         frame = _period_frame(
@@ -175,7 +175,7 @@ def test_price_targets_write(db_session: Session, symbol: str) -> None:
 
 
 def test_grade_changes_write(db_session: Session, symbol: str) -> None:
-    """PK (symbol, grade_ts_utc, firm) 296 byte; utf8mb4 firm adi dahil."""
+    """PK (symbol, grade_ts_utc, firm) is 296 bytes, including a non-ASCII firm name."""
     frame = pd.DataFrame(
         {
             "Firm": ["Morgan Stanley", "Türkiye İş Bankası"],
@@ -208,7 +208,7 @@ def test_earnings_history_writes(db_session: Session, symbol: str) -> None:
     _assert_complete(_write(db_session, dataset, RangedFramePayload(frame, NOW)), dataset)
 
 
-# --- sahiplik --------------------------------------------------------------
+# --- ownership --------------------------------------------------------------
 
 
 def test_major_holders_writes(db_session: Session, symbol: str) -> None:
@@ -230,7 +230,7 @@ def test_major_holders_writes(db_session: Session, symbol: str) -> None:
 def test_institutional_holders_write_largest_measured_values(
     db_session: Session, symbol: str
 ) -> None:
-    """Olculen max: shares 1.94e9, value 1.76e13 (JPM); DECIMAL(38,0)."""
+    """Measured max: shares 1.94e9, value 1.76e13 (JPM); why it's DECIMAL(38,0)."""
     frame = pd.DataFrame(
         {
             "Date Reported": [pd.Timestamp("2026-06-30"), pd.NaT],
@@ -246,7 +246,7 @@ def test_institutional_holders_write_largest_measured_values(
 
 
 def test_insider_purchases_writes_negative_values(db_session: Session, symbol: str) -> None:
-    """KO'da net -547_806 ve net_trans negatif olabilir -> SIGNED."""
+    """Measured net -547,806 on KO; net_trans can go negative -> SIGNED."""
     frame = pd.DataFrame(
         {
             "Insider Purchases Last 6m": [
@@ -267,7 +267,7 @@ def test_insider_purchases_writes_negative_values(db_session: Session, symbol: s
 
 
 def test_insider_transactions_write(db_session: Session, symbol: str) -> None:
-    """PFE'nin ozdes iki satiri tekillestirilir; `D/I` kirpilmaz."""
+    """PFE's two identical rows are deduplicated; `D/I` is not truncated."""
     frame = pd.DataFrame(
         {
             "Start Date": [pd.Timestamp("2025-02-21")] * 3,
@@ -284,12 +284,12 @@ def test_insider_transactions_write(db_session: Session, symbol: str) -> None:
     dataset = SYMBOL_DATASETS["insider_transactions"]
     stats = _write(db_session, dataset, RangedFramePayload(frame, NOW))
     _assert_complete(stats, dataset)
-    # Ozdes iki satir TEKE iner; rows_attempted tekillestirme SONRASI sayidir
+    # The two identical rows collapse to one; rows_attempted counts after dedup
     assert stats.attempted["insider_transactions"] == 2
 
 
 def test_insider_roster_writes_eleven_column_variant(db_session: Session, symbol: str) -> None:
-    """NVDA varyanti: 11 kolon, `positionSummary` dolu, ham epoch tarih."""
+    """NVDA variant: 11 columns, `positionSummary` populated, raw epoch date."""
     frame = pd.DataFrame(
         {
             "URL": [""],
@@ -309,7 +309,7 @@ def test_insider_roster_writes_eleven_column_variant(db_session: Session, symbol
     _assert_complete(_write(db_session, dataset, AsOfFramePayload(frame, NOW)), dataset)
 
 
-# --- fon -------------------------------------------------------------------
+# --- fund -------------------------------------------------------------------
 
 
 def _funds_payload(*, sectors: dict[str, float], ratings: dict[str, float], holdings: int) -> Any:
@@ -336,7 +336,7 @@ def _funds_payload(*, sectors: dict[str, float], ratings: dict[str, float], hold
                 "Name": [f"Holding {i}" for i in range(holdings)],
                 "Holding Percent": [0.07 - i * 0.001 for i in range(holdings)],
             },
-            # Evren disi semboller: FK olsaydi FONUN TUM VERISI rollback olurdu
+            # Out-of-universe symbols: an FK here would roll back the fund's whole row set
             index=pd.Index(["005930.KQ", "2330.TW", "0700.HK", "VRTPX", "BRK-B"][:holdings]),
         ),
         "equity_holdings": pd.DataFrame(
@@ -386,8 +386,8 @@ def test_equity_fund_writes_all_four_tables(db_session: Session, symbol: str) ->
 
 
 def test_bond_fund_writes_ratings_without_holdings(db_session: Session, symbol: str) -> None:
-    """BND: 0 sektor + 9 rating, `top_holdings` BOS -- o tablo `empty` kalir
-    ama kardesleri yazilir."""
+    """BND: 0 sectors + 9 ratings, `top_holdings` empty -- that table stays
+    `empty` but its siblings are still written."""
     payload = FundsPayload(
         _funds_payload(
             sectors={},
@@ -406,7 +406,7 @@ def test_bond_fund_writes_ratings_without_holdings(db_session: Session, symbol: 
 def test_out_of_universe_holdings_are_flagged_not_rejected(
     db_session: Session, symbol: str
 ) -> None:
-    """`holding_symbol`de FK YOKTUR; bilinmeyen sembol `is_known=0` yazilir."""
+    """`holding_symbol` has no FK; an unknown symbol is written with `is_known=0`."""
     payload = FundsPayload(
         _funds_payload(sectors={"technology": 0.3}, ratings={"aaa": 1.0}, holdings=3), NOW
     )

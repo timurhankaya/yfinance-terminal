@@ -1,9 +1,10 @@
-"""sector_rankings / industry_rankings -- as-of, BOLGELI (SI S7.4, S7.5).
+"""sector_rankings / industry_rankings -- as-of, regional.
 
-Bolge YALNIZ bu liste bloklarini kapsiyor (olculdu): `topCompanies`,
+Region only affects these list blocks (measured): `topCompanies`,
 `topETFs`, `topMutualFunds`, `topPerformingCompanies`, `topGrowthCompanies`.
-`overview` / `performance` / `industries` / `researchReports` 5 bolgede
-BIREBIR ayni dondu, bu yuzden onlar `*_profile` tarafinda ve bolgesiz.
+`overview` / `performance` / `industries` / `researchReports` were
+byte-identical across all 5 regions, which is why they live on the
+`*_profile` side and are region-less.
 """
 
 from __future__ import annotations
@@ -70,7 +71,7 @@ class _DomainRankingsDataset(DomainAsOfDataset[DomainPayload]):
             domain_type=ctx.target_type,
         )
 
-    # --- ortak satir uretimi ---------------------------------------------
+    # --- shared row generation ---------------------------------------------
 
     def _scope(self, raw: DomainPayload, key: str) -> dict[str, Any]:
         return {"domain_key": key, "region": raw.region, "as_of_date": raw.as_of_date}
@@ -96,7 +97,7 @@ class _DomainRankingsDataset(DomainAsOfDataset[DomainPayload]):
                 "target_price": dec_of(entry, "targetPrice"),
                 "ytd_return": dec_of(entry, "ytdReturn"),
                 "reg_market_change_pct": dec_of(entry, "regMarketChangePercent"),
-                # upsert sirasinda DB'den doldurulur
+                # Populated from the DB during upsert
                 "is_known": False,
                 "fetched_at": raw.fetched_at,
             }
@@ -106,22 +107,23 @@ class _DomainRankingsDataset(DomainAsOfDataset[DomainPayload]):
             key_columns=("domain_key", "region", "as_of_date", "symbol"),
             update_columns=(*COMPANY_COLUMNS, "fetched_at"),
             mode="replace_scope",
-            # `domain_key` KAPSAMDA OLMAK ZORUNDA: bu tabloya IKI dataset
-            # yaziyor. Kapsam yalniz (region, as_of_date) olsaydi
-            # `industry_rankings` SEKTOR satirlarini silerdi (SI S5.11).
+            # `domain_key` must be in scope: two datasets write to this
+            # table. If scope were just (region, as_of_date),
+            # `industry_rankings` would delete sector rows.
             scope_columns=("domain_key", "region", "as_of_date"),
             scope_values=(self._scope(raw, key),),
         )
 
-    # --- yazma ------------------------------------------------------------
+    # --- write ------------------------------------------------------------
 
     def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
-        """`is_known` DB'den doldurulur, SONRA as-of kapisi calisir.
+        """`is_known` is populated from the DB, then the as-of gate runs.
 
-        Sira baglayicidir ve bayrak hash GOVDESINE GIRER (`funds.py:432-437`
-        bunu acikca gerekcelendiriyor): evren degistiginde -- kullanici
-        `SGE.L`i `symbols`a ekledi -- kapi acilir ve satirlar guncellenir.
-        Dislansaydi bayrak 0'da donup kalirdi, cunku kapi `skipped` derdi.
+        Order matters, and the flag enters the hash body (mirrors the
+        rationale in `funds.py`): when the universe changes -- a user adds
+        `SGE.L` to `symbols` -- the gate reopens and rows update. Excluding
+        it would leave the flag stuck at 0, since the gate would call it
+        `skipped`.
         """
         writes = [
             _mark_known(writer, write)
@@ -153,8 +155,8 @@ class SectorRankingsDataset(_DomainRankingsDataset):
             for entry in block:
                 if not isinstance(entry, dict):
                     continue
-                # Ticker OLMAYABILIR: `0P0001WO1I` Morningstar kimligidir;
-                # `is_known` bunu isaretler.
+                # May not be a ticker: `0P0001WO1I` is a Morningstar id;
+                # `is_known` flags this.
                 symbol = text_of(entry, "symbol", 32)
                 if symbol is None:
                     continue
@@ -162,7 +164,7 @@ class SectorRankingsDataset(_DomainRankingsDataset):
                     **self._scope(raw, key),
                     "fund_type": fund_type,
                     "symbol": symbol,
-                    # 220 fon satirinin 7'sinde YOK
+                    # Missing in 7 of 220 fund rows measured
                     "name": text_of(entry, "name", 255),
                     "net_assets": big_of(entry, "netAssets"),
                     "expense_ratio": dec_of(entry, "expenseRatio"),
@@ -189,11 +191,10 @@ class IndustryRankingsDataset(_DomainRankingsDataset):
     produces = asof_produces(TOP_MOVERS_TABLE, TOP_COMPANIES_TABLE, gate=DOMAIN_GATE_TABLE)
 
     def normalize(self, raw: DomainPayload, key: str) -> NormalizedResult:
-        # `infrastructure-operations`: UC blogun hicbiri yok -> bos sonuc ->
-        # `AsOfGate.upsert`'un `is_empty` dali kapi satirini YAZMAZ ve
-        # hucreler `empty` olur (SI S7.5). Yahoo'nun bu endustride
-        # `companiesCount=1` bildirmesi bunun hata degil olcum oldugunu
-        # gosteriyor.
+        # `infrastructure-operations`: none of the three blocks are
+        # present -> empty result -> `AsOfGate.upsert`'s `is_empty` branch
+        # writes no gate row, and cells come out `empty`. Yahoo reporting
+        # `companiesCount=1` for this industry confirms this is real, not a bug.
         return NormalizedResult(
             writes=[self._movers_write(raw, key), self._companies_write(raw, key)]
         )
@@ -215,12 +216,13 @@ class IndustryRankingsDataset(_DomainRankingsDataset):
                     continue
                 rows[(rank_type, symbol)] = {
                     **self._scope(raw, key),
-                    # `rank_type` PK'DADIR: tam-liste olcumunde 50 ortak
-                    # sembolun 8'inde iki uc FARKLI `ytdReturn` bildiriyor.
+                    # `rank_type` is in the PK: full-list measurement found
+                    # 8 of 50 shared symbols report two different
+                    # `ytdReturn` values across the two blocks.
                     "rank_type": rank_type,
                     "symbol": symbol,
                     "name": text_of(entry, "name", 255),
-                    # ELOX 9999.0 -- SENTINEL SAYILMAZ
+                    # ELOX reports 9999.0 -- not treated as a sentinel
                     "ytd_return": dec_of(entry, "ytdReturn"),
                     "last_price": dec_of(entry, "lastPrice"),
                     "target_price": dec_of(entry, "targetPrice"),
@@ -234,17 +236,17 @@ class IndustryRankingsDataset(_DomainRankingsDataset):
             key_columns=("domain_key", "region", "as_of_date", "rank_type", "symbol"),
             update_columns=(*MOVER_COLUMNS, "fetched_at"),
             mode="replace_scope",
-            # `rank_type` KAPSAMDA DEGIL: iki liste tek fetch'ten gelir ve
-            # birlikte yazilir.
+            # `rank_type` is not in scope: both lists come from a single
+            # fetch and are written together.
             scope_columns=("domain_key", "region", "as_of_date"),
             scope_values=(self._scope(raw, key),),
         )
 
 
 def _mark_known(writer: RowWriter, write: TableWrite) -> TableWrite:
-    """`symbol`de FK YOKTUR (SI S2): SGE.L, 285A.T, ODINE.IS, 0P0001WO1I
-    evren disi. FK olsaydi tek yabanci sembol TURUN transaction'ini
-    dusururdu -- `news_symbols` ve `fund_top_holdings` ile ayni gerekce."""
+    """No FK on `symbol`: SGE.L, 285A.T, ODINE.IS, 0P0001WO1I are outside
+    the universe. An FK would drop the whole pass's transaction over one
+    foreign symbol -- same rationale as `news_symbols` and `fund_top_holdings`."""
     candidates = {row["symbol"] for row in write.rows}
     known = writer.known_symbols(candidates)
     rows = [{**row, "is_known": row["symbol"] in known} for row in write.rows]

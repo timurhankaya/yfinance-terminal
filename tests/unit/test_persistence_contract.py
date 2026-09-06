@@ -1,8 +1,8 @@
-"""Dataset yazma mantiginin veritabanindan bagimsiz oldugunu dogrular.
+"""Verifies dataset write logic is independent of the database.
 
-Bu dosyadaki testler VERITABANINA HIC dokunmaz. Mumkun olmasinin sebebi
-`Dataset.upsert`'in artik SQLAlchemy Session'a degil `RowWriter`
-protokoluene bagli olmasidir (SRP/DIP ayrimi).
+None of the tests in this file touch a real database. That is possible
+because `Dataset.upsert` now depends on the `RowWriter` protocol rather
+than a SQLAlchemy Session (SRP/DIP separation).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from yfin.persistence import RowWriter, apply_write
 
 
 class FakeWriter:
-    """RowWriter protokolunun bellek ici uygulamasi."""
+    """In-memory implementation of the RowWriter protocol."""
 
     def __init__(self, hashes: dict[tuple[str, str], str] | None = None) -> None:
         self.written: list[TableWrite] = []
@@ -28,7 +28,7 @@ class FakeWriter:
 
     def write(self, write: TableWrite) -> int:
         self.written.append(write)
-        return len(write.rows)  # her satir dogrulanmis kabul edilir
+        return len(write.rows)  # every row is treated as verified
 
     def current_hash(self, table: str, key: Mapping[str, Any]) -> str | None:
         return self.hashes.get((table, "|".join(str(v) for v in key.values())))
@@ -45,7 +45,7 @@ class FakeWriter:
 
 
 def _protocol_check(writer: FakeWriter) -> RowWriter:
-    """FakeWriter gercekten RowWriter'i karsiliyor mu (mypy + calisma zamani)."""
+    """Whether FakeWriter really satisfies RowWriter (mypy + runtime)."""
     return writer
 
 
@@ -54,7 +54,7 @@ def test_fake_writer_satisfies_the_protocol() -> None:
 
 
 class TestSnapshotSkipLogic:
-    """content_hash degismediyse _history'ye yazilmaz; bu 'skipped'tir (S7.2)."""
+    """If content_hash is unchanged, _history is not written; this is 'skipped'."""
 
     @staticmethod
     def _result() -> tuple[NormalizedResult, str]:
@@ -76,7 +76,7 @@ class TestSnapshotSkipLogic:
         stats = REGISTRY["info"].upsert(writer, result)
         assert stats.skipped["ticker_info_history"] == 1
         assert stats.attempted["ticker_info_history"] == 0
-        # Guncel snapshot yine de yazilir
+        # The current snapshot is still written
         assert stats.attempted["ticker_info"] == 1
 
     def test_changed_hash_is_written(self) -> None:
@@ -87,8 +87,8 @@ class TestSnapshotSkipLogic:
         assert stats.skipped.get("ticker_info_history", 0) == 0
 
     def test_hash_is_read_before_snapshot_is_updated(self) -> None:
-        """Snapshot once yazilsaydi karsilastirma her zaman esitlenir ve
-        _history hicbir zaman yeni satir almazdi."""
+        """If the snapshot were written first, the comparison would always
+        match and _history would never get a new row."""
         result, digest = self._result()
         order: list[str] = []
 
@@ -117,10 +117,10 @@ class TestNewsKnownFlag:
         assert all(r["is_known"] is (r["symbol"] == "AAPL") for r in links)
 
     def test_out_of_universe_symbol_does_not_raise(self) -> None:
-        """news_symbols.symbol'da FK yoktur; evren disi sembol sembolun
-        transaction'ini dusurmemelidir (S5.5)."""
+        """news_symbols.symbol has no FK; a symbol outside the universe must
+        not drop that symbol's transaction."""
         result = REGISTRY["news"].normalize(load_fixture("SPY", "news"), "SPY")
-        writer = FakeWriter()  # hicbir sembol bilinmiyor
+        writer = FakeWriter()  # no symbol is known
         stats = REGISTRY["news"].upsert(writer, result)
         assert stats.attempted["news_symbols"] > 0
         assert all(r["is_known"] is False for r in writer.rows_for("news_symbols"))
@@ -146,11 +146,11 @@ class TestDefaultUpsert:
         assert set(stats.attempted) == {"ticker_fast_info", "ticker_fast_info_history"}
 
 
-# --- key_columns <-> PK/UNIQUE invaryanti (PG S9.2) ------------------------
+# --- key_columns <-> PK/UNIQUE invariant ------------------------------------
 
 
 def _valid_key_sets(table_name: str) -> list[set[str]]:
-    """Tablonun `ON CONFLICT` hedefi olabilecek kolon kumeleri."""
+    """Column sets that could be a table's `ON CONFLICT` target."""
     from yfin.models import Base
 
     table = Base.metadata.tables[table_name]
@@ -165,11 +165,11 @@ def _valid_key_sets(table_name: str) -> list[set[str]]:
 
 
 def _resolve_key_columns(node: Any, module: Any) -> tuple[str, ...] | None:
-    """AST dugumunden kolon adlarini cozer; cozemezse None.
+    """Resolve column names from an AST node; None if it cannot be resolved.
 
-    Duz tuple, modul sabitine referans ve yildiz-acilimi
-    (`(*GATE_KEY, "item_key")`) desteklenir -- son ikisi statik taramanin
-    tek basina yetmedigi yerlerdi.
+    A plain tuple, a reference to a module constant, and a starred
+    expansion (`(*GATE_KEY, "item_key")`) are supported -- the latter two
+    are where static scanning alone falls short.
     """
     import ast
 
@@ -198,16 +198,16 @@ def _resolve_key_columns(node: Any, module: Any) -> tuple[str, ...] | None:
 
 
 def test_every_declared_key_matches_a_real_unique_constraint() -> None:
-    """`ON CONFLICT (cols)` KUME OLARAK TAM ESLESME ister.
+    """`ON CONFLICT (cols)` requires an exact set match.
 
-    Alt kume de ust kume de "there is no unique or exclusion constraint
-    matching the ON CONFLICT specification" hatasi verir (sira
-    onemsizdir; olculdu). MySQL `ON DUPLICATE KEY UPDATE` hedefi hic
-    sormuyordu, yani bu kisit YENIDIR.
+    Both a subset and a superset raise "there is no unique or exclusion
+    constraint matching the ON CONFLICT specification" (order does not
+    matter; measured). MySQL's `ON DUPLICATE KEY UPDATE` never checked its
+    target, so this constraint is new.
 
-    Invaryant olmadan yanlis `key_columns` ile eklenen bir dataset ancak
-    URETIMDE patlar -- ustelik yalnizca o dataset'in fixture'i varsa
-    testlerde gorulurdu. Bu test fixture GEREKTIRMEZ.
+    Without this invariant, a dataset added with the wrong `key_columns`
+    would only blow up in production -- and only show up in tests if that
+    dataset happened to have a fixture. This test needs no fixture.
     """
     import ast
     import importlib
@@ -239,37 +239,37 @@ def test_every_declared_key_matches_a_real_unique_constraint() -> None:
             table_name = str(table_node.value)
             checked += 1
             if table_name not in Base.metadata.tables:
-                problems.append(f"{path.name}:{node.lineno} bilinmeyen tablo {table_name}")
+                problems.append(f"{path.name}:{node.lineno} unknown table {table_name}")
             elif set(keys) not in _valid_key_sets(table_name):
                 problems.append(
                     f"{path.name}:{node.lineno} {table_name} {keys} "
-                    f"hicbir PK/UNIQUE ile eslesmiyor"
+                    f"matches no PK/UNIQUE constraint"
                 )
 
     assert not problems, problems
-    # Olculdu: 38 cagri statik olarak cozuluyor, 34'u cozulemiyor
-    # (degiskenden gelen tuple, kosullu dal, DINAMIK TABLO ADI). Esikler
-    # GEVSEK DEGIL: kapsam duserse ya da cozulemeyenler artarsa burasi
-    # kirmizi olur -- aksi halde invaryant sessizce zayiflardi.
+    # Measured: 38 calls resolve statically, 34 do not (a tuple coming from
+    # a variable, a conditional branch, a dynamic table name). The
+    # thresholds are not loose: if coverage drops or the unresolved count
+    # grows, this goes red -- otherwise the invariant would weaken silently.
     #
-    # Cozulemeyenlerden BIRI bilincli: `datasets/bars.py` tabloyu
-    # `bars_table_for(interval)` ile SECER (intraday -> price_bars,
-    # 1wk/1mo -> periodic_bars). O cagri statik olarak cozulemez; yerine
-    # asagidaki test iki tablonun PK'sinin OZDES oldugunu kanitlar, ki
-    # yonlendirme hangi dala giderse gitsin `key_columns` gecerli kalsin.
-    assert checked >= 38, f"denetlenen cagri sayisi DUSTU: {checked}"
-    assert len(unresolved) <= 34, f"cozulemeyen cagri sayisi ARTTI: {unresolved}"
+    # One of the unresolved calls is deliberate: `datasets/bars.py` picks
+    # its table via `bars_table_for(interval)` (intraday -> price_bars,
+    # 1wk/1mo -> periodic_bars). That call cannot be resolved statically;
+    # instead, the test below proves the two tables share an identical PK,
+    # so `key_columns` stays valid whichever branch routing takes.
+    assert checked >= 38, f"number of audited calls DROPPED: {checked}"
+    assert len(unresolved) <= 34, f"number of unresolved calls GREW: {unresolved}"
 
 
 def test_both_bar_tables_share_the_same_primary_key() -> None:
-    """`bars_table_for` yonlendirmesinin gecerliligi buna dayanir.
+    """The validity of `bars_table_for` routing relies on this.
 
-    `datasets/bars.py` TEK bir `key_columns` ile IKI tabloya yazabilir
-    (price_bars / periodic_bars). PK'lari ayrisirsa `ON CONFLICT` bir
-    dalda "no unique or exclusion constraint matching" ile patlar --
-    ustelik yalnizca o interval kosuldugunda, yani gec fark edilen bir
-    yerde. Statik tarama dinamik tablo adini cozemedigi icin invaryant
-    BURADA korunur.
+    `datasets/bars.py` can write to two tables (price_bars / periodic_bars)
+    with one `key_columns`. If their PKs diverged, `ON CONFLICT` would blow
+    up on one branch with "no unique or exclusion constraint matching" --
+    and only when that interval runs, i.e. late. Static scanning cannot
+    resolve the dynamic table name, so the invariant is guarded here
+    instead.
     """
     from yfin.models import Base, bars_table_for
 

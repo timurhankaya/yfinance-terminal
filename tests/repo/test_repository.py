@@ -1,6 +1,6 @@
-"""Repository testleri: gercek PostgreSQL + TimescaleDB, agsiz (S9.2).
+"""Repository tests: real PostgreSQL + TimescaleDB, no network.
 
-Her test kendi transaction'inda calisir ve sonunda rollback edilir.
+Each test runs in its own transaction and is rolled back at the end.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ class TestIdempotency:
         second = db_session.execute(select(func.count()).select_from(PriceHistory)).scalar_one()
 
         assert first == second == 2
-        # Ikinci calistirma da 'ok' vermelidir (S8.6)
+        # The second run must also report 'ok'
         assert stats2.verified["price_history"] == stats2.attempted["price_history"] == 2
 
     def test_changed_value_is_overwritten(self, db_session: Session) -> None:
@@ -81,7 +81,7 @@ class TestIdempotency:
 
 class TestUpdateColumnScope:
     def test_symbols_run_does_not_null_isin(self, db_session: Session) -> None:
-        """symbols dataset'i isin kolonuna HIC dokunmaz (S6.1/3)."""
+        """The symbols dataset never touches the isin column."""
         _seed_symbol(db_session)
         apply_write(
             PostgresRowWriter(db_session),
@@ -111,13 +111,13 @@ class TestUpdateColumnScope:
 
 class TestVerification:
     def test_verified_uses_key_existence_not_row_count(self, db_session: Session) -> None:
-        """ROW_COUNT() degismeyen satirda 0 doner; anahtar varligi 1 (S8.6)."""
+        """ROW_COUNT() returns 0 for an unchanged row; key-existence returns 1."""
         _seed_symbol(db_session)
         write = _price_write([_row(5, "3.0")])
         apply_write(PostgresRowWriter(db_session), write, WriteStats())
 
         stats = WriteStats()
-        apply_write(PostgresRowWriter(db_session), write, stats)  # birebir ayni satir
+        apply_write(PostgresRowWriter(db_session), write, stats)  # identical row
         assert stats.verified["price_history"] == 1
         assert stats.attempted["price_history"] == 1
 
@@ -131,7 +131,7 @@ class TestVerification:
 
 class TestDecimalPrecision:
     def test_no_rounding_loss(self, db_session: Session) -> None:
-        """DB'den geri okunarak dogrulanir (S5.4)."""
+        """Verified by reading the value back from the DB."""
         _seed_symbol(db_session)
         values = ["0.128348", "0.001870", "1234567890.123456789012"]
         rows = [{**_row(10 + i, v), "close": nz.to_decimal(float(v))} for i, v in enumerate(values)]
@@ -147,7 +147,7 @@ class TestDecimalPrecision:
 
 class TestSnapshotTimestamps:
     def test_two_snapshots_in_same_second(self, db_session: Session) -> None:
-        """DATETIME(6): DATETIME(0) ayni saniyede PK cakismasi uretirdi."""
+        """TIMESTAMP(6): a second-precision timestamp would collide within the same second."""
         _seed_symbol(db_session)
         table = Base.metadata.tables["ticker_fast_info_history"]
         base = datetime(2026, 1, 1, 10, 0, 0)
@@ -177,13 +177,13 @@ class TestSnapshotTimestamps:
         stored = db_session.execute(
             select(table.c.fetched_at).where(table.c.symbol == "AAPL")
         ).scalar_one()
-        assert stored == stamp  # timestamptz(0) 10:00:01'e YUVARLARDI
+        assert stored == stamp  # timestamptz(0) would round to 10:00:01
 
 
 class TestCollation:
     def test_symbol_collation_distinguishes_case(self, db_session: Session) -> None:
-        """Duyarsiz bir collation 'AAPL' = 'aapl' derdi (S5.1);
-        COLLATE "C" ikisini ayri tutar."""
+        """A case-insensitive collation would treat 'AAPL' == 'aapl';
+        COLLATE "C" keeps them distinct."""
         _seed_symbol(db_session, "AAPL")
         _seed_symbol(db_session, "aapl")
         count = db_session.execute(
@@ -204,7 +204,7 @@ class TestCollation:
 
 class TestForeignKeys:
     def test_delete_restricted_by_child_rows(self, db_session: Session) -> None:
-        """ON DELETE RESTRICT soft-delete politikasini DB'de zorlar (S5.5)."""
+        """ON DELETE RESTRICT enforces the soft-delete policy at the DB level."""
         _seed_symbol(db_session)
         apply_write(PostgresRowWriter(db_session), _price_write([_row(7, "1.0")]), WriteStats())
         db_session.flush()
@@ -213,8 +213,8 @@ class TestForeignKeys:
             db_session.flush()
 
     def test_news_symbols_accepts_unknown_symbol(self, db_session: Session) -> None:
-        """news_symbols.symbol'da FK yoktur; evren disi sembol transaction'i
-        dusurmemelidir (S5.5)."""
+        """news_symbols.symbol has no FK; an out-of-universe symbol must not
+        fail the transaction."""
         news = Base.metadata.tables["news"]
         links = Base.metadata.tables["news_symbols"]
         news_id = "11111111-2222-3333-4444-555555555555"
@@ -235,7 +235,7 @@ class TestForeignKeys:
         assert stored == 0
 
     def test_sync_run_items_accepts_unknown_symbol(self, db_session: Session) -> None:
-        """FK olsaydi unknown_symbol kaydi ERROR 1452 verirdi (S5.5)."""
+        """If an FK existed, an unknown_symbol record would raise a constraint error."""
         runs = Base.metadata.tables["sync_runs"]
         items = Base.metadata.tables["sync_run_items"]
         result = db_session.execute(
@@ -255,7 +255,7 @@ class TestForeignKeys:
 
 class TestRawJson:
     def test_raw_json_is_byte_for_byte_faithful(self, db_session: Session) -> None:
-        """JSON tipi anahtar sirasini bozar, NaN'i reddeder, float'i kirpar."""
+        """The JSON type reorders keys, rejects NaN, and truncates floats."""
         _seed_symbol(db_session)
         payload = {"z": 1, "a": 0.001870, "t": "Türkçe", "n": float("nan")}
         canonical = nz.canonical_json(payload)
@@ -275,7 +275,7 @@ class TestRawJson:
         ).one()
         assert stored == canonical
         assert nz.content_hash(canonical=stored) == stored_hash
-        # anahtar sirasi ve hassasiyet korunur
+        # key order and precision are preserved
         assert stored.index('"a"') < stored.index('"z"')
         assert "0.00187" in stored
 
@@ -293,8 +293,8 @@ class TestRawJson:
         )
         matches = db_session.execute(
             text(
-                # MySQL SHA2(x, 256) -> PG encode(sha256(x::bytea), 'hex').
-                # `::bytea` cast SART: sha256 bytea alir, text degil.
+                # PG: encode(sha256(x::bytea), 'hex').
+                # The `::bytea` cast is required: sha256 takes bytea, not text.
                 "SELECT encode(sha256(raw_json::bytea), 'hex') = content_hash "
                 "FROM ticker_fast_info "
                 "WHERE symbol = 'AAPL'"
@@ -355,17 +355,17 @@ class TestView:
 
 @pytest.mark.repo
 class TestPostgresUpsertSemantics:
-    """PostgreSQL'e gecerken DAVRANISI degisen iki nokta (PG S4.1.1, S4.2).
+    """Two points whose behavior changed on the move to PostgreSQL.
 
-    Ikisi de MySQL'de sessizce farkli calisiyordu; burada GERCEK motora
-    karsi sabitlenir.
+    Both used to run silently differently under MySQL; this pins the
+    behavior against the real engine.
     """
 
     def test_greatest_ignores_null_and_orders_booleans(self, db_session: Session) -> None:
-        """MySQL `GREATEST(x, NULL)` NULL dondururdu; PostgreSQL NULL'i
-        YOK SAYAR. Monotonik kolon (price_history.is_repaired) bu iki
-        davranisa dayanir ve PG'deki hali DAHA GUVENLIDIR: kaynak bir kez
-        NULL bildirse bile mevcut deger korunur."""
+        """MySQL's `GREATEST(x, NULL)` returned NULL; PostgreSQL ignores NULL.
+        The monotonic column (price_history.is_repaired) depends on this, and
+        PostgreSQL's behavior is safer: the stored value survives even if the
+        source reports NULL once."""
         row = db_session.execute(
             text(
                 "SELECT greatest(true, NULL::boolean) AS a, "
@@ -374,15 +374,15 @@ class TestPostgresUpsertSemantics:
             )
         ).one()
         assert row.a is True
-        assert row.b is True  # false < true siralamasi tanimli
+        assert row.b is True  # false < true ordering is defined
         assert row.c == 5
 
     def test_repeated_key_in_one_write_does_not_raise(self, db_session: Session) -> None:
-        """Dedupe olmadan ERROR 21000 cardinality_violation alinirdi:
-        `ON CONFLICT DO UPDATE` ayni komutta ayni satira IKI KEZ
-        dokunamaz. MySQL bunu sorunsuz yutuyordu."""
+        """Without dedup, this would raise 21000 cardinality_violation:
+        `ON CONFLICT DO UPDATE` cannot touch the same row twice in one
+        statement. MySQL swallowed this without complaint."""
         _seed_symbol(db_session)
-        rows = [_row(1, "1.0"), _row(1, "2.5")]  # AYNI anahtar, iki satir
+        rows = [_row(1, "1.0"), _row(1, "2.5")]  # same key, two rows
         assert rows[0]["session_date"] == rows[1]["session_date"]
 
         stats = WriteStats()
@@ -392,12 +392,12 @@ class TestPostgresUpsertSemantics:
         close = db_session.execute(
             text("SELECT close FROM price_history WHERE symbol = 'AAPL'")
         ).scalar_one()
-        assert close == Decimal("2.5000000000000000000000000000"), "son satir kazanmali"
+        assert close == Decimal("2.5000000000000000000000000000"), "last row must win"
 
     def test_monotonic_column_never_regresses(self, db_session: Session) -> None:
-        """Ayni satir icin once True sonra False yazilirsa deger True
-        KALMALI: kaynak onarim heuristikleri yuzunden ayni bari bir kez
-        1, ertesi kez 0 bildirebilir (PB S6.2)."""
+        """If True then False is written for the same row, the value must
+        stay True: source repair heuristics can report the same bar as 1
+        then 0 on a later run."""
         _seed_symbol(db_session)
         writer = PostgresRowWriter(db_session)
         first = _row(2, "1.0")
@@ -413,4 +413,4 @@ class TestPostgresUpsertSemantics:
         repaired = db_session.execute(
             text("SELECT is_repaired FROM price_history WHERE symbol = 'AAPL' AND close = 1.0")
         ).scalar_one()
-        assert repaired is True, "GREATEST monotonikligi korumali"
+        assert repaired is True, "GREATEST must preserve monotonicity"

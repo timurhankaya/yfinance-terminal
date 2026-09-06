@@ -1,20 +1,20 @@
-"""Ekran tanimlarinin TEK kaynagi (SQ S6.5).
+"""Single source of screen definitions.
 
-Iki kaynak ayrilir ve KARISTIRILMAZ:
+Two sources exist and are not to be confused:
 
-- TANIMIN tek kaynagi bu dosyadir (`ScreenDef`).
-- KOSU ANINDAKI ETKINLIGIN tek kaynagi `screens.is_enabled` kolonudur.
-  `ScreenDef.is_enabled` yalnizca SEED degeridir; operator DB'de
-  degistirdiginde bu dosya onu geri almaz.
+- The single source for the DEFINITION is this file (`ScreenDef`).
+- The single source for RUNTIME enablement is the `screens.is_enabled` column.
+  `ScreenDef.is_enabled` is only a seed value; an operator's change in the DB
+  is not reverted by this file.
 
-19 predefined ekran KUTUPHANEDEN TURETILIR, elle yazilmaz: kutuphane bir
-ekran ekledigi ya da kaldirdigi gun sessizce sapmayalim (SI S6.5 deseni,
-`test_screens_match_library.py` surer).
+The 19 predefined screens are DERIVED from the library, not hand-written, so
+we don't silently drift the day the library adds or removes a screen
+(`test_screens_match_library.py` enforces this).
 
-Custom ekranlarda sorgu nesnesi ZORUNLUDUR ve kurulmasi dogrulanmasidir:
-`EquityQuery`/`FundQuery`/`ETFQuery` gecersiz alan ya da deger icin AGA
-CIKMADAN ValueError firlatir (SQ S4.1/14). Yani hatali bir tanim bu modul
-import edilirken patlar, kosu ortasinda degil.
+Custom screens require a query object, and building it is its own
+validation: `EquityQuery`/`FundQuery`/`ETFQuery` raise ValueError for an
+invalid field or value without a network call. A bad definition fails at
+import time, not mid-run.
 """
 
 from __future__ import annotations
@@ -30,15 +30,15 @@ from yfin.models.discovery import SCREEN_KEY_LENGTH
 ScreenKind = Literal["predefined", "custom"]
 ScreenQuoteType = Literal["EQUITY", "MUTUALFUND", "ETF"]
 
-# Semadaki kolon uzunlugundan TURETILIR, ikinci bir sayi olarak
-# yazilmaz: ayrisirlarsa dogrulama semayi degil kendini dogrular.
-# Olculen en uzun predefined ad `conservative_foreign_funds` = 26.
+# Derived from the schema column length rather than duplicated as a literal:
+# if they diverge, validation checks itself instead of the schema. The
+# longest measured predefined name is `conservative_foreign_funds` = 26.
 SCREEN_KEY_MAX_LENGTH = SCREEN_KEY_LENGTH
 
-# Sorgu SINIFI -> Yahoo'nun `quoteType` alani. `yf.screen` bu eslemeyi
-# kendi icinde de yapiyor (screener.py, `isinstance` zinciri); burada
-# TEKRARLANMASININ sebebi `screens` tablosuna yazilacak degerin kosudan
-# ONCE bilinmesi gerekmesidir.
+# Query class -> Yahoo's `quoteType` field. `yf.screen` does this same
+# mapping internally (screener.py, an isinstance chain); it's duplicated
+# here because the value to write to the `screens` table must be known
+# before the run.
 _QUOTE_TYPE_BY_QUERY_CLASS: dict[type[QueryBase], ScreenQuoteType] = {
     EquityQuery: "EQUITY",
     FundQuery: "MUTUALFUND",
@@ -48,52 +48,53 @@ _QUOTE_TYPE_BY_QUERY_CLASS: dict[type[QueryBase], ScreenQuoteType] = {
 
 @dataclass(frozen=True, slots=True)
 class ScreenDef:
-    """Tek bir ekranin tanimi.
+    """Definition of a single screen.
 
-    `query` predefined'da None'dir ve bu BILINCLIDIR: ad verildiginde
-    `yf.screen` predefined GET yoluna gider ve ILK sayfa `title`,
-    `description`, `rawCriteria`, `lastUpdated` gibi 12 ek alan getirir
-    (SQ S4.1/13). Sorgu nesnesi tutulup POST yoluna dusulseydi bu metadata
-    HIC alinamazdi.
+    `query` is None for predefined screens, deliberately: with just a name,
+    `yf.screen` takes the predefined GET path, and the first page returns 12
+    extra fields (`title`, `description`, `rawCriteria`, `lastUpdated`, ...).
+    Holding a query object and taking the POST path instead would never
+    return that metadata.
     """
 
     key: str
     kind: ScreenKind
     quote_type: ScreenQuoteType
     title: str
-    # SQ K15: `yf.screen`de `sortAsc` varsayilani None -> AZALAN. Sayfalar
-    # arasi sira kararli olmazsa sayfalar ortusur ya da sembol atlanir, bu
-    # yuzden her ekran kendi sirasini ACIKCA bildirir.
+    # `yf.screen`'s default for `sortAsc` is None -> descending. If order
+    # isn't stable across pages, pages overlap or a symbol is skipped, so
+    # each screen declares its order explicitly.
     sort_field: str
     sort_asc: bool = False
     description: str = ""
-    # Yalnizca SEED degeri; kosu anindaki otorite `screens.is_enabled`.
+    # Seed value only; runtime authority is `screens.is_enabled`.
     is_enabled: bool = True
     query: QueryBase | None = None
 
     def __post_init__(self) -> None:
         if len(self.key) > SCREEN_KEY_MAX_LENGTH or not self.key.isascii():
             raise ValueError(
-                f"ekran anahtari en fazla {SCREEN_KEY_MAX_LENGTH} ASCII karakter: {self.key!r}"
+                f"screen key must be at most {SCREEN_KEY_MAX_LENGTH} ASCII characters: "
+                f"{self.key!r}"
             )
         if self.kind == "custom" and self.query is None:
-            raise ValueError(f"custom ekran sorgu nesnesi tasimalidir: {self.key}")
+            raise ValueError(f"custom screen must carry a query object: {self.key}")
         if self.kind == "predefined" and self.query is not None:
-            raise ValueError(f"predefined ekran sorgu nesnesi TASIMAZ: {self.key}")
+            raise ValueError(f"predefined screen must NOT carry a query object: {self.key}")
 
 
 def _title_from_key(key: str) -> str:
     """`day_gainers` -> `Day Gainers`.
 
-    Yalnizca SEED degeridir: predefined ekranlarda ilk GET sayfasi gercek
-    basligi getirir ve `screens.title` tazelenir (SQ S7.3). Yine de bos
-    birakilamaz -- kolon NOT NULL.
+    Seed value only: for predefined screens, the first GET page returns the
+    real title and refreshes `screens.title`. Still can't be left blank --
+    the column is NOT NULL.
     """
     return key.replace("_", " ").title()
 
 
 def _derive_predefined() -> tuple[ScreenDef, ...]:
-    """`PREDEFINED_SCREENER_QUERIES`'ten 19 tanim uretir."""
+    """Builds the 19 definitions from `PREDEFINED_SCREENER_QUERIES`."""
     out: list[ScreenDef] = []
     for key, spec in PREDEFINED_SCREENER_QUERIES.items():
         query = spec["query"]
@@ -105,8 +106,8 @@ def _derive_predefined() -> tuple[ScreenDef, ...]:
                 quote_type=quote_type,
                 title=_title_from_key(key),
                 sort_field=spec["sortField"],
-                # Kutuphane bu alani hem 'DESC' hem 'desc' yaziyor
-                # (`aggressive_small_caps` kucuk, `day_gainers` buyuk).
+                # The library writes this field as both 'DESC' and 'desc'
+                # (`aggressive_small_caps` lowercase, `day_gainers` upper).
                 sort_asc=spec["sortType"].lower() == "asc",
             )
         )
@@ -116,10 +117,9 @@ def _derive_predefined() -> tuple[ScreenDef, ...]:
 PREDEFINED_SCREENS: tuple[ScreenDef, ...] = _derive_predefined()
 
 
-# --- custom ekranlar -------------------------------------------------------
-# Kurulmalari dogrulanmalaridir (SQ S4.1/14). `region` degerleri
-# EQUITY_SCREENER_EQ_MAP['region'] ile sinirlidir; 'tr' olculdu ve
-# gecerlidir (SQ S4.1/15, total=628).
+# --- custom screens ---------------------------------------------------------
+# Building them is their own validation. `region` values are limited to
+# EQUITY_SCREENER_EQ_MAP['region']; 'tr' was measured and is valid (total=628).
 
 CUSTOM_SCREENS: tuple[ScreenDef, ...] = (
     ScreenDef(
@@ -127,20 +127,20 @@ CUSTOM_SCREENS: tuple[ScreenDef, ...] = (
         kind="custom",
         quote_type="EQUITY",
         title="BIST Equities",
-        description="Borsa Istanbul'da islem goren tum hisseler (region=tr).",
-        # `ticker` + artan: sayfalar arasi KARARLI sira (SQ K15). Fiyat ya da
-        # hacme gore siralansaydi iki sayfa arasinda sira degisip sembol
-        # atlanabilirdi -- 628 satir uc sayfa demek (SQ S4.4).
+        description="All shares traded on Borsa Istanbul (region=tr).",
+        # `ticker` + ascending: stable order across pages. Sorting by price
+        # or volume could reorder between two pages and skip a symbol --
+        # 628 rows means three pages.
         sort_field="ticker",
         sort_asc=True,
         query=EquityQuery(
             "and",
             [
                 EquityQuery("eq", ["region", "tr"]),
-                # `intradayprice > 0`: "hepsi" demenin yolu. Yahoo bos
-                # operandli sorgu kabul etmiyor, tek kosullu bir AND de
-                # `_validate_or_and_operand` tarafindan reddediliyor
-                # (operand uzunlugu > 1 olmali).
+                # `intradayprice > 0` is how you say "all of them": Yahoo
+                # rejects a query with no operands, and a single-condition
+                # AND is also rejected by `_validate_or_and_operand`
+                # (operand length must be > 1).
                 EquityQuery("gt", ["intradayprice", 0]),
             ],
         ),
@@ -152,15 +152,15 @@ ALL_SCREENS: tuple[ScreenDef, ...] = (*PREDEFINED_SCREENS, *CUSTOM_SCREENS)
 
 _BY_KEY: dict[str, ScreenDef] = {s.key: s for s in ALL_SCREENS}
 
-if len(_BY_KEY) != len(ALL_SCREENS):  # pragma: no cover - savunma
-    raise ValueError("ekran anahtarlari tekil olmalidir")
+if len(_BY_KEY) != len(ALL_SCREENS):  # pragma: no cover - defensive
+    raise ValueError("screen keys must be unique")
 
 
 def screen_by_key(key: str) -> ScreenDef:
-    """Bilinmeyen ad KeyError firlatir; sessizce None DONMEZ.
+    """Raises KeyError for an unknown name; never silently returns None.
 
-    `screens` tablosunda olup bu dosyada olmayan bir anahtar, seed'den sonra
-    elle eklenmis demektir ve `screener` dataset'i onu kosturamaz -- sorgu
-    govdesini nereden alacagini bilemez.
+    A key present in the `screens` table but not in this file was added by
+    hand after seeding, and the `screener` dataset can't run it -- it has
+    no query body to use.
     """
     return _BY_KEY[key]

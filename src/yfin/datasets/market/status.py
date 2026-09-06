@@ -1,11 +1,13 @@
-"""market_status ve market_summary dataset'leri (S6.5).
+"""market_status and market_summary datasets.
 
-`Market.status` YALNIZCA US bolgesinde doludur: `domain/market.py` id
-uyusmazligini tespit edip `self._status = None` yapar. Bu deterministiktir,
-flaky degil; 7 bolgede `empty` beklenen sonuctur.
+`Market.status` is populated ONLY for the US region: `domain/market.py`
+detects an id mismatch and sets `self._status = None`. This is
+deterministic, not flaky; `empty` is the expected result for the other 7
+regions.
 
-`Market.summary` parse hatasinda ham zarf dict'i ({'marketSummaryResponse':
-...}) donebilir; board kodu sekli dogrulanmazsa PK'ya cop yazilir.
+On a parse error, `Market.summary` can return the raw envelope dict
+({'marketSummaryResponse': ...}); without validating the board code's
+shape, garbage gets written into the PK.
 """
 
 from __future__ import annotations
@@ -60,8 +62,8 @@ SUMMARY_TYPED = (
     "fetched_at",
 )
 
-# market_summary'de tipli kolona alinan quote anahtarlari; kalanlar
-# raw_json'da durur ve WARNING ile terfi sinyali verir
+# Quote keys given typed columns in market_summary; the rest stay in
+# raw_json and trigger a WARNING signal.
 _MAPPED_SUMMARY_KEYS = frozenset(
     {
         "symbol",
@@ -103,7 +105,7 @@ class MarketStatusDataset(SnapshotGlobalDataset[MarketStatusPayload]):
     def normalize(self, raw: MarketStatusPayload) -> NormalizedResult:
         status = raw.status
         if nz.is_empty_result(status):
-            # US disindaki 7 bolge: empty, hata DEGIL
+            # The 7 non-US regions: empty, NOT an error.
             return NormalizedResult()
         payload = nz.as_mapping(status)
         timezone = payload.get("timezone")
@@ -122,7 +124,7 @@ class MarketStatusDataset(SnapshotGlobalDataset[MarketStatusPayload]):
             "gmt_offset": nz.to_int(tz_payload.get("gmtoffset")),
             "tz_short": nz.to_str(payload.get("tz"), max_len=16),
         }
-        # open/close birer datetime nesnesidir: duz json.dumps TypeError verir
+        # open/close are datetime objects: plain json.dumps would raise TypeError.
         canonical = nz.canonical_json(dict(payload))
         row["raw_json"] = canonical
         row["content_hash"] = nz.content_hash(canonical=canonical)
@@ -166,8 +168,9 @@ class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
             return NormalizedResult()
         payload = nz.as_mapping(summary)
 
-        # Parse hatasinda yfinance ham zarf dict'i dondurebilir; sekil
-        # dogrulanmazsa (region, board_code) PK'sina cop yazilir
+        # On a parse error, yfinance can return the raw envelope dict;
+        # without validating shape, garbage gets written into the
+        # (region, board_code) PK.
         for key, value in payload.items():
             if len(str(key)) > BOARD_CODE_MAX or not isinstance(value, dict):
                 raise ValueError(f"market summary sekli beklenmedik: anahtar={key!r}")
@@ -238,8 +241,8 @@ class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
         )
 
     def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
-        # Board sembolleri (ES=F, ^GSPC) evrende olmayabilir: FK yok,
-        # is_known bayragi isaretlenir (news_symbols ile ayni desen)
+        # Board symbols (ES=F, ^GSPC) may be outside the universe: no FK,
+        # the is_known flag is marked instead (same pattern as news_symbols).
         candidates = {
             row["symbol"] for write in result.writes for row in write.rows if row.get("symbol")
         }

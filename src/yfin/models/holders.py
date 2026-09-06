@@ -1,8 +1,8 @@
-"""Sahiplik ve insider tablolari (AH S5.2).
+"""Ownership and insider tables.
 
-Bes tablonun ucu AS-OF (kaynak "su anki ilk 10 / mevcut kadro" donduruyor),
-biri (insider_transactions) kaynagin kendi tarihini tasidigi icin as-of
-degildir.
+Four of the five tables are as-of (the source returns "current top 10 /
+current roster"). insider_transactions is not as-of, since the source
+carries its own date.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ HOLDER_TYPE_ENUM = Enum(
 
 
 class HolderBreakdown(Base):
-    """majorHoldersBreakdown: 19/19 sembolde ayni 4 anahtar."""
+    """majorHoldersBreakdown: same 4 keys measured in 19/19 symbols."""
 
     __tablename__ = "holder_breakdown"
     __table_args__ = (
@@ -53,17 +53,18 @@ class HolderBreakdown(Base):
     insiders_pct_held: Mapped[Decimal | None] = mapped_column(PriceType())
     institutions_pct_held: Mapped[Decimal | None] = mapped_column(PriceType())
     institutions_float_pct_held: Mapped[Decimal | None] = mapped_column(PriceType())
-    # Kaynakta float (7750.0) geliyor
+    # Source returns a float (7750.0).
     institutions_count: Mapped[int | None] = mapped_column(Integer)
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
 class InstitutionalHolder(Base):
-    """institutional_holders + mutualfund_holders TEK tabloda.
+    """institutional_holders + mutualfund_holders in one table.
 
-    14 sembolde kolon setleri BIREBIR ayni olculdu. Iki dataset ayni tabloya
-    yazar; kapsamlari `scope_columns=(symbol, as_of_date, holder_type)` ile
-    ayrisir -- scope_columns'in var olma nedeni tam olarak budur.
+    Column sets measured identical across 14 symbols. Both datasets write
+    to this table; their scopes separate via
+    `scope_columns=(symbol, as_of_date, holder_type)` -- this is exactly
+    why scope_columns exists.
     """
 
     __tablename__ = "institutional_holders"
@@ -76,26 +77,27 @@ class InstitutionalHolder(Base):
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     holder_type: Mapped[HolderType] = mapped_column(HOLDER_TYPE_ENUM, primary_key=True)
-    # Olculen max 70 (JPM mutualfund). PK toplami 548 byte (MySQL'de olculdu).
+    # Measured max 70 chars (JPM mutualfund). PK total 548 bytes (measured in MySQL).
     holder: Mapped[str] = mapped_column(KeyTextType(128), primary_key=True)
-    # SATIR BAZINDA degisir: AAPL mutualfund'da tek listede 4 farkli tarih.
-    # NULL kabul eder: hic bos gelmedigi OLCULMEDI ve sembol basina tek
-    # transaction geregi tek bir NaT tum sembolu rollback ederdi.
+    # Varies per row: AAPL mutualfund has 4 different dates in one list.
+    # Nullable: not measured to always be populated, and a single NaT
+    # would roll back the whole symbol's transaction.
     date_reported: Mapped[date | None] = mapped_column(Date)
     pct_held: Mapped[Decimal | None] = mapped_column(PriceType())
     pct_change: Mapped[Decimal | None] = mapped_column(PriceType())
-    # Olculen max: shares 1.94e9, value 1.76e13
+    # Measured max: shares 1.94e9, value 1.76e13.
     shares: Mapped[Decimal | None] = mapped_column(BigNumType())
     value: Mapped[Decimal | None] = mapped_column(BigNumType())
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
 class InsiderActivity(Base):
-    """netSharePurchaseActivity'nin 7 satirlik sunumu TEK satira pivotlanir.
+    """netSharePurchaseActivity's 7-row presentation pivots into one row.
 
-    Kaynak zaten tek bir kaydin 7 satirlik gosterimidir; 0. kolonun ADI
-    dinamiktir ('Insider Purchases Last 6m'), bu yuzden satir etiketi ADDAN
-    degil KONUMDAN okunur ve donem eki period_label'a ayristirilir.
+    The source is already a 7-row display of a single record; column 0's
+    name is dynamic ('Insider Purchases Last 6m'), so the row label is
+    read by position, not name, and the period suffix is split into
+    period_label.
     """
 
     __tablename__ = "insider_activity"
@@ -106,13 +108,14 @@ class InsiderActivity(Base):
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     period_label: Mapped[str] = mapped_column(AsciiKeyType(8), nullable=False)
-    # NEGATIF olabilir (KO net -547_806) -> isaretli DECIMAL(38,0)
+    # Can be negative (KO net -547_806) -> signed DECIMAL(38,0).
     purchases_shares: Mapped[Decimal | None] = mapped_column(BigNumType())
     sales_shares: Mapped[Decimal | None] = mapped_column(BigNumType())
     net_shares: Mapped[Decimal | None] = mapped_column(BigNumType())
     total_insider_shares: Mapped[Decimal | None] = mapped_column(BigNumType())
-    # SIGNED Integer: net islem sayisi mantiken negatif olabilir ve bu
-    # olculmedi; negatif olmama kisiti olsaydi tum sembolu dusururdu.
+    # Signed Integer: net transaction count can be negative in principle
+    # and this was not measured out; a non-negative constraint would drop
+    # the whole symbol on the first negative value.
     purchases_trans: Mapped[int | None] = mapped_column(Integer)
     sales_trans: Mapped[int | None] = mapped_column(Integer)
     net_trans: Mapped[int | None] = mapped_column(Integer)
@@ -123,13 +126,13 @@ class InsiderActivity(Base):
 
 
 class InsiderTransaction(Base):
-    """Insider islemleri. AS-OF DEGIL: kaynak islem tarihini veriyor.
+    """Insider transactions. Not as-of: the source carries a transaction date.
 
-    fact_hash PK'ya girer AMA TEK BASINA YETMEZ: PFE'de dokuz kolonun
-    TAMAMINDA ozdes iki satir olculdu (BOSHOFF CHRISTOFFEL, 8741 hisse,
-    263716 deger, 2025-02-21) ve hash'leri de ozdes. Bu yuzden normalize
-    ONCE birebir tekillestirme yapar (AH S8.3); aksi halde 34 satir okunup
-    33 yazilir ve S8.5 dogrulamasi her calistirmada kirilirdi.
+    fact_hash is part of the PK but not sufficient alone: PFE measured two
+    rows identical across all nine columns (BOSHOFF CHRISTOFFEL, 8741
+    shares, value 263716, 2025-02-21), with identical hashes too. So
+    normalize deduplicates exact duplicates first; otherwise 34 rows read
+    would write 33, breaking the verification check on every run.
     """
 
     __tablename__ = "insider_transactions"
@@ -140,31 +143,32 @@ class InsiderTransaction(Base):
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     start_date: Mapped[date] = mapped_column(Date, primary_key=True)
     fact_hash: Mapped[str] = mapped_column(ShortHashType(), primary_key=True)
-    # Her zaman kisi adi DEGIL: 'Elliott Investment Management L.P' (BP.L).
-    # Olculen max 33.
+    # Not always a person name: 'Elliott Investment Management L.P' (BP.L).
+    # Measured max 33 chars.
     insider: Mapped[str | None] = mapped_column(PersonNameType())
-    # Olculen max 56 (WMT); '' -> NULL (BP.L'de bos olculdu)
+    # Measured max 56 (WMT); '' maps to NULL (measured empty for BP.L).
     position: Mapped[str | None] = mapped_column(KeyTextType(64))
     text: Mapped[str | None] = mapped_column(String(255, collation="C"))
-    # 16 sembol / 1464 satirin HEPSINDE '' -> NULL. Kolon yine de acilir ki
-    # uc dolmaya basladiginda migration gerekmesin.
+    # All 1464 rows / 16 symbols measured '' -> NULL. Column kept anyway so
+    # a future non-empty value needs no migration.
     transaction_label: Mapped[str | None] = mapped_column(String(64, collation="C"))
     url: Mapped[str | None] = mapped_column(Text)
     shares: Mapped[Decimal | None] = mapped_column(BigNumType())
-    # DIS ve BP.L'de TUM satirlarda NaN
+    # NaN in all rows measured for DIS and BP.L.
     value: Mapped[Decimal | None] = mapped_column(BigNumType())
-    # 'D', 'I' ve 'D/I' (XOM) -> VARCHAR(2) yetersizdi
+    # 'D', 'I', and 'D/I' (XOM) -> VARCHAR(2) was too narrow.
     ownership: Mapped[str | None] = mapped_column(AsciiKeyType(8))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
 class InsiderRosterHolder(Base):
-    """Mevcut insider kadrosu (9-10 kisi).
+    """Current insider roster (9-10 people).
 
-    Kaynak kolon seti sembole gore 7 / 9 / 11'dir ve SIRASI da sabit degildir
-    -> normalize row.get(...) kullanir. positionSummary/positionSummaryDate
-    yalnizca NVDA'da goruldu ama orada bir kisinin TEK hisse bilgisiydi;
-    kolona alinmasaydi o satirin tum hisse alanlari NULL kalirdi.
+    Source column set is 7/9/11 depending on symbol, and order is not
+    fixed either -> normalize uses row.get(...). positionSummary /
+    positionSummaryDate were seen only for NVDA, where they were a
+    person's only share data; omitting the column would leave every
+    share field NULL for that row.
     """
 
     __tablename__ = "insider_roster"
@@ -174,13 +178,13 @@ class InsiderRosterHolder(Base):
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
-    # PK toplami 1055 byte (MySQL'de olculdu, sinir 3072)
+    # PK total 1055 bytes (measured in MySQL, limit 3072).
     name: Mapped[str] = mapped_column(PersonNameType(), primary_key=True)
     position: Mapped[str | None] = mapped_column(KeyTextType(64))
     url: Mapped[str | None] = mapped_column(Text)
     most_recent_transaction: Mapped[str | None] = mapped_column(String(64, collation="C"))
-    # datetime64 VEYA ham epoch float64 gelebilir (6 sembolde dolu float
-    # olculdu); kinds.py::_to_datetime iki bicimi de kabul eder.
+    # Can arrive as datetime64 or raw epoch float64 (measured populated
+    # float in 6 symbols); kinds.py::_to_datetime accepts both forms.
     latest_transaction_date: Mapped[datetime | None] = mapped_column(TsType())
     position_direct_date: Mapped[datetime | None] = mapped_column(TsType())
     position_indirect_date: Mapped[datetime | None] = mapped_column(TsType())

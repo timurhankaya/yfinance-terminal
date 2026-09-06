@@ -1,4 +1,4 @@
-"""Canli Yahoo dogrulamalari (SI S9.4). CI'da KAPALI: `-m live` gerekir."""
+"""Live Yahoo verifications. Off in CI: requires `-m live`."""
 
 from __future__ import annotations
 
@@ -13,14 +13,14 @@ pytestmark = pytest.mark.live
 
 
 def test_every_sector_key_resolves() -> None:
-    """`SECTOR_KEYS`in 11'i de 200 donmeli."""
+    """All 11 `SECTOR_KEYS` must return 200."""
     for key in SECTOR_KEYS:
         data = fetch_domain(key, "sector", "US")
         assert data["key"] == key
 
 
 def test_industries_count_equals_the_discovered_universe() -> None:
-    """EKSIKSIZLIGIN BEKLENEN DEGERINI API'NIN KENDISI VERIYOR (SI S8.3)."""
+    """The expected completeness value comes from the API itself."""
     total_reported = 0
     total_discovered = 0
     for key in SECTOR_KEYS:
@@ -34,7 +34,7 @@ def test_industries_count_equals_the_discovered_universe() -> None:
 
 
 def test_a_random_sample_of_discovered_industry_keys_resolves() -> None:
-    """Kesfedilen anahtarlar CALISIR; kutuphane sabitininkiler calismiyordu."""
+    """Discovered keys work, unlike the library's hardcoded ones."""
     keys: list[str] = []
     for key in SECTOR_KEYS:
         keys.extend(
@@ -49,7 +49,7 @@ def test_a_random_sample_of_discovered_industry_keys_resolves() -> None:
 
 
 def test_library_industry_keys_still_return_404() -> None:
-    """SI S4.1'in cekirdek bulgusu: `utilities`in 6/6 anahtari 404."""
+    """Core finding: all 6/6 `utilities` keys return 404."""
     from yfinance.const import SECTOR_INDUSTY_MAPPING_LC
 
     failures = 0
@@ -77,13 +77,12 @@ def test_supported_region_passes_the_probe() -> None:
 
 
 def test_region_only_affects_the_five_list_blocks() -> None:
-    """Bolge YALNIZ liste bloklarini kapsiyor (SI S4.1).
+    """Region only scopes the five list blocks.
 
-    KESIN ESITLIK ARANMAZ: iki istek arasinda saniyeler geciyor ve piyasa
-    hareket ediyor -- `ytdChangePercent` 0.119388185 -> 0.11939399 gibi
-    kayiyor. Iddia "bolge bu bloklari DEGISTIRMIYOR"dur, "deger donmus"
-    degil; bu yuzden metin alanlarinda esitlik, sayisal alanlarda dar bir
-    tolerans kullanilir.
+    No exact equality: seconds pass between the two requests and the market
+    moves, so e.g. `ytdChangePercent` drifts (0.119388185 -> 0.11939399).
+    The claim is "region doesn't change these blocks", not "value froze" --
+    hence exact equality on text fields, a narrow tolerance on numeric ones.
     """
     us = fetch_domain("technology", "sector", "US")
     gb = fetch_domain("technology", "sector", "GB")

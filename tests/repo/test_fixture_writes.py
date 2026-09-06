@@ -1,17 +1,19 @@
-"""GERCEK API verisi -> GERCEK PostgreSQL (AH S9.1 + S9.2 birlestirilmis).
+"""Real API data -> real PostgreSQL, no network.
 
-Bu dosya hattaki en guclu kaniti verir ve AGSIZ kosar: fixture'lar canli
-Yahoo'dan bir kez yakalandi (`scripts/capture_fixtures.py`), buradaki her
-test onlari dataset'in `normalize`ina verir ve ciktiyi gercek semaya YAZAR.
+Fixtures were captured once from live Yahoo (`scripts/capture_fixtures.py`);
+each test here feeds them to the dataset's `normalize` and writes the output
+to the real schema.
 
-Neden hem bu hem `test_dataset_writes.py`: orada payload'lari BEN kurdum,
-yani yalnizca kendi varsayimimi sinar. Burada girdi kaynagin kendisinden
-gelir -- kolon adi, dtype, eksik kolon ve bos deger dagilimi Yahoo'nun
-gercekte donduruguyle ayni. Ikisi ayri sinif hata yakalar.
+Why this exists alongside `test_dataset_writes.py`: there, payloads are
+hand-built, so it only tests our own assumptions. Here the input comes from
+the source itself -- column names, dtypes, missing columns, and the empty-
+value distribution match what Yahoo actually returns. The two catch
+different classes of bug.
 
-`empty` sonuc BASARISIZLIK DEGILDIR (S8.2): 17 dataset ^GSPC'de, alti
-dataset THYAO.IS'te, `funds_data` fon olmayan her sembolde bos doner. Test
-"dolu olmali" demez; "bos degilse HATASIZ yazilmali" der.
+An `empty` result is not a failure: 17 datasets are empty on ^GSPC, six on
+THYAO.IS, and `funds_data` is empty for every non-fund symbol. The test does
+not require "must be non-empty"; it requires "if non-empty, must write
+without error".
 """
 
 from __future__ import annotations
@@ -39,14 +41,14 @@ pytestmark = pytest.mark.repo
 
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 
-# Referans semboller (AH S9.1); her biri bir kenar durumun kanitidir.
+# Reference symbols; each covers a distinct edge case.
 SYMBOLS = ("AAPL", "MSFT", "THYAO.IS", "PFE", "XOM", "NVDA", "WMT", "KO", "SPY", "BND", "^GSPC")
 
-# Index'i TARIH olan iki dataset; digerlerinde index donem etiketi ya da
-# sira numarasidir ve Timestamp'e cevrilmesi HATA olurdu.
+# The two datasets whose index is a date; for the others the index is a
+# period label or a sequence number, and converting it to Timestamp is wrong.
 DATETIME_INDEX = frozenset({"upgrades_downgrades", "earnings_history"})
 
-# `date_range="filter"` olanlar RangedFramePayload alir.
+# Those with `date_range="filter"` get a RangedFramePayload.
 RANGED = frozenset({"upgrades_downgrades", "earnings_history", "insider_transactions"})
 
 FRAME_DATASETS = (
@@ -75,7 +77,7 @@ def _fixture_symbols() -> list[str]:
 def written_symbols(db_session: Session) -> Iterator[list[str]]:
     codes = _fixture_symbols()
     if not codes:
-        pytest.skip("fixture yok (scripts/capture_fixtures.py calistirin)")
+        pytest.skip("no fixtures (run scripts/capture_fixtures.py)")
     for code in codes:
         db_session.execute(
             text(
@@ -100,7 +102,7 @@ def _payload(name: str, symbol: str) -> Any:
 
 
 def _write(session: Session, dataset: Dataset[Any], symbol: str) -> tuple[int, int]:
-    """(attempted, verified) -- bos sonuc (0, 0) doner."""
+    """(attempted, verified) -- an empty result returns (0, 0)."""
     result = dataset.normalize(_payload(dataset.name, symbol), symbol)
     if result.is_empty:
         return 0, 0
@@ -112,10 +114,10 @@ def _write(session: Session, dataset: Dataset[Any], symbol: str) -> tuple[int, i
 def test_every_fixture_symbol_writes_without_error(
     db_session: Session, written_symbols: list[str], name: str
 ) -> None:
-    """Kaynagin GERCEK ciktisi hatasiz yazilir ve eksiksiz dogrulanir.
+    """The source's real output writes without error and verifies in full.
 
-    Tek iddia S8.6'dir: `rows_verified == rows_attempted`. Hangi sembolun
-    dolu, hangisinin bos geldigine dair BIR IDDIA KURULMAZ.
+    The only assertion is `rows_verified == rows_attempted`; no claim is made
+    about which symbol comes back filled vs. empty.
     """
     dataset = SYMBOL_DATASETS[name]
     filled = 0
@@ -123,17 +125,17 @@ def test_every_fixture_symbol_writes_without_error(
         attempted, verified = _write(db_session, dataset, symbol)
         assert verified == attempted, f"{name}/{symbol}"
         filled += bool(attempted)
-    # En az bir sembolde dolu gelmeli; hepsi bosaysa fixture ya da esleme
-    # bozulmustur ve test sessizce hicbir sey kanitlamaz olurdu.
-    assert filled > 0, f"{name}: 11 sembolun hicbirinde veri yok"
+    # At least one symbol must come back filled; if all are empty the fixture
+    # or the mapping is broken and the test would silently prove nothing.
+    assert filled > 0, f"{name}: no data in any of the 11 symbols"
 
 
 def test_index_symbol_is_empty_everywhere_but_never_fails(
     db_session: Session, written_symbols: list[str]
 ) -> None:
-    """^GSPC: 17 dataset'in tamami bos -- `empty`, `failed` DEGIL (S8.4)."""
+    """^GSPC: all 17 datasets are empty -- `empty`, not `failed`."""
     if "^GSPC" not in written_symbols:
-        pytest.skip("^GSPC fixture'i yok")
+        pytest.skip("no ^GSPC fixture")
     for name in (*FRAME_DATASETS, "analyst_price_targets", "funds_data"):
         attempted, verified = _write(db_session, SYMBOL_DATASETS[name], "^GSPC")
         assert (attempted, verified) == (0, 0), name
@@ -142,9 +144,9 @@ def test_index_symbol_is_empty_everywhere_but_never_fails(
 def test_bond_fund_writes_ratings_but_no_holdings(
     db_session: Session, written_symbols: list[str]
 ) -> None:
-    """BND olcumu: 0 sektor + 9 rating, `top_holdings` BOS."""
+    """Measured on BND: 0 sectors + 9 ratings, `top_holdings` empty."""
     if "BND" not in written_symbols:
-        pytest.skip("BND fixture'i yok")
+        pytest.skip("no BND fixture")
     _write(db_session, SYMBOL_DATASETS["funds_data"], "BND")
 
     categories = list(
@@ -163,22 +165,22 @@ def test_equity_fund_writes_sectors_and_holdings(
     db_session: Session, written_symbols: list[str]
 ) -> None:
     if "SPY" not in written_symbols:
-        pytest.skip("SPY fixture'i yok")
+        pytest.skip("no SPY fixture")
     _write(db_session, SYMBOL_DATASETS["funds_data"], "SPY")
 
     quote_type = db_session.execute(
         text("SELECT quote_type FROM fund_profile WHERE symbol = 'SPY'")
     ).scalar_one()
-    # `quote_type` yfinance'ta @property DEGIL; kor erisim buraya
-    # "<bound method ...>" yazardi (canli olculdu).
+    # `quote_type` is not a @property in yfinance; a blind access would have
+    # written "<bound method ...>" here (measured live).
     assert quote_type == "ETF"
 
 
 def test_eps_revisions_down_last_7d_is_populated(
     db_session: Session, written_symbols: list[str]
 ) -> None:
-    """`downLast7Days`in buyuk D'si: kucuk `d` ile okunsaydi kolon SESSIZCE
-    hep NULL kalirdi ve baska hicbir test bunu yakalamazdi."""
+    """`downLast7Days` has a capital D: reading it as `d` would leave the
+    column silently NULL forever, and no other test would catch it."""
     _write(db_session, SYMBOL_DATASETS["eps_revisions"], "AAPL")
     filled = db_session.execute(
         text(
@@ -192,8 +194,8 @@ def test_eps_revisions_down_last_7d_is_populated(
 def test_insider_transactions_are_deduplicated(
     db_session: Session, written_symbols: list[str]
 ) -> None:
-    """Kaynak ozdes satir dondurebiliyor; `rows_attempted` tekillestirme
-    SONRASI sayidir, aksi halde S8.6 esitligi kirilirdi."""
+    """The source can return duplicate rows; `rows_attempted` is the count
+    after dedup, otherwise the attempted==verified equality would break."""
     for symbol in written_symbols:
         raw = load_fixture(symbol, "insider_transactions")
         if not raw:

@@ -1,4 +1,4 @@
-"""Fixture yukleme ve rehydration yardimcilari."""
+"""Fixture loading and rehydration helpers."""
 
 from __future__ import annotations
 
@@ -14,23 +14,21 @@ from sqlalchemy import Engine, text
 FIXTURE_ROOT = Path(__file__).parent / "fixtures"
 
 
-# --- surece ozel test semasi ----------------------------------------------
+# --- process-specific test schema ------------------------------------------
 
 
 def schema_name(base: str) -> str:
-    """Test semasi SURECE ozeldir: `<base>_<pid>`.
+    """Test schema is process-specific: `<base>_<pid>`.
 
-    Sabit tek sema kullanildiginda iki pytest kosusu (ornegin iki editor
-    oturumu) birbirinin tablolarini `drop_all` ile dusuruyordu; belirti
-    es zamanli DDL hatalari ve tekrarlanmayan satir-sayisi
-    uyusmazliklariydi. Sema adini surece baglamak bu sinifi imkansiz
-    kilar.
+    With one fixed schema, two pytest runs (e.g. two editor sessions)
+    would `drop_all` each other's tables, showing up as concurrent DDL
+    errors and non-reproducible row-count mismatches. Tying the schema
+    name to the process rules this out.
 
-    PostgreSQL'de SEMA kullanilir, VERITABANI DEGIL: `CREATE DATABASE`
-    transaction disinda calismak zorundadir, sablon veritabanini kopyalar
-    ve her yeni veritabaninda `CREATE EXTENSION timescaledb` gerektirir;
-    `CREATE SCHEMA` siradan bir DDL'dir ve `DROP SCHEMA ... CASCADE`
-    chunk'lari da temizler (PG S9.1).
+    Uses a schema, not a database: `CREATE DATABASE` must run outside a
+    transaction, copies the template database, and needs `CREATE
+    EXTENSION timescaledb` in every new database; `CREATE SCHEMA` is
+    ordinary DDL and `DROP SCHEMA ... CASCADE` also cleans up chunks.
     """
     return f"{base}_{os.getpid()}"
 
@@ -40,24 +38,24 @@ def pid_is_alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    except PermissionError:  # baska kullanicinin sureci: yasiyor say
+    except PermissionError:  # another user's process: treat as alive
         return True
     return True
 
 
 def drop_stale_schemas(engine: Engine, base: str) -> list[str]:
-    """Kesilen kosulardan kalan `<base>_<pid>` semalarini dusurur.
+    """Drops leftover `<base>_<pid>` schemas from interrupted runs.
 
-    Ctrl-C ve cokmeler teardown'i atlar; temizlik olmasaydi semalar
-    sinirsiz birikirdi. YALNIZCA PID'i artik yasamayan semalar silinir,
-    boylece ES ZAMANLI bir kosunun semasina dokunulmaz. Taban ad
-    (`<base>`, sayisal son eki yok) da korunur.
+    Ctrl-C and crashes skip teardown; without this cleanup, schemas would
+    accumulate indefinitely. Only schemas whose PID is no longer alive
+    are dropped, so a concurrent run's schema is untouched. The base name
+    itself (`<base>`, no numeric suffix) is also preserved.
 
-    `engine` TEST VERITABANINA bagli olmalidir, bootstrap (`postgres`)
-    baglantisina DEGIL: PostgreSQL'de `information_schema.schemata`
-    VERITABANINA OZELDIR ve bootstrap baglantisi test veritabanindaki
-    semalari GOREMEZ. Yanlis engine ile temizlik SESSIZCE hicbir sey
-    yapar ve semalar sonsuza kadar birikir (PG S9.1).
+    `engine` must be bound to the test database, not the bootstrap
+    (`postgres`) connection: `information_schema.schemata` is
+    database-specific, and the bootstrap connection can't see schemas in
+    the test database. With the wrong engine, cleanup silently does
+    nothing and schemas accumulate forever.
     """
     prefix = f"{base}_"
     dropped: list[str] = []
@@ -78,22 +76,22 @@ def drop_stale_schemas(engine: Engine, base: str) -> list[str]:
 def load_fixture(symbol: str, dataset: str) -> Any:
     path = FIXTURE_ROOT / symbol / f"{dataset}.json"
     if not path.exists():
-        pytest.skip(f"fixture yok: {path} (scripts/capture_fixtures.py calistirin)")
+        pytest.skip(f"missing fixture: {path} (run scripts/capture_fixtures.py)")
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def load_domain_fixture(kind: str, key: str, region: str = "US") -> Any:
-    """Ham domain zarfini ({"data": {...}}) dondurur (SI S9.1).
+    """Returns the raw domain envelope ({"data": {...}}).
 
-    Zarf ACILMAZ: `fetch_domain` `payload["data"]` okur ve testler ayni
-    yoldan gecmelidir.
+    The envelope is not unwrapped: `fetch_domain` reads `payload["data"]`
+    and tests must go through the same path.
     """
     suffix = "" if region == "US" else f".{region}"
     path = FIXTURE_ROOT / "_domain" / kind / f"{key}{suffix}.json"
     if not path.exists():
         pytest.skip(
-            f"fixture yok: {path} "
-            "(python scripts/capture_fixtures.py --domain calistirin)"
+            f"missing fixture: {path} "
+            "(run python scripts/capture_fixtures.py --domain)"
         )
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -103,7 +101,7 @@ def domain_data(kind: str, key: str, region: str = "US") -> Any:
 
 
 def domain_fixture_keys(kind: str) -> list[tuple[str, str]]:
-    """Mevcut domain fixture'larinin (anahtar, bolge) listesi."""
+    """List of (key, region) for the available domain fixtures."""
     root = FIXTURE_ROOT / "_domain" / kind
     if not root.exists():
         return []
@@ -115,26 +113,26 @@ def domain_fixture_keys(kind: str) -> list[tuple[str, str]]:
     return out
 
 
-# --- fixture rehydration --------------------------------------------------
+# --- fixture rehydration ----------------------------------------------------
 
 
 def as_series(records: Any) -> Any:
-    """capture_fixtures.py'nin [{index, value}] bicimini Series'e cevirir."""
+    """Converts capture_fixtures.py's [{index, value}] shape to a Series."""
     import pandas as pd
 
     if records is None:
         return None
     if not records:
         return pd.Series([], dtype=object)
-    # DST gecisleri yuzunden ofsetler karisiktir (-05:00 / -04:00); tek bir
-    # DatetimeIndex'e zorlamak tz bilgisini kaybettirir. Gercek API tz-aware
-    # bir index dondurur ve normalize her elemani tek tek isler.
+    # Offsets are mixed due to DST transitions (-05:00 / -04:00); forcing a
+    # single DatetimeIndex would lose tz info. The real API returns a
+    # tz-aware index and normalize handles each element individually.
     index = pd.Index([pd.Timestamp(r["index"]) for r in records], dtype=object)
     return pd.Series([r["value"] for r in records], index=index)
 
 
 def as_frame(records: Any) -> Any:
-    """history fixture'ini DataFrame'e cevirir (index = Date)."""
+    """Converts a history fixture to a DataFrame (index = Date)."""
     import pandas as pd
 
     frame = pd.DataFrame(records)
@@ -148,10 +146,10 @@ def as_frame(records: Any) -> Any:
 
 
 def as_statement_frame(records: Any) -> Any:
-    """Finansal tablo fixture'ini DataFrame'e cevirir.
+    """Converts a financial statement fixture to a DataFrame.
 
-    Gercek API'de index kalem etiketi (str), kolonlar donem sonu
-    (tz-naive Timestamp) doner; fixture da bu sekli korur.
+    The real API returns a str line-item label as index and period-end
+    (tz-naive Timestamp) columns; the fixture preserves that shape.
     """
     import pandas as pd
 
@@ -164,12 +162,12 @@ def as_statement_frame(records: Any) -> Any:
 
 
 def as_valuation_frame(records: Any) -> Any:
-    """valuation fixture'i: kolon etiketleri HAM kalir.
+    """Valuation fixture: column labels stay raw.
 
-    `as_statement_frame`ten farki budur: kaynak burada donem sonu Timestamp
-    degil, 'Current' ve 'M/D/YYYY' DIZELERI dondurur. Kolonlar testte
-    Timestamp'e cevrilseydi dataset'in tam da bu cevrimi yapan adimi
-    (`period_columns`) hic kosmazdi.
+    Differs from `as_statement_frame`: the source returns 'Current' and
+    'M/D/YYYY' strings, not period-end Timestamps. Converting columns to
+    Timestamp here would skip the very step (`period_columns`) the
+    dataset is meant to exercise.
     """
     import pandas as pd
 
@@ -182,7 +180,7 @@ def as_valuation_frame(records: Any) -> Any:
 
 
 def as_calendar_frame(records: Any) -> Any:
-    """Takvim fixture'i: index sembol/olay adi, kolonlar ham adlariyla."""
+    """Calendar fixture: index is symbol/event name, columns keep raw names."""
     import pandas as pd
 
     if not records:
@@ -194,18 +192,19 @@ def as_calendar_frame(records: Any) -> Any:
 
 
 def as_earnings_frame(payload: Any) -> Any:
-    """earnings_dates fixture'i: {"tz": ..., "records": [...]}.
+    """earnings_dates fixture: {"tz": ..., "records": [...]}.
 
-    Gercek API tz-AWARE bir DatetimeIndex dondurur ve tz ADI onemlidir
-    (THYAO.IS'te bile America/New_York); ISO string yalnizca ofseti tasir.
+    The real API returns a tz-aware DatetimeIndex, and the tz name matters
+    (even THYAO.IS uses America/New_York); an ISO string only carries the
+    offset.
     """
     import pandas as pd
 
     records = payload.get("records") if isinstance(payload, dict) else payload
     if not records:
         return None
-    # ISO stringler karisik ofset tasir (EDT/EST); utc=True ile once UTC'ye
-    # normalize edilir, sonra kaynak tz'ye cevrilir
+    # ISO strings carry mixed offsets (EDT/EST); normalize to UTC first
+    # with utc=True, then convert to the source tz.
     index = pd.DatetimeIndex(pd.to_datetime([r["index"] for r in records], utc=True))
     tz = payload.get("tz") if isinstance(payload, dict) else None
     if tz:
@@ -214,17 +213,18 @@ def as_earnings_frame(payload: Any) -> Any:
     return pd.DataFrame({c: [r.get(c) for r in records] for c in columns}, index=index)
 
 
-# --- AH: analiz / sahiplik / fon fixture'lari ------------------------------
+# --- analysis / holders / funds fixtures ------------------------------------
 
 _ISO_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}.*)?$")
 
 
 def _revive(value: Any) -> Any:
-    """ISO damgasini Timestamp'e geri cevirir.
+    """Converts an ISO timestamp back into a Timestamp.
 
-    Fixture JSON'dur ve `Timestamp` orada dizeye duser; gercek API ise
-    `Timestamp` dondurur. Cevrilmeseydi test, uretimde HIC olusmayan bir
-    girdi sekliyle kosardi -- yani yesil kalirken hicbir sey kanitlamazdi.
+    Fixtures are JSON, where `Timestamp` becomes a string; the real API
+    returns `Timestamp`. Without this conversion the test would run
+    against an input shape that never occurs in production -- passing
+    without proving anything.
     """
     if isinstance(value, str) and _ISO_TIMESTAMP.match(value):
         import pandas as pd
@@ -237,12 +237,13 @@ def _revive(value: Any) -> Any:
 
 
 def as_dataset_frame(records: Any, *, datetime_index: bool = False) -> Any:
-    """`_frame_records` ciktisini dataset'in gordugu cerceveye cevirir.
+    """Converts `_frame_records` output to the shape the dataset sees.
 
-    `as_frame`ten farki: index'i KOSULSUZ Timestamp'e cevirmez. Bu ailede
-    index kimi dataset'te tarih (upgrades_downgrades), kimi dataset'te
-    donem etiketi ('0q'), kimi dataset'te sira numarasidir -- `pd.Timestamp('0')`
-    ucuncusunde patlardi.
+    Differs from `as_frame`: it doesn't unconditionally convert the index
+    to Timestamp. In this family the index is a date in one dataset
+    (upgrades_downgrades), a period label ('0q') in another, and a
+    sequence number in a third -- `pd.Timestamp('0')` would blow up on
+    the third.
     """
     import pandas as pd
 
@@ -259,7 +260,7 @@ def as_dataset_frame(records: Any, *, datetime_index: bool = False) -> Any:
 
 
 def as_funds_data(payload: Any) -> Any:
-    """funds_data fixture'ini `_collect` ciktisi seklinde geri kurar."""
+    """Rebuilds a funds_data fixture into the shape `_collect` outputs."""
     if payload is None:
         return None
     frames = {"fund_operations", "top_holdings", "equity_holdings", "bond_holdings"}

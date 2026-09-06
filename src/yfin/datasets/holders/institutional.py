@@ -1,23 +1,22 @@
-"""institutional_holders + mutualfund_holders -> institutional_holders (AH S6.3).
+"""institutional_holders + mutualfund_holders -> institutional_holders.
 
-Iki dataset AYNI tabloya yazar; 14 sembolde kolon setleri birebir ayni
-olculdu. Kapsamlari `scope_columns=(symbol, as_of_date, holder_type)` ile
-ayrisir -- `scope_columns`'in var olma nedeni tam olarak budur. Ayri kayit
-kalirlar cunku ayri `sync_run_items` hucresi ve ayri `--datasets`
-secilebilirligi gerekir.
+The two datasets write to the SAME table; column sets measured identical
+across 14 symbols. Their scopes are separated by
+`scope_columns=(symbol, as_of_date, holder_type)` -- this is exactly why
+`scope_columns` exists. They stay separate registrations because each needs
+its own `sync_run_items` cell and its own `--datasets` selectability.
 
-`scope_values` ACIKCA verilir (AH S7.2): kapsam SATIRLARDAN turetilseydi,
-kaynak bir kalemi birakinca eski satir kapsamin disinda kalip kalirdi.
+`scope_values` is given EXPLICITLY: if scope were derived from the rows,
+dropping one holder from the source would leave its stale row outside scope
+forever.
 
-SINIR -- BILINCLI: kaynak BUTUNUYLE bosalirsa (bos cerceve ya da 404)
-`normalize` erken doner ve `AsOfDataset.upsert` `is_empty` gorup hicbir
-sey yazmaz; o gunun MEVCUT satirlari TEMIZLENMEZ. Ilk taslak bunun tersini
-iddia ediyordu, ama erken donus `scope_values`'tan ONCE gelir. Davranis
-KASITLI olarak boyle birakilmistir: `call_optional` gecici bir 404'u
-gercek bir "sifir sahip" durumundan AYIRT EDEMEZ ve silme, gecici bir
-kesintide o as-of gununun verisini yok ederdi. Bedeli, ayni gun icinde
-iki kosu yapilir ve ikincisi bos donerse sabahki satirlarin o gunun
-etiketiyle kalmasidir.
+KNOWN LIMITATION: if the source comes back entirely empty (empty frame or
+404), `normalize` returns early and `AsOfDataset.upsert` sees `is_empty` and
+writes nothing; that day's EXISTING rows are NOT cleared. This is
+DELIBERATE: `call_optional` cannot tell a transient 404 apart from a genuine
+"zero holders" state, and deleting would destroy that as-of day's data on a
+transient outage. The cost: running twice in one day where the second run
+comes back empty leaves the morning's rows under that day's label.
 """
 
 from __future__ import annotations
@@ -60,10 +59,10 @@ class _HolderListDataset(AsOfDataset[AsOfFramePayload]):
 
     def normalize(self, raw: AsOfFramePayload, symbol: str) -> NormalizedResult:
         as_of = raw.fetched_at.date()
-        # Kapsam degerleri satirlardan DEGIL burada uretilir: kaynak bir
-        # KALEMI birakinca eski satir kapsam disinda kalmasin diye. Kaynagin
-        # TAMAMEN bosalmasi ayri bir durumdur; modul docstring'indeki
-        # "SINIR" notuna bakiniz.
+        # Scope values are produced HERE, not from the rows, so that dropping
+        # one holder from the source doesn't leave its stale row out of
+        # scope. The source going entirely empty is a separate case; see the
+        # module docstring's "KNOWN LIMITATION" note.
         scope_values = (
             {"symbol": symbol, "as_of_date": as_of, "holder_type": self.holder_type.value},
         )
@@ -91,13 +90,12 @@ class _HolderListDataset(AsOfDataset[AsOfFramePayload]):
             rows[holder] = {
                 "symbol": symbol,
                 "as_of_date": as_of,
-                # ENUM degeri DAIMA kucuk harf uretilir; kolonun
-                # sessiz donusumune ('INSTITUTION' -> 'institution')
-                # guvenilmez (AH S5).
+                # ENUM value is ALWAYS produced lowercase; never relies on a
+                # silent column-level conversion ('INSTITUTION' -> 'institution').
                 "holder_type": self.holder_type.value,
                 "holder": holder,
-                # SATIR BAZINDA degisir: AAPL mutualfund'da tek listede
-                # dort farkli tarih. Takvimsel etiket -> tz donusumu yok.
+                # Varies PER ROW: AAPL's mutualfund list has four different
+                # dates in one listing. Calendar label -> no tz conversion.
                 "date_reported": nz.to_local_date(record.get("Date Reported")),
                 "pct_held": nz.to_decimal(record.get("pctHeld")),
                 "pct_change": nz.to_decimal(record.get("pctChange")),

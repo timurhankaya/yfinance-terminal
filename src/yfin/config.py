@@ -1,20 +1,19 @@
-"""Uygulama yapilandirmasi (CFG).
+"""Application configuration.
 
-Iki katman vardir:
+Two layers:
 
-  1. `.env` + model varsayilani -- pydantic-settings'in kendi yolu.
-  2. `settings` TABLOSU -- 38 alan icin DB ezmesi (CFG S3.1).
+  1. `.env` + model default -- pydantic-settings' own resolution.
+  2. `settings` TABLE -- a DB override for 38 fields.
 
-Cozum sirasi `CLI bayragi > settings tablosu > .env > model varsayilani`
-olarak KENDILIGINDEN dogar: `Settings(**overrides)` cagrisinda init
-kwargs'lari pydantic env degerlerini EZER (canli dogrulandi). Ayri bir
-precedence mantigi YAZILMAZ -- yazilsaydi pydantic'inkiyle sessizce
-ayrisabilirdi.
+Precedence `CLI flag > settings table > .env > model default` falls out
+for free: passing init kwargs to `Settings(**overrides)` overrides pydantic's
+env values (verified live). No separate precedence logic is written -- one
+would risk silently diverging from pydantic's own.
 
-Metadata (tip / varsayilan / aralik / aciklama / grup) BU DOSYADA yasar,
-`settings` tablosunda DEGIL (CFG S2): kopyalansaydi `Field(ge=1)` bir gun
-`ge=2` olur ve tablodaki kopya bayatlardi. Yonetim paneli formu
-`settings_schema()` ile buradan cizer.
+Metadata (type / default / range / description / group) lives HERE, not in
+the `settings` table: duplicating it would let `Field(ge=1)` drift to `ge=2`
+while the table's copy went stale. The admin panel form is drawn from here
+via `settings_schema()`.
 """
 
 from __future__ import annotations
@@ -33,12 +32,14 @@ from yfin.logging_setup import configure_logging, get_logger
 
 log = get_logger(__name__)
 
-# `Settings` alani DEGILDIR ve olmamalidir: DB katmanini kapatan anahtar,
-# DB katmanindan okunamaz (tavuk-yumurta). `os.getenv` ile okunur.
+# Not a `Settings` field, and must not be: the switch that turns off the DB
+# layer can't itself be read from the DB layer (chicken-and-egg). Read via
+# `os.getenv`.
 SETTINGS_SOURCE_VAR = "YF_SETTINGS_SOURCE"
 
-# Panelin gruplayacagi 11 kume. Yeni bir grup adi eklemek bilincli bir
-# karardir; `tests/unit/test_settings_split.py` bilinmeyen grubu reddeder.
+# The 11 groups the admin panel organizes by. Adding a new group name is a
+# deliberate decision; `tests/unit/test_settings_split.py` rejects unknown
+# groups.
 SETTING_GROUPS: tuple[str, ...] = (
     "client",
     "runner",
@@ -55,12 +56,12 @@ SETTING_GROUPS: tuple[str, ...] = (
 
 
 def _cfg(group: str, description: str, **kwargs: Any) -> Any:
-    """`Field` + panel metadatasi.
+    """`Field` plus panel metadata.
 
-    `group` `json_schema_extra`ya konur cunku pydantic'in `FieldInfo`su
-    serbest anahtar KABUL ETMEZ. Ayri bir modul-seviyesi sozluk
-    tutulsaydi alan ile grubu iki ayri yerde yasar ve biri digerini
-    unutabilirdi; burada alanin TANIMIYLA ayni satirdadir.
+    `group` goes into `json_schema_extra` because pydantic's `FieldInfo`
+    rejects arbitrary keys. A separate module-level dict would let the field
+    and its group live in two places and drift apart; here it sits on the
+    same line as the field definition.
     """
     return Field(description=description, json_schema_extra={"group": group}, **kwargs)
 
@@ -73,224 +74,226 @@ class Settings(BaseSettings):
     db_user: str = "yfin"
     db_password: str = ""
     db_name: str = "yfinance"
-    # AYRI BIR VERITABANI, sema degil: canli veriyle test verisini fiziksel
-    # olarak ayirir. Surece ozel test SEMALARI bunun ICINDE acilir (S9.1).
+    # A SEPARATE DATABASE, not just a schema: keeps live data physically apart
+    # from test data. Per-process test SCHEMAS open inside this database.
     db_test_name: str = "yfinance_test"
 
     yf_rate_limit_per_sec: float = _cfg(
-        "client", "Saniyedeki istek tavani (token bucket).", default=2.0, gt=0
+        "client", "Request rate cap per second (token bucket).", default=2.0, gt=0
     )
     yf_max_workers: int = _cfg(
-        "runner", "Es zamanli sembol worker thread sayisi.", default=4, ge=1
+        "runner", "Number of concurrent symbol worker threads.", default=4, ge=1
     )
     yf_queue_maxsize: int = _cfg(
-        "runner", "Sembol kuyrugunun tavani (geri basinc).", default=8, ge=1
+        "runner", "Symbol queue cap (backpressure).", default=8, ge=1
     )
     yf_retry_attempts: int = _cfg(
-        "client", "Gecici hatada toplam deneme sayisi.", default=5, ge=1
+        "client", "Total retry attempts on a transient error.", default=5, ge=1
     )
     yf_retry_initial_sec: float = _cfg(
-        "client", "Ustel geri cekilmenin ilk bekleme suresi (saniye).", default=1.0, ge=0
+        "client", "Initial wait for exponential backoff (seconds).", default=1.0, ge=0
     )
     yf_retry_max_sec: float = _cfg(
-        "client", "Ustel geri cekilmenin bekleme tavani (saniye).", default=16.0, ge=0
+        "client", "Backoff wait cap (seconds).", default=16.0, ge=0
     )
     yf_news_count: int = _cfg(
-        "datasets", "Sembol basina cekilecek haber sayisi.", default=50, ge=1
+        "datasets", "Number of news items to fetch per symbol.", default=50, ge=1
     )
     yf_news_tab: str = _cfg(
-        "datasets", "Yahoo haber sekmesi (all / news / press releases).", default="all"
+        "datasets", "Yahoo news tab (all / news / press releases).", default="all"
     )
     yf_incremental_overlap_days: int = _cfg(
-        "symbols", "Artimli cekimde geriye ortusme penceresi (gun).", default=7, ge=0
+        "symbols", "Lookback overlap window for incremental fetches (days).", default=7, ge=0
     )
     yf_delist_threshold: int = _cfg(
         "symbols",
-        "is_active=0 yapan ardisik unknown_symbol sayisi (unknown_streak esigi).",
+        "Consecutive unknown_symbol count that sets is_active=0 (unknown_streak threshold).",
         default=5,
         ge=1,
     )
 
-    # --- shard'li calistirma (proxy havuzu) --------------------------------
+    # --- sharded runs (proxy pool) ------------------------------------
     yf_max_shards: int = _cfg(
-        "shard", "Ayni anda kosacak shard (proxy basina process) ust siniri.", default=4, ge=1
+        "shard", "Max concurrent shards (one process per proxy).", default=4, ge=1
     )
     yf_shard_timeout_seconds: int = _cfg(
         "shard",
-        "Bir shard process'inin tamamlanma suresi tavani (saniye).",
+        "Cap on a single shard process's completion time (seconds).",
         default=3600,
         ge=60,
     )
     yf_txn_retry_attempts: int = _cfg(
-        "runner", "Deadlock/kilit zaman asiminda transaction deneme sayisi.", default=3, ge=1
+        "runner", "Transaction retry attempts on deadlock/lock timeout.", default=3, ge=1
     )
 
-    # --- proxy politikasi -------------------------------------------------
+    # --- proxy policy ---------------------------------------------------
     yf_proxy_cooldown_seconds: int = _cfg(
-        "proxy", "Esigi asan proxy'nin dinlendirilme suresi (saniye).", default=900, ge=1
+        "proxy", "Rest period for a proxy that exceeds the failure threshold (seconds).",
+        default=900, ge=1
     )
     yf_proxy_failure_threshold: int = _cfg(
-        "proxy", "Cooldown'a dusuren ardisik hata sayisi.", default=3, ge=1
+        "proxy", "Consecutive failures that trigger cooldown.", default=3, ge=1
     )
     yf_proxy_dead_rounds: int = _cfg(
-        "proxy", "Proxy'yi olu sayan ardisik cooldown turu sayisi.", default=3, ge=1
+        "proxy", "Consecutive cooldown rounds after which a proxy is marked dead.",
+        default=3, ge=1
     )
     yf_proxy_check_timeout: float = _cfg(
-        "proxy", "Proxy saglik kontrolu istek zaman asimi (saniye).", default=10.0, gt=0
+        "proxy", "Proxy health-check request timeout (seconds).", default=10.0, gt=0
     )
-    # Fernet anahtari; bossa parolali proxy EKLENEMEZ (sifre koda/DB'ye
-    # duz metin girmez)
+    # Fernet key; empty means no password-protected proxy can be added (the
+    # password never enters code or DB as plaintext).
     yf_proxy_secret_key: str = ""
 
-    # --- yfinance advanced ------------------------------------------------
-    # yfinance'in tz/cookie/ISIN cache'i SQLite'tir; her shard kendi
-    # dizinini alir, aksi halde ikinci yazar SQLITE_BUSY yer
+    # --- yfinance advanced ----------------------------------------------
+    # yfinance's tz/cookie/ISIN cache is SQLite; each shard gets its own
+    # directory, otherwise a second writer hits SQLITE_BUSY.
     yf_tz_cache_dir: str = _cfg(
-        "datasets", "yfinance tz/cookie/ISIN cache kok dizini.", default=".cache/yfinance"
+        "datasets", "Root directory for yfinance's tz/cookie/ISIN cache.",
+        default=".cache/yfinance"
     )
     yf_history_repair: bool = _cfg(
-        "datasets", "history(repair=True): bolunme/para birimi hatalarini onar.", default=True
+        "datasets", "history(repair=True): fix split/currency errors.", default=True
     )
 
-    # Financials / market (S11)
     yf_earnings_dates_max_pages: int = _cfg(
-        "datasets", "earnings_dates icin sayfa ust siniri.", default=3, ge=1
+        "datasets", "Page cap for earnings_dates.", default=3, ge=1
     )
-    # YF_PROBE_SUSTAINABILITY ANAHTARI YOKTUR ve bilincli olarak
-    # KALDIRILMISTIR. CFG spec'i onu DB-yonetimli birakiyordu, ama ayni
-    # spec dataset'i `register(..., opt_in=True)` desenine tasidi ve o
-    # andan sonra bayragi OKUYAN HIC KIMSE KALMADI. Etkisi olmayan bir
-    # ayar, amaci bir yonetim paneli beslemek olan bu katmanda en kotu
-    # turden gurultudur: panelde calisir gorunen ama hicbir sey yapmayan
-    # bir anahtar. `yf_discovery_enabled` ve `YF_BAR_INTERVALS` icin
-    # verilen kararin aynisi (YAGNI).
+    # There is no YF_PROBE_SUSTAINABILITY key, deliberately removed. The
+    # original spec left it DB-managed, but the same spec later moved the
+    # dataset to `register(..., opt_in=True)`, after which nothing read the
+    # flag. A setting with no effect, in a layer that exists purely to feed
+    # an admin panel, is the worst kind of noise: a control that looks live
+    # but does nothing. Same call as for `yf_discovery_enabled` and
+    # YF_BAR_INTERVALS (YAGNI).
     #
-    # Karsiladigi ihtiyac zaten karsilanmis durumda: dataset `all`
-    # genislemesinde gorunmez, `--datasets sustainability` ile adiyla
-    # istenince kosar.
+    # The need it served is already met: the dataset is invisible in the
+    # `all` expansion and runs when requested by name via
+    # `--datasets sustainability`.
     yf_market_regions: str = _cfg(
         "market",
-        "Piyasa ozeti bolgeleri (virgullu).",
+        "Market summary regions (comma-separated).",
         default="US,EUROPE,ASIA,GB,CURRENCIES,CRYPTOCURRENCIES,COMMODITIES,RATES",
     )
     yf_calendar_lookback_days: int = _cfg(
-        "market", "Takvim penceresinin geriye uzanimi (gun).", default=7, ge=0
+        "market", "Calendar window lookback (days).", default=7, ge=0
     )
     yf_calendar_lookahead_days: int = _cfg(
-        "market", "Takvim penceresinin ileriye uzanimi (gun).", default=30, ge=0
+        "market", "Calendar window lookahead (days).", default=30, ge=0
     )
     yf_calendar_page_limit: int = _cfg(
-        "market", "Takvim sayfa boyu; Yahoo tavani 100.", default=100, ge=1, le=100
+        "market", "Calendar page size; Yahoo caps at 100.", default=100, ge=1, le=100
     )
     yf_calendar_max_pages: int = _cfg(
-        "market", "Takvim icin sayfa ust siniri.", default=5, ge=1
+        "market", "Page cap for calendar.", default=5, ge=1
     )
 
-    # --- sektor / endustri (SI S12) ---------------------------------------
-    # ISO 3166-1 alpha-2, virgullu. ILKI BIRINCILDIR: bolgesiz dataset'ler
-    # onun yanitini kullanir ve dogrulama probu onu taban alir.
+    # --- sector / industry ------------------------------------------------
+    # ISO 3166-1 alpha-2, comma-separated. THE FIRST IS PRIMARY: region-less
+    # datasets use its response, and the validation probe uses it as baseline.
     #
-    # IKI AYAR, UC DEGIL. Ilk taslakta bir `yf_domain_include_reports`
-    # bayragi vardi; cikarildi cunku hicbir yerde okunmuyordu ve okunsaydi
-    # profil dataset'inin `produces`'ini KOSULLU yapar, denetimin hucre
-    # sayisini yapilandirmaya bagimli kilardi. Rapor istemeyen kullanici
-    # `--datasets sector_rankings,industry_rankings` diyebilir.
+    # TWO SETTINGS, NOT THREE. An early draft had a
+    # `yf_domain_include_reports` flag; removed because nothing read it, and
+    # reading it would have made the profile dataset's `produces` CONDITIONAL,
+    # tying the audit's cell count to configuration. A user who doesn't want
+    # reports can just ask for `--datasets sector_rankings,industry_rankings`.
     yf_domain_regions: str = _cfg(
-        "domain", "Sektor/endustri bolgeleri (virgullu, ILKI BIRINCILDIR).", default="US"
+        "domain", "Sector/industry regions (comma-separated, FIRST IS PRIMARY).", default="US"
     )
-    # Bolge dogrulama probunun referans sektoru (SI S6.6)
+    # Reference sector for the region validation probe.
     yf_domain_reference_sector: str = _cfg(
-        "domain", "Bolge dogrulama probunun referans sektoru.", default="technology"
+        "domain", "Reference sector for the region validation probe.", default="technology"
     )
 
-    # --- kesif: Search / Lookup / Screener (SQ S13.1) ---------------------
-    # YF_DISCOVERY_ENABLED ANAHTARI YOKTUR ve bilincli olarak
-    # KALDIRILMISTIR. Ilk tasarimda `search`/`lookup` kaydini bir bayraga
-    # baglamisti (`sustainability` deseni). Uygulamada iki kusuru gorundu:
-    #   1. Bayrak kapaliyken `--datasets search` de calismiyordu -- dataset
-    #      registry'de hic yoktu.
-    #   2. Bayrak acildigi anda CIPLAK `yfin sync` de onlari cekmeye
-    #      basliyordu: +9.000 istek/gun. Yani bayrak tuzagi cozmuyor,
-    #      yalnizca kullanici onu acana kadar erteliyordu.
-    # Cozum registry'ye tasindi: `register(..., opt_in=True)` -- adiyla
-    # istendiginde kosar, `all` genislemesinde HIC gorunmez.
+    # --- discovery: Search / Lookup / Screener ----------------------------
+    # There is no YF_DISCOVERY_ENABLED key, deliberately removed. The
+    # original design gated `search`/`lookup` registration behind a flag
+    # (the `sustainability` pattern). In practice this had two flaws:
+    #   1. With the flag off, `--datasets search` also didn't work -- the
+    #      dataset wasn't in the registry at all.
+    #   2. The moment the flag was turned on, a BARE `yfin sync` started
+    #      pulling them too: +9,000 requests/day. So the flag didn't solve
+    #      the problem, it only postponed it until the user flipped it.
+    # Fixed by moving to the registry: `register(..., opt_in=True)` -- runs
+    # when requested by name, never appears in the `all` expansion.
     yf_search_max_results: int = _cfg(
-        "discovery", "Search: donen kote sayisi.", default=10, ge=1
+        "discovery", "Search: number of quotes returned.", default=10, ge=1
     )
     yf_search_news_count: int = _cfg(
-        "discovery", "Search: donen haber sayisi.", default=5, ge=0
+        "discovery", "Search: number of news items returned.", default=5, ge=0
     )
     yf_search_lists_count: int = _cfg(
-        "discovery", "Search: donen liste sayisi.", default=10, ge=0
+        "discovery", "Search: number of lists returned.", default=10, ge=0
     )
-    # `all` cagrisinin belge tavani ~1.000 olculdu; 1000 istemek tavana
-    # kadarini alir. 250 istenseydi DAR terimlerde bile kirpardi
-    # (BTC: count=250 -> 248 belge, oysa total 503).
+    # Measured document cap for `all` is ~1,000; requesting 1000 gets
+    # everything up to that cap. Requesting 250 would truncate even narrow
+    # terms (BTC: count=250 -> 248 docs, though total is 503).
     yf_lookup_count: int = _cfg(
-        "discovery", "Lookup: tek cagrida istenen belge sayisi.", default=1000, ge=1
+        "discovery", "Lookup: documents requested per call.", default=1000, ge=1
     )
-    # `lookupTotals.all` bu degeri asarsa `all` cagrisi KIRPILMIS demektir
-    # ve yedi tipli dala gecilir (SQ K6). Olculdu: BTC 503 -> `all` tam
-    # kume; GOLD 7.273 -> `all` yalniz 995 belge, tipli birlesim 3.313.
-    # Esik `all`in gozlenen tavaninin (~1.000) ALTINDA tutulur ki kirpilma
-    # BASLAMADAN tipli dala gecilsin.
+    # If `lookupTotals.all` exceeds this value, the `all` call was truncated
+    # and the code falls back to the per-type branch. Measured: BTC 503 ->
+    # `all` is the full set; GOLD 7,273 -> `all` returns only 995 docs, the
+    # typed union returns 3,313. The threshold is kept BELOW the observed
+    # `all` cap (~1,000) so the fallback triggers before truncation starts.
     yf_lookup_all_threshold: int = _cfg(
-        "discovery", "Bu esik asilirsa `all` yerine tipli dala gecilir.", default=500, ge=1
+        "discovery", "Above this, fall back to the per-type branch instead of `all`.",
+        default=500, ge=1
     )
-    # Yahoo tavani 250; asilirsa `yf.screen` ValueError firlatir. le=250
-    # sayesinde bu bir YAPILANDIRMA hatasi olur ve `Settings` yuklenirken
-    # gorulur, kosu ortasinda degil.
+    # Yahoo's cap is 250; exceeding it makes `yf.screen` raise ValueError.
+    # le=250 turns that into a CONFIGURATION error caught when `Settings`
+    # loads, not mid-run.
     yf_screen_size: int = _cfg(
-        "discovery", "Screener sayfa boyu; Yahoo tavani 250.", default=250, ge=1, le=250
+        "discovery", "Screener page size; Yahoo caps at 250.", default=250, ge=1, le=250
     )
-    # Ekran basina sayfa ust siniri. 19 predefined: sinirsiz 49 istek,
-    # cap=4 ile 32. En pahali ekran `most_shorted_stocks` (total 4.022,
-    # 17 sayfa). Sinira takilan ekran `screen_runs.total` ile
-    # `fetched_rows` farkindan GORULUR (SQ S9.6/1).
+    # Page cap per screen. 19 predefined screens: unlimited is 49 requests,
+    # cap=4 is 32. The most expensive screen is `most_shorted_stocks` (total
+    # 4,022, 17 pages). A screen hitting the cap is visible from the gap
+    # between `screen_runs.total` and `fetched_rows`.
     yf_screen_max_pages: int = _cfg(
-        "discovery", "Ekran basina sayfa ust siniri.", default=4, ge=1
+        "discovery", "Page cap per screen.", default=4, ge=1
     )
-    # Bos = `screens.py`deki tum ekranlar (DB'de kapatilmis olanlar haric).
+    # Empty = all screens in `screens.py` (except those disabled in the DB).
     yf_screen_keys: str = _cfg(
-        "discovery", "Kosulacak ekran anahtarlari (virgullu; bos = hepsi).", default=""
+        "discovery", "Screen keys to run (comma-separated; empty = all).", default=""
     )
 
-    # --- price_bars (PB S11) ----------------------------------------------
-    # YF_BAR_INTERVALS ANAHTARI YOKTUR ve bilincli olarak eklenmemistir.
-    # Spec'te vardi; denetimde hicbir yerde okunmadigi gorulunce KALDIRILDI
-    # (YAGNI). Iki gerekce:
-    #   1. Ikinci bir dogruluk kaynagi yaratirdi: "hangi interval'ler
-    #      kosuyor" sorusunun cevabi hem registry alias'inda hem .env'de
-    #      olurdu ve ikisi sessizce ayrisabilirdi.
-    #   2. Karsiladigi ihtiyac zaten karsilanmis durumda: kullanici
-    #      `--datasets bars_5m,bars_15m` yazabilir ya da `intraday`
-    #      alias'ini kullanabilir.
-    # Seans disi barlar yazilsin mi. DIKKAT: ek bar yalniz ABD
-    # hisselerinde gelmez - SHEL.L ve VWCE.DE hasPrePostMarketData=False
-    # bildirdikleri halde 5 ve 8 ek bar donduruyor (olculdu). Kapatmak,
-    # o barlari KALICI olarak kaybetmek demektir.
+    # --- price_bars ---------------------------------------------------------
+    # There is no YF_BAR_INTERVALS key, deliberately not added. It was in the
+    # spec; the audit found nothing reading it, so it was dropped (YAGNI).
+    # Two reasons:
+    #   1. It would create a second source of truth: "which intervals run"
+    #      would be answered by both the registry alias and .env, and the
+    #      two could silently diverge.
+    #   2. The need it served is already met: a user can write
+    #      `--datasets bars_5m,bars_15m` or use the `intraday` alias.
+    # Whether to write extended-hours bars. Extended bars aren't limited to
+    # US stocks -- SHEL.L and VWCE.DE report hasPrePostMarketData=False and
+    # still return 5 and 8 extended bars (measured). Turning this off means
+    # PERMANENTLY losing those bars.
     yf_bar_prepost: bool = _cfg(
         "bars",
-        "Seans disi barlari da yaz (kapatmak o barlari KALICI kaybettirir).",
+        "Also write extended-hours bars (turning this off loses them permanently).",
         default=True,
     )
-    # Artimli pencerede geriye ortusme. Ortusme idempotenttir (olculdu:
-    # 78 ortak barda deger farki yok); maliyeti birkac yuz gereksiz
-    # upsert, faydasi seans sinirindaki barin kacmamasi.
+    # Lookback overlap in the incremental window. The overlap is idempotent
+    # (measured: no value differences across 78 overlapping bars); the cost is
+    # a few hundred redundant upserts, the benefit is not missing a bar at the
+    # session boundary.
     yf_bar_overlap_days: int = _cfg(
-        "bars", "Artimli bar penceresinde geriye ortusme (gun).", default=2, ge=0
+        "bars", "Lookback overlap for the incremental bar window (days).", default=2, ge=0
     )
 
-    # Budama VARSAYILAN KAPALI (S7.4): takvim ve _history satirlari yeniden
-    # cekilemez, bu yuzden silme acikca etkinlestirilmeden calismaz.
+    # Pruning defaults to OFF: calendar and _history rows can't be re-fetched,
+    # so deletion never runs unless explicitly enabled.
     yf_prune_enabled: bool = _cfg(
-        "maintenance", "Budama ana anahtari; VARSAYILAN KAPALI (S7.4).", default=False
+        "maintenance", "Master switch for pruning; defaults to OFF.", default=False
     )
 
     log_level: str = "INFO"
 
     def db_url(self, database: str | None = None) -> URL:
-        """SQLAlchemy URL nesnesi; kimlik bilgileri stringe gomulmez."""
+        """SQLAlchemy URL object; credentials are never embedded in a string."""
         return URL.create(
             drivername="postgresql+psycopg",
             username=self.db_user,
@@ -301,69 +304,68 @@ class Settings(BaseSettings):
         )
 
     def bootstrap_url(self) -> URL:
-        """CREATE DATABASE icin bakim veritabani baglantisi.
+        """Maintenance-database connection, for `CREATE DATABASE`.
 
-        PostgreSQL'de veritabani SECMEDEN baglanilamaz, bu yuzden bakim
-        veritabani `postgres` kullanilir.
+        PostgreSQL requires connecting to SOME database, so the maintenance
+        connection uses `postgres`.
 
-        BU URL YALNIZCA `CREATE DATABASE` ICINDIR. `information_schema` ve
-        `pg_namespace` VERITABANINA OZELDIR: buradan acilan bir baglanti
-        `yfinance_test` icindeki semalari GOREMEZ. Sema olusturma, silme
-        ve bayat sema temizligi `db_url(db_test_name)` ile yapilmalidir
-        (S9.1) -- aksi halde temizlik sessizce hicbir sey yapar ve
-        semalar sonsuza kadar birikir.
+        This URL is ONLY for `CREATE DATABASE`. `information_schema` and
+        `pg_namespace` are DATABASE-SCOPED: a connection opened here cannot
+        see schemas inside `yfinance_test`. Schema creation, deletion, and
+        stale-schema cleanup must use `db_url(db_test_name)` -- otherwise
+        cleanup silently does nothing and schemas accumulate forever.
         """
         return self.db_url(database="postgres")
 
 
-# --- alan bolunmesi (CFG S3.1) --------------------------------------------
+# --- field split ------------------------------------------------------------
 
 ENV_ONLY_FIELDS = frozenset(
     {
-        # Bootstrap paradoksu: baglantiyi ACAN deger baglantinin ardinda
-        # duramaz.
+        # Bootstrap paradox: the value that opens the connection can't live
+        # behind that connection.
         "db_host",
         "db_port",
         "db_user",
         "db_password",
         "db_name",
         "db_test_name",
-        # Fernet anahtarini, SIFRELEDIGI proxy parolalariyla ayni yere
-        # koymak proxy/crypto.py'yi anlamsizlastirirdi.
+        # Putting the Fernet key next to the proxy passwords it encrypts
+        # would defeat the point of proxy/crypto.py.
         "yf_proxy_secret_key",
-        # configure_logging(), create_db_engine()'den ONCE cagriliyor
-        # (shard.py). Ayrica CFG S3.3'un log sirasi bu alanin env'de
-        # olmasina DAYANIR: yukleyicinin uyarilari -- guvenlik siniri
-        # dahil -- yapilandirilmis logger'a dusmek zorundadir.
+        # configure_logging() is called before create_db_engine() (shard.py).
+        # The log ordering also relies on this field being in env: the
+        # loader's warnings -- including the security boundary one -- must
+        # land in the configured logger.
         "log_level",
     }
 )
 
-# TAMLAYAN olarak turetilir: `Settings`e yeni bir alan eklendiginde
-# kendiliginden DB-yonetimli olur. Liste elle yazilsaydi yeni alan
-# SESSIZCE hicbir kumeye girmezdi. Turetmenin fail-open riskini
-# `tests/unit/test_settings_split.py`teki DORT cit kapatir (tuketicilik,
-# metadata, SIR ADI kalibi, skalerlik).
+# Derived as the COMPLEMENT: any new `Settings` field automatically becomes
+# DB-managed. Writing the list by hand would let a new field silently join
+# neither set. The fail-open risk of deriving it is guarded by four checks in
+# `tests/unit/test_settings_split.py` (consumability, metadata, secret-name
+# pattern, scalar-ness).
 DB_MANAGED_FIELDS = frozenset(Settings.model_fields) - ENV_ONLY_FIELDS
 
 
 _settings: Settings | None = None
-# Yukleyicinin UYGULADIGI ham ezmeler. Shard parent'i bunlari `ShardSpec`
-# ile child'a tasir (CFG S3.5); child yeniden okumaz.
+# Raw overrides the loader APPLIED. The shard parent carries these to the
+# child via `ShardSpec`; the child never re-reads them.
 _overrides: dict[str, str] = {}
-# Bugun kilitsiz olmasi zararsizdi (~1 ms). DB okumasiyla birlikte iki
-# worker thread IKI AYRI `Settings` NESNESI uretebilir; nesne kimligine
-# dayanan test yamalari (test_client.py) sessizce etkisizlesirdi.
+# Being unlocked today would be harmless (~1 ms). Combined with a DB read,
+# two worker threads could produce TWO SEPARATE `Settings` objects, silently
+# breaking test patches that rely on object identity (test_client.py).
 _lock = threading.Lock()
 
 
 def source_is_env() -> bool:
-    """`YF_SETTINGS_SOURCE=env` -> DB katmani HIC okunmaz.
+    """`YF_SETTINGS_SOURCE=env` means the DB layer is never read.
 
-    Deger `strip().lower()` ile karsilastirilir; `env` disindaki bos
-    olmayan her deger WARNING uretir. KURTARMA amacli bir anahtarin bir
-    yazim hatasi yuzunden SESSIZCE etkisiz kalmasi kabul edilemez --
-    operator DB katmanini kapattigini sanirken acik kalmis olurdu.
+    Compared via `strip().lower()`; any non-empty value other than `env`
+    logs a WARNING. A recovery switch silently doing nothing because of a
+    typo is not acceptable -- the operator would think the DB layer was off
+    while it stayed on.
     """
     raw = os.getenv(SETTINGS_SOURCE_VAR)
     if raw is None:
@@ -381,12 +383,12 @@ def source_is_env() -> bool:
 
 
 def bootstrap_settings() -> Settings:
-    """DB katmanina HIC dokunmayan `Settings` ornegi.
+    """A `Settings` instance that never touches the DB layer.
 
-    Uc yerde gereklidir: (a) yukleyicinin kendisi, (b) `yfin db create` /
-    `yfin db revision` gibi veritabani HENUZ YOKKEN kosan komutlar,
-    (c) `seed --adopt-env` -- etkin degeri okurken kendi yazdigi
-    satirlari geri BESLEMEMESI icin.
+    Needed in three places: (a) the loader itself, (b) commands that run
+    before the database EXISTS YET, like `yfin db create` / `yfin db
+    revision`, (c) `seed --adopt-env` -- so reading the effective value
+    doesn't feed back the rows it just wrote.
     """
     return Settings()
 
@@ -396,38 +398,38 @@ def _load() -> Settings:
     _overrides = {}
     env_only = bootstrap_settings()
 
-    # ILK IS: `log_level` ENV_ONLY oldugu icin BURADA hazirdir. structlog
-    # cache_logger_on_first_use=True ile calisir; bundan once basilan her
-    # satir yapilandirilmamis PrintLogger'a duser ve redact_credentials
-    # processor'i devrede olmaz (CFG S3.3).
+    # FIRST: `log_level` is ENV_ONLY so it's ready here. structlog runs with
+    # cache_logger_on_first_use=True; any line logged before this falls into
+    # the unconfigured PrintLogger and the redact_credentials processor
+    # doesn't run.
     configure_logging(env_only.log_level)
 
     if source_is_env():
         return env_only
 
-    # YEREL import: settings_store -> db/models -> config zinciri dongu
-    # yapar. Kod tabaninin bu durumdaki deseni yerel import'tur
-    # (prune.py).
+    # LOCAL import: settings_store -> db/models -> config would otherwise
+    # cycle. The codebase's pattern for this case is a local import (see
+    # prune.py).
     from yfin.settings_store import load_overrides
 
     overrides = load_overrides(env_only)
     if not overrides:
         return env_only
     _overrides = overrides
-    # Init kwargs pydantic'te env'i EZER; cozum sirasi (DB > env >
-    # varsayilan) boylece kendiliginden dogar. Gecersiz bir deger burada
-    # ValidationError uretir ve kosu HIC baslamaz -- sessiz geri dusus
-    # operatorun niyetini yok sayardi (CFG S7).
+    # Init kwargs override env in pydantic, so precedence (DB > env >
+    # default) falls out for free. An invalid value raises ValidationError
+    # here and the run never starts -- a silent fallback would ignore the
+    # operator's intent.
     return settings_from_overrides(overrides)
 
 
 @dataclass(frozen=True)
 class FieldSchema:
-    """Yonetim panelinin formu cizmek icin ihtiyac duydugu HER SEY.
+    """Everything the admin panel needs to draw the form.
 
-    `min` / `max` ELLE YAZILMAZ: `Field` kisitlarindan (`Ge`, `Le`, `Gt`,
-    `Lt`) turetilir. Kopyalansaydi `ge=1` bir gun `ge=2` olur ve panel
-    bayat bir araligi dogrulardi.
+    `min` / `max` are NOT written by hand: they're derived from `Field`
+    constraints (`Ge`, `Le`, `Gt`, `Lt`). Duplicating them would let `ge=1`
+    drift to `ge=2` while the panel kept validating against a stale range.
     """
 
     key: str
@@ -440,10 +442,10 @@ class FieldSchema:
 
 
 def _bounds(metadata: list[Any]) -> tuple[float | None, float | None]:
-    """`Field` kisitlarindan (min, max).
+    """(min, max) from `Field` constraints.
 
-    `gt` / `lt` de min/max sayilir: panel icin bilgi degeri aynidir
-    (`gt=0` -> "0'dan buyuk"), asil dogrulama zaten pydantic'te kalir.
+    `gt` / `lt` count as min/max too: same informational value for the panel
+    (`gt=0` -> "greater than 0"), actual validation still stays in pydantic.
     """
     low: float | None = None
     high: float | None = None
@@ -460,11 +462,11 @@ def _bounds(metadata: list[Any]) -> tuple[float | None, float | None]:
 
 
 def settings_schema() -> list[FieldSchema]:
-    """DB-yonetimli alanlarin makine-okunur semasi. SAF: DB'ye BAKMAZ.
+    """Machine-readable schema of DB-managed fields. Pure: never touches the DB.
 
-    Sema ile DURUM bilincli olarak ayrildi (CFG S2/S6.4): sema surec omru
-    boyunca sabittir, `value` her okumada degisebilir. Birlesik olsaydi
-    saf sema agsiz test edilemez ve onbelleklenemezdi.
+    Schema and state are deliberately separate: the schema is constant for
+    the process lifetime, `value` can change on every read. Combining them
+    would make the pure schema untestable without a DB and uncacheable.
     """
     out: list[FieldSchema] = []
     for key in sorted(DB_MANAGED_FIELDS):
@@ -487,19 +489,20 @@ def settings_schema() -> list[FieldSchema]:
 
 
 def settings_from_overrides(overrides: Mapping[str, str]) -> Settings:
-    """Ham METIN ezmelerinden `Settings` kurar.
+    """Build `Settings` from raw TEXT overrides.
 
-    `type: ignore` ZORUNLUDUR ve gecici degildir: alanlar `int` / `float`
-    / `bool` olarak TIPLENMISTIR, oysa hem `.env` hem `settings` tablosu
-    her degeri METIN verir ve donusumu pydantic yapar. Bu tek kapiya
-    toplanmasi, susturmanin kod tabanina yayilmasini onler.
+    `type: ignore` is required and not temporary: fields are TYPED as `int` /
+    `float` / `bool`, but both `.env` and the `settings` table hand back
+    every value as text, and pydantic does the conversion. Funneling this
+    through one spot keeps the suppression from spreading across the
+    codebase.
     """
     return Settings(**overrides)  # type: ignore[arg-type]
 
 
 def get_settings() -> Settings:
     global _settings
-    if _settings is None:  # hizli yol, kilitsiz
+    if _settings is None:  # fast path, no lock
         with _lock:
             if _settings is None:  # double-checked
                 _settings = _load()
@@ -507,30 +510,30 @@ def get_settings() -> Settings:
 
 
 def applied_overrides() -> dict[str, str]:
-    """Yukleyicinin UYGULADIGI ham ezmeler (kopya).
+    """Raw overrides the loader APPLIED (a copy).
 
-    `settings` tablosu yeniden OKUNMAZ: kosan bir sync'in tutarli TEK bir
-    anlik goruntu kullanmasi, shard'lar arasi yapilandirma carpikligini
-    imkansiz kilar (CFG S3.5).
+    The `settings` table is never RE-READ: a running sync using one
+    consistent snapshot makes cross-shard configuration skew impossible.
     """
     return dict(_overrides)
 
 
 def install_settings(settings: Settings, overrides: Mapping[str, str] | None = None) -> None:
-    """Cozulmus `Settings`i surece KURAR; yukleyici bir daha kosmaz.
+    """Install a resolved `Settings` into the process; the loader never runs again.
 
-    `overrides` de birlikte kurulur. Kurulmasaydi child'da
-    `applied_overrides()` BOS donerdi -- bugun kimse cagirmiyor, ama
-    "singleton kuruldu ama ezmeler bos" hali sessizce yanlis bir cevap
-    uretirdi; iki degeri ayni kapidan gecirmek bu tuzagi hic kurmaz.
+    `overrides` is installed alongside it. Without that, `applied_overrides()`
+    would come back EMPTY in the child -- nothing calls it today, but a
+    singleton installed with empty overrides would silently produce a wrong
+    answer; passing both values through the same door avoids that trap
+    entirely.
 
-    Shard child'lari icindir (CFG S3.5): parent'in cozdugu deger
-    `ShardSpec` ile tasinir ve child DB'ye HIC bakmaz. Child kendi
-    `get_settings()`ini cagirsaydi araya giren bir `yfin config set`
-    shard-0 ile shard-3'un FARKLI yapilandirmayla kosmasina yol acardi;
-    ustelik child `settings.db_name`e baglanip asil isini
-    `spec.database`de yapar -- yani YONLENDIRILMEDIGI semadan ayar
-    okurdu.
+    For shard children: the parent's resolved value is carried via
+    `ShardSpec` and the child never looks at the DB. If the child called its
+    own `get_settings()`, an intervening `yfin config set` could make
+    shard-0 and shard-3 run with DIFFERENT configuration; worse, the child
+    connects using `settings.db_name` but does its actual work in
+    `spec.database` -- i.e. it would read settings from a schema it isn't
+    even routed to.
     """
     global _settings, _overrides
     with _lock:
@@ -539,11 +542,11 @@ def install_settings(settings: Settings, overrides: Mapping[str, str] | None = N
 
 
 def reset_settings() -> None:
-    """Singleton'i temizler (testler ve `yfin config` yazma yolu icin).
+    """Clear the singleton (for tests and the `yfin config` write path).
 
-    Sifirlama OLMASAYDI repo testleri onceki testten dolu gelen bir
-    singleton'la kosar, `load_overrides` HIC cagrilmaz ve testler YANLIS
-    NEDENLE yesil kalirdi (CFG S8.2).
+    Without a reset, repo tests would run against a singleton left over from
+    the previous test, `load_overrides` would never be called, and tests
+    would stay green FOR THE WRONG REASON.
     """
     global _settings, _overrides
     with _lock:

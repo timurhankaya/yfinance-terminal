@@ -1,8 +1,8 @@
-"""proxies tablosunun okunmasi ve yazilmasi.
+"""Reads and writes the proxies table.
 
-Saglik guncellemesi sembol transaction'inin DISINDA, kendi kisa
-transaction'inda yapilir: rollback, proxy'nin bandigi bilgisini de
-silerdi.
+Health updates happen in their own short transaction, outside the
+symbol transaction: a rollback there would also erase which proxy got
+banned.
 """
 
 from __future__ import annotations
@@ -26,17 +26,17 @@ from yfin.proxy.health import (
 log = get_logger(__name__)
 
 def select_eligible(session: Session, limit: int) -> list[Proxy]:
-    """Uygun proxy'ler; saglikli once, sonra HIC DENENMEMIS, sonra hizli.
+    """Eligible proxies: healthy first, then never-tried, then fastest.
 
-    UYGUNLUGUN TEK DOGRULUK KAYNAGI BU SORGUDUR. Ayni kurali yansitan
-    bir Python yardimcisi da tutulmus, uretimde kullanilmiyordu ve ikisi
-    birbirinden sapabiliyordu; kaldirildi. Kural repo testindeki dogruluk
-    tablosuyla dogrudan SQL uzerinde sinaniyor.
+    This query is the single source of truth for eligibility. A Python
+    helper mirroring the same rule used to exist unused in production and
+    could drift from this one, so it was removed; the rule is tested
+    directly against this SQL with a truth table.
 
-    `(health='unknown') DESC` kriteri gereklidir: o olmadan
-    `last_latency_ms IS NULL` yuzunden yeni eklenmis bir proxy HIC
-    kullanilmaz, buna karsilik cooldown'dan yeni cikmis (ve gecmiste
-    latency olculmus) bir proxy tercih edilirdi.
+    The `(health='unknown') DESC` ordering is required: without it, a
+    newly added proxy (`last_latency_ms IS NULL`) would never be picked,
+    while a proxy freshly out of cooldown with a stale measured latency
+    would be preferred instead.
     """
     now = datetime.now(UTC)
     stmt = (
@@ -73,15 +73,15 @@ def persist_event(
     latency_ms: int | None = None,
     checked: bool = False,
 ) -> ProxyHealthState:
-    """Tek olayi DB'ye uygular. KENDI transaction'inda cagrilmalidir.
+    """Applies a single event to the DB. Must be called in its own transaction.
 
-    Saglik guncellemesi sembol transaction'inin ICINDE OLMAZ: rollback,
-    proxy'nin bandigi bilgisini de silerdi.
+    Health updates never happen inside the symbol transaction: a rollback
+    there would also erase which proxy got banned.
 
-    Sayaclar ARTIMLI yazilir (`= x + 1`), cunku ayni satira birden cok
-    yazar biner (child'in flush'i, parent'in SHARD_CRASH'i, es zamanli
-    `proxy check`) ve okunan degeri geri yazmak lost update uretirdi.
-    Durum gecisi FOR UPDATE altinda yapilir.
+    Counters are written incrementally (`= x + 1`) because multiple
+    writers can hit the same row (child's flush, parent's SHARD_CRASH,
+    a concurrent `proxy check`); writing back a value read earlier would
+    lose updates. The state transition itself runs under FOR UPDATE.
     """
     moment = now or datetime.now(UTC)
     row = session.execute(
@@ -124,13 +124,13 @@ def persist_event(
 
 
 class ShardProxyTracker:
-    """Bir shard'in proxy saglik muhasebesi.
+    """Tracks one shard's proxy health in memory.
 
-    Olaylar bellekte biriktirilir; DB'ye (a) cooldown esigi gecildigi
-    anda, (b) shard bitiminde yazilir. `withdrawn` True olunca child
-    kuyruktan yeni sembol CEKMEYI BIRAKIR - aksi halde banlanmis proxy
-    429'u aninda aldigi icin kuyruktan EN COK sembolu ceker ve hepsini
-    failed isaretlerdi.
+    Events accumulate in memory and are written to the DB (a) the moment
+    the cooldown threshold is crossed, (b) at shard end. Once `withdrawn`
+    is True the child stops pulling new symbols from the queue -
+    otherwise a banned proxy gets 429s instantly and would drain the
+    queue fastest, marking everything failed.
     """
 
     def __init__(self, proxy_id: int | None, policy: ProxyPolicy) -> None:
@@ -154,7 +154,7 @@ class ShardProxyTracker:
             return
         event = event_for(kind)
         if event is None:
-            return  # DATA / UNKNOWN_SYMBOL proxy'yi cezalandirmaz
+            return  # DATA / UNKNOWN_SYMBOL doesn't penalize the proxy
         self._append(event, message)
 
     def _append(self, event: HealthEvent, message: str | None) -> None:
@@ -165,7 +165,7 @@ class ShardProxyTracker:
             self.withdrawn = True
 
     def flush(self, session: Session) -> None:
-        """Bekleyen olaylari DB durumu uzerinde SIRAYLA yeniden oynatir."""
+        """Replays pending events against DB state, in order."""
         if not self.active or not self._pending:
             return
         pending, self._pending = self._pending, []
@@ -176,5 +176,5 @@ class ShardProxyTracker:
 
 
 # --------------------------------------------------------------------------
-# Aktif kontrol
+# Active check
 # --------------------------------------------------------------------------

@@ -1,18 +1,19 @@
-"""funds_data dataset'i (AH S6.3, S5.3).
+"""funds_data dataset.
 
-HIBRIT SEMA, olcumle zorunlu: hisse fonunda 11 sektor + 1 rating, tahvil
-fonunda 0 sektor + 9 rating (BND, TLT, AGG). Sabit kolon seti iki fon tipini
-birden tasiyamaz, bu yuzden degisken anahtarli yuzdeler EAV'a
-(`fund_weightings`), sabit olculen alanlar tipli kolona gider.
-`asset_classes` EAV'a GIRMEZ: alti anahtari 10 fonun 10'unda da sabit.
+HYBRID SCHEMA, forced by measurement: an equity fund has 11 sectors + 1
+rating, a bond fund has 0 sectors + 9 ratings (BND, TLT, AGG). A fixed
+column set cannot carry both fund types, so variable-key percentages go to
+EAV (`fund_weightings`) while the fixed measured fields get typed columns.
+`asset_classes` does NOT go to EAV: its six keys are fixed across all 10
+funds measured.
 
-ON KONTROL: fon olmayan sembolde HIC ISTEK YAPILMAZ. `fast_info['quoteType']`
-(yoksa `history_metadata['instrumentType']`) okunur; ikisi de bootstrap
-`symbols` dataset'i tarafindan ZATEN cekilip ctx onbellegine konmustur ve 12
-sembolde birebir ayni olculdu -- ayrica ayni chart istegiyle beslendikleri
-icin ek maliyetleri yoktur. Bu yuzden `depends_on`'a `history_metadata`
-EKLENMEZ: eklenseydi `--datasets funds` calistirmasi history_metadata
-TABLOSUNA da yazar ve fazladan denetim satiri uretirdi.
+PRE-CHECK: a non-fund symbol triggers NO request at all. Reads
+`fast_info['quoteType']` (else `history_metadata['instrumentType']`); both
+are ALREADY fetched by the bootstrap `symbols` dataset and sit in the ctx
+cache -- measured identical across 12 symbols, and free since they ride the
+same chart request. `depends_on` therefore does NOT include
+`history_metadata`: adding it would make `--datasets funds` also write the
+history_metadata table and produce an extra audit row.
 """
 
 from __future__ import annotations
@@ -36,8 +37,8 @@ from yfin.persistence import RowWriter
 
 log = get_logger(__name__)
 
-# `holding_rank` TINYINT UNSIGNED tasir (models/funds.py). Olculen en buyuk
-# top_holdings 10 satir; sinir kolonun kendisidir, kaynagin degil.
+# `holding_rank` is TINYINT UNSIGNED (models/funds.py). The largest
+# top_holdings measured is 10 rows; the limit is the column's, not the source's.
 MAX_HOLDING_RANK = 255
 
 PROFILE_TABLE = "fund_profile"
@@ -49,7 +50,7 @@ FUND_QUOTE_TYPES = frozenset({"ETF", "MUTUALFUND"})
 ITEM_KEY_LENGTH = 32
 CATEGORY_AVERAGE = "Category Average"
 
-# fund_operations index etiketi -> (deger kolonu, kategori ortalamasi kolonu)
+# fund_operations index label -> (value column, category-average column)
 OPERATIONS: dict[str, tuple[str, str]] = {
     "Annual Report Expense Ratio": ("expense_ratio", "expense_ratio_cat"),
     "Annual Holdings Turnover": ("holdings_turnover", "holdings_turnover_cat"),
@@ -63,8 +64,8 @@ ASSET_CLASSES: dict[str, str] = {
     "convertiblePosition": "convertible_position",
     "otherPosition": "other_position",
 }
-# equity/bond_holdings index etiketi -> `fund_metrics.metric`. Etiketten
-# turetilemez ('Price/Earnings' -> 'price_to_earnings'), bu yuzden harita.
+# equity/bond_holdings index label -> `fund_metrics.metric`. Cannot be
+# derived from the label ('Price/Earnings' -> 'price_to_earnings'), hence a map.
 EQUITY_METRICS: dict[str, str] = {
     "Price/Earnings": "price_to_earnings",
     "Price/Book": "price_to_book",
@@ -92,10 +93,11 @@ PROFILE_COLUMNS = (
 
 
 def _resolve_quote_type(ctx: SyncContext) -> str | None:
-    """fast_info['quoteType'], yoksa history_metadata['instrumentType'].
+    """fast_info['quoteType'], else history_metadata['instrumentType'].
 
-    Anahtar ADI camelCase'tir: `fi.get('quote_type')` her sembolde None
-    doner ve on kontrol sessizce her sembol icin fon istegi yapardi.
+    The key NAME is camelCase: `fi.get('quote_type')` returns None for
+    every symbol, and the pre-check would then silently make a fund
+    request for every symbol.
     """
     fast_info = fetch_fast_info(ctx)
     value = nz.as_mapping(fast_info).get("quoteType") if fast_info is not None else None
@@ -107,20 +109,21 @@ def _resolve_quote_type(ctx: SyncContext) -> str | None:
 
 
 def _read(funds: Any, name: str) -> Any:
-    """Alani okur; hem `@property` hem duz metot bicimini kabul eder.
+    """Reads a field, accepting both `@property` and plain-method form.
 
-    CANLI OLCUM (2026-09-04, yfinance 1.7.0): on alanin DOKUZU `@property`
-    tasiyor, `quote_type` TASIMIYOR (`scrapers/funds.py:47`) -- yani duz
-    erisim bir `bound method` dondurur. Kor bir `funds.quote_type` NOT NULL
-    kolona "<bound method ...>" yazardi; kor bir `funds.quote_type()` ise
-    ust-akis bu tutarsizligi duzelttigi gun `TypeError` verirdi. Ikisini de
-    kabul etmek tek dayanikli okuma bicimidir.
+    LIVE MEASUREMENT (2026-09-04, yfinance 1.7.0): nine of the ten fields
+    are `@property`, `quote_type` is NOT (`scrapers/funds.py:47`) -- plain
+    attribute access on it returns a `bound method`. A blind
+    `funds.quote_type` would write "<bound method ...>" into a NOT NULL
+    column; a blind `funds.quote_type()` would raise `TypeError` the day
+    upstream fixes this inconsistency. Accepting both is the only
+    resilient read.
     """
     value = getattr(funds, name)
     return value() if callable(value) else value
 
 
-# Sekiz alt yapiyi besleyen on alan; ILK erisim tek istegi tetikler.
+# Ten fields feeding eight sub-structures; the FIRST access triggers one request.
 FUND_FIELDS = (
     "quote_type",
     "description",
@@ -146,7 +149,7 @@ def _frame_to_dict(frame: Any) -> Any:
 
 
 def _own_column(frame: pd.DataFrame) -> Any:
-    """0. kolon; ADI SEMBOLUN KENDISIDIR, bu yuzden KONUMDAN okunur."""
+    """Column 0; its NAME IS the symbol itself, so it is read BY POSITION."""
     return frame.iloc[:, 0]
 
 
@@ -165,15 +168,15 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
     def fetch(self, ctx: SyncContext) -> FundsPayload:
         quote_type = _resolve_quote_type(ctx)
         if quote_type not in FUND_QUOTE_TYPES:
-            # HIC ISTEK YAPILMAZ; hucre `empty` olur.
+            # NO request is made; the cell becomes `empty`.
             return FundsPayload(data=None, fetched_at=ctx.fetched_at)
         try:
             data = call_optional(
                 lambda: _collect(ctx.ticker.get_funds_data()), what=f"{self.name}:{ctx.symbol}"
             )
         except (YFDataException, KeyError) as exc:
-            # hide_exceptions=False altinda kaynak YFDataException DEGIL ham
-            # KeyError('topHoldings') firlatiyor (scrapers/funds.py:190-194).
+            # Under hide_exceptions=False, the source raises a raw
+            # KeyError('topHoldings'), NOT YFDataException (scrapers/funds.py:190-194).
             log.info("fon verisi yok", symbol=ctx.symbol, error=str(exc)[:80])
             return FundsPayload(data=None, fetched_at=ctx.fetched_at)
         return FundsPayload(data=data, fetched_at=ctx.fetched_at)
@@ -184,9 +187,10 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
             return NormalizedResult()
         quote_type = nz.to_str(data.get("quote_type"), max_len=16)
         if not quote_type:
-            # quote_type NOT NULL; kismen dolu nesneye guvenilmez (fon
-            # olmayan sembolde `description` IKINCI erisimde sirket ozetini
-            # donduruyor -- AAPL'de 1825 karakter olculdu).
+            # quote_type is NOT NULL; a partially populated object cannot be
+            # trusted (for a non-fund symbol, `description` on a SECOND access
+            # returns the company summary instead -- measured 1825 chars for
+            # AAPL).
             log.warning("funds data has no quote type", symbol=symbol)
             return NormalizedResult()
 
@@ -202,7 +206,7 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
             ]
         )
 
-    # --- tablo basina normalizasyon --------------------------------------
+    # --- per-table normalization -------------------------------------
 
     def _profile_write(
         self,
@@ -227,8 +231,8 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
                 column: nz.to_decimal(assets.get(source))
                 for source, column in ASSET_CLASSES.items()
             },
-            # EAV'a indirgenirken kategori bilgisi kaybolabilecegi icin
-            # govde korunur (AH S5.7); yalnizca BU tabloda raw_json vardir.
+            # The full body is kept because reducing to EAV can lose category
+            # info; raw_json exists ONLY on this table.
             "raw_json": nz.canonical_json(
                 {
                     key: (_frame_to_dict(value) if isinstance(value, pd.DataFrame) else value)
@@ -295,8 +299,9 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
                     {
                         "symbol": symbol,
                         "as_of_date": as_of,
-                        # `section` PK'DADIR: disarida birakilsaydi ayni
-                        # metric adi iki bolumde geldiginde tekillik ihlali (23505).
+                        # `section` IS PART OF THE PK: without it, the same
+                        # metric name appearing in both sections would raise a
+                        # uniqueness violation (23505).
                         "section": section.value,
                         "metric": metric,
                         "value": to_fact_value(own.iloc[position]),
@@ -335,7 +340,7 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
                 )
                 weight = nz.to_decimal(value)
                 if item_key is None or weight is None:
-                    # weight NOT NULL; 10 fonun hepsinde dolu olculdu
+                    # weight is NOT NULL; measured populated for all 10 funds.
                     continue
                 rows.append(
                     {
@@ -354,8 +359,8 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
             key_columns=("symbol", "as_of_date", "category", "item_key"),
             update_columns=("weight", "fetched_at"),
             mode="replace_scope",
-            # Kapsam kategoriyi DE icerir: tahvil fonunda sektor anahtari
-            # hic gelmez, hisse fonunda bond_rating tek satirdir.
+            # Scope ALSO includes category: a bond fund never sends sector
+            # keys, and an equity fund's bond_rating is a single row.
             scope_columns=("symbol", "as_of_date", "category"),
             scope_values=tuple(
                 {"symbol": symbol, "as_of_date": as_of, "category": category.value}
@@ -376,12 +381,12 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
         if isinstance(frame, pd.DataFrame) and not frame.empty:
             for rank, (index, record) in enumerate(frame.iterrows()):
                 if rank > MAX_HOLDING_RANK:
-                    # `holding_rank` TINYINT UNSIGNED (models/funds.py).
-                    # CHECK kisiti 256. satirda ihlal edilir (23514) ve
-                    # `_persist_with_retry` DataError'da yeniden denemez:
-                    # SEMBOLUN TUM dataset'leri rollback olurdu. Kolonu
-                    # genisletmek migration ister; o gune kadar fazla satir
-                    # WARNING ile dusurulur ve hucre `ok` kalir.
+                    # `holding_rank` is TINYINT UNSIGNED (models/funds.py).
+                    # The CHECK constraint is violated (23514) on row 256, and
+                    # `_persist_with_retry` does not retry on DataError: ALL
+                    # of the symbol's datasets would roll back. Widening the
+                    # column needs a migration; until then, extra rows are
+                    # dropped with a WARNING and the cell stays `ok`.
                     log.warning(
                         "top_holdings rank sinirini asti",
                         dataset=self.name,
@@ -405,9 +410,9 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
                     "holding_symbol": holding,
                     "holding_name": nz.to_str(record.get("Name"), max_len=128),
                     "holding_percent": nz.to_decimal(record.get("Holding Percent")),
-                    # Ad `rank` OLAMAZ: MySQL 8'de ayrilmis sozcuk.
+                    # Cannot be named `rank`: reserved word in MySQL 8.
                     "holding_rank": rank,
-                    # upsert sirasinda DB'den doldurulur
+                    # Filled from the DB during upsert.
                     "is_known": False,
                     "fetched_at": fetched_at,
                 }
@@ -428,14 +433,14 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
             scope_values=(scope,),
         )
 
-    # --- yazma ------------------------------------------------------------
+    # --- write --------------------------------------------------------
 
     def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
-        """`is_known` DB'den doldurulur, SONRA as-of kapisi calisir.
+        """`is_known` is filled from the DB, THEN the as-of gate runs.
 
-        Sira baglayicidir: bayrak hash govdesine girer, boylece evren
-        degistiginde (bilinmeyen bir holding sembolu `symbols`'a eklendiginde)
-        kapi acilir ve satirlar guncellenir.
+        Order matters: the flag enters the hash body, so when the universe
+        changes (an unknown holding symbol gets added to `symbols`) the gate
+        opens and rows get updated.
         """
         writes = [
             _mark_known(writer, write) if write.table == HOLDINGS_TABLE and write.rows else write
@@ -447,10 +452,10 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
 
 
 def _mark_known(writer: RowWriter, write: TableWrite) -> TableWrite:
-    """holding_symbol'de FK YOKTUR (AH S5.5): kaynakta evren disi semboller
-    geliyor (BRK-B, 2330.TW, 005930.KQ, 0700.HK ve FON sembolleri VRTPX,
-    BISXX). FK olsaydi sembol basina tek transaction geregi FONUN TUM VERISI
-    rollback olurdu -- news_symbols ile birebir ayni gerekce."""
+    """holding_symbol has NO FK: the source sends symbols outside the
+    universe (BRK-B, 2330.TW, 005930.KQ, 0700.HK, and FUND symbols VRTPX,
+    BISXX). With an FK, the per-symbol single transaction would roll back
+    ALL of the fund's data -- same reasoning as news_symbols."""
     candidates = {row["holding_symbol"] for row in write.rows}
     known = writer.known_symbols(candidates)
     rows = [{**row, "is_known": row["holding_symbol"] in known} for row in write.rows]

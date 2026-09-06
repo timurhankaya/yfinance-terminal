@@ -1,10 +1,10 @@
-"""earnings_dates dataset'i (S6.5, S7.4).
+"""earnings_dates dataset.
 
-Sayfalama TAZE Ticker ister: `TickerBase._earnings_dates` sozlugu yalnizca
-`limit`'e anahtarlidir (`base.py:637`), `offset` onbellek anahtarina
-GIRMEZ. Ayni Ticker ile offset=100 istenirse birinci sayfanin ta kendisi
-doner (`a is b` -> True) ve sayfalama sessizce no-op olur. Bu, ctx.cached
-ilkesinin `news`'ten sonraki ikinci istisnasidir.
+Pagination needs a FRESH Ticker: `TickerBase._earnings_dates`'s dict is keyed
+only on `limit` (`base.py:637`); `offset` never enters the cache key. Reusing
+the same Ticker with offset=100 returns the first page itself (`a is b` ->
+True) and pagination silently no-ops. This is the second exception to the
+ctx.cached rule, after `news`.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from yfin.logging_setup import get_logger
 
 log = get_logger(__name__)
 
-# Yahoo limit'i 100'de sabitliyor (base.py:634: ValueError)
+# Yahoo caps the limit at 100 (base.py:634: ValueError).
 PAGE_LIMIT = 100
 KEY_COLUMNS = ("symbol", "earnings_ts_utc", "fact_hash")
 UPDATE_COLUMNS = (
@@ -41,13 +41,13 @@ def _fetch_pages(symbol: str, max_pages: int) -> pd.DataFrame | None:
     frames: list[pd.DataFrame] = []
     for page in range(max_pages):
         offset = page * PAGE_LIMIT
-        # Her sayfa icin TAZE Ticker; aksi halde onbellek offset'i yok sayar
+        # Fresh Ticker per page; otherwise the cache ignores offset.
         ticker = make_ticker(symbol)
         frame = call_yahoo(
             partial(ticker.get_earnings_dates, limit=PAGE_LIMIT, offset=offset),
             what=f"earnings_dates:{symbol}:{offset}",
         )
-        # Durma kosulu BOS SAYFA'dir; len(page) < limit degil
+        # Stop condition is an EMPTY PAGE, not len(page) < limit.
         if nz.is_empty_result(frame):
             break
         frames.append(frame)
@@ -57,18 +57,18 @@ def _fetch_pages(symbol: str, max_pages: int) -> pd.DataFrame | None:
 
 
 class MissingTimezoneError(ValueError):
-    """Kaynak tz'siz bir index dondurdu; damga yorumlanamaz."""
+    """Source returned a tz-naive index; the timestamp cannot be interpreted."""
 
 
 def _index_tz(index: Any) -> str:
-    """Index tz'si; object dtype index'te (fixture) ilk elemandan okunur.
+    """Index tz; for an object-dtype index (fixtures) read from the first element.
 
-    tz YOKSA "UTC" VARSAYILMAZ. Olcumde 100% sembol tz-AWARE ve
-    `America/New_York` donuyor (THYAO.IS ve 7203.T dahil); tz'siz bir index
-    kutuphanenin davranisinin degistigi anlamina gelir. "UTC" varsaymak
-    `tz_name`i de `earnings_ts_utc`yi de 4-5 saat KAYDIRIR ve yanlis veriyi
-    dogru gibi yazar -- sessiz bozulma. Bunun yerine hucre `failed` olur
-    (S8.2: yanlis veri, veri yoklugundan kotudur).
+    Never DEFAULTS to "UTC" when tz is missing. Measured 100% of symbols
+    tz-aware, returning `America/New_York` (including THYAO.IS and 7203.T);
+    a tz-naive index means the library's behavior changed. Assuming "UTC"
+    would shift both `tz_name` and `earnings_ts_utc` by 4-5 hours and write
+    wrong data as if correct -- a silent corruption. The cell becomes
+    `failed` instead (wrong data is worse than missing data).
     """
     tz = getattr(index, "tz", None)
     if tz is None and len(index):
@@ -113,10 +113,10 @@ class EarningsDatesDataset(Dataset[EarningsDatesPayload]):
                 "reported_eps": nz.to_decimal(record.get("Reported EPS")),
                 "surprise_pct": nz.to_decimal(record.get("Surprise(%)")),
             }
-            # fact_hash PK'ya girer: AAPL 2002-07-16 damgasinda iki satirin
-            # TEK farki Surprise(%); EPS alanlarinin ikisi de NaN. Kanonik
-            # JSON NaN'i null'a cevirir, aksi halde iki satir ayni hash'i
-            # alir ve biri sessizce kaybolur.
+            # fact_hash feeds the PK: for AAPL's 2002-07-16 timestamp, two rows
+            # differ ONLY in Surprise(%); both EPS fields are NaN. Canonical
+            # JSON turns NaN into null, so without this the two rows would hash
+            # identically and one would silently disappear.
             digest = nz.content_hash(
                 {k: (str(v) if v is not None else None) for k, v in values.items()}
             )
@@ -129,9 +129,8 @@ class EarningsDatesDataset(Dataset[EarningsDatesPayload]):
                 **values,
                 "fetched_at": raw.fetched_at,
             }
-            # Sayfalar arasi ortusme olculdu (1 satir): PK uzerinden
-            # tekillestirilmezse rows_verified < rows_attempted yanlis
-            # `failed` uretir.
+            # Overlap across pages was measured (1 row): without dedup on the
+            # PK, rows_verified < rows_attempted would wrongly produce `failed`.
             rows[(ts_utc, row["fact_hash"])] = row
 
         if not rows:

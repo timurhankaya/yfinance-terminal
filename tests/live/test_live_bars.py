@@ -1,8 +1,8 @@
-"""price_bars canli entegrasyon testleri (PB S9.3).
+"""Live integration tests for price_bars.
 
-`-m live`: gercek Yahoo API + gercek PostgreSQL. Fixture testleri kaynagin
-DUNKU seklini dogrular; bunlar BUGUNKU seklini dogrular ve
-BAR_LIMITS'in sapmasini erken yakalar.
+`-m live`: real Yahoo API + real PostgreSQL. Fixture tests verify a
+recorded past shape of the source; these verify its current shape and catch
+BAR_LIMITS drift early.
 """
 
 from __future__ import annotations
@@ -31,11 +31,11 @@ def _ctx(symbol: str) -> SyncContext:
 
 @pytest.mark.parametrize("symbol", ["AAPL", "THYAO.IS"])
 def test_end_to_end_5m_write(db_session: Session, symbol: str) -> None:
-    """fetch -> normalize -> yaz -> dogrula."""
-    # ON DUPLICATE KEY SART: live testler AYNI semayi paylasir ve daha
-    # once kosan bir modul (test_live_analysis) ayni sembolu COMMIT etmis
-    # olabilir. Ciplak INSERT o durumda duplicate key ile duser - tek
-    # basina kosarken gecen, birlikte kosarken kirilan bir test uretir.
+    """fetch -> normalize -> write -> verify."""
+    # ON CONFLICT DO NOTHING is required: live tests share one schema, and an
+    # earlier module (test_live_analysis) may have already committed this
+    # symbol. A plain INSERT would then fail on a duplicate key -- passing
+    # alone but breaking when run together.
     db_session.execute(
         text(
             "INSERT INTO symbols (symbol, is_active, unknown_streak, created_at, updated_at) "
@@ -55,12 +55,12 @@ def test_end_to_end_5m_write(db_session: Session, symbol: str) -> None:
 
 
 def test_first_fill_1m_slices_stay_inside_the_request_limit() -> None:
-    """Planlayicinin dilimleri GERCEK sinirda hata ALMAMALI.
+    """The planner's slices must not error at the real limit.
 
-    Bu testin varlik sebebi olculmus bir hatadir: BAR_LIMITS["1m"]
-    onceden (8, 30) idi ve ilk dilim tam sinirda basladigi icin canli
-    kosuda YFPricesMissingError aldi. Yahoo sinirlari degistirirse burasi
-    once kirilir.
+    This test exists because of a measured bug: BAR_LIMITS["1m"] was
+    previously (8, 30), and since the first slice started right at the
+    limit, live runs raised YFPricesMissingError. This breaks first if
+    Yahoo's limits change.
     """
     now = datetime.now(UTC)
     plan = plan_windows("1m", None, now)
@@ -71,15 +71,15 @@ def test_first_fill_1m_slices_stay_inside_the_request_limit() -> None:
         interval="1m", start=oldest[0].isoformat(), end=oldest[1].isoformat(), prepost=True
     )
 
-    assert not frame.empty, f"en eski dilim ({oldest[0]} -> {oldest[1]}) reddedildi"
+    assert not frame.empty, f"oldest slice ({oldest[0]} -> {oldest[1]}) was rejected"
 
 
 @pytest.mark.parametrize("interval", ["5m", "60m"])
 def test_declared_depth_is_still_accepted_by_yahoo(interval: str) -> None:
-    """BAR_LIMITS'teki derinlik degerleri hala gecerli mi.
+    """Are the depth values in BAR_LIMITS still accepted by Yahoo.
 
-    Bir gun Yahoo pencereyi daraltirsa bu test, veri sessizce kaybolmaya
-    baslamadan ONCE kirilir.
+    If Yahoo ever narrows the window, this test breaks before data starts
+    silently disappearing.
     """
     _per_request, depth = BAR_LIMITS[interval]
     assert depth is not None
@@ -95,8 +95,7 @@ def test_declared_depth_is_still_accepted_by_yahoo(interval: str) -> None:
 
 
 def test_weekly_uses_period_max_and_returns_monday_anchored_bars() -> None:
-    """1wk ilk dolumu dilimsizdir (period='max') ve barlar Pazartesi
-    hizalidir (PB S4.7)."""
+    """1wk's first fill is unsliced (period='max') and bars are Monday-anchored."""
     now = datetime.now(UTC)
     plan = plan_windows("1wk", None, now)
     assert plan.windows == ()
@@ -108,8 +107,8 @@ def test_weekly_uses_period_max_and_returns_monday_anchored_bars() -> None:
 
 
 def test_extended_flag_is_set_for_a_us_symbol() -> None:
-    """AAPL prepost'lu cekimde seans disi bar URETMELI; uretmiyorsa ya
-    prepost kapanmis ya tradingPeriods sekli degismistir."""
+    """A prepost fetch of AAPL must produce an off-session bar; if not, either
+    prepost was turned off or tradingPeriods' shape changed."""
     dataset = IntervalBarDataset("5m")
     payload = dataset.fetch(_ctx("AAPL"))
     rows = dataset.normalize(payload, "AAPL").writes[0].rows

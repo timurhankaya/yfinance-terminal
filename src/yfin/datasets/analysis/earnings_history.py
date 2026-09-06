@@ -1,11 +1,11 @@
-"""earnings_history dataset'i (AH S6.3).
+"""earnings_history dataset.
 
-AS-OF DEGILDIR: kaynak ceyrek sonunu veriyor. `quarter_end` tz-naive
-Timestamp'ten `.date()` ile alinir ve TZ DONUSUMU YAPILMAZ -- mali ceyrek
-takvimsel bir ETIKETTIR, bir an degil.
+Not as-of: the source returns a quarter end. `quarter_end` is taken from a
+tz-naive Timestamp via `.date()` with no timezone conversion -- a fiscal
+quarter is a calendar label, not an instant.
 
-Kaynak her sembolde tam DORT ceyrek dondurur (17 sembolde (4,4) olculdu);
-`--start` bunu geriye uzatmaz, yalnizca satir eler (AH S4.5).
+The source returns exactly four quarters per symbol (measured (4, 4) on
+17 symbols); `--start` does not extend that history, it only filters rows.
 """
 
 from __future__ import annotations

@@ -1,10 +1,10 @@
-"""Cok interval'li fiyat barlari ve onlarin denetim tablolari (PB S5).
+"""Multi-interval price bars and their audit tables.
 
-price_history'nin (interval='1d') kardesidir, kopyasi DEGILDIR: anahtar
-semantigi farklidir. price_history satirinin otoritesi borsanin YEREL
-SEANS TARIHIDIR (S5.4); price_bars satirininki MUTLAK ZAMAN DAMGASIDIR.
-GC=F olcumu farki gosterir - bari 18:10'da acilir, yani barin yerel
-takvim gunu seans gunu DEGILDIR.
+A sibling of price_history (interval='1d'), not a copy: key semantics
+differ. A price_history row's authority is the exchange's local session
+date; a price_bars row's is the absolute timestamp. GC=F shows the
+difference -- its bar opens at 18:10, so the bar's local calendar day is
+not its session day.
 """
 
 from __future__ import annotations
@@ -24,71 +24,71 @@ from yfin.models.base import (
     symbol_fk_column,
 )
 
-# Yazilan interval'lerin TEK KAYNAGI. Disarida birakilanlar ve gerekceleri
-# PB S1'de: 2m (1m'den turetilebilir), 30m (Yahoo'dan gelmiyor, 15m'den
-# resample), 90m (standart disi), 1h (60m ile ayni), 5d (bozuk),
-# 3mo (repair ile hizalamasi aya gore kayiyor).
+# Single source for the intervals actually written. Excluded, with
+# reasons: 2m (derivable from 1m), 30m (not returned by Yahoo; resample
+# from 15m), 90m (non-standard), 1h (same as 60m), 5d (broken), 3mo
+# (repair alignment drifts by month).
 BAR_INTERVALS: tuple[str, ...] = ("1m", "5m", "15m", "60m", "1wk", "1mo")
 
-# Gun ici interval'ler. Ayri tutulur cunku iki yerde SEMANTIK fark yaratir:
-#   1. is_extended yalniz bunlar icin anlamlidir (PB S6.4 kural 1)
-#   2. rescale UPDATE'i YALNIZ bunlara uygulanir (PB S6.6/1): 1wk ve 1mo
-#      her kosuda period="max" ile bastan cekilir, yani daima Yahoo'nun
-#      guncel olceginde gelir. Onlari olceklemek, o kosuda fetch duserse
-#      satirlari CIFT duzeltilmis birakir ve bar_rescales split'i
-#      "uygulandi" saydigi icin bir daha duzelmez.
+# Intraday intervals. Kept separate because it changes semantics in two
+# places:
+#   1. is_extended is only meaningful for these.
+#   2. Rescale UPDATE applies only to these: 1wk and 1mo are always
+#      re-fetched from scratch with period="max" on every run, so they
+#      always arrive at Yahoo's current scale. Rescaling them too would
+#      leave rows double-adjusted if a run's fetch failed partway, and
+#      bar_rescales would consider the split "applied" and never fix it.
 INTRADAY_INTERVALS: tuple[str, ...] = ("1m", "5m", "15m", "60m")
 
-# Gun ustu interval'ler. AYRI BIR TABLOYA yazilirlar (`periodic_bars`) ve
-# bu bir depolama optimizasyonu DEGIL, olculmus bir zorunluluktur:
+# Intervals above daily. Written to a separate table (`periodic_bars`),
+# and this is a measured necessity, not a storage optimization:
 #
-#   1wk/1mo satirlarin %0,07'sidir (5.000 sembolde ~320 bin satir/yil)
-#   ama zaman araliginin %100'udur: `period="max"` ile 1980'e kadar iner.
-#   Ayni hypertable'da 7 gunluk chunk araligiyla 16.700 / 7 = ~2.386 chunk
-#   dogururlar -- olculdu: tek sembolde 21.934 satir icin 2.388 chunk,
-#   chunk basina ~9 satir. Yani chunk patlamasinin TAMAMINI verinin binde
-#   yedisi uretiyordu.
+# 1wk/1mo are 0.07% of rows (~320k rows/year across 5,000 symbols) but
+# 100% of the time range: `period="max"` reaches back to 1980. In the
+# same hypertable with a 7-day chunk interval that produces
+# 16,700 / 7 = ~2,386 chunks -- measured: 2,388 chunks for 21,934 rows in
+# one symbol, ~9 rows per chunk. Seven-thousandths of the data caused the
+# entire chunk explosion.
 #
-# Ayrilinca `price_bars`in araligi 60m'in 729 gunune iner (~104 chunk) ve
-# `periodic_bars` hypertable OLMAZ: 46 yillik dolum ~15 milyon satirdir,
-# chunk'lamaya ihtiyaci yoktur.
+# Splitting them out shrinks `price_bars`'s range to 60m's 729 days
+# (~104 chunks), and `periodic_bars` is not a hypertable: a 46-year
+# backfill is ~15 million rows, no chunking needed.
 #
-# MySQL bunu `p_hist` adinda tek bir tarihsel partition'la cozuyordu;
-# TimescaleDB'de o kavramin karsiligi yoktur, ayirmak gerekir.
+# MySQL handled this with a single historical partition named `p_hist`;
+# TimescaleDB has no equivalent, so the split has to be explicit here.
 PERIODIC_INTERVALS: tuple[str, ...] = ("1wk", "1mo")
 
 
 def bars_table_for(interval: str) -> str:
-    """Interval'i yazilacagi TABLOYA cozer (PB S5, PG S7.1).
+    """Resolves an interval to the table it is written to.
 
-    Tek dogruluk kaynagi: hem dataset yazimi hem watermark okumasi hem
-    testler bunu kullanir. Ayrisirlarsa bir interval yanlis tabloya
-    yazilir ve watermark hep NULL kalir -- yani her kosuda bastan dolum.
+    Single source of truth: dataset writes, watermark reads, and tests
+    all use this. If they diverged, an interval would write to the wrong
+    table and its watermark would stay NULL forever -- a full backfill
+    on every run.
     """
     return "price_bars" if interval in INTRADAY_INTERVALS else "periodic_bars"
 
-# bar_gaps.reason degerleri
+# bar_gaps.reason values
 GAP_RETENTION_EXPIRED = "retention_expired"
 GAP_FETCH_FAILED = "fetch_failed"
 
 
 class PriceBar(Base):
-    """INTRADAY barlar (1m/5m/15m/60m). price_history'nin kardesi.
+    """Intraday bars (1m/5m/15m/60m). Sibling of price_history.
 
-    FK TASIR. MySQL 8'de partition'li InnoDB tablosu foreign key
-    desteklemiyordu (ERROR 1506) ve butunluk yazim yolunda + aylik bir
-    oksuz-satir sorgusuyla korunuyordu. TimescaleDB hypertable'i
-    REFERENCING taraf OLABILIR (olculdu: ON UPDATE CASCADE +
-    ON DELETE RESTRICT calisiyor, giden FK varken drop_chunks sorunsuz),
-    bu yuzden butunluk artik DB seviyesindedir ve oksuz-satir sorgusu
-    GEREKSIZDIR (PG S7.2).
+    Carries an FK. MySQL 8's partitioned InnoDB table did not support
+    foreign keys (ERROR 1506); integrity was enforced by the write path
+    plus a monthly orphan-row query. A TimescaleDB hypertable can be the
+    referencing side (measured: ON UPDATE CASCADE + ON DELETE RESTRICT
+    work, and drop_chunks is unaffected by an outgoing FK), so integrity
+    is now DB-level and the orphan-row query is unnecessary.
 
-    Kabul edilen bedel: her insert `symbols` satirinda paylasimli kilit
-    alir ve price_bars en yogun yazilan tablodur.
+    Accepted cost: every insert takes a shared lock on the `symbols` row,
+    and price_bars is the most heavily written table.
 
-    YALNIZ INTRADAY: 1wk/1mo `periodic_bars`a gider (bkz.
-    PERIODIC_INTERVALS). Ayni tabloda olsalardi 46 yillik zaman
-    araliklariyla chunk sayisini yirmi kat sisirirlerdi.
+    Intraday only: 1wk/1mo go to `periodic_bars` (see PERIODIC_INTERVALS).
+    In the same table their 46-year range would inflate chunk count twentyfold.
     """
 
     __tablename__ = "price_bars"
@@ -100,10 +100,11 @@ class PriceBar(Base):
     bar_interval: Mapped[str] = mapped_column(BarIntervalType(), primary_key=True)
     ts_utc: Mapped[datetime] = mapped_column(TsType(), primary_key=True)
 
-    # TUREV kolon: barin YEREL TAKVIM TARIHI. Adi bilerek session_date
-    # DEGILDIR - price_history.session_date bir SEANS gunudur, bu ise
-    # yalnizca yerel takvim gunu. Ayni adi tasisalardi iki farkli kavram
-    # karisirdi (GC=F: 18:10 bari, seansi ertesi gune ait).
+    # Derived column: the bar's local calendar date. Deliberately not
+    # named session_date -- price_history.session_date is a session day,
+    # this is only a local calendar day. Sharing the name would conflate
+    # two different concepts (GC=F: an 18:10 bar whose session is the
+    # next day).
     local_date: Mapped[date] = mapped_column(nullable=False)
 
     open: Mapped[Decimal | None] = mapped_column(PriceType())
@@ -114,19 +115,19 @@ class PriceBar(Base):
         BigInteger, CheckConstraint('"volume" >= 0', name="ck_price_bars_volume_nonneg")
     )
 
-    # Seans disi (pre/post market) bari mi. Tek dogruluk kaynagi
-    # tradingPeriods'in start/end araligidir (PB S6.4);
-    # has_pre_post_market_data KULLANILMAZ - SHEL.L ve VWCE.DE onu False
-    # bildirdikleri halde seans disi bar donduruyor.
+    # Whether the bar is outside the regular session (pre/post market).
+    # Single source of truth is tradingPeriods' start/end range; not
+    # has_pre_post_market_data -- SHEL.L and VWCE.DE report it False while
+    # still returning extended-session bars.
     is_extended: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
 
 class IntradayScope(Base):
-    """1m (ve istenirse diger interval'lerin) sembol alt kumesi.
+    """Symbol subset for 1m (and other intervals, if enabled).
 
-    Bu liste KONFIGURASYON DEGIL VERIDIR: 5.000 sembollu evrende 500
-    sembollu bir alt kume .env'e sigmaz, surumlenmesi ve degistirilmesi
-    gereken bir tablodur (PB K6).
+    This list is data, not configuration: in a 5,000-symbol universe, a
+    500-symbol subset does not fit in .env and needs a versioned, mutable
+    table.
     """
 
     __tablename__ = "intraday_scope"
@@ -139,22 +140,21 @@ class IntradayScope(Base):
 
 
 class PeriodicBar(Base):
-    """Gun ustu barlar (1wk/1mo). HYPERTABLE DEGILDIR.
+    """Bars above daily (1wk/1mo). Not a hypertable.
 
-    `price_bars`tan AYRI durur cunku iki tablo her operasyonel boyutta
-    ayrisir:
-      * ZAMAN ARALIGI: burasi 46 yil, orasi 729 gun.
-      * YOGUNLUK: burasi 5.000 sembolde ~320 bin satir/yil, orasi ~464
-        milyon.
-      * RESCALE: geriye donuk olcekleme YALNIZ intraday'e uygulanir
-        (PB S6.6/1) -- bu tablo her kosuda period="max" ile bastan
-        cekildigi icin daima Yahoo'nun guncel olceginde gelir.
-      * is_extended: seans disi kavrami gun ustu barda ANLAMSIZDIR, bu
-        yuzden KOLON YOKTUR.
+    Kept separate from `price_bars` because the two tables differ on
+    every operational dimension:
+      * Time range: 46 years here vs. 729 days there.
+      * Density: ~320k rows/year across 5,000 symbols here vs. ~464 million there.
+      * Rescale: retroactive rescaling applies only to intraday -- this
+        table is always re-fetched from scratch with period="max", so it
+        always arrives at Yahoo's current scale.
+      * is_extended: the pre/post-market concept is meaningless above
+        daily, so there is no such column.
 
-    Chunk'lanmaz: 46 yillik dolum ~15 milyon satirdir ve PK indeksi
-    yeter. Hypertable yapmak, cozdugumuz chunk patlamasini geri
-    getirirdi.
+    Not chunked: a 46-year backfill is ~15 million rows, and the PK index
+    is enough. Making this a hypertable would bring back the chunk
+    explosion this split fixed.
     """
 
     __tablename__ = "periodic_bars"
@@ -177,12 +177,13 @@ class PeriodicBar(Base):
 
 
 class BarGap(Base):
-    """Kacirilan pencerelerin KALICI kaydi.
+    """Permanent record of missed fetch windows.
 
-    Kalici arsivde "veri yok" iki farkli sey olabilir: piyasa kapaliydi,
-    ya da biz kacirdik. Bu ayrim SONRADAN yapilamaz - Yahoo penceresi
-    gectikten sonra "burada bar var miydi" sorusunun cevabi yoktur.
-    Yazildigi anda kaydedilmezse bilgi geri gelmez (PB K10).
+    "No data" in the archive can mean two different things: the market
+    was closed, or the fetch was missed. That distinction cannot be
+    reconstructed later -- once Yahoo's window has passed, "was there a
+    bar here" has no answer. If it is not recorded at the time, the
+    information is gone for good.
     """
 
     __tablename__ = "bar_gaps"
@@ -194,35 +195,35 @@ class BarGap(Base):
     gap_end_utc: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     detected_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     reason: Mapped[str] = mapped_column(AsciiKeyType(24), nullable=False)
-    # NULL = bosluk HALA ACIK. Planlayici acik bosluklari her kosuda
-    # yeniden dener (PB S6.2/5); bu geri besleme olmadan bar_gaps yalnizca
-    # bir mezar tasi olurdu: ortadaki bir dilim dusup sonrakiler
-    # yazildiginda watermark boslugun OTESINE gecer ve o pencere bir daha
-    # hic istenmezdi. retention_expired satirlarinda DAIMA NULL kalir.
+    # NULL = the gap is still open. The scheduler retries open gaps on
+    # every run; without this feedback bar_gaps would be a mere
+    # tombstone: if a middle slice is dropped but later ones are written,
+    # the watermark moves past the gap and that window is never
+    # requested again. retention_expired rows always stay NULL here.
     resolved_at: Mapped[datetime | None] = mapped_column(TsType())
 
 
 class BarRescale(Base):
-    """Uygulanan geriye donuk olceklemelerin defteri.
+    """Ledger of applied retroactive rescalings.
 
-    IDEMPOTENCY KAPISIDIR: bu tablo olmadan ayni split ikinci kosuda
-    tekrar uygulanir ve arsiv bir kez daha bozulur. UPDATE ile bu kayit
-    AYNI TRANSACTION'DADIR (PB S6.6/9).
+    The idempotency gate: without this table, the same split would be
+    reapplied on a second run and corrupt the archive again. The UPDATE
+    and this record write in the same transaction.
 
-    KURULUM TOHUMU ZORUNLUDUR: splits tablosu mevcut hat tarafindan zaten
-    doludur. Bos bir bar_rescales ile yapilan ILK KOSU tum tarihsel
-    split'leri uygular ve ornegin AAPL arsivini 2*2*2*7*4 = 224'e boler -
-    oysa o barlar Yahoo'dan zaten guncel olcekte gelmistir. `yfin rescale
-    --seed` her mevcut split icin ratio=1 baseline kaydi yazar
-    (PB S6.6, PB S10/9a).
+    A seed step is mandatory: the splits table is already populated by
+    the existing pipeline. A first run against an empty bar_rescales
+    would apply every historical split, e.g. dividing AAPL's archive by
+    2*2*2*7*4 = 224 -- even though those bars already arrive from Yahoo
+    at the current scale. `yfin rescale --seed` writes a ratio=1 baseline
+    record for every existing split.
     """
 
     __tablename__ = "bar_rescales"
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     split_date: Mapped[date] = mapped_column(primary_key=True)
-    # DECIMAL, float DEGIL: 3:2 split'te ratio 1.5'tir ve float bolme
-    # milyonlarca satirda birikimli sapma uretir.
+    # DECIMAL, not float: a 3:2 split gives ratio 1.5, and float division
+    # accumulates drift across millions of rows.
     ratio: Mapped[Decimal] = mapped_column(PriceType(), nullable=False)
     applied_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     rows_affected: Mapped[int] = mapped_column(
@@ -233,33 +234,33 @@ class BarRescale(Base):
 
 
 def timescale_ddl() -> tuple[str, ...]:
-    """price_bars ve price_history icin hypertable DDL'i.
+    """Hypertable DDL for price_bars and price_history.
 
-    Alembic bunu autogenerate EDEMEZ; hem migration hem test conftest'i
-    BU AYNI SABITI kullanir (projenin V_ACTIONS_CREATE icin kurdugu
-    desen). Aksi halde testler hypertable'siz DUZ tablolara karsi kosar
-    ve chunk davranisi hic dogrulanmaz.
+    Alembic cannot autogenerate this; migration and the test conftest
+    both use this same constant (the pattern the project already uses
+    for V_ACTIONS_CREATE). Otherwise tests would run against plain
+    tables with no hypertable, and chunk behavior would never be verified.
 
-    `create_default_indexes => FALSE` ZORUNLUDUR. Varsayilan davranis
-    bolumleme kolonu uzerinde `price_bars_ts_utc_idx` adli bir DESC
-    indeks yaratir; o indeks `public` semasinda durur, Base.metadata'da
-    YOKTUR ve Alembic autogenerate onu "silinmeli" diye raporlar -- yani
-    `yfin db revision`in "bos diff" kapisi HIC acilmaz (PG S7.1).
-    Gereken indeksler modelde acikca tanimlidir
+    `create_default_indexes => FALSE` is required. The default behavior
+    creates a DESC index named `price_bars_ts_utc_idx` on the
+    partitioning column; that index lives in the `public` schema, is
+    absent from Base.metadata, and Alembic autogenerate reports it as
+    "should be dropped" -- so `yfin db revision`'s "empty diff" gate never
+    opens. Needed indexes are defined explicitly in the model
     (ix_price_bars_local_date, ix_price_history_session_date); ts_utc
-    PK'nin son bileseni oldugu icin ayri indeks gerekmez.
+    needs no separate index since it is the last PK component.
 
-    INTERVAL '1 year' KULLANILMAZ: TimescaleDB ay iceren interval'i 30
-    gunluk aylara cevirir ve aralik 360 gun olarak kaydolur (olculdu).
+    `INTERVAL '1 year'` is not used: TimescaleDB converts a month-bearing
+    interval to 30-day months, recording the range as 360 days (measured).
 
-    `periodic_bars` BU LISTEDE YOKTUR ve olmamalidir: 1wk/1mo 46 yil
-    kapsar ama ~15 milyon satirdir; hypertable yapmak chunk patlamasini
-    geri getirirdi (PG S7.1, PERIODIC_INTERVALS notu).
+    `periodic_bars` is deliberately absent from this list: 1wk/1mo span
+    46 years but are only ~15 million rows; making it a hypertable would
+    bring back the chunk explosion (see PERIODIC_INTERVALS).
 
-    Aylik partition'lari ELLE eklemek gerekmez: chunk'lar yazma aninda
-    olusur. "Aralik disi insert" kavrami YOKTUR, dolayisiyla MySQL'deki
-    "gurultulu ERROR 1526 mi sessiz pruning olumu mu" ikilemi de ortadan
-    kalkar -- bu, migrasyonun en buyuk tek kazancidir.
+    Monthly partitions need no manual creation: chunks are created at
+    write time. There is no "insert outside range" concept, so MySQL's
+    dilemma of "loud ERROR 1526 vs. silent pruning death" disappears
+    entirely -- the single biggest win of this migration.
     """
     return (
         "SELECT create_hypertable('price_bars', "

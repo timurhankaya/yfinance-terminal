@@ -1,7 +1,8 @@
-"""Financials normalizasyon testleri (S9.1).
+"""Financials normalization tests.
 
-Her test S8.3'teki bir kurali ya da S4.2'de curutulen bir varsayimi
-korur. Fixture'lar gercek API'den yakalanmistir; ag erisimi yoktur.
+Each test guards a rule or disproves an assumption uncovered by earlier
+measurement. Fixtures are captured from the real API; there is no network
+access here.
 """
 
 from __future__ import annotations
@@ -46,23 +47,23 @@ class TestStatements:
         result = _statement_result("AAPL", "income_stmt")
         periods = _rows(result, "financial_periods")
         facts = _rows(result, "financial_facts")
-        assert len(periods) == 5  # AAPL yillik: 5 donem
+        assert len(periods) == 5  # AAPL annual: 5 periods
         assert facts
         assert {p["symbol"] for p in periods} == {"AAPL"}
         assert {str(p["statement"]) for p in periods} == {"income"}
         assert {str(p["freq"]) for p in periods} == {"annual"}
 
     def test_nan_cells_produce_no_row(self) -> None:
-        """AAPL income'da 195 hucrenin 45'i NaN: 'kalem o donemde yok'
-        bilgisi satirin YOKLUGUDUR (S8.3)."""
+        """AAPL income has 45 of 195 cells NaN: "item absent that period"
+        is represented by the row's absence."""
         result = _statement_result("AAPL", "income_stmt")
         facts = _rows(result, "financial_facts")
         periods = _rows(result, "financial_periods")
         assert len(facts) == sum(p["item_count"] for p in periods)
-        assert len(facts) < 39 * 5  # 195 hucre; NaN'lar yazilmadi
+        assert len(facts) < 39 * 5  # 195 cells; NaNs were not written
 
     def test_ratio_and_huge_value_share_one_column(self) -> None:
-        """DECIMAL(38,10): TaxRateForCalcs=0.156 ile 1e11+ ayni kolonda."""
+        """DECIMAL(38,10): TaxRateForCalcs=0.156 shares a column with 1e11+."""
         facts = _rows(_statement_result("AAPL", "income_stmt"), "financial_facts")
         by_key = {(f["item_key"], f["period_end"].year): f["value"] for f in facts}
         rate = by_key[("TaxRateForCalcs", 2025)]
@@ -71,21 +72,21 @@ class TestStatements:
         assert biggest > Decimal("1e11")
 
     def test_values_are_quantized_in_python(self) -> None:
-        """PostgreSQL 11. basamagi SESSIZCE yuvarlar (olculdu); yuvarlama
-        bilincli olarak Python'da yapilir."""
+        """PostgreSQL silently rounds the 11th digit (measured); rounding is
+        deliberately done in Python instead."""
         facts = _rows(_statement_result("AAPL", "income_stmt"), "financial_facts")
         assert all(-value.as_tuple().exponent == 10 for value in (f["value"] for f in facts))
 
     def test_msft_has_sixty_char_item_key(self) -> None:
-        """Ham etiket max uzunlugu 51 DEGIL 60 (S4.2); VARCHAR(64) yalnizca
-        4 karakter pay birakirdi."""
+        """The raw label's max length is 60, not 51; VARCHAR(64) would have
+        left only 4 characters of headroom."""
         facts = _rows(_statement_result("MSFT", "balance_sheet"), "financial_facts")
         longest = max(len(f["item_key"]) for f in facts)
         assert longest == 60
         assert all(f["item_key"].isalnum() for f in facts)
 
     def test_fiscal_year_end_is_not_calendar_year(self) -> None:
-        """MSFT Haziran, AAPL Eylul mali yili."""
+        """MSFT's fiscal year ends in June, AAPL's in September."""
         msft = {
             p["period_end"].month
             for p in _rows(_statement_result("MSFT", "balance_sheet"), "financial_periods")
@@ -98,31 +99,31 @@ class TestStatements:
         assert aapl == {9}
 
     def test_financial_currency_differs_from_price_currency(self) -> None:
-        """THYAO.IS tablolari USD, fiyatlari TRY."""
+        """THYAO.IS's statements are in USD, its prices in TRY."""
         result = _statement_result("THYAO.IS", "income_stmt", currency="USD")
         assert {p["currency"] for p in _rows(result, "financial_periods")} == {"USD"}
 
     @pytest.mark.parametrize("symbol", ["SPY", "BTC-USD"])
     def test_empty_frame_is_empty_not_failure(self, symbol: str) -> None:
-        """Sirket olmayan sembolde (0,0) DataFrame -> empty (S8.2).
+        """A non-company symbol returns a (0,0) DataFrame -> empty.
 
-        Iki farkli pazar tipi: ETF (SPY) ve kripto (BTC-USD). S9.1 referans
-        sembol listesi bunlarin ikisini de sart kosar.
+        Two different market types: ETF (SPY) and crypto (BTC-USD). Both
+        are required in the reference symbol list.
         """
         for dataset in ("income_stmt", "balance_sheet", "ttm_cashflow"):
             assert _statement_result(symbol, dataset).is_empty
 
     def test_ttm_and_quarterly_share_period_without_collision(self) -> None:
-        """AAPL'de ikisi de 2026-06-30 doner; (statement, freq) PK'da."""
+        """Both return 2026-06-30 for AAPL; (statement, freq) is in the PK."""
         ttm = _rows(_statement_result("AAPL", "ttm_income_stmt"), "financial_periods")
         quarterly = _rows(_statement_result("AAPL", "quarterly_income_stmt"), "financial_periods")
         assert {str(p["freq"]) for p in ttm} == {"ttm"}
         overlap = {p["period_end"] for p in ttm} & {p["period_end"] for p in quarterly}
-        assert overlap  # ayni donem sonu, farkli freq -> cakisma yok
+        assert overlap  # same period end, different freq -> no collision
 
     def test_facts_write_uses_period_scope(self) -> None:
-        """replace_scope kapsami (symbol, statement, freq, period_end);
-        Yahoo bir kalemi kaldirdiginda satir kalici olarak durmaz."""
+        """replace_scope scope is (symbol, statement, freq, period_end);
+        when Yahoo removes an item, its row does not linger forever."""
         result = _statement_result("AAPL", "income_stmt")
         write = next(w for w in result.writes if w.table == "financial_facts")
         assert write.mode == "replace_scope"
@@ -136,7 +137,7 @@ class TestStatements:
 
 
 class TestValuation:
-    """Degerleme olcutleri: EAV'de dorduncu `statement` degeri."""
+    """Valuation measures: the fourth `statement` value in the EAV."""
 
     def _result(self, symbol: str, dataset: str = "valuation_measures") -> Any:
         frame = as_valuation_frame(load_fixture(symbol, dataset))
@@ -153,15 +154,15 @@ class TestValuation:
         assert len({f["item_key"] for f in facts}) == 9
 
     def test_current_column_produces_no_period(self) -> None:
-        """'Current'in donem sonu tarihi yoktur; kolon DUSURULUR."""
+        """'Current' has no period-end date; the column is dropped."""
         raw = load_fixture("AAPL", "valuation_measures")
-        assert "Current" in raw[0]  # kaynakta var
+        assert "Current" in raw[0]  # present in the source
         periods = _rows(self._result("AAPL"), "financial_periods")
-        assert len(periods) == len(raw[0]) - 2  # index + Current haric
+        assert len(periods) == len(raw[0]) - 2  # excludes index + Current
         assert all(p["period_end"].year >= 2016 for p in periods)
 
     def test_month_first_column_label_is_parsed_explicitly(self) -> None:
-        """'9/30/2025' AY/GUN/YIL'dir (quote.py:815); AAPL mali yili Eylul."""
+        """'9/30/2025' is MONTH/DAY/YEAR (quote.py:815); AAPL's fiscal year ends in September."""
         periods = _rows(self._result("AAPL"), "financial_periods")
         assert {(p["period_end"].month, p["period_end"].day) for p in periods} == {(9, 30)}
 
@@ -171,8 +172,8 @@ class TestValuation:
         assert Decimal("1") < facts["Trailing P/E"] < Decimal("1000")
 
     def test_nan_cell_produces_no_fact_row(self) -> None:
-        """PFE ceyreklikte 3/31/2025 kolonu bostur; satir YAZILMAZ ama
-        baslik satiri item_count=0 ile yine de durur."""
+        """PFE's quarterly 3/31/2025 column is empty; the row is not
+        written, but the header row still stands with item_count=0."""
         result = self._result("PFE", "quarterly_valuation_measures")
         periods = _rows(result, "financial_periods")
         facts = _rows(result, "financial_facts")
@@ -180,15 +181,15 @@ class TestValuation:
         assert len(facts) < 9 * len(periods)
 
     def test_item_key_with_punctuation_survives(self) -> None:
-        """'PEG Ratio (5yr expected)' -- statement etiketlerinin aksine
-        alfanumerik DEGIL; AsciiKeyType(128) bunu tasir."""
+        """'PEG Ratio (5yr expected)' -- unlike statement labels, it is not
+        alphanumeric; AsciiKeyType(128) carries it."""
         keys = {f["item_key"] for f in _rows(self._result("AAPL"), "financial_facts")}
         assert "PEG Ratio (5yr expected)" in keys or "Enterprise Value/EBITDA" in keys
         assert max(len(k) for k in keys) <= ITEM_KEY_LENGTH
 
     def test_no_collision_with_income_statement(self) -> None:
-        """AAPL 2025-09-30 hem income hem valuation'da var; ayrimi
-        `statement` kolonu yapar."""
+        """AAPL 2025-09-30 exists in both income and valuation; the
+        `statement` column is what disambiguates them."""
         valuation = _rows(self._result("AAPL"), "financial_periods")
         income = _rows(_statement_result("AAPL", "income_stmt"), "financial_periods")
         shared = {p["period_end"] for p in valuation} & {p["period_end"] for p in income}
@@ -197,19 +198,19 @@ class TestValuation:
 
     @pytest.mark.parametrize("symbol", ["SPY", "BTC-USD", "BND", "^GSPC"])
     def test_non_company_symbols_are_empty(self, symbol: str) -> None:
-        """ETF, kripto, tahvil fonu ve endekste kaynak (0,0) doner (S8.2)."""
+        """ETF, crypto, bond fund, and index sources all return (0,0)."""
         for dataset in ("valuation_measures", "quarterly_valuation_measures"):
             assert self._result(symbol, dataset).is_empty
 
     def test_only_current_column_is_empty_not_failure(self) -> None:
-        """periods=0 sekli: tek kolon 'Current'. Yazilacak donem yoktur."""
+        """periods=0 shape: only column is 'Current'. No period to write."""
         frame = pd.DataFrame({"Current": [1.0]}, index=pd.Index(["Market Cap"], dtype=str))
         payload = StatementPayload(frame=frame, currency=None, fetched_at=FETCHED_AT)
         assert REGISTRY["valuation_measures"].normalize(payload, "AAPL").is_empty
 
     def test_unparsable_column_is_dropped_not_fatal(self) -> None:
-        """Kutuphane kolon bicimini degistirirse hucre DUSMEZ; tanidik
-        kolonlar yazilir, tanimayan atilir."""
+        """If the library changes the column format, a cell is not dropped
+        entirely: recognized columns are written, unrecognized ones skipped."""
         frame = pd.DataFrame(
             {"9/30/2025": [1.5], "2025-09-30": [2.5]},
             index=pd.Index(["Trailing P/E"], dtype=str),
@@ -221,11 +222,11 @@ class TestValuation:
         assert periods[0]["period_end"] == date(2025, 9, 30)
 
     def test_currency_is_quotation_not_reporting(self) -> None:
-        """THYAO.IS: financialCurrency=USD ama Market Cap TRY'dir.
+        """THYAO.IS: financialCurrency=USD but Market Cap is in TRY.
 
-        Olcum: valuation Market Cap 4,14e11 ~ info.marketCap 4,08e11 (TRY);
-        USD karsiligi bunun ~1/30'u olurdu. `financial_currency` kullanmak
-        kolona YANLIS birim yazardi.
+        Measured: valuation Market Cap 4.14e11 ~ info.marketCap 4.08e11
+        (TRY); the USD equivalent would be about 1/30 of that. Using
+        `financial_currency` would write the wrong unit into the column.
         """
         from yfin.datasets.base import SyncContext
         from yfin.datasets.financials.valuation import quote_currency
@@ -238,7 +239,7 @@ class TestValuation:
         assert quote_currency(ctx) == "TRY"
 
     def test_currency_failure_does_not_drop_the_cell(self) -> None:
-        """`currency` ikincil alandir; info patlarsa None yazilir."""
+        """`currency` is a secondary field; if info raises, None is written."""
         from yfin.datasets.base import SyncContext
         from yfin.datasets.financials.valuation import quote_currency
 
@@ -254,7 +255,7 @@ class TestValuation:
         assert names == ["symbols", "valuation_measures", "quarterly_valuation_measures"]
 
     def test_financials_alias_does_not_include_valuation(self) -> None:
-        """`financials` maliyeti sessizce buyumez."""
+        """`financials` cost does not silently grow."""
         names = {ds.name for ds in REGISTRY.resolve(["financials"])}
         assert not any(n.endswith("valuation_measures") for n in names)
 
@@ -274,7 +275,7 @@ class TestCalendar:
         assert row["earnings_date_start"] == row["earnings_date_end"]
 
     def test_missing_keys_are_null_not_error(self) -> None:
-        """THYAO'da Dividend Date yok, tahmin alanlari None."""
+        """THYAO has no Dividend Date; estimate fields are None."""
         row = _rows(self._result("THYAO.IS"), "ticker_calendar")[0]
         assert row["dividend_date"] is None
         assert row["earnings_high"] is None
@@ -293,8 +294,8 @@ class TestEarningsDates:
         return REGISTRY["earnings_dates"].normalize(payload, symbol)
 
     def test_same_timestamp_two_rows_survive(self) -> None:
-        """AAPL 2002-07-16 16:00: iki satirin TEK farki Surprise(%)
-        (2.55 / 13.43); EPS alanlarinin ikisi de NaN (S4.2)."""
+        """AAPL 2002-07-16 16:00: the only difference between the two rows
+        is Surprise(%) (2.55 / 13.43); both EPS fields are NaN."""
         rows = _rows(self._result("AAPL"), "earnings_dates")
         target = [r for r in rows if r["earnings_date_local"].isoformat() == "2002-07-16"]
         assert len(target) == 2
@@ -308,7 +309,7 @@ class TestEarningsDates:
     def test_utc_and_local_date_both_kept(self) -> None:
         rows = _rows(self._result("AAPL"), "earnings_dates")
         row = rows[0]
-        # Kolon timestamptz; normalize UTC-aware dondurur (PG S2.3)
+        # Column is timestamptz; normalize returns a UTC-aware value
         assert row["earnings_ts_utc"].tzinfo is UTC
         assert row["earnings_date_local"] is not None
 
@@ -318,7 +319,7 @@ class TestEarningsDates:
 
     @pytest.mark.parametrize("symbol", ["SPY", "BTC-USD"])
     def test_no_earnings_dates_for_non_companies(self, symbol: str) -> None:
-        """Kaynak None doner; fixture bos kayit listesi olarak saklanir."""
+        """Source returns None; the fixture stores it as an empty record list."""
         assert self._result(symbol).is_empty
 
 
@@ -342,8 +343,9 @@ class TestSecFilings:
 
     @pytest.mark.parametrize("symbol", ["THYAO.IS", "SPY", "BTC-USD"])
     def test_dict_payload_is_empty_not_type_error(self, symbol: str) -> None:
-        """ABD disinda ve fon/ETF/kriptoda kaynak {} (dict) doner; `for f in
-        raw` anahtarlari gezer ve f['type'] TypeError verirdi (S4.2)."""
+        """Outside the US and for fund/ETF/crypto, the source returns {}
+        (dict); `for f in raw` would iterate keys, and f['type'] would
+        raise TypeError."""
         assert self._result(symbol).is_empty
 
     def test_epoch_date_is_seconds(self) -> None:
@@ -362,38 +364,38 @@ class TestSecFilings:
 
 class TestItemKeyGuard:
     def test_closed_label_universe_fits_the_column(self) -> None:
-        """Etiket evreni KAPALIDIR: `const.fundamentals_keys`.
+        """The label universe is closed: `const.fundamentals_keys`.
 
-        Sentetik test emniyet valfinin calistigini gosterir; bu test valfin
-        BUGUN hic tetiklenmemesi gerektigini kanitlar ve kutuphane
-        yukseltmesi 128 karakteri asan bir etiket getirirse kirilir.
+        A synthetic test proves the safety valve works; this test proves
+        the valve should never trigger today, and would break if a library
+        upgrade introduces a label longer than 128 characters.
         """
         from yfinance import const
 
         from yfin.models.financials import ITEM_KEY_LENGTH
 
         labels = [key for group in const.fundamentals_keys.values() for key in group]
-        assert len(labels) == 375  # olculen kapali evren
+        assert len(labels) == 375  # measured closed universe
         longest = max(labels, key=len)
-        assert len(longest) == 60, f"kaynak evren degisti: {longest}"
+        assert len(longest) == 60, f"source universe changed: {longest}"
         assert len(longest) <= ITEM_KEY_LENGTH
-        # Ayirici kacisi gerekmemesinin gerekcesi
+        # Why no separator escaping is needed
         assert all(label.isalnum() for label in labels)
 
     def test_every_written_item_key_is_in_the_closed_universe(self) -> None:
-        """Yazilan her kalem kaynak listede olmalidir; degilse ya yfinance
-        surumu degismistir ya da etiket bozulmustur."""
+        """Every written item must be in the source list; if not, either the
+        yfinance version changed or a label got corrupted."""
         from yfinance import const
 
         universe = {key for group in const.fundamentals_keys.values() for key in group}
         for symbol, dataset in (("AAPL", "income_stmt"), ("MSFT", "balance_sheet")):
             facts = _rows(_statement_result(symbol, dataset), "financial_facts")
             unknown = {f["item_key"] for f in facts} - universe
-            assert not unknown, f"{symbol}/{dataset}: evren disi etiket {unknown}"
+            assert not unknown, f"{symbol}/{dataset}: label outside the universe {unknown}"
 
     def test_too_long_item_key_is_skipped_cell_stays_ok(self) -> None:
-        """128 karakteri asan etiket yazilmaz, item_count'a girmez ve
-        hucre `ok` kalir (S8.4)."""
+        """A label over 128 characters is not written, does not count toward
+        item_count, and the cell stays `ok`."""
         import pandas as pd
 
         long_key = "X" * 200
@@ -428,14 +430,14 @@ def test_every_statement_dataset_normalizes(dataset: str) -> None:
 
 
 def test_utc_fetched_at_is_microsecond_precise() -> None:
-    """DATETIME(6): ayni saniyede iki snapshot yazilabilmeli."""
+    """DATETIME(6): two snapshots in the same second must be writable."""
     now = datetime.now(UTC)
     assert now.microsecond >= 0
 
 
 class TestAbsentData:
-    """hide_exceptions=False, yfinance'in "404 -> bos sozluk" davranisini
-    ISTISNAYA cevirir; sirket olmayan sembolde bu `empty`tir (S8.2)."""
+    """hide_exceptions=False turns yfinance's "404 -> empty dict" behavior
+    into an exception; for a non-company symbol this is `empty`."""
 
     def test_404_is_absent_not_failure(self) -> None:
         from yfin.client import is_absent_data
@@ -449,7 +451,7 @@ class TestAbsentData:
         assert is_absent_data(_HttpError("HTTP Error 404: "))
 
     def test_trailing_index_error_is_absent(self) -> None:
-        """yfinance bos trailing cerceveyi .iloc ile okuyup patlar."""
+        """yfinance reads an empty trailing frame with .iloc and blows up."""
         from yfin.client import is_absent_data
 
         assert is_absent_data(IndexError("positional indexers are out-of-bounds"))

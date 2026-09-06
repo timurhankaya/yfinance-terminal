@@ -1,9 +1,10 @@
-"""Piyasa-kapsamli tablolar: market_status/summary ve takvimler (S5.4).
+"""Market-wide tables: market_status/summary and calendars.
 
-Hicbirinde sembol FK'si YOKTUR: kaynakta evren disi semboller geliyor
-(splits takviminde Kore hisseleri, earnings takviminde Oracle). FK olsaydi
-tek bir yabanci sembol tum turun transaction'ini dusururdu; news_symbols ile
-ayni gerekce. is_known bayragi sembolun evrende olup olmadigini isaretler.
+None of these have a symbol FK: the source returns symbols outside the
+universe (Korean stocks in the splits calendar, Oracle in the earnings
+calendar). An FK would fail the whole batch's transaction over one
+foreign symbol -- same reasoning as news_symbols. The is_known flag marks
+whether the symbol is in the universe.
 """
 
 from __future__ import annotations
@@ -39,11 +40,11 @@ from yfin.models.base import (
     TsType,
 )
 
-# Yahoo market_cap alani float doner (443707733500.90027)
+# Yahoo's market_cap field returns a float (443707733500.90027).
 MARKET_CAP_TYPE = Numeric(38, 4, asdecimal=True)
 
 
-# --- market_status / market_summary (snapshot ciftleri) --------------------
+# --- market_status / market_summary (snapshot pairs) ------------------------
 
 
 def _status_columns() -> list[Column[Any]]:
@@ -65,7 +66,7 @@ def _status_columns() -> list[Column[Any]]:
 
 def _summary_columns() -> list[Column[Any]]:
     return [
-        # Board sembolleri (ES=F, ^GSPC) evrende olmayabilir -> FK YOK
+        # Board symbols (ES=F, ^GSPC) may not be in the universe -> no FK.
         Column("symbol", SymbolType(), nullable=True),
         Column("is_known", Boolean, nullable=False, server_default=text("false")),
         Column("short_name", String(64, collation="C"), nullable=True),
@@ -97,7 +98,7 @@ def _region_table(
         cols.append(Column("fetched_at", TsType(), nullable=False))
     args: list[object] = list(cols)
     if with_board:
-        # symbol PK'da degil ve FK yok -> kendiliginden indeks olusmaz
+        # symbol is not in the PK and has no FK, so no index is implicit.
         args.append(Index(f"ix_{name}_symbol", "symbol"))
     return Table(name, Base.metadata, *args)  # type: ignore[arg-type]
 
@@ -116,7 +117,7 @@ market_summary_history = _region_table(
 )
 
 
-# --- takvimler -------------------------------------------------------------
+# --- calendars ---------------------------------------------------------
 
 
 class CalendarEarnings(Base):
@@ -141,10 +142,10 @@ class CalendarEarnings(Base):
 class CalendarEconomic(Base):
     """PK (region, event_time_utc, event_name).
 
-    Index (Event) tekil DEGIL (100 satirda 29 tekrar); ucul anahtar 100/100
-    tekil olculdu. event_name KeyTextType'tir: varsayilan collation
-    'Enflasyon' ile 'Enflasyon' arasindaki aksani ve harf buyuklugunu yok
-    sayip iki farkli olayi tek satira indirirdi.
+    The source Index (Event) is not unique (29 duplicates in 100 rows);
+    this triple key measured 100/100 unique. event_name is KeyTextType:
+    the default collation ignores accent and case, which would fold two
+    distinct events into one row.
     """
 
     __tablename__ = "calendar_economic"
@@ -158,7 +159,7 @@ class CalendarEconomic(Base):
     period_for: Mapped[str | None] = mapped_column(String(16, collation="C"))
     actual: Mapped[Decimal | None] = mapped_column(PriceType())
     expected: Mapped[Decimal | None] = mapped_column(PriceType())
-    # 'last_value' MySQL 8 REZERVE kelimesidir (ERROR 1064)
+    # 'last_value' is a reserved word in MySQL 8 (ERROR 1064).
     last_reported: Mapped[Decimal | None] = mapped_column(PriceType())
     revised: Mapped[Decimal | None] = mapped_column(PriceType())
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
@@ -198,14 +199,14 @@ class CalendarSplits(Base):
     optionable: Mapped[bool | None] = mapped_column(Boolean)
     old_share_worth: Mapped[int | None] = mapped_column(Integer)
     share_worth: Mapped[int | None] = mapped_column(Integer)
-    # share_worth / old_share_worth; payda 0 veya NULL ise NULL
+    # share_worth / old_share_worth; NULL if the denominator is 0 or NULL.
     ratio: Mapped[Decimal | None] = mapped_column(PriceType())
     is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
-# Budama icin takvim tablolarinin ZAMAN kolonlari (S7.4). Tablo basina tek
-# kolon; elle liste yerine burada tutulur cunku kolon adlari tabloya ozgudur.
+# The time column of each calendar table, for pruning. One column per
+# table; kept here rather than a manual list since names are table-specific.
 CALENDAR_TIME_COLUMNS: dict[str, str] = {
     "calendar_earnings": "event_start_ts_utc",
     "calendar_economic": "event_time_utc",

@@ -1,7 +1,7 @@
-"""price_bars CLI komutlari: kapsam, bosluklar, bakim, olcekleme (PB S11).
+"""price_bars CLI commands: scope, gaps, maintenance, rescaling.
 
-`cli.py`den AYRI tutulur: o dosya 630 satirdi ve bu komutlarin hicbiri
-mevcut komutlarla durum paylasmiyor.
+Kept SEPARATE from `cli.py`: that file was 630 lines and none of these
+commands share state with the existing ones.
 """
 
 from __future__ import annotations
@@ -17,35 +17,35 @@ from yfin import normalize as nz
 from yfin.models import BAR_INTERVALS, BarGap, IntradayScope
 from yfin.rescale import apply_pending, seed_baseline, unseeded_historic_splits
 
-scope_app = typer.Typer(help="Intraday kapsam yonetimi (intraday_scope)", no_args_is_help=True)
-bars_app = typer.Typer(help="price_bars bakimi ve denetimi", no_args_is_help=True)
+scope_app = typer.Typer(help="Intraday scope management (intraday_scope)", no_args_is_help=True)
+bars_app = typer.Typer(help="price_bars maintenance and audit", no_args_is_help=True)
 
 
 def _factory() -> sessionmaker[Session]:
-    # Tembel import: cli.py bu modulu import ediyor, tersi dogrudan
-    # yapilirsa dairesel import olusur.
+    # Lazy import: cli.py imports this module, so a direct top-level import
+    # the other way would create a circular import.
     from yfin.cli import _session_factory
 
     return _session_factory()
 
 
-# --- kapsam ---------------------------------------------------------------
+# --- scope ------------------------------------------------------------------
 
 
 @scope_app.command("add")
 def scope_add(
-    symbols: Annotated[list[str], typer.Argument(help="Sembol kodlari")],
-    interval: Annotated[str, typer.Option("--interval", help="Bar interval'i")] = "1m",
+    symbols: Annotated[list[str], typer.Argument(help="Symbol codes")],
+    interval: Annotated[str, typer.Option("--interval", help="Bar interval")] = "1m",
     note: Annotated[str | None, typer.Option("--note")] = None,
     force: Annotated[
-        bool, typer.Option("--force", help="1m disi interval'e ILK kaydi onaylar")
+        bool, typer.Option("--force", help="Confirm the FIRST row for a non-1m interval")
     ] = False,
 ) -> None:
-    """Sembolleri intraday_scope'a ekler.
+    """Add symbols to intraday_scope.
 
-    1m DISINDAKI bir interval'e ILK kaydi eklemek TEHLIKELIDIR: cozumleme
-    "o interval icin en az bir satir var mi" diye baktigi icin tek bir
-    satir diger TUM sembolleri kapsam disina atar (PB S5.4).
+    Adding the FIRST row for an interval other than 1m is DANGEROUS:
+    resolution checks "is there at least one row for this interval", so a
+    single row excludes every OTHER symbol from that scope.
     """
     if interval not in BAR_INTERVALS:
         typer.echo(f"bilinmeyen interval: {interval}; gecerli: {', '.join(BAR_INTERVALS)}")
@@ -81,10 +81,10 @@ def scope_disable(
     symbols: Annotated[list[str], typer.Argument()],
     interval: Annotated[str, typer.Option("--interval")] = "1m",
 ) -> None:
-    """Kapsamdan cikarir ama SATIRI SILMEZ (enabled=0).
+    """Remove from scope but DOES NOT DELETE THE ROW (enabled=0).
 
-    Silmek, o interval'in son satiriysa kapsami sessizce TUM evrene
-    acardi; disable bu riski tasimaz.
+    Deleting the last row for an interval would silently reopen scope to the
+    entire universe; disable carries no such risk.
     """
     codes = [nz.normalize_symbol(s) for s in symbols]
     with _factory()() as session:
@@ -99,7 +99,7 @@ def scope_disable(
 
 @scope_app.command("list")
 def scope_list(interval: Annotated[str | None, typer.Option("--interval")] = None) -> None:
-    """Kapsam tablosunu ve her interval'in COZUMLENMIS anlamini gosterir."""
+    """Show the scope table and each interval's RESOLVED meaning."""
     with _factory()() as session:
         stmt = select(
             IntradayScope.bar_interval, IntradayScope.symbol, IntradayScope.enabled
@@ -126,7 +126,7 @@ def scope_list(interval: Annotated[str | None, typer.Option("--interval")] = Non
             typer.echo(f"      {'+' if enabled else '-'} {symbol}")
 
 
-# --- bosluklar ve bakim ---------------------------------------------------
+# --- gaps and maintenance -----------------------------------------------
 
 
 @bars_app.command("gaps")
@@ -136,7 +136,7 @@ def bars_gaps(
     reason: Annotated[str | None, typer.Option("--reason")] = None,
     open_only: Annotated[bool, typer.Option("--open-only")] = False,
 ) -> None:
-    """Kacirilan pencereler (PB S5.5)."""
+    """Missed windows."""
     with _factory()() as session:
         stmt = select(
             BarGap.symbol,
@@ -166,23 +166,22 @@ def bars_gaps(
 
 @bars_app.command("maintain")
 def bars_maintain(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -> None:
-    """Aylik bakim (PB S7.5). SILME YAPMAZ.
+    """Monthly maintenance. NEVER DELETES anything.
 
-    IKI ADIM KALDIRILDI ve ikisi de motor degisiminin dogrudan
-    sonucudur (PG S3.2, S7.2):
+    Two steps were REMOVED, both as a direct result of the engine switch:
 
-      * PARTITION ILERLETME. price_bars artik bir TimescaleDB
-        hypertable'idir ve chunk'lari YAZMA ANINDA kendisi olusturur.
-        "Aralik disi insert" kavrami yoktur, dolayisiyla bakimi atlamanin
-        bir bedeli de yoktur. `maintenance.py` modulunun tamami silindi.
+      * PARTITION ADVANCE. price_bars is now a TimescaleDB hypertable and
+        creates its own chunks AT WRITE TIME. There is no "out-of-range
+        insert" case, so skipping this maintenance has no cost either. The
+        entire `maintenance.py` module was deleted.
 
-      * OKSUZ SATIR DENETIMI. FK'yi partition ugruna feda etmistik
-        (MySQL ERROR 1506); hypertable referencing taraf olabildigi icin
-        price_bars artik symbols'a FK TASIYOR ve butunluk DB seviyesinde
-        garanti. Sorgu olu koda donusmustu.
+      * ORPHAN-ROW AUDIT. The FK had been sacrificed for partitioning
+        (MySQL ERROR 1506); since a hypertable can be the referencing side,
+        price_bars now CARRIES an FK to symbols and integrity is guaranteed
+        at the DB level. The query became dead code.
     """
     with _factory()() as session:
-        # 1) Tohum denetimi (PB S10/9a)
+        # 1) Baseline-seed audit
         unseeded = unseeded_historic_splits(session)
         if unseeded:
             typer.echo(
@@ -190,12 +189,12 @@ def bars_maintain(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -
                 "calistirilmadan `yfin sync --datasets bars` kosarsa ARSIV BOZULUR."
             )
 
-        # 2) Bosluk ozeti
+        # 2) Gap summary
         for why, total, still_open in session.execute(
             text(
-                # MySQL'de `SUM(x IS NULL)` boolean'i ortuk olarak int'e
-                # ceviriyordu. PostgreSQL'de SUM(boolean) YOKTUR (42883);
-                # FILTER hem dogru hem daha okunakli karsiliktir.
+                # MySQL implicitly cast `SUM(x IS NULL)`'s boolean to int.
+                # PostgreSQL has no SUM(boolean) (42883); FILTER is both
+                # correct and more readable.
                 "SELECT reason, COUNT(*), "
                 "       COUNT(*) FILTER (WHERE resolved_at IS NULL) "
                 "  FROM bar_gaps GROUP BY reason"
@@ -212,16 +211,16 @@ def bars_maintain(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -
 @bars_app.command("rescale")
 def bars_rescale(
     seed: Annotated[
-        bool, typer.Option("--seed", help="Mevcut split'ler icin baseline kaydi")
+        bool, typer.Option("--seed", help="Seed a baseline record for existing splits")
     ] = False,
     symbol: Annotated[str | None, typer.Option("--symbol")] = None,
 ) -> None:
-    """Geriye donuk olcekleme (PB S6.6).
+    """Retroactive rescaling.
 
-    `--seed` KURULUMDA BIR KEZ, `bars_*` ilk kez kosmadan ONCE
-    calistirilmalidir. Atlanirsa ilk kosu splits tablosundaki TUM tarihsel
-    split'leri uygular ve Yahoo'dan zaten guncel olcekte gelmis barlari
-    yeniden boler.
+    `--seed` must be run ONCE AT SETUP, BEFORE `bars_*` runs for the first
+    time. Skipping it makes the first run apply every historical split in
+    the splits table and re-split bars that Yahoo already returned at the
+    current scale.
     """
     with _factory()() as session:
         if seed:

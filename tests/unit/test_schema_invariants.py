@@ -1,10 +1,10 @@
-"""Sema genelinde gecerli olmasi gereken degismezler.
+"""Invariants that must hold across the whole schema, not just one table.
 
-Bu testler tek tek tablolara degil, `Base.metadata`'nin TAMAMINA bakar.
-Gerekce: bir politikanin (FK davranisi, damga hassasiyeti, sembol kolonu
-collation'i) tek bir yardimcida tanimli olmasi onu KORUMAZ -- yeni bir tablo
-yardimciyi kullanmadan da yazilabilir ve sessizce sapabilir. Burada
-korunan sey yardimcinin kendisi degil, INVARYANT'tir.
+These tests scan the ENTIRE `Base.metadata`, not individual tables. Defining
+a policy (FK behavior, timestamp precision, symbol column collation) in one
+helper does not protect it -- a new table can be written without using the
+helper and silently drift. What is guarded here is the invariant itself, not
+the helper.
 """
 
 from __future__ import annotations
@@ -25,27 +25,27 @@ def _symbol_fks() -> list[tuple[str, ForeignKeyConstraint]]:
 
 
 def test_every_symbol_fk_uses_the_same_policy() -> None:
-    """ON UPDATE CASCADE + ON DELETE RESTRICT (T S5.5).
+    """ON UPDATE CASCADE + ON DELETE RESTRICT.
 
-    RESTRICT, soft-delete politikasini DB SEVIYESINDE zorlayan seydir: tek
-    bir DELETE 40 yillik gecmisi geri donusumsuz silmesin diye. Bir tablo
-    CASCADE'e saparsa kimse fark etmez -- ta ki bir sembol silinip veri
-    kaybolana kadar.
+    RESTRICT enforces the soft-delete policy at the DB level: a single DELETE
+    must not irreversibly wipe 40 years of history. If a table drifted to
+    CASCADE, nobody would notice until a symbol got deleted and data vanished
+    with it.
     """
     found = _symbol_fks()
-    assert found, "symbols'a FK tasiyan tablo bulunamadi"
+    assert found, "no table with an FK to symbols found"
     for table_name, fk in found:
         assert fk.ondelete == "RESTRICT", f"{table_name}: ondelete={fk.ondelete}"
         assert fk.onupdate == "CASCADE", f"{table_name}: onupdate={fk.onupdate}"
 
 
 def test_every_symbol_column_shares_the_symbols_collation() -> None:
-    """FK kolonunun collation'i ebeveynle BIREBIR esit olmali.
+    """An FK column's collation must exactly match its parent's.
 
-    MySQL bunu MOTOR SEVIYESINDE zorluyordu: uyusmazlik ERROR 3780
-    verir ve tablo hic olusmazdi. PostgreSQL boyle bir hata VERMEZ --
-    yani sapma SESSIZDIR ve JOIN/karsilastirma semantigini ayristirir.
-    Test tam da bu yuzden artik daha degerlidir (PG S9.4)."""
+    MySQL enforced this at the engine level: a mismatch raised ERROR 3780 and
+    the table would not even get created. PostgreSQL raises no such error --
+    the drift is silent and splits JOIN/comparison semantics between parent
+    and child. That silence is exactly why this test matters."""
     parent = Base.metadata.tables["symbols"].c["symbol"].type
     for table_name, fk in _symbol_fks():
         for element in fk.elements:
@@ -57,15 +57,16 @@ def test_every_symbol_column_shares_the_symbols_collation() -> None:
 
 
 def test_no_timestamp_column_loses_sub_second_precision() -> None:
-    """Tum damgalar TIMESTAMP(6) WITH TIME ZONE.
+    """All timestamps are TIMESTAMP(6) WITH TIME ZONE.
 
-    Saniye hassasiyeti ayni saniyede PK cakismasi uretir
-    (ticker_info_history PK'si (symbol, fetched_at)) ve PostgreSQL
-    kesirleri YUVARLAR, kesmez (T S5.4, PG S2.3).
+    Second precision would collide within the same second on the
+    (symbol, fetched_at) PK of ticker_info_history, and PostgreSQL rounds
+    the fraction rather than truncating it.
 
-    `timezone` de kontrol edilir: naive bir damga kolonu, psycopg'nin
-    baglanti TZ'sine gore yorumlamasi sayesinde DOGRU sonuc verir ama
-    tip tutarsizligini kalicilastirir -- yani sapma SESSIZDIR.
+    `timezone` is checked too: a naive timestamp column still produces a
+    correct-looking result because psycopg interprets it against the
+    connection's TZ, which papers over the type mismatch -- the drift is
+    silent.
     """
     offenders = [
         f"{table.name}.{col.name}"
@@ -77,34 +78,34 @@ def test_no_timestamp_column_loses_sub_second_precision() -> None:
     assert offenders == []
 
 
-# As-of tablolarinda `as_of_date`ten ONCE gelmesine izin verilen PK onekleri.
-# Sembol tarafinda kapsam `symbol`, domain tarafinda `domain_key`; bolgeli
-# domain tablolarinda arada `region` vardir (SI S5.3-5.5) ve orasi da
-# invariant'i BOZMAZ: bolge kumesi yapilandirmayla sinirli ve her sorguda
-# bilinen bir degerdir, "D gunundeki deger" sorgusu yine oneki kullanir.
-# `query_term` UCUNCU kapsam eksenidir (SQ S5.2, S5.6): bir arama teriminin
-# sonucu BIRDEN COK sembol tasir, dolayisiyla kapsam sembol degildir. "D
-# gunundeki sonuc" sorgusu yine oneki kullanir:
+# PK prefixes allowed to precede `as_of_date` in as-of tables. Scope is
+# `symbol` on the symbol side, `domain_key` on the domain side; regional
+# domain tables insert `region` in between, which does not break the
+# invariant since the region set is config-bounded and known at query time --
+# a "value as of day D" query still uses the prefix. `query_term` is a third
+# scope axis: a search term's result carries multiple symbols, so its scope
+# is not a symbol. A "result as of day D" query still uses the prefix:
 # `WHERE query_term = ? AND as_of_date = ?`.
 ASOF_PK_PREFIXES = (
     ("symbol",),
     ("domain_key",),
     ("domain_key", "region"),
     ("query_term",),
-    # `screen_key`: ekranin gunluk basligi ve kadrosu (SQ S5.9, S5.10).
-    # `screen_quotes` bu listeye GIRMEZ ve girmemelidir -- onun oneki
-    # `symbol`dur cunku kotasyon EKRANDAN BAGIMSIZDIR (SQ K5).
+    # `screen_key`: a screen's daily headline and roster. `screen_quotes`
+    # does NOT belong here -- its prefix is `symbol` because a quote is
+    # independent of the screen.
     ("screen_key",),
 )
 
 
 def test_as_of_date_is_always_the_second_key_component() -> None:
-    """as_of_date ANAHTARDAYSA ikinci bilesen olmali: "D gunundeki deger"
-    sorgusu `(kapsam[, region], as_of_date)` onekini kullanir (AH S5.9); sona kaysaydi
-    o sorgu full scan olurdu.
+    """If as_of_date is part of the key, it must be the second component.
 
-    Kapi tablolari (`asof_state`, `domain_asof_state`) KAPSAM DISIDIR: orada
-    as_of_date anahtar degil, kapinin TASIDIGI veridir.
+    A "value as of day D" query relies on the `(scope[, region], as_of_date)`
+    prefix; if as_of_date were last, that query would become a full scan.
+
+    Gate tables (`asof_state`, `domain_asof_state`) are out of scope: there,
+    as_of_date is not part of the key, it is data the gate carries.
     """
     checked = 0
     for table in Base.metadata.tables.values():
@@ -115,17 +116,17 @@ def test_as_of_date_is_always_the_second_key_component() -> None:
         assert tuple(pk[:position]) in ASOF_PK_PREFIXES, f"{table.name} -> {pk}"
         assert isinstance(table.c["as_of_date"].type, Date)
         checked += 1
-    assert checked >= 14, f"as-of tablosu bekleniyordu, {checked} bulundu"
+    assert checked >= 14, f"expected as-of tables, found {checked}"
 
 
 def test_child_tables_inherit_their_parent_timestamp() -> None:
-    """Damgasiz her tablo ya bir EBEVEYNDEN turer ya kaynak-tarihlidir.
+    """Every timestamp-less table is either derived from a parent or source-dated.
 
-    Bu proje her satira `fetched_at` koymaz ve koymamalidir: `financial_facts`
-    damgayi `financial_periods`'tan, `news_symbols` `news`'ten alir;
-    `price_history`/`dividends`/`splits` ise kaynagin kendi tarihini tasiyan
-    serilerdir (T S5.2). Test bu ayrimi BELGELER: damgasiz yeni bir tablo
-    eklenirse hangi kategoriye girdigi acikca soylenmek zorundadir.
+    Not every row needs its own `fetched_at`: `financial_facts` takes its
+    timestamp from `financial_periods`, `news_symbols` from `news`;
+    `price_history`/`dividends`/`splits` carry the source's own date. This
+    test documents that split so a new timestamp-less table must state which
+    category it falls into.
     """
     source_dated = {
         "price_history",
@@ -135,36 +136,34 @@ def test_child_tables_inherit_their_parent_timestamp() -> None:
         "shares_full",
         "company_officers",
         "news",
-        # price_bars: ts_utc KAYNAGIN kendi zamanidir, price_history'nin
-        # session_date'i gibi. Ayrica bir fetched_at, kalici arsivde satir
-        # basina 8 byte x ~464 milyon = ~4 GB'a mal olur ve hicbir soruya
-        # cevap vermez: bar hangi kosuda yazildi bilgisi sync_run_items'ta
-        # zaten var (PB S5.1).
+        # price_bars: ts_utc is the source's own time, like session_date on
+        # price_history. A fetched_at would also cost 8 bytes x ~464M rows =
+        # ~4 GB in the permanent archive for no question it answers -- which
+        # run wrote a bar is already in sync_run_items.
         "price_bars",
-        # periodic_bars: price_bars ile AYNI gerekce -- ts_utc kaynagin
-        # kendi zamanidir ve bar hangi kosuda yazildi bilgisi
-        # sync_run_items'ta zaten var.
+        # periodic_bars: same rationale as price_bars.
         "periodic_bars",
     }
-    # Operasyonel ve denetim tablolari: kendi zaman kolonlarini tasirlar
-    # (added_at / detected_at / applied_at) ama bunlar "kaynaktan cekilme"
-    # damgasi DEGILDIR, bu yuzden fetched_at aranmaz.
+    # Operational/audit tables: they carry their own time columns
+    # (added_at / detected_at / applied_at) but those are not "fetched from
+    # source" timestamps, so fetched_at is not expected here.
     exempt = {
         "symbols",
         "sync_runs",
         "sync_run_items",
         "proxies",
         "alembic_version",
-        "intraday_scope",  # added_at: kapsam listesine ne zaman girdi
-        "bar_gaps",  # detected_at: bosluk ne zaman tespit edildi
-        "bar_rescales",  # applied_at: olcekleme ne zaman uygulandi
-        # `screens` STATIK KIMLIKTIR (SQ S5.8), `symbols` ile ayni kategori:
-        # bir ekranin tanimi Yahoo'dan "cekilmez", `screens.py`den seed
-        # edilir. created_at/updated_at tasir; `fetched_at` burada yanlis
-        # anlam olurdu. Gunluk cekim damgasi `screen_runs.fetched_at`tedir.
+        "intraday_scope",  # added_at: when it entered the intraday scope list
+        "bar_gaps",  # detected_at: when the gap was detected
+        "bar_rescales",  # applied_at: when the rescale was applied
+        # `screens` is static identity, same category as `symbols`: a
+        # screen's definition is not fetched from Yahoo, it is seeded from
+        # screens.py. It carries created_at/updated_at; fetched_at would be
+        # the wrong meaning here. The daily fetch timestamp lives on
+        # screen_runs.fetched_at.
         "screens",
-        # `settings` de STATIK KIMLIKTIR: operator tarafindan yazilir,
-        # Yahoo'dan "cekilmez". created_at/updated_at tasir.
+        # `settings` is also static identity: written by the operator, not
+        # fetched from Yahoo. Carries created_at/updated_at.
         "settings",
     }
     for table in Base.metadata.tables.values():
@@ -172,24 +171,24 @@ def test_child_tables_inherit_their_parent_timestamp() -> None:
             continue
         parents = {fk.referred_table.name for fk in table.foreign_key_constraints}
         assert table.name in source_dated or (parents - {"symbols"}), (
-            f"{table.name}: ne fetched_at tasiyor, ne bir ebeveynden turuyor"
+            f"{table.name}: has no fetched_at and derives from no parent"
         )
 
 
-# Kolon adi olarak cazip gelen AYRILMIS/TEHLIKELI sozcukler.
+# Reserved/dangerous words that look tempting as column names.
 #
-# Liste MySQL doneminde kuruldu ve PostgreSQL'e gecerken KORUNDU: buyuk
-# kismi (pencere fonksiyonlari, `interval`, `order`, `group`, `key`,
-# `rows`) PostgreSQL'de de ayrilmistir ya da tip/fonksiyon adidir.
-# Birkaci yalnizca MySQL'de ayrilmis olabilir -- liste DARALTILMADI
-# cunku amaci tasinabilirlik: bir kolon adi iki motorda da tirnaksiz
-# calisiyorsa hicbir ham SQL onu bozamaz. `status` BU LISTEDE DEGILDIR.
+# Built up in the MySQL era and kept through the move to PostgreSQL: most
+# entries (window functions, `interval`, `order`, `group`, `key`, `rows`) are
+# also reserved or type/function names in PostgreSQL. A few may be reserved
+# only in MySQL, but the list is not trimmed since the point is portability:
+# a name that works unquoted on both engines can never be broken by raw SQL.
+# `status` is NOT on this list.
 #
-# `rank` SQ sirasinda eklendi: pencere fonksiyonu olarak ayrilmistir ve
-# tirnaksiz her ham SQL'i sozdizimi hatasiyla dusurur. SQLAlchemy kendi
-# urettigi SQL'i tirnakladigi icin ORM yolu CALISIR -- hata yalnizca elle
-# yazilan sorguda ve migration betiklerinde patlar, yani en gec fark
-# edilen yerde. Bu testin varlik sebebi o gecikmeyi ortadan kaldirmaktir.
+# `rank` was added because it is a reserved window function name and breaks
+# any unquoted raw SQL with a syntax error. The ORM path works fine since
+# SQLAlchemy quotes its own generated SQL -- the failure only surfaces in
+# hand-written queries and migration scripts, i.e. as late as possible. This
+# test exists to remove that delay.
 RESERVED_WORDS = frozenset(
     {
         "rank",
@@ -219,21 +218,20 @@ RESERVED_WORDS = frozenset(
     }
 )
 
-# ONCEDEN VAR OLAN istisna. `history_metadata.range` kaynagin kendi alan
-# adidir (`range: "1mo"`) ve tablo uretimde. Yeniden adlandirmak bir
-# migration + veri tasima demek olurdu ve bu testin amaci gecmisi yeniden
-# yazmak degil, YENI tablolarin ayni tuzaga dusmesini engellemek.
-# Listeye ekleme yapmadan once: adin gercekten kacinilmaz oldugundan emin
-# olun.
+# Pre-existing exception. `history_metadata.range` is the source's own field
+# name (`range: "1mo"`) and the table is in production. Renaming it would
+# mean a migration plus a data move, and this test exists to stop NEW tables
+# from falling into the same trap, not to rewrite history. Before adding to
+# this list: make sure the name is truly unavoidable.
 RESERVED_GRANDFATHERED = frozenset({"history_metadata.range"})
 
 
 def test_no_column_uses_a_reserved_word() -> None:
-    """Kolon adlari ayrilmis sozcuklerden secilmez.
+    """Column names are never chosen from reserved words.
 
-    `economic_calendar.last_reported` bu kuralin ilk uygulamasiydi;
-    `screen_members.rank_index` ikincisi. Ikisi de "dogal" adin
-    (`reported`, `rank`) ayrilmis oldugu yerlerde duruyor.
+    `economic_calendar.last_reported` was the first case this rule caught;
+    `screen_members.rank_index` the second. Both stand in for a "natural"
+    name (`reported`, `rank`) that turned out to be reserved.
     """
     offenders = [
         name

@@ -1,4 +1,4 @@
-"""Ayni fixture iki kez: kapinin GERCEK PostgreSQL uzerindeki davranisi (SI S9.3)."""
+"""Same fixture run twice: the gate's actual behavior against PostgreSQL."""
 
 from __future__ import annotations
 
@@ -42,8 +42,8 @@ def test_second_run_skips_data_tables_but_keeps_the_gate_ok(db_session: Session)
     statuses = _statuses("sector_rankings", second, "US")
     assert statuses["domain_top_companies"] is ItemStatus.SKIPPED
     assert statuses["domain_top_funds"] is ItemStatus.SKIPPED
-    # KAPI HUCRESI `ok` KALIR: kapi satiri her iki dalda da yazilir.
-    # "tum hucreler skipped" iddiasi YANLIS olurdu.
+    # The gate cell stays `ok`: the gate row is written on both branches.
+    # A claim of "all cells skipped" would be wrong.
     assert statuses["domain_asof_state"] is ItemStatus.OK
     assert _statuses("sector_rankings", first, "US")["domain_top_companies"] is ItemStatus.OK
 

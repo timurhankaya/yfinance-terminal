@@ -1,4 +1,4 @@
-"""Fiyat ve kurumsal islem serileri (S5.2)."""
+"""Price and corporate-action time series."""
 
 from __future__ import annotations
 
@@ -17,38 +17,37 @@ from yfin.models.base import (
 
 
 class PriceHistory(Base):
-    """interval='1d'. PK borsanin YEREL seans tarihidir."""
+    """interval='1d'. PK is the exchange's local session date."""
 
     __tablename__ = "price_history"
     __table_args__ = (Index("ix_price_history_session_date", "session_date"),)
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     session_date: Mapped[date] = mapped_column(primary_key=True)
-    # ts_utc ham gercegi korur: pozitif ofsetli borsalarda UTC'ye cevirmek
-    # tarihi bir gun geri kaydirir (S5.4)
+    # ts_utc preserves the raw value: converting to UTC on exchanges with a
+    # positive offset would shift the date back a day.
     ts_utc: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
     open: Mapped[Decimal | None] = mapped_column(PriceType())
     high: Mapped[Decimal | None] = mapped_column(PriceType())
     low: Mapped[Decimal | None] = mapped_column(PriceType())
     close: Mapped[Decimal] = mapped_column(PriceType(), nullable=False)
-    # auto_adjust=False ile gelen ayri kolon
+    # Separate column returned when auto_adjust=False.
     adj_close: Mapped[Decimal | None] = mapped_column(PriceType())
     volume: Mapped[int | None] = mapped_column(
         BigInteger, CheckConstraint('"volume" >= 0', name="ck_price_history_volume_nonneg")
     )
 
-    # Bu uc kolon TUREV bilgidir, otorite degildir; tekil dogruluk kaynagi
-    # dividends/splits/capital_gains tablolaridir ve v_actions yalniz onlari okur.
+    # These three columns are derived, not authoritative; the single source
+    # of truth is dividends/splits/capital_gains, and v_actions reads only those.
     dividend: Mapped[Decimal] = mapped_column(PriceType(), nullable=False, server_default="0")
     split_ratio: Mapped[Decimal] = mapped_column(PriceType(), nullable=False, server_default="0")
     capital_gain: Mapped[Decimal] = mapped_column(PriceType(), nullable=False, server_default="0")
 
-    # yfinance history(repair=True) ciktisindaki "Repaired?" kolonu (P6.3).
-    # MONOTONIKTIR: yalnizca 0 -> 1 yonunde ilerler. Onarim heuristikleri
-    # pencere uzunluguna bagli oldugu icin dar bir artimli pencerede ayni
-    # satir bir kez 1, ertesi kez 0 gelebilir; duz upsert bunu geri yazar
-    # ve kolonun denetim degeri sifirlanirdi.
+    # yfinance history(repair=True)'s "Repaired?" column. Monotonic:
+    # only advances 0 -> 1. Repair heuristics depend on window length, so
+    # a narrow incremental window can see the same row as 1 then later as
+    # 0; a plain upsert would write that back and reset the audit value.
     is_repaired: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
 
@@ -80,11 +79,11 @@ class CapitalGain(Base):
 
 
 class SharesFull(Base):
-    """PK'ya 'shares' DAHILDIR (S5.2).
+    """'shares' is part of the PK.
 
-    Kaynakta ayni tarihte farkli degerler geliyor (AAPL'de 17 tarih).
-    (symbol, as_of_date) ikilisi olsaydi hangi degerin kazanacagi
-    calistirma sirasina bagli olurdu.
+    The source returns different values for the same date (17 dates for
+    AAPL). With just (symbol, as_of_date), which value wins would depend
+    on run order.
     """
 
     __tablename__ = "shares_full"

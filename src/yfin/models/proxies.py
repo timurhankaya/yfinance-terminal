@@ -1,14 +1,14 @@
-"""proxies tablosu: proxy havuzu, aktiflik ve saglik durumu (P3.1).
+"""proxies table: proxy pool, enablement, and health.
 
-Aktiflik IKI kolondur ve bu bilinclidir:
+Enablement is deliberately two columns:
 
-  * `is_enabled` OPERATORUN kararidir; sistem asla degistirmez.
-  * `health`     SISTEMIN gozlemidir; CLI yalnizca `proxy reset` ile sifirlar.
+  * `is_enabled` is the operator's decision; the system never changes it.
+  * `health` is the system's observation; only `proxy reset` clears it via the CLI.
 
-Tek bir `is_active` kolonu ikisini karistirirdi: otomatik ban tespiti,
-operatorun bilerek kapattigi bir proxy'yi basarili bir istek sonrasi
-yeniden acabilirdi. Ayni ayrim symbols tablosunda da var
-(`is_active` kullanici karari, `unknown_streak` sistem sayaci).
+A single `is_active` column would conflate them: automatic ban detection
+could re-enable a proxy the operator deliberately disabled, after one
+successful request. Same split as the symbols table
+(`is_active` is a user decision, `unknown_streak` a system counter).
 """
 
 from __future__ import annotations
@@ -48,19 +48,19 @@ class ProxyScheme(enum.StrEnum):
 
 
 class ProxyHealth(enum.StrEnum):
-    UNKNOWN = "unknown"  # hic denenmedi; UYGUNDUR
+    UNKNOWN = "unknown"  # Never tried; eligible.
     HEALTHY = "healthy"
     COOLDOWN = "cooldown"
-    DEAD = "dead"  # yalnizca `proxy reset` geri getirir
+    DEAD = "dead"  # Only `proxy reset` brings it back.
 
 
 def _enum(cls: type[enum.StrEnum], name: str) -> Enum:
-    """Mevcut konvansiyon: SQLAlchemy enum ISIMLERINI degil DEGERLERINI yazar.
+    """Project convention: writes the enum VALUES, not the Python names.
 
-    `name` ACIKCA verilir. SQLAlchemy adsiz birakilirsa adi Python
-    sinifindan turetir (`proxyscheme`) -- hata vermez, ama uretilen ad
-    projenin snake_case konvansiyonuna uymaz ve PostgreSQL'de bu ad
-    KALICI bir tip adidir (CREATE TYPE).
+    `name` is given explicitly. Left unnamed, SQLAlchemy derives it from
+    the Python class (`proxyscheme`) -- no error, but the generated name
+    breaks the project's snake_case convention, and on PostgreSQL this
+    name is a permanent type name (CREATE TYPE).
     """
     return Enum(cls, values_callable=lambda e: [m.value for m in e], name=name)
 
@@ -68,10 +68,10 @@ def _enum(cls: type[enum.StrEnum], name: str) -> Enum:
 class Proxy(Base):
     __tablename__ = "proxies"
     __table_args__ = (
-        # username NOT NULL DEFAULT '' oldugu icin bu kisit GERCEKTEN
-        # uygulanir: MySQL, NULL iceren satirlarda UNIQUE tekilligi
-        # zorlamaz ve nullable bir username ayni proxy'nin defalarca
-        # eklenmesine izin verirdi.
+        # This constraint actually holds because username is
+        # NOT NULL DEFAULT '': MySQL does not enforce UNIQUE across rows
+        # containing NULL, so a nullable username would let the same
+        # proxy be added repeatedly.
         UniqueConstraint("scheme", "host", "port", "username", name="uq_proxies_endpoint"),
         Index("ix_proxies_eligibility", "is_enabled", "health"),
     )
@@ -86,12 +86,13 @@ class Proxy(Base):
         CheckConstraint('"port" BETWEEN 1 AND 65535', name="ck_proxies_port_range"),
         nullable=False,
     )
-    # '' = kullanicisiz. NULL DEGIL: bkz. __table_args__ yorumu.
+    # '' = no username. Not NULL: see the __table_args__ comment above.
     username: Mapped[str] = mapped_column(
         ProxyLabelType(), nullable=False, server_default=text("''")
     )
-    # Fernet token'i URL-safe base64 ASCII'dir; VARBINARY charset/collation
-    # donusum riskini sifirlar. 512 bayt ~310 baytlik parolaya kadar yeter.
+    # Fernet tokens are URL-safe base64 ASCII, so VARBINARY removes any
+    # charset/collation conversion risk. 512 bytes covers a password up
+    # to ~310 bytes.
     password_enc: Mapped[bytes | None] = mapped_column(LargeBinary)
 
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
@@ -100,11 +101,12 @@ class Proxy(Base):
     )
     cooldown_until: Mapped[datetime | None] = mapped_column(TsType())
 
-    # ardisik hata; esigi asinca cooldown, sonra 0'a doner
+    # Consecutive failures; past the threshold triggers cooldown, then resets to 0.
     consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    # KUMULATIF cooldown turu; esigi asinca dead. Basari bunu SIFIRLAMAZ,
-    # aksi halde arada tek bir basari dead'e giden yolu surekli bastan
-    # baslatir ve yari-olu bir proxy sonsuza dek havuzda kalirdi.
+    # Cumulative cooldown rounds; past the threshold, dead. A success does
+    # not reset this -- otherwise a single success mid-decline would
+    # restart the path to dead every time, keeping a half-dead proxy in
+    # the pool forever.
     cooldown_rounds: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
     success_count: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
@@ -113,7 +115,7 @@ class Proxy(Base):
     last_ok_at: Mapped[datetime | None] = mapped_column(TsType())
     last_error_at: Mapped[datetime | None] = mapped_column(TsType())
     last_checked_at: Mapped[datetime | None] = mapped_column(TsType())
-    # ErrorKind + REDAKTE EDILMIS mesaj; parola asla girmez
+    # ErrorKind + a redacted message; the password never enters this field.
     last_error: Mapped[str | None] = mapped_column(Text)
     last_latency_ms: Mapped[int | None] = mapped_column(Integer)
 
@@ -124,24 +126,23 @@ class Proxy(Base):
         TsType(),
         nullable=False,
         server_default=func.now(),
-        # PostgreSQL'de `ON UPDATE CURRENT_TIMESTAMP` diye bir KOLON
-        # CUMLECIGI YOKTUR; MySQL'deki tanim burada DDL sozdizimi hatasi
-        # verirdi. Trigger yerine Python tarafi secildi: tek bir kolon
-        # icin semaya gorunmez bir yan etki eklemek, projenin "davranis
-        # kodda gorunur olsun" cizgisine aykiriydi.
+        # PostgreSQL has no `ON UPDATE CURRENT_TIMESTAMP` column clause;
+        # the MySQL definition would be a DDL syntax error here. Python-side
+        # update chosen over a trigger: an invisible schema side effect for
+        # one column conflicts with the project's "behavior stays visible
+        # in code" line.
         #
-        # Kabul edilen bedel: yalnizca HAM SQL (`text("UPDATE proxies
-        # SET ...")`) bu kolonu tazelemez. SQLAlchemy `onupdate`i ORM
-        # flush'inda VE Core `update()` yapisinda uygular.
+        # Accepted cost: only raw SQL (`text("UPDATE proxies SET ...")`)
+        # would not refresh this column. SQLAlchemy applies `onupdate` on
+        # ORM flush and in Core `update()`.
         #
-        # Tarandi (PG S2.11): proxies'e yazan uc yer var --
-        # cli.py:1052, cli.py:1067 ve proxy/repository.py:114 -- ucu de
-        # Core `update(Proxy)` kullaniyor, yani `onupdate` calisir. Ham
-        # SQL ile yazan HICBIR yer yok. Boyle bir yer eklenirse
-        # `updated_at`i ACIKCA set etmelidir.
+        # Audited: three places write to proxies -- cli.py:1052,
+        # cli.py:1067, and proxy/repository.py:114 -- all three use Core
+        # `update(Proxy)`, so `onupdate` applies. No raw-SQL writer exists
+        # today; one added later must set `updated_at` explicitly.
         onupdate=lambda: datetime.now(UTC),
     )
 
     def endpoint(self) -> str:
-        """host:port. Kimlik bilgisi ICERMEZ; loglarda bu kullanilir."""
+        """host:port. Carries no credentials; used in logs."""
         return f"{self.host}:{self.port}"

@@ -1,10 +1,11 @@
-"""Dataset registry ve cozumleyici (S6.1).
+"""Dataset registry and resolver.
 
-Alias genisletme, sira koruyan tekillestirme, topolojik siralama, dongu ve
-bilinmeyen-ad kontrolu tek bir `Registry` sinifindadir. UC ornek uretilir:
-sembol-kapsamli (`SYMBOL_DATASETS`), piyasa-kapsamli (`MARKET_DATASETS`) ve
-sektor/endustri kapsamli (`DOMAIN_DATASETS`) dataset'ler. Ucu ayni
-sozlesmeyi paylasir; tek fark bootstrap dataset'inin varligidir.
+Alias expansion, order-preserving dedup, topological sort, cycle and
+unknown-name checks all live in one `Registry` class. Three instances are
+created: symbol-scoped (`SYMBOL_DATASETS`), market-scoped
+(`MARKET_DATASETS`), and sector/industry-scoped (`DOMAIN_DATASETS`)
+datasets. All three share the same contract; the only difference is
+whether a bootstrap dataset exists.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
 
 
 class Registrable(Protocol):
-    """Registry'nin gordugu tek arayuz."""
+    """The only interface the registry sees."""
 
     name: str
     depends_on: tuple[str, ...]
@@ -34,11 +35,12 @@ class DependencyCycleError(ValueError):
 
 
 class Registry[D: Registrable]:
-    """Ad -> dataset sozlugu ve cozumleyicisi.
+    """Name -> dataset map and resolver.
 
-    `bootstrap` verilirse o dataset kullanici secmese de her cozumlemede
-    basa eklenir (sembol tarafinda `symbols`). `bootstrap=None` piyasa
-    tarafi icindir: zorunlu on dataset yoktur.
+    If `bootstrap` is given, that dataset is always prepended to every
+    resolution even if the user doesn't select it (`symbols` on the symbol
+    side). `bootstrap=None` is for the market side: there is no mandatory
+    prerequisite dataset.
     """
 
     def __init__(
@@ -50,27 +52,28 @@ class Registry[D: Registrable]:
         self.bootstrap = bootstrap
         self.aliases: dict[str, tuple[str, ...]] = dict(aliases or {})
         self._items: dict[str, D] = {}
-        # ADIYLA ISTENMEDIKCE kosmayan dataset'ler (SQ K11). `bootstrap`in
-        # tersi: o her cozumlemeye EKLENIR, bunlar `all`dan CIKARILIR.
+        # Datasets that never run UNLESS NAMED EXPLICITLY. The opposite of
+        # `bootstrap`: that one gets ADDED to every resolution, these get
+        # EXCLUDED from `all`.
         self._opt_in: set[str] = set()
 
-    # --- kayit ------------------------------------------------------------
+    # --- registration -------------------------------------------------
 
     def register(self, ds: D, *, opt_in: bool = False) -> D:
-        """`opt_in=True`: kayitli ama `all` genislemesine GIRMEZ.
+        """`opt_in=True`: registered but NOT INCLUDED in the `all` expansion.
 
-        Gerekce olculmus bir tuzaktir (SQ K11). `search` ve `lookup` sembol
-        basina birer istek ekler; 4.500 sembolde +9.000 istek/gun. Bunlar
-        kosulsuz kayitli olsaydi ciplak `yfin sync` onlari da cekerdi.
+        The reasoning is a measured trap. `search` and `lookup` each add one
+        request per symbol; across 4,500 symbols that's +9,000 requests/day.
+        If registered unconditionally, a bare `yfin sync` would pull them too.
 
-        ILK COZUM YANLISTI: kaydi bir ayara baglamak (`sustainability`
-        deseni). O, dataset'i `--datasets search` ile de erisilemez yapiyor
-        ve ayar acildigi anda ciplak kosu YINE agirlasiyordu -- yani tuzagi
-        cozmuyor, yalnizca erteliyordu.
+        The FIRST FIX WAS WRONG: gating registration behind a setting (the
+        `sustainability` pattern). That also made the dataset unreachable
+        via `--datasets search`, and flipping the setting on made a bare run
+        expensive again -- it didn't solve the trap, just postponed it.
 
-        `opt_in` ikisini birden cozer: ad verildiginde calisir, `all`
-        genislemesinde HIC gorunmez. Bildirim dataset'in KAYIT YERINDE
-        durur, registry'de gomulu bir ad listesinde degil (OCP).
+        `opt_in` solves both: it runs when named, and is INVISIBLE in the
+        `all` expansion. The declaration stays at the dataset's
+        REGISTRATION SITE, not in a name list embedded in the registry.
         """
         self._items[ds.name] = ds
         if opt_in:
@@ -83,13 +86,13 @@ class Registry[D: Registrable]:
         return name in self._opt_in
 
     def unregister(self, name: str) -> None:
-        """Yalnizca test icin; kayitli olmayan ad sessizce yok sayilir."""
+        """Test-only; an unregistered name is silently ignored."""
         self._items.pop(name, None)
         self._opt_in.discard(name)
 
-    # Koleksiyon protokolu: `name in registry`, `registry[name]`,
-    # `len(registry)`, `for name in registry`. Ayrica names()/values()
-    # tutmak ayni bilgiye ikinci bir yuz acardi.
+    # Collection protocol: `name in registry`, `registry[name]`,
+    # `len(registry)`, `for name in registry`. A separate names()/values()
+    # would just open a second face onto the same data.
     def __contains__(self, name: str) -> bool:
         return name in self._items
 
@@ -106,17 +109,17 @@ class Registry[D: Registrable]:
         return self._items.get(name)
 
     def user_visible_names(self) -> list[str]:
-        """Kullanicinin --datasets ile verebilecegi adlar: kayitlar (bootstrap
-        haric) + alias'lar."""
+        """Names the user can pass to --datasets: registrations (excluding
+        bootstrap) + aliases."""
         visible = set(self._items) | set(self.aliases)
         if self.bootstrap is not None:
             visible -= {self.bootstrap}
         return sorted(visible)
 
-    # --- cozumleme --------------------------------------------------------
+    # --- resolution -----------------------------------------------------
 
     def _expand(self, names: Sequence[str]) -> list[str]:
-        """Alias'lari genisletir, SIRA KORUNARAK tekillestirir."""
+        """Expands aliases, deduplicates while PRESERVING ORDER."""
         out: dict[str, None] = {}
         for raw in names:
             name = raw.strip()
@@ -130,11 +133,11 @@ class Registry[D: Registrable]:
         return list(out)
 
     def resolve(self, names: Sequence[str] | None) -> list[D]:
-        """None, bos liste veya 'all' -> OPT-IN OLMAYANLARIN hepsi.
+        """None, empty list, or 'all' -> everything that is NOT opt-in.
 
-        Alias'lari genisletir, sira koruyarak tekillestirir, depends_on'a
-        gore topolojik siralar, bilinmeyen adi reddeder, donguyu yakalar.
-        Bootstrap tanimliysa her zaman basa eklenir.
+        Expands aliases, deduplicates preserving order, topologically sorts
+        by depends_on, rejects unknown names, catches cycles. If bootstrap
+        is defined, it is always prepended.
         """
         if names is None or not names or (len(names) == 1 and names[0].strip() == "all"):
             selected = [
@@ -157,7 +160,7 @@ class Registry[D: Registrable]:
             wanted[name] = None
 
         ordered: list[str] = []
-        state: dict[str, int] = {}  # 0=ziyaret ediliyor, 1=bitti
+        state: dict[str, int] = {}  # 0=visiting, 1=done
 
         def visit(name: str, path: tuple[str, ...]) -> None:
             if state.get(name) == 1:
@@ -178,16 +181,16 @@ class Registry[D: Registrable]:
         return [self._items[n] for n in ordered]
 
 
-# --- ornekler --------------------------------------------------------------
+# --- instances --------------------------------------------------------
 
-# 'actions' ve 'financials' registry'de kayit degil, ALIAS'tir (S6.1).
+# 'actions' and 'financials' are ALIASES in the registry, not registrations.
 SYMBOL_DATASETS: Registry[Dataset[Any]] = Registry(
     bootstrap="symbols",
     aliases={
         "actions": ("dividends", "splits", "capital_gains"),
-        # price_bars dataset ailesi (PB S6.1). `bars`in genisledigi
-        # interval kumesi YF_BAR_INTERVALS ile daraltilabilir; kayitlarin
-        # kendisi her zaman altisi birdendir.
+        # price_bars dataset family. The interval set `bars` expands to can
+        # be narrowed with YF_BAR_INTERVALS; the registrations themselves
+        # are always all six.
         "bars": (
             "bars_1m",
             "bars_5m",
@@ -197,11 +200,12 @@ SYMBOL_DATASETS: Registry[Dataset[Any]] = Registry(
             "bars_1mo",
         ),
         "intraday": ("bars_1m", "bars_5m", "bars_15m", "bars_60m"),
-        # `recommendations_summary` KAYIT DEGIL ALIAS'tir: kaynakta govdesi
-        # `return self.get_recommendations(as_dict=as_dict)` (base.py:220).
+        # `recommendations_summary` is an ALIAS, not a registration: in the
+        # source its body is `return self.get_recommendations(as_dict=as_dict)`
+        # (base.py:220).
         "recommendations_summary": ("recommendations",),
-        # `sustainability` DAHIL DEGILDIR: izleme dataset'idir, tablosu yok
-        # ve varsayilan olarak hic kayitli olmaz (AH S6.3).
+        # `sustainability` is NOT INCLUDED: it's a monitoring dataset with
+        # no table, and is never registered by default.
         "analysis": (
             "recommendations",
             "upgrades_downgrades",
@@ -222,10 +226,10 @@ SYMBOL_DATASETS: Registry[Dataset[Any]] = Registry(
             "insider_roster_holders",
         ),
         "funds": ("funds_data",),
-        # `valuation` AYRI bir alias'tir, `financials`in parcasi DEGIL:
-        # kaynak dokumantasyonun Financials bolumunde yer almaz ve ayri bir
-        # HTTP istegidir; `financials`e katmak o adin mevcut maliyetini
-        # sessizce iki istek buyuturdu.
+        # `valuation` is a SEPARATE alias, NOT part of `financials`: it does
+        # not appear under the source docs' Financials section and is a
+        # separate HTTP request; folding it into `financials` would silently
+        # double that name's existing cost.
         "valuation": ("valuation_measures", "quarterly_valuation_measures"),
         "financials": (
             "income_stmt",
@@ -254,9 +258,8 @@ MARKET_DATASETS: Registry[GlobalDataset[Any]] = Registry(
 )
 
 
-# Ucuncu registry (SI S6.3). `Registry` sinifi DEGISMEZ: `Registrable`
-# protokolu `name` + `depends_on` istiyor, `DomainDataset` ikisini de
-# tasiyor.
+# Third registry. `Registry` itself is UNCHANGED: the `Registrable`
+# protocol needs `name` + `depends_on`, and `DomainDataset` carries both.
 DOMAIN_DATASETS: Registry[DomainDataset[Any]] = Registry(
     bootstrap="domain_taxonomy",
     aliases={
@@ -267,18 +270,18 @@ DOMAIN_DATASETS: Registry[DomainDataset[Any]] = Registry(
 
 
 def register(ds: Dataset[Any], *, opt_in: bool = False) -> Dataset[Any]:
-    """Sembol-kapsamli dataset kaydi (dataset modullerinin dekoratoru).
+    """Registers a symbol-scoped dataset (used as a decorator in dataset modules).
 
-    `opt_in=True` -> `all` genislemesine girmez; bkz. `Registry.register`.
+    `opt_in=True` -> excluded from the `all` expansion; see `Registry.register`.
     """
     return SYMBOL_DATASETS.register(ds, opt_in=opt_in)
 
 
 def register_market(ds: GlobalDataset[Any], *, opt_in: bool = False) -> GlobalDataset[Any]:
-    """Piyasa-kapsamli dataset kaydi."""
+    """Registers a market-scoped dataset."""
     return MARKET_DATASETS.register(ds, opt_in=opt_in)
 
 
 def register_domain(ds: DomainDataset[Any]) -> DomainDataset[Any]:
-    """Sektor / endustri kapsamli dataset kaydi."""
+    """Registers a sector / industry-scoped dataset."""
     return DOMAIN_DATASETS.register(ds)

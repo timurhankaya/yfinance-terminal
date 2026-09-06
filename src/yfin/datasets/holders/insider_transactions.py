@@ -1,17 +1,16 @@
-"""insider_transactions dataset'i (AH S6.3).
+"""insider_transactions dataset.
 
-AS-OF DEGILDIR: kaynak islem tarihini veriyor. Saf upsert.
+NOT AS-OF: the source gives a transaction date. Plain upsert.
 
-BIREBIR TEKILLESTIRME ZORUNLUDUR. `fact_hash` tek basina yetmez: PFE'de
-DOKUZ KOLONUN TAMAMINDA ozdes iki satir olculdu (BOSHOFF CHRISTOFFEL, 8741
-hisse, 263716 deger, 2025-02-21) ve hash'leri de ozdes. Tekillestirme
-olmasaydi 34 satir okunup 33 yazilir, `rows_verified != rows_attempted`
-her calistirmada yanlis `failed` uretirdi (S8.5). F S8.3'un `earnings_dates`
-kuralinin aynisi.
+EXACT DEDUPLICATION IS MANDATORY. `fact_hash` alone is not enough: PFE
+measured two rows IDENTICAL ON ALL NINE COLUMNS (BOSHOFF CHRISTOFFEL, 8741
+shares, value 263716, 2025-02-21), hashes included. Without dedup, 34 rows
+read would write 33, and `rows_verified != rows_attempted` would wrongly
+produce `failed` on every run -- same rule as `earnings_dates`.
 
-Kaynak sinir ZAMAN DEGIL 150 SATIRDIR: 24 sembolun 12'sinde tam 150 satir
-geldi ve pencere WMT'de 12,4 aya iniyor. `--start 2024-01-01` bu veriyi
-geriye uzatmaz (AH S4.5).
+The source limit is 150 ROWS, NOT a time window: 12 of 24 symbols measured
+returned exactly 150 rows, with the window shrinking to 12.4 months for WMT.
+`--start 2024-01-01` does not extend this data further back.
 """
 
 from __future__ import annotations
@@ -55,8 +54,8 @@ MAPPED_SOURCES = frozenset(
         "Ownership",
     }
 )
-# fact_hash'e giren alanlar; `start_date` PK'da ayri bir bilesendir ve
-# `fetched_at` her calistirmada degisir.
+# Fields that feed fact_hash; `start_date` is a separate PK component and
+# `fetched_at` changes on every run.
 HASH_FIELDS = ("insider", "position", "text", "shares", "value", "ownership")
 
 
@@ -102,18 +101,17 @@ class InsiderTransactionsDataset(Dataset[RangedFramePayload]):
 
             values: dict[str, Any] = {
                 "insider": nz.to_str(record.get("Insider"), max_len=255),
-                # '' -> NULL: BP.L'de bos Position olculdu
+                # '' -> NULL: measured an empty Position for BP.L.
                 "position": blank_to_none(record.get("Position"), max_len=64),
                 "text": blank_to_none(record.get("Text"), max_len=255),
                 "transaction_label": blank_to_none(record.get("Transaction"), max_len=64),
                 "url": blank_to_none(record.get("URL")),
                 "shares": to_big_value(record.get("Shares")),
-                # DIS ve BP.L'de TUM satirlarda NaN
+                # NaN in ALL rows for DIS and BP.L.
                 "value": to_big_value(record.get("Value")),
-                # 'D', 'I' ve 'D/I' (XOM)
-                # `fact_hash`e girer, yani PK bilesenidir -> KIRPILMAZ.
-                # 'D', 'I' ve 'D/I' (XOM); daha uzun bir deger gelirse
-                # kirpma iki FARKLI sahiplik tipini tek hash'te birlestirir.
+                # 'D', 'I', and 'D/I' (XOM). Feeds `fact_hash`, i.e. a PK
+                # component -> NOT TRUNCATED: truncation could merge two
+                # DIFFERENT ownership types into the same hash.
                 "ownership": key_value(
                     record.get("Ownership"),
                     8,
@@ -124,16 +122,16 @@ class InsiderTransactionsDataset(Dataset[RangedFramePayload]):
                 if record.get("Ownership") not in (None, "")
                 else None,
             }
-            # Hash PYTHON tarafinda HAM dizeden hesaplanir, yani 'Sale' ve
-            # 'sale' AYRI iki satirdir. Bu BILINCLIDIR ve motor
-            # degisiminden ETKILENMEZ: PK bileseni `fact_hash`tir ve
-            # karsilastirma zaten burada, Python'da yapiliyordu.
+            # Hash is computed in PYTHON from the raw string, so 'Sale' and
+            # 'sale' are TWO SEPARATE rows. This is DELIBERATE and
+            # unaffected by engine changes: the PK component is `fact_hash`,
+            # and the comparison already happens here, in Python.
             #
-            # MySQL'de DB collation'i (utf8mb4_0900_ai_ci) ikisini AYNI
-            # gorurdu ama hash zaten ayristiriyordu; PostgreSQL'de kolon
-            # COLLATE "C" oldugu icin sema da ayni sonuca varir.
-            # Normalizasyon EKLENMEZ -- eklenseydi bugun ayri sayilan iki
-            # olay tek satira inerdi (PG S2.5.3).
+            # MySQL's collation (utf8mb4_0900_ai_ci) would have seen the two
+            # as equal, but the hash already distinguished them; PostgreSQL's
+            # column is COLLATE "C" so the schema reaches the same result.
+            # Normalization is NOT ADDED -- doing so would collapse two
+            # events currently counted as distinct into one row.
             digest = nz.content_hash(
                 {
                     name: (str(values[name]) if values[name] is not None else None)

@@ -1,9 +1,9 @@
-"""Analist dataset'lerinin normalizasyonu (AH S9.1). Ag ve VERITABANI YOKTUR.
+"""Normalization of analyst datasets. No network, no database.
 
-Fixture yerine ELLE KURULMUS cerceveler kullanilir: her cerceve S4.1'de
-canli olculmus bir kenar durumu kodlar ve o olcumun kaynagi test adinda
-durur. Boylece testler `scripts/capture_fixtures.py` calistirilmadan da
-kosar ve olcumu belgeleyen tek yer koddur.
+Hand-built frames are used instead of fixtures: each frame encodes an edge
+case measured live, and the source of that measurement lives in the test
+name. This lets the tests run without `scripts/capture_fixtures.py`, and
+the code is the only place documenting the measurement.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def _by(rows: list[dict[str, Any]], column: str) -> dict[Any, dict[str, Any]]:
 
 
 def _recommendations_frame(periods: list[str]) -> pd.DataFrame:
-    """`period` INDEX degil KOLONDUR; kaynak RangeIndex kullanir."""
+    """`period` is a column, not the index; the source uses a RangeIndex."""
     return pd.DataFrame(
         {
             "period": periods,
@@ -59,7 +59,7 @@ def test_recommendations_reads_period_from_column_not_index() -> None:
 
 
 def test_recommendations_accepts_three_row_frame() -> None:
-    """19 sembolun 10'unda 4, DOKUZUNDA 3 donem geldi; sayi sabit degildir."""
+    """10 of 19 symbols got 4 periods, 9 got 3; the count is not fixed."""
     dataset = SYMBOL_DATASETS["recommendations"]
     payload = AsOfFramePayload(frame=_recommendations_frame(["0m", "-1m", "-2m"]), fetched_at=NOW)
 
@@ -67,10 +67,10 @@ def test_recommendations_accepts_three_row_frame() -> None:
 
 
 def test_recommendations_drops_row_with_null_counter() -> None:
-    """Bes sayac da NOT NULL: eksik satir YAZILMAZ.
+    """All five counters are NOT NULL: an incomplete row is not written.
 
-    Yazilsaydi NOT NULL ihlali, sembol basina tek transaction geregi
-    SEMBOLUN TAMAMINI dusururdu (S8.7).
+    Writing it would trigger a NOT NULL violation, and since each symbol is
+    one transaction, that would drop the ENTIRE symbol.
     """
     dataset = SYMBOL_DATASETS["recommendations"]
     frame = _recommendations_frame(["0m", "-1m"])
@@ -114,12 +114,12 @@ def test_earnings_and_revenue_estimates_share_one_table_via_metric() -> None:
 
     assert {row["metric"] for row in eps_rows} == {"eps"}
     assert {row["metric"] for row in rev_rows} == {"revenue"}
-    # PK'da metric bulunmasaydi iki dataset ayni satiri ezerdi
+    # Without metric in the PK, the two datasets would overwrite each other's row
     assert earnings.key_columns == ("symbol", "as_of_date", "metric", "period")
 
 
 def test_estimate_year_ago_source_differs_per_metric() -> None:
-    """`yearAgoEps` / `yearAgoRevenue` -- tek kolon, IKI kaynak anahtari."""
+    """`yearAgoEps` / `yearAgoRevenue` -- one column, two source keys."""
     revenue = SYMBOL_DATASETS["revenue_estimate"]
     rows = _by(
         _rows(
@@ -132,7 +132,7 @@ def test_estimate_year_ago_source_differs_per_metric() -> None:
 
 
 def test_estimate_zero_is_not_null() -> None:
-    """THYAO'nun 0q/+1q donemlerinde revenue avg = 0 olculdu; NULL DEGILDIR."""
+    """Measured revenue avg = 0 for THYAO's 0q/+1q periods; not NULL."""
     revenue = SYMBOL_DATASETS["revenue_estimate"]
     rows = _by(
         _rows(
@@ -159,8 +159,9 @@ def test_estimate_number_of_analysts_accepts_float_and_nan() -> None:
 
 
 def test_estimate_keeps_all_null_period_row() -> None:
-    """`financial_facts`ten BILINCLI fark: tamami NULL olan donem satiri yine
-    de yazilir -- donem seti sabit dortludur, NULL "donem var, tahmin yok"tur."""
+    """Deliberate difference from `financial_facts`: an all-NULL period row is
+    still written -- the period set is a fixed four, and NULL means "period
+    exists, no estimate"."""
     earnings = SYMBOL_DATASETS["earnings_estimate"]
     frame = pd.DataFrame(
         {"avg": [None], "low": [None], "high": [None]},
@@ -174,7 +175,7 @@ def test_estimate_keeps_all_null_period_row() -> None:
 
 
 def test_estimate_uses_decimal_38_10_for_both_magnitudes() -> None:
-    """AYNI kolonda EPS 1.97656 ve revenue 1_285_436_390_920 bulunur."""
+    """The same column holds EPS 1.97656 and revenue 1_285_436_390_920."""
     earnings = SYMBOL_DATASETS["earnings_estimate"]
     rows = _by(
         _rows(
@@ -190,7 +191,7 @@ def test_estimate_uses_decimal_38_10_for_both_magnitudes() -> None:
 
 
 def test_eps_trend_maps_numeric_prefixed_columns() -> None:
-    """Kolon adi rakamla baslayamaz: 7daysAgo -> days_ago_7."""
+    """A column name cannot start with a digit: 7daysAgo -> days_ago_7."""
     dataset = SYMBOL_DATASETS["eps_trend"]
     frame = pd.DataFrame(
         {
@@ -210,10 +211,11 @@ def test_eps_trend_maps_numeric_prefixed_columns() -> None:
 
 
 def test_eps_revisions_reads_capital_d_in_downlast7days() -> None:
-    """`downLast7Days` ANAHTARINDA D BUYUKTUR (19/19 sembolde olculdu).
+    """`downLast7Days` capitalizes the D (measured on 19 of 19 symbols).
 
-    Kucuk `d` ile okunsaydi kolon SESSIZCE hep NULL kalirdi; dokumantasyon
-    dordunu de kucuk yaziyor. Bu testin varlik nedeni tam olarak budur.
+    Reading it with a lowercase `d` would leave the column silently NULL
+    forever; the docs write all four in lowercase. That mismatch is exactly
+    why this test exists.
     """
     dataset = SYMBOL_DATASETS["eps_revisions"]
     frame = pd.DataFrame(
@@ -234,8 +236,9 @@ def test_eps_revisions_reads_capital_d_in_downlast7days() -> None:
 
 
 def test_eps_revisions_lowercase_d_leaves_column_null() -> None:
-    """Kaynak bir gun kucuk `d`ye donerse kolon NULL kalir -- ve bu testin
-    kirilmasi degil, `unmapped keys` uyarisi beklenen sinyaldir."""
+    """If the source ever switches to lowercase `d`, the column stays NULL --
+    the expected signal there is an `unmapped keys` warning, not a test
+    failure."""
     dataset = SYMBOL_DATASETS["eps_revisions"]
     frame = pd.DataFrame({"downLast7days": [1]}, index=pd.Index(["0q"], name="period"))
     row = _rows(dataset.normalize(AsOfFramePayload(frame, NOW), "AAPL"), "analyst_eps_revisions")[
@@ -248,8 +251,8 @@ def test_eps_revisions_lowercase_d_leaves_column_null() -> None:
 
 
 def test_growth_estimates_accepts_ltg_period_and_missing_trends() -> None:
-    """Index `0q,+1q,0y,+1y,LTG`; `industryTrend`/`sectorTrend` 19 sembolde
-    HIC gelmedi ama kolonlari acik durur."""
+    """Index `0q,+1q,0y,+1y,LTG`; `industryTrend`/`sectorTrend` never showed
+    up across 19 symbols, but their columns remain open."""
     dataset = SYMBOL_DATASETS["growth_estimates"]
     frame = pd.DataFrame(
         {"stockTrend": [0.1, 0.2], "indexTrend": [0.496, 0.496]},
@@ -268,8 +271,8 @@ def test_growth_estimates_accepts_ltg_period_and_missing_trends() -> None:
 
 
 def test_price_targets_keeps_zero_and_allows_low_above_current() -> None:
-    """THYAO'da low(330) > current(294) olculdu; TUTARLILIK KISITI YOKTUR.
-    `currentPriceTarget = 0.0` da gercek bir degerdir."""
+    """Measured low(330) > current(294) for THYAO; there is no consistency
+    constraint. `currentPriceTarget = 0.0` is also a real value."""
     dataset = SYMBOL_DATASETS["analyst_price_targets"]
     payload = AsOfMappingPayload(
         payload={"current": 294, "low": 330, "high": 400, "mean": 0.0, "median": 350},
@@ -282,7 +285,7 @@ def test_price_targets_keeps_zero_and_allows_low_above_current() -> None:
 
 
 def test_price_targets_empty_dict_is_empty_result() -> None:
-    """SPY/VFIAX/BTC-USD'de bos dict doner; bu `empty`tir, `failed` degil."""
+    """SPY/VFIAX/BTC-USD return an empty dict; that is `empty`, not `failed`."""
     dataset = SYMBOL_DATASETS["analyst_price_targets"]
     assert dataset.normalize(AsOfMappingPayload({}, NOW), "SPY").is_empty
 
@@ -309,7 +312,7 @@ def _grade_frame() -> pd.DataFrame:
 
 
 def test_grade_changes_maps_seven_columns_and_blanks_to_null() -> None:
-    """Dokumantasyon DORT kolon yaziyor; olcum YEDI buldu. `''` -> NULL."""
+    """Docs list four columns; measurement found seven. `''` -> NULL."""
     dataset = SYMBOL_DATASETS["upgrades_downgrades"]
     rows = _by(
         _rows(
@@ -321,13 +324,13 @@ def test_grade_changes_maps_seven_columns_and_blanks_to_null() -> None:
     assert rows["Morgan Stanley"]["price_target_action"] == "Raises"
     assert rows["Morgan Stanley"]["from_grade"] is None
     assert rows["Goldman"]["to_grade"] is None
-    # 0.0 GERCEK bir degerdir ("hedef yok" degil)
+    # 0.0 is a real value ("no target" is different)
     assert rows["Goldman"]["current_price_target"] == Decimal("0")
 
 
 def test_grade_changes_drops_row_with_empty_firm() -> None:
-    """`firm` PK bilesenidir: bos dize iki FARKLI kaydi tek satirda
-    birlestirirdi."""
+    """`firm` is part of the PK: an empty string would merge two distinct
+    records into one row."""
     dataset = SYMBOL_DATASETS["upgrades_downgrades"]
     frame = _grade_frame()
     frame.loc[frame.index[0], "Firm"] = ""
@@ -347,7 +350,7 @@ def test_grade_changes_filters_by_range() -> None:
 
 
 def test_grade_changes_without_range_keeps_all_history() -> None:
-    """Filtresiz calistirma Yahoo'nun verdigi TUM gecmisi yazar."""
+    """Running without a filter writes the entire history Yahoo returns."""
     dataset = SYMBOL_DATASETS["upgrades_downgrades"]
     rows = _rows(
         dataset.normalize(RangedFramePayload(_grade_frame(), NOW), "AAPL"),
@@ -357,7 +360,7 @@ def test_grade_changes_without_range_keeps_all_history() -> None:
 
 
 def test_grade_changes_timestamp_is_utc_without_second_conversion() -> None:
-    """Kaynak tz-naive AMA epochGradeDate SANIYESINDEN uretilmis -> UTC'dir."""
+    """Source is tz-naive but derived from epochGradeDate in seconds -> UTC."""
     dataset = SYMBOL_DATASETS["upgrades_downgrades"]
     rows = _rows(
         dataset.normalize(RangedFramePayload(_grade_frame(), NOW), "AAPL"),
@@ -386,8 +389,8 @@ def _earnings_history_frame() -> pd.DataFrame:
 
 
 def test_earnings_history_keeps_fiscal_quarter_without_tz_conversion() -> None:
-    """`quarter_end` takvimsel bir ETIKETTIR, bir an degil; NVDA/WMT'de mali
-    takvim kayiyor (2025-10-31 ... 2026-07-31)."""
+    """`quarter_end` is a calendar label, not an instant; NVDA/WMT's fiscal
+    calendar drifts (2025-10-31 ... 2026-07-31)."""
     dataset = SYMBOL_DATASETS["earnings_history"]
     rows = _by(
         _rows(
@@ -407,17 +410,17 @@ def test_earnings_history_filters_by_range() -> None:
     assert [row["quarter_end"] for row in rows] == [date(2026, 7, 31)]
 
 
-# --- sozlesme --------------------------------------------------------------
+# --- contract ---------------------------------------------------------------
 
 
 def test_analysis_alias_excludes_sustainability() -> None:
-    """`sustainability` izleme dataset'idir: tablosu yok ve 19/19 sembolde
-    404 verdigi icin alias'a ALINMAZ."""
+    """`sustainability` is a watch dataset: it has no table and returned 404
+    on 19 of 19 symbols, so it is excluded from the alias."""
     assert "sustainability" not in SYMBOL_DATASETS.aliases["analysis"]
 
 
 def test_recommendations_summary_is_an_alias_not_a_record() -> None:
-    """Kaynakta govde `return self.get_recommendations(...)` (base.py:220)."""
+    """Source body is `return self.get_recommendations(...)` (base.py:220)."""
     assert "recommendations_summary" not in SYMBOL_DATASETS
     assert SYMBOL_DATASETS.aliases["recommendations_summary"] == ("recommendations",)
 

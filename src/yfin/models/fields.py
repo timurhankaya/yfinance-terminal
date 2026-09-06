@@ -1,7 +1,7 @@
-"""Alan tanimlari: tipli kolonlarin TEK dogruluk kaynagi.
+"""Field definitions: the single source of truth for typed columns.
 
-Ayni liste hem SQLAlchemy kolonlarini hem normalizasyon donusturucusunu
-uretir; ikisinin ayrisma ihtimali boylece ortadan kalkar (S6.1).
+The same list generates both the SQLAlchemy columns and the
+normalization converter, removing any chance of them drifting apart.
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ Kind = Literal[
 
 @dataclass(frozen=True, slots=True)
 class Field:
-    source: str  # yfinance sozlugundeki anahtar
-    column: str  # SQL kolon adi
+    source: str  # Key in the yfinance dict.
+    column: str  # SQL column name.
     kind: Kind
 
 
@@ -39,11 +39,11 @@ def _f(source: str, column: str, kind: Kind) -> Field:
 
 
 # --- ticker_info / ticker_info_history ------------------------------------
-# Kapsam S4.3 matrisindeki 4 referans sembolun alan kesisiminden secildi.
-# Haritalanmayan her anahtar raw_json'da kalir ve S8.5 uyarisini tetikler.
+# Scope chosen from the field intersection of 4 reference symbols. Any
+# unmapped key stays in raw_json and triggers the unmapped-key warning.
 
 INFO_FIELDS: tuple[Field, ...] = (
-    # kimlik
+    # identity
     _f("quoteType", "quote_type", "str32"),
     _f("typeDisp", "type_disp", "str64"),
     _f("shortName", "short_name", "str128"),
@@ -65,7 +65,7 @@ INFO_FIELDS: tuple[Field, ...] = (
     _f("sourceInterval", "source_interval", "int"),
     _f("exchangeDataDelayedBy", "exchange_data_delayed_by", "int"),
     _f("gmtOffSetMilliseconds", "gmt_offset_milliseconds", "int"),
-    # siniflandirma
+    # classification
     _f("sector", "sector", "str64"),
     _f("sectorKey", "sector_key", "str64"),
     _f("sectorDisp", "sector_disp", "str64"),
@@ -77,7 +77,7 @@ INFO_FIELDS: tuple[Field, ...] = (
     _f("legalType", "legal_type", "str64"),
     _f("recommendationKey", "recommendation_key", "str32"),
     _f("averageAnalystRating", "average_analyst_rating", "str32"),
-    # adres / serbest metin (satir butcesi geregi TEXT - S5.4)
+    # address / free text (TEXT to keep within the row-size budget)
     _f("address1", "address1", "text"),
     _f("address2", "address2", "text"),
     _f("city", "city", "str64"),
@@ -89,7 +89,7 @@ INFO_FIELDS: tuple[Field, ...] = (
     _f("website", "website", "text"),
     _f("irWebsite", "ir_website", "text"),
     _f("longBusinessSummary", "long_business_summary", "text"),
-    # fiyat
+    # price
     _f("regularMarketPrice", "regular_market_price", "dec"),
     _f("regularMarketOpen", "regular_market_open", "dec"),
     _f("regularMarketDayHigh", "regular_market_day_high", "dec"),
@@ -110,7 +110,7 @@ INFO_FIELDS: tuple[Field, ...] = (
     _f("preMarketPrice", "pre_market_price", "dec"),
     _f("preMarketChange", "pre_market_change", "dec"),
     _f("preMarketChangePercent", "pre_market_change_percent", "dec"),
-    # aralik / ortalama
+    # range / average
     _f("fiftyDayAverage", "fifty_day_average", "dec"),
     _f("twoHundredDayAverage", "two_hundred_day_average", "dec"),
     _f("fiftyTwoWeekHigh", "fifty_two_week_high", "dec"),
@@ -119,14 +119,14 @@ INFO_FIELDS: tuple[Field, ...] = (
     _f("fiftyTwoWeekChangePercent", "fifty_two_week_change_percent", "dec"),
     _f("allTimeHigh", "all_time_high", "dec"),
     _f("allTimeLow", "all_time_low", "dec"),
-    # hacim
+    # volume
     _f("volume", "volume", "ubig"),
     _f("regularMarketVolume", "regular_market_volume", "ubig"),
     _f("averageVolume", "average_volume", "ubig"),
     _f("averageVolume10days", "average_volume_10days", "ubig"),
     _f("averageDailyVolume10Day", "average_daily_volume_10day", "ubig"),
     _f("averageDailyVolume3Month", "average_daily_volume_3month", "ubig"),
-    # degerleme (buyuk degerler DECIMAL(38,0) - S5.4)
+    # valuation (large values use DECIMAL(38,0))
     _f("marketCap", "market_cap", "big"),
     _f("nonDilutedMarketCap", "non_diluted_market_cap", "big"),
     _f("enterpriseValue", "enterprise_value", "big"),
@@ -145,7 +145,7 @@ INFO_FIELDS: tuple[Field, ...] = (
     _f("impliedSharesOutstanding", "implied_shares_outstanding", "big"),
     _f("sharesShort", "shares_short", "big"),
     _f("sharesShortPriorMonth", "shares_short_prior_month", "big"),
-    # oranlar
+    # ratios
     _f("trailingPE", "trailing_pe", "dec"),
     _f("forwardPE", "forward_pe", "dec"),
     _f("priceToBook", "price_to_book", "dec"),
@@ -180,7 +180,7 @@ INFO_FIELDS: tuple[Field, ...] = (
     _f("heldPercentInstitutions", "held_percent_institutions", "dec"),
     _f("shortRatio", "short_ratio", "dec"),
     _f("shortPercentOfFloat", "short_percent_of_float", "dec"),
-    # temettu
+    # dividend
     _f("dividendRate", "dividend_rate", "dec"),
     _f("dividendYield", "dividend_yield", "dec"),
     _f("trailingAnnualDividendRate", "trailing_annual_dividend_rate", "dec"),
@@ -189,14 +189,14 @@ INFO_FIELDS: tuple[Field, ...] = (
     _f("payoutRatio", "payout_ratio", "dec"),
     _f("lastDividendValue", "last_dividend_value", "dec"),
     _f("lastSplitFactor", "last_split_factor", "str32"),
-    # analist hedefleri
+    # analyst targets
     _f("targetHighPrice", "target_high_price", "dec"),
     _f("targetLowPrice", "target_low_price", "dec"),
     _f("targetMeanPrice", "target_mean_price", "dec"),
     _f("targetMedianPrice", "target_median_price", "dec"),
     _f("numberOfAnalystOpinions", "number_of_analyst_opinions", "int"),
     _f("recommendationMean", "recommendation_mean", "dec"),
-    # fon
+    # fund
     _f("netExpenseRatio", "net_expense_ratio", "dec"),
     _f("ytdReturn", "ytd_return", "dec"),
     _f("threeYearAverageReturn", "three_year_average_return", "dec"),
@@ -204,7 +204,7 @@ INFO_FIELDS: tuple[Field, ...] = (
     _f("beta3Year", "beta_3_year", "dec"),
     _f("navPrice", "nav_price", "dec"),
     _f("yield", "fund_yield", "dec"),
-    # kripto
+    # crypto
     _f("fromCurrency", "from_currency", "str32"),
     _f("toCurrency", "to_currency", "str32"),
     _f("lastMarket", "last_market", "str64"),
@@ -214,16 +214,16 @@ INFO_FIELDS: tuple[Field, ...] = (
     _f("fullyDilutedValue", "fully_diluted_value", "big"),
     _f("volume24Hr", "volume_24hr", "big"),
     _f("volumeAllCurrencies", "volume_all_currencies", "big"),
-    # sirket
+    # company
     _f("fullTimeEmployees", "full_time_employees", "int"),
-    # bayraklar
+    # flags
     _f("tradeable", "tradeable", "bool"),
     _f("triggerable", "triggerable", "bool"),
     _f("cryptoTradeable", "crypto_tradeable", "bool"),
     _f("esgPopulated", "esg_populated", "bool"),
     _f("hasPrePostMarketData", "has_pre_post_market_data", "bool"),
     _f("isEarningsDateEstimate", "is_earnings_date_estimate", "bool"),
-    # epoch alanlari (S8.4 - birim tahmin edilmez)
+    # epoch fields (unit is never guessed)
     _f("firstTradeDateMilliseconds", "first_trade_date", "epoch_ms"),
     _f("regularMarketTime", "regular_market_time", "epoch_s"),
     _f("preMarketTime", "pre_market_time", "epoch_s"),
@@ -248,9 +248,9 @@ INFO_FIELDS: tuple[Field, ...] = (
 )
 
 # --- ticker_fast_info / _history ------------------------------------------
-# Kaynakta hardcoded 20 anahtar (quote.py:_public_keys), 5 pazarda birebir
-# ayni. HEPSI NULL kabul eder: marketCap/shares ETF, kripto, FX ve
-# endekslerde None doner (S5.2).
+# Hardcoded 20 keys at the source (quote.py:_public_keys), identical
+# across 5 markets. All nullable: marketCap/shares return None for ETFs,
+# crypto, FX, and indices.
 
 FAST_INFO_FIELDS: tuple[Field, ...] = (
     _f("currency", "currency", "str32"),
@@ -276,22 +276,22 @@ FAST_INFO_FIELDS: tuple[Field, ...] = (
 )
 
 # --- history_metadata -----------------------------------------------------
-# Kaynakta 30-32 anahtar var; 'YF repair?' gibi bosluk/soru isareti iceren
-# anahtarlar yalnizca raw_json'da tutulur (S5.2).
+# Source has 30-32 keys; keys with a space or question mark, like
+# 'YF repair?', are kept only in raw_json.
 
 HISTORY_METADATA_FIELDS: tuple[Field, ...] = (
     _f("currency", "currency", "str32"),
     _f("exchangeName", "exchange_name", "str32"),
     _f("fullExchangeName", "full_exchange_name", "str64"),
     _f("instrumentType", "instrument_type", "str32"),
-    # `timezone` IANA ADI DEGILDIR: olculdu, "EDT"/"TRT" gibi DST'ye
-    # bagli kisaltmalar doner ve ZoneInfo'ya verilemez. IANA adi ayri bir
-    # alandir ve rescale'in split gununu yerel 00:00'a hizalamasi icin
-    # ZORUNLUDUR (PB S6.6/2).
+    # `timezone` is not an IANA name: measured, it returns DST-dependent
+    # abbreviations like "EDT"/"TRT" that cannot be passed to ZoneInfo.
+    # The IANA name is a separate field and is required for rescale to
+    # align a split's day to local 00:00.
     _f("timezone", "timezone", "str64"),
     _f("exchangeTimezoneName", "exchange_timezone_name", "str64"),
     _f("gmtoffset", "gmt_offset", "int"),
-    # yfinance bu ikisini zaten tz-aware Timestamp'e cevirir; epoch degil
+    # yfinance already converts these two to a tz-aware Timestamp, not epoch.
     _f("firstTradeDate", "first_trade_date", "dt"),
     _f("regularMarketTime", "regular_market_time", "dt"),
     _f("regularMarketPrice", "regular_market_price", "dec"),
@@ -313,19 +313,21 @@ INFO_SOURCE_KEYS: frozenset[str] = frozenset(f.source for f in INFO_FIELDS)
 FAST_INFO_SOURCE_KEYS: frozenset[str] = frozenset(f.source for f in FAST_INFO_FIELDS)
 HISTORY_METADATA_SOURCE_KEYS: frozenset[str] = frozenset(f.source for f in HISTORY_METADATA_FIELDS)
 
-# raw_json'da birakildigi bilinen, tabloya tasinmayacak nested anahtarlar (S8.3)
+# Nested keys known to be left in raw_json, never promoted to a column.
 INFO_NESTED_KEYS: frozenset[str] = frozenset(
     {"companyOfficers", "corporateActions", "executiveTeam"}
 )
 
-# --- screen_quotes (SQ S4.5, S5.11) ---------------------------------------
-# Olculen 104 alanin 75'i INFO_FIELDS ile AYNI kaynak anahtarini tasir ve
-# kolon adini + kind'i ORADAN DEVRALIR. Devralmak yerine tekrar yazilsaydi
-# iki tablo zamanla ayrisir ve `ticker_info` ile `screen_quotes` arasindaki
-# JOIN'siz karsilastirma sessizce yanlislanirdi.
+# --- screen_quotes ---------------------------------------------------------
+# 75 of the measured 104 fields carry the same source key as INFO_FIELDS
+# and inherit their column name + kind from there. Re-declaring them
+# instead of inheriting would let the two tables drift apart, silently
+# breaking the JOIN-free comparison between `ticker_info` and
+# `screen_quotes`.
 #
-# Kalan 29'un ikisi kolona CIKMAZ: `symbol` PK'dir (tabloda ayrica
-# tanimlidir), `corporateActions` LISTEDIR ve raw_json'da kalir.
+# Two of the remaining 29 do not become columns: `symbol` is the PK
+# (defined separately on the table), and `corporateActions` is a list
+# and stays in raw_json.
 SCREENER_SHARED_SOURCES: frozenset[str] = frozenset(
     {
         "ask",
@@ -406,9 +408,10 @@ SCREENER_SHARED_SOURCES: frozenset[str] = frozenset(
     }
 )
 
-# Kolona CIKMAYAN iki anahtar. Ayri bir sabit olmasi bilinclidir:
-# `warn_unmapped` bunlari "haritalanmamis" diye uyarmasin diye disarida
-# tutulurlar, yoksa her kosuda iki sahte terfi sinyali uretirlerdi.
+# Two keys that never become columns. Kept as a separate constant
+# deliberately: `warn_unmapped` excludes them so it does not warn
+# "unmapped" for these, which would otherwise be two false alarms on
+# every run.
 SCREENER_NON_COLUMN_SOURCES: frozenset[str] = frozenset({"symbol", "corporateActions"})
 
 SCREENER_EXTRA_FIELDS: tuple[Field, ...] = (
@@ -423,11 +426,11 @@ SCREENER_EXTRA_FIELDS: tuple[Field, ...] = (
     _f("fiftyTwoWeekLowChangePercent", "fifty_two_week_low_change_percent", "dec"),
     _f("twoHundredDayAverageChange", "two_hundred_day_average_change", "dec"),
     _f("twoHundredDayAverageChangePercent", "two_hundred_day_average_change_percent", "dec"),
-    # INFO_FIELDS'te preMarket* VAR ama postMarket* YOK -- olcum seans
+    # INFO_FIELDS has preMarket* but not postMarket* -- this surfaced
     _f("postMarketPrice", "post_market_price", "dec"),
-    # sonrasi yapildiginda ortaya cikti. Kolon adlari yine de mevcut
+    # once after-hours measurement was done. Column names still follow
     _f("postMarketChange", "post_market_change", "dec"),
-    # pre_market_* deseniyle simetriktir.
+    # the existing pre_market_* pattern symmetrically.
     _f("postMarketChangePercent", "post_market_change_percent", "dec"),
     _f("postMarketTime", "post_market_time", "epoch_s"),
     _f("peTTM", "pe_ttm", "dec"),
@@ -438,18 +441,18 @@ SCREENER_EXTRA_FIELDS: tuple[Field, ...] = (
     _f("annualReturnNavY5", "annual_return_nav_y5", "dec"),
     _f("lastClosePriceToNNWCPerShare", "last_close_price_to_nnwc_per_share", "dec"),
     _f("lastCloseTevEbitLtm", "last_close_tev_ebit_ltm", "dec"),
-    # Olculen deger kumesi: HIGH, LOW.
+    # Measured value set: HIGH, LOW.
     _f("customPriceAlertConfidence", "custom_price_alert_confidence", "str16"),
-    # Bastaki bosluk olculdu (' LiveWire Group, Inc.'); nz.to_str kirpar.
+    # Measured leading whitespace (' LiveWire Group, Inc.'); nz.to_str trims it.
     _f("prevName", "prev_name", "str255"),
-    # ISO TARIH METNI, epoch DEGIL (SQ S4.3). `epoch_s` verilseydi
+    # ISO date text, not epoch. `epoch_s` here would silently NULL it;
     _f("ipoExpectedDate", "ipo_expected_date", "dt"),
-    # sessizce NULL olurdu; `dt` kind'i hem metni hem epoch'u kabul eder.
+    # the `dt` kind accepts both text and epoch.
     _f("nameChangeDate", "name_change_date", "dt"),
 )
 
-# INFO_FIELDS SIRASI KORUNUR: kolon sirasi iki tabloda ayni olur ve
-# `SELECT *` ciktilarini yan yana okumak mumkun kalir.
+# INFO_FIELDS order is preserved: column order matches between the two
+# tables, so `SELECT *` output can be read side by side.
 SCREENER_QUOTE_FIELDS: tuple[Field, ...] = (
     *(f for f in INFO_FIELDS if f.source in SCREENER_SHARED_SOURCES),
     *SCREENER_EXTRA_FIELDS,

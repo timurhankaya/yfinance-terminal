@@ -1,12 +1,12 @@
-"""Fon icerik tablolari (AH S5.3).
+"""Fund content tables.
 
-Hibrit sema: sabit olculen alanlar tipli kolona, DEGISKEN anahtarli yuzdeler
-EAV'a gider. Gerekce olcumdur: hisse fonunda 11 sektor + 1 rating, tahvil
-fonunda 0 sektor + 9 rating (BND, TLT, AGG). Sabit kolon seti iki fon tipini
-birden tasiyamaz.
+Hybrid schema: fields with a fixed shape get typed columns; percentages
+with variable keys go to EAV. Measured basis: an equity fund has 11
+sectors + 1 rating, a bond fund has 0 sectors + 9 ratings (BND, TLT,
+AGG) -- no fixed column set covers both fund types.
 
-`asset_classes` EAV'a GIRMEZ: 6 anahtari 10 fonun 10'unda da sabit olculdu,
-bu yuzden fund_profile'da tipli kolondur.
+`asset_classes` is not EAV: its 6 keys measured fixed across all 10
+sample funds, so it is a typed column set on fund_profile.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ WEIGHT_CATEGORY_ENUM = Enum(
 
 
 class FundProfile(Base):
-    """Fon kimligi + operasyon + varlik dagilimi, tek satirda."""
+    """Fund identity + operations + asset allocation, in one row."""
 
     __tablename__ = "fund_profile"
     __table_args__ = (
@@ -68,39 +68,39 @@ class FundProfile(Base):
     quote_type: Mapped[str] = mapped_column(AsciiKeyType(16), nullable=False)
     category_name: Mapped[str | None] = mapped_column(String(64, collation="C"))
     family: Mapped[str | None] = mapped_column(String(128, collation="C"))
-    # VFIAX/FCNTX'te None olculdu
+    # Measured None for VFIAX/FCNTX.
     legal_type: Mapped[str | None] = mapped_column(String(64, collation="C"))
-    # Olculen max 555 (ARKK)
+    # Measured max 555 chars (ARKK).
     description: Mapped[str | None] = mapped_column(Text)
-    # fund_operations 0. kolonu -- ADI SEMBOLUN KENDISIDIR, konumdan okunur
+    # fund_operations column 0 -- its name IS the symbol, read by position.
     expense_ratio: Mapped[Decimal | None] = mapped_column(PriceType())
     holdings_turnover: Mapped[Decimal | None] = mapped_column(PriceType())
     total_net_assets: Mapped[Decimal | None] = mapped_column(PriceType())
     expense_ratio_cat: Mapped[Decimal | None] = mapped_column(PriceType())
     holdings_turnover_cat: Mapped[Decimal | None] = mapped_column(PriceType())
     total_net_assets_cat: Mapped[Decimal | None] = mapped_column(PriceType())
-    # asset_classes: 10/10 fonda ayni 6 anahtar
+    # asset_classes: same 6 keys in all 10 sample funds.
     cash_position: Mapped[Decimal | None] = mapped_column(PriceType())
     stock_position: Mapped[Decimal | None] = mapped_column(PriceType())
     bond_position: Mapped[Decimal | None] = mapped_column(PriceType())
     preferred_position: Mapped[Decimal | None] = mapped_column(PriceType())
     convertible_position: Mapped[Decimal | None] = mapped_column(PriceType())
     other_position: Mapped[Decimal | None] = mapped_column(PriceType())
-    # Sekiz alt yapinin kanonik govdesi; EAV'a indirgenirken kaybolabilecek
-    # bilgiyi korur. Olculen satir boyutu ~1325 byte (butcenin %2'si).
+    # Canonical body of eight sub-structures; preserves what would be lost
+    # reducing to EAV. Measured row size ~1325 bytes (2% of budget).
     raw_json: Mapped[str] = mapped_column(RawJsonType(), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
 class FundMetric(Base):
-    """equity_holdings + bond_holdings ortalamalari.
+    """equity_holdings + bond_holdings averages.
 
-    `section` PK'DADIR. Disarida birakilsaydi ayni `metric` adi iki bolumde
-    geldiginde ikinci satir yazilamazdi:
-      tekillik ihlali: 'SPY-2026-09-04-price_to_earnings'
-    (gercek MySQL 8.3'te dogrulandi). Bugunku 9 ad cakismiyor ama bunu
-    garanti eden sey yalnizca Yahoo'nun ad secimidir; kardes tablo
-    fund_weightings zaten `category`'yi PK'ya koyuyor.
+    `section` is part of the PK. Without it, the same `metric` name
+    appearing in both sections would fail to write the second row:
+      uniqueness violation: 'SPY-2026-09-04-price_to_earnings'
+    (confirmed on real MySQL 8.3). Today's 9 names do not collide, but
+    that is only Yahoo's naming choice -- the sibling table
+    fund_weightings already puts `category` in its PK for the same reason.
     """
 
     __tablename__ = "fund_metrics"
@@ -118,7 +118,7 @@ class FundMetric(Base):
 
 
 class FundWeighting(Base):
-    """sector_weightings + bond_ratings; anahtar seti fon tipine gore degisir."""
+    """sector_weightings + bond_ratings; the key set varies by fund type."""
 
     __tablename__ = "fund_weightings"
     __table_args__ = (
@@ -129,28 +129,26 @@ class FundWeighting(Base):
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     category: Mapped[WeightCategory] = mapped_column(WEIGHT_CATEGORY_ENUM, primary_key=True)
     item_key: Mapped[str] = mapped_column(AsciiKeyType(32), primary_key=True)
-    # 10 fonun hepsinde dolu olculdu
+    # Measured populated in all 10 sample funds.
     weight: Mapped[Decimal] = mapped_column(PriceType(), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
 class FundTopHolding(Base):
-    """Fon -> bilesen sembol iliskisi.
+    """Fund -> constituent symbol relationship.
 
-    "Relationlari sembol kodu uzerinden kur" bu tabloda karsilanir.
-    `holding_symbol`'de FK YOKTUR: kaynakta evren disi semboller geliyor
-    (BRK-B, 2330.TW, 005930.KQ, 0700.HK ve hatta FON sembolleri VRTPX,
-    BISXX). FK olsaydi sembol basina tek transaction geregi FONUN TUM VERISI
-    rollback olurdu -- news_symbols ile birebir ayni gerekce. `is_known`
-    bagi isaretler; (holding_symbol) uzerinde ACIK indeks vardir cunku
-    FK olmadigi icin kendiliginden indeks olusmaz VE kolon PK'nin SON
-    bileseni oldugu icin tek
-    basina aranamaz.
+    `holding_symbol` has no FK: the source returns symbols outside the
+    universe (BRK-B, 2330.TW, 005930.KQ, 0700.HK, even fund symbols like
+    VRTPX, BISXX). An FK would roll back a fund's entire row set over one
+    foreign symbol -- same reasoning as news_symbols. `is_known` marks the
+    membership; an explicit index on (holding_symbol) exists because there
+    is no FK to create one implicitly, and the column is the last
+    component of the PK so it cannot be searched alone.
     """
 
     __tablename__ = "fund_top_holdings"
     __table_args__ = (
-        # FK yok -> otomatik indeks yok; SHOW INDEX ile dogrulandi
+        # No FK -> no implicit index; confirmed with SHOW INDEX.
         Index("ix_fund_top_holdings_holding", "holding_symbol"),
         Index("ix_fund_top_holdings_as_of", "as_of_date"),
     )
@@ -158,12 +156,12 @@ class FundTopHolding(Base):
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     holding_symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
-    # Olculen max 51 (ARKK)
+    # Measured max 51 chars (ARKK).
     holding_name: Mapped[str | None] = mapped_column(KeyTextType(128))
     holding_percent: Mapped[Decimal | None] = mapped_column(PriceType())
-    # Ad `rank` OLAMAZ: MySQL 8'de window fonksiyonu olarak rezerve
-    # (`rank` PostgreSQL'de de pencere fonksiyonudur). Kaynak sirasi verinin
-    # kendisidir ("ilk 10" siralamasi).
+    # Cannot be named `rank`: reserved as a window function in MySQL 8
+    # (also a window function in PostgreSQL). Source order is the data
+    # itself (the "top 10" ranking).
     holding_rank: Mapped[int] = mapped_column(
         SmallInteger,
         CheckConstraint(

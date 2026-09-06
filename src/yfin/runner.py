@@ -1,4 +1,4 @@
-"""Orkestrasyon: paralellik, kuyruk, transaction siniri, hata izolasyonu (S7, S8)."""
+"""Orchestration: parallelism, queueing, transaction boundaries, error isolation."""
 
 from __future__ import annotations
 
@@ -38,19 +38,19 @@ from yfin.rescale import apply_pending
 
 log = get_logger(__name__)
 
-# S8.1 cikis kodlari
+# Exit codes.
 EXIT_OK = 0
 EXIT_NO_SYMBOL_RESOLVED = 1
 EXIT_PARTIAL = 2
 EXIT_ALL_FAILED = 3
 EXIT_LOCK_NOT_ACQUIRED = 4
-EXIT_NO_PROXY = 5  # --require-proxy verildi, uygun proxy yok (P8.1)
+EXIT_NO_PROXY = 5  # --require-proxy given but no usable proxy
 
-# --start/--end verildiginde date_range="none" dataset'inin atlanma gerekcesi
+# Skip reason when --start/--end is given and a dataset has date_range="none".
 SKIP_DATE_RANGE = "date_range=none"
 
-# intraday_scope kapsami disindaki hucrenin gerekcesi (PB S6.5)
-SKIP_OUT_OF_SCOPE = "intraday_scope kapsami disi"
+# Skip reason for a cell outside intraday_scope.
+SKIP_OUT_OF_SCOPE = "outside intraday_scope"
 
 
 @dataclass
@@ -65,34 +65,33 @@ class ItemRecord:
     rows_skipped: int = 0
     duration_ms: int | None = None
     error: str | None = None
-    # Domain (sektor / endustri) hucrelerinin bolge ekseni (SI S5.9/8.1).
-    # Sembol ve piyasa tarafinda NULL kalir: `market_runner` bolgeyi
-    # `symbol` alanina yaziyor ve o davranis BILINCLI olarak
-    # degistirilmedi (SI S5.9) -- degistirmek mevcut denetim sorgularini
-    # kirardi.
+    # Region axis for domain (sector/industry) cells. Stays NULL for symbol
+    # and market cells: `market_runner` writes region into `symbol` instead,
+    # and that is left as-is deliberately -- changing it would break
+    # existing audit queries.
     region: str | None = None
 
 
 @dataclass
 class SymbolPayload:
-    """Worker ciktisi: bir sembolun tum normalize edilmis sonuclari."""
+    """Worker output: all normalized results for one symbol."""
 
     symbol: str
     resolved: bool
     results: list[tuple[Dataset[Any], NormalizedResult, int, int]] = field(default_factory=list)
     failures: list[tuple[str, str]] = field(default_factory=list)
-    # Calistirilmadan elenen dataset'ler (ad, gerekce) - AH S6.5/3.
-    # Ucuncu bir kanal gerekir: bunlar ne sonuc ne hatadir; kayitsiz
-    # atlanirlarsa --start verilen bir run'da 14 dataset denetimden kaybolur.
+    # Datasets excluded before running (name, reason). A third channel is
+    # needed because these are neither results nor errors; dropping them
+    # silently would make datasets vanish from the audit on a --start run.
     skipped: list[tuple[str, str]] = field(default_factory=list)
-    # Kapsam disi birakilan dataset'ler (ad, gerekce) - PB S6.5.
-    # `skipped`ten AYRI tutulur cunku farkli bir ItemStatus'e gider:
-    # skipped "content_hash/date_range nedeniyle elendi", out_of_scope
-    # ise "bu sembol bu interval icin hic hedeflenmedi" demektir.
+    # Datasets left out of scope (name, reason). Kept separate from
+    # `skipped` because it maps to a different ItemStatus: skipped means
+    # "excluded by content_hash/date_range", out_of_scope means "this
+    # symbol was never targeted for this interval".
     out_of_scope: list[tuple[str, str]] = field(default_factory=list)
     error: str | None = None
-    # Proxy saglik muhasebesi icin (P5.2). Tuketici thread'de islenir,
-    # boylece tracker uzerinde kilide gerek kalmaz.
+    # For proxy health accounting. Processed on the consumer thread, so no
+    # lock is needed on the tracker.
     error_kinds: list[ErrorKind] = field(default_factory=list)
     success_count: int = 0
 
@@ -114,13 +113,13 @@ class RunSummary:
         return len({i.symbol for i in self.items} - unresolved)
 
     def exit_code(self) -> int:
-        """failed yok -> 0 (ok U empty U skipped normaldir) - S8.1."""
+        """No failures -> 0 (ok/empty/skipped are all fine)."""
         if self.symbol_count and self.resolved_symbols == 0:
             return EXIT_NO_SYMBOL_RESOLVED
         if self.failed == 0:
             return EXIT_OK
-        # RunTally.cells ile AYNI dislama kumesi: hic denenmemis hucreler
-        # ("denenen her sey basarisiz" hesabina) girmemelidir.
+        # Same exclusion set as RunTally.cells: never-attempted cells must
+        # not count toward "everything attempted failed".
         excluded = {ItemStatus.UNKNOWN_SYMBOL, ItemStatus.OUT_OF_SCOPE}
         cells = [i for i in self.items if i.status not in excluded]
         if cells and self.failed == len(cells):
@@ -137,8 +136,8 @@ class RunSummary:
 
 
 class WatermarkReader:
-    """Salt-okunur watermark saglayici (S7.3). Kendi kisa oturumunu acar,
-    boylece worker thread'leri ana transaction'a dokunmaz."""
+    """Read-only watermark provider. Opens its own short session so worker
+    threads never touch the main transaction."""
 
     def __init__(self, factory: sessionmaker[Session]) -> None:
         self._factory = factory
@@ -154,7 +153,7 @@ class WatermarkReader:
     ) -> date | datetime | None:
         target = Base.metadata.tables[table]
         conditions = [target.c["symbol"] == symbol]
-        # price_bars interval basina ayri watermark ister (PB S6.3).
+        # price_bars needs a separate watermark per interval.
         for name, value in (where or {}).items():
             conditions.append(target.c[name] == value)
         stmt = select(func.max(target.c[column])).where(and_(*conditions))
@@ -164,12 +163,12 @@ class WatermarkReader:
 
 
 class ScopeReader:
-    """intraday_scope cozumleyicisi (PB S6.5a).
+    """Resolves intraday_scope.
 
-    SyncContext'in DB erisimi YOKTUR ve `_worker` her SEMBOL icin yeni bir
-    SyncContext kurar; kapsam sorgusu ctx.cached'e birakilsaydi kosu
-    basina ~5.000 sorgu olurdu. Kume BU ORNEKTE, kosu basina BIR KEZ
-    okunur. Shard child process'lerinin her biri kendi ornegini alir.
+    SyncContext has no DB access and `_worker` builds a fresh SyncContext
+    per symbol, so caching the scope query on ctx would mean ~5,000
+    queries per run. This instance reads it once per run instead; each
+    shard child process gets its own instance.
     """
 
     def __init__(self, factory: sessionmaker[Session]) -> None:
@@ -178,12 +177,12 @@ class ScopeReader:
         self._cache: dict[str, frozenset[str] | None] = {}
 
     def _symbols_for(self, interval: str) -> frozenset[str] | None:
-        """O interval icin kapsam kumesi; None = TUM EVREN.
+        """Scope set for an interval; None = the full universe.
 
-        Kural bar_interval BAZINDA ve `enabled` degerinden BAGIMSIZ
-        uygulanir: "o interval icin en az bir satir var mi?". Yalniz
-        enabled=0 satirlari olan bir interval de "kayit var" sayilir ve
-        hicbir sembol kosar (PB S5.4).
+        Applied per bar_interval, independent of `enabled`: the rule is
+        "does at least one row exist for this interval?". An interval
+        with only enabled=0 rows still counts as "has rows" and runs no
+        symbols.
         """
         if interval in self._cache:
             return self._cache[interval]
@@ -194,8 +193,8 @@ class ScopeReader:
             ).scalar_one()
             value: frozenset[str] | None
             if not any_row:
-                # 1m'de kayit yoksa HICBIR sembol (1,21 milyar satir/yil
-                # riski); digerlerinde tum evren (PB S5.4 asimetrisi).
+                # No rows for 1m means no symbols (risk: 1.21B rows/year);
+                # for other intervals it means the full universe.
                 value = frozenset() if interval == "1m" else None
             else:
                 rows = session.execute(
@@ -213,11 +212,11 @@ class ScopeReader:
 
 
 class GapReader:
-    """Acik (cozulmemis) bosluklari okur (PB S6.2/5).
+    """Reads open (unresolved) gaps.
 
-    Bu geri besleme olmadan bar_gaps yalnizca bir mezar tasi olurdu:
-    ortadaki bir dilim dusup sonrakiler yazildiginda watermark boslugun
-    OTESINE gecer ve o pencere bir daha hic istenmezdi.
+    Without this feedback loop bar_gaps would just be a tombstone: if a
+    middle slice fails and later slices succeed, the watermark moves past
+    the gap and that window is never requested again.
     """
 
     def __init__(self, factory: sessionmaker[Session]) -> None:
@@ -243,21 +242,21 @@ def _rows_of(result: NormalizedResult) -> int:
 def resolve_symbol(
     ctx: SyncContext, bootstrap: Dataset[Any]
 ) -> tuple[NormalizedResult | None, str | None, ErrorKind | None]:
-    """RESOLVE adimi: fast_info + history_metadata -> symbols satiri.
+    """RESOLVE step: fast_info + history_metadata -> symbols row.
 
-    Cozulemezse (None, hata) doner ve sembolun tum dataset'leri atlanir
-    (S7.1). normalize da korunur: FastInfo tembeldir ve gecersiz sembolde
-    anahtar erisiminde KeyError firlatir.
+    Returns (None, error) on failure and all of the symbol's datasets are
+    skipped. normalize() is wrapped too: FastInfo is lazy and raises
+    KeyError on attribute access for an invalid symbol.
     """
     try:
         raw = bootstrap.fetch(ctx)
         result = bootstrap.normalize(raw, ctx.symbol)
-    except Exception as exc:  # noqa: BLE001 - hata sinirinin ta kendisi
+    except Exception as exc:  # noqa: BLE001 - this is the error boundary
         kind = classify_error(exc)
         log.warning("symbol resolve failed", symbol=ctx.symbol, kind=kind.value, error=str(exc))
         return None, f"{type(exc).__name__}: {exc}", kind
     if result.is_empty:
-        # Bos sonuc bir AG hatasi degildir; proxy cezalandirilmaz.
+        # An empty result is not a network error; don't penalize the proxy.
         return None, "sembol cozulemedi: bos sonuc", None
     return result, None, None
 
@@ -274,7 +273,7 @@ def _worker(
     scopes: ScopeReader | None = None,
     gaps: GapReader | None = None,
 ) -> SymbolPayload:
-    """fetch + normalize (ag ve saf donusum). DB yazimi ana thread'dedir."""
+    """fetch + normalize (network and pure transform). DB writes happen on the main thread."""
     payload = SymbolPayload(symbol=symbol, resolved=False)
     ctx = SyncContext(
         symbol,
@@ -303,9 +302,9 @@ def _worker(
     for dataset in datasets:
         if dataset.name == bootstrap.name:
             continue
-        # AH S6.5/4: aralik verildiginde 'none' dataset'i FETCH'TEN ONCE
-        # elenir. Sessizce calistirmak kullaniciya "aralik uygulandi" sanisi
-        # verirdi; kayitsiz atlamak denetimi delerdi.
+        # A 'none' dataset is excluded before fetch when a range is given.
+        # Running it silently would look like the range was applied;
+        # skipping without a record would leave a hole in the audit.
         if ranged and dataset.date_range == "none":
             payload.skipped.append((dataset.name, SKIP_DATE_RANGE))
             continue
@@ -314,12 +313,12 @@ def _worker(
             raw = dataset.fetch(ctx)
             result = dataset.normalize(raw, symbol)
         except DatasetOutOfScope as exc:
-            # JENERIK except'ten ONCE gelmek ZORUNDA (PB S6.5b): asagiya
-            # duserse classify_error'a ugrar, FAILED yazilir ve kapsam
-            # disi bir sembol proxy saglik muhasebesini kirletir.
+            # Must come before the generic except: falling through to
+            # classify_error would record it FAILED and pollute proxy
+            # health accounting with an out-of-scope symbol.
             payload.out_of_scope.append((dataset.name, str(exc)))
             continue
-        except Exception as exc:  # noqa: BLE001 - (sembol x dataset) hata siniri
+        except Exception as exc:  # noqa: BLE001 - error boundary per (symbol, dataset)
             kind = classify_error(exc)
             log.warning(
                 "dataset failed",
@@ -347,21 +346,21 @@ def _record_items(
     *,
     region: str | None = None,
 ) -> list[ItemRecord]:
-    """Cok tabloya yazan dataset'ler icin TABLO BASINA bir satir (S8.1)."""
+    """One row per table for datasets that write to multiple tables."""
     records: list[ItemRecord] = []
-    # `or [None]`: produces=() olan izleme dataset'i (sustainability) aksi
-    # halde HIC satir yazmaz ve denetimden kaybolur (AH S6.5/1).
+    # `or [None]`: without this, a tracking-only dataset (sustainability,
+    # produces=()) writes no row at all and vanishes from the audit.
     tables: list[str | None] = list(stats.tables() or dataset.produces) or [None]
     for position, table in enumerate(tables):
-        # table is None YALNIZCA izleme dataset'inde olur (hicbir tabloya
-        # yazmaz); o durumda tum sayaclar 0'dir ve hucre EMPTY olur.
+        # table is None only for a tracking-only dataset (writes nothing);
+        # all counters are 0 there and the cell is EMPTY.
         attempted = stats.attempted.get(table, 0) if table else 0
         verified = stats.verified.get(table, 0) if table else 0
         skipped = stats.skipped.get(table, 0) if table else 0
         if attempted == 0 and skipped == 0:
-            status = ItemStatus.EMPTY  # kaynak veri yok - HATA DEGIL (S8.2)
+            status = ItemStatus.EMPTY  # no source data - not an error
         elif attempted == 0 and skipped:
-            status = ItemStatus.SKIPPED  # content_hash degismedi
+            status = ItemStatus.SKIPPED  # content_hash unchanged
         elif verified == attempted:
             status = ItemStatus.OK
         else:
@@ -373,11 +372,10 @@ def _record_items(
                 status=status,
                 table_name=table,
                 region=region,
-                # `fetched` dataset'in tamamindan cekilen satir sayisidir,
-                # tablo basina degil. Her tablo satirina yazilsaydi
-                # sync_runs.rows_fetched cok tabloya yazan dataset'lerde
-                # (info: 3 tablo, news: 2) katlanarak sisirdi. Bu yuzden
-                # yalnizca ilk tablo satirina yazilir.
+                # `fetched` is rows pulled for the whole dataset, not per
+                # table. Writing it to every table row would inflate
+                # sync_runs.rows_fetched for multi-table datasets (info: 3
+                # tables, news: 2), so only the first table row gets it.
                 rows_fetched=fetched if position == 0 else 0,
                 rows_written=attempted,
                 rows_verified=verified,
@@ -401,15 +399,14 @@ def _failed_records(
     *,
     region: str | None = None,
 ) -> list[ItemRecord]:
-    """Basarisiz hucre icin TABLO BASINA bir kayit (S8.1).
+    """One record per table for a failed cell.
 
-    Tek bir table_name=NULL satiri yazilsaydi denetim sorgulari tablo
-    bazinda filtrelenemez, "bu tablo en son ne zaman basarisiz oldu"
-    sorusu yanitlanamazdi.
+    A single table_name=NULL row would make audit queries unable to
+    filter per table, so "when did this table last fail" is unanswerable.
     """
     dataset = registry.get(dataset_name)
-    # Ayni bosluk HATA yolunda da vardi: produces=() -> tuple(()) -> hic
-    # satir. `or (None,)` bunu kapatir (AH S6.5/2).
+    # Same gap exists on the error path: produces=() -> tuple(()) -> no
+    # rows. `or (None,)` covers it.
     tables: tuple[str | None, ...] = (tuple(dataset.produces) if dataset else ()) or (None,)
     return [
         ItemRecord(
@@ -433,11 +430,11 @@ def _skipped_records(
     *,
     region: str | None = None,
 ) -> list[ItemRecord]:
-    """Calistirilmadan elenen hucre icin TABLO BASINA bir kayit (AH S6.5/5).
+    """One record per table for a cell excluded before running.
 
-    `_failed_records` ile ayni tablo-basina-satir kurali; tek fark durum ve
-    gerekcenin `error` alaninda tasinmasi. `status` OUT_OF_SCOPE icin de
-    kullanilir (PB S6.5c) - iki ayri fonksiyon ayni govdeyi tekrarlardi.
+    Same per-table-row rule as `_failed_records`, differing only in that
+    the status and reason are carried in the `error` field. `status` also
+    covers OUT_OF_SCOPE so a separate function doesn't duplicate the body.
     """
     dataset = registry.get(dataset_name)
     tables: tuple[str | None, ...] = (tuple(dataset.produces) if dataset else ()) or (None,)
@@ -455,15 +452,15 @@ def _skipped_records(
 
 
 def _persist_symbol(session: Session, payload: SymbolPayload) -> list[ItemRecord]:
-    """Sembol basina TEK transaction (S8.7): ya butun olarak yazilir ya hic."""
+    """One transaction per symbol: written as a whole or not at all."""
     records: list[ItemRecord] = []
     writer = PostgresRowWriter(session)
-    # Rescale kancasi (PB S6.6): price_bars YAZILMADAN ONCE ve AYNI
-    # transaction icinde. Ters sirada, bu kosuda yazilan yeni barlar
-    # (zaten Yahoo'nun guncel olceginde) bir kez daha bolunurdu.
-    # Transaction'i ayirmak da olmazdi: _persist_with_retry kilit
-    # cakismasinda tum blogu yeniden calistirir ve commit edilmis bir
-    # rescale ikinci kez uygulanmasa bile muhasebeyi bulanistirirdi.
+    # Rescale hook runs before price_bars is written, in the same
+    # transaction. In the reverse order, bars written in this run (already
+    # at Yahoo's current scale) would get split again. A separate
+    # transaction doesn't work either: _persist_with_retry replays the
+    # whole block on a lock conflict, and a rescale that already committed
+    # would muddy the accounting even if not reapplied.
     _rescale_before_bars(session, payload)
     for dataset, result, fetched, duration in payload.results:
         stats = dataset.upsert(writer, result)
@@ -482,10 +479,10 @@ def _persist_symbol(session: Session, payload: SymbolPayload) -> list[ItemRecord
 
 
 def _rescale_before_bars(session: Session, payload: SymbolPayload) -> None:
-    """price_bars yazan bir dataset varsa bekleyen split'leri uygular.
+    """Applies pending splits if any dataset writes to price_bars.
 
-    Yalniz price_bars yazilacaksa calisir: `--datasets info` gibi bir kosu
-    bos yere splits/bar_rescales sorgusu yapmamalidir.
+    Only runs when price_bars will actually be written, so a run like
+    `--datasets info` doesn't needlessly query splits/bar_rescales.
     """
     writes_bars = any(
         "price_bars" in dataset.produces for dataset, _result, _f, _d in payload.results
@@ -494,21 +491,20 @@ def _rescale_before_bars(session: Session, payload: SymbolPayload) -> None:
         return
     try:
         apply_pending(session, payload.symbol)
-    except Exception as exc:  # noqa: BLE001 - kancanin hatasi sembolu dusurmemeli
-        # Ayni transaction'da oldugumuz icin burada YUTMAK tehlikelidir:
-        # bozulmus bir olcekleme sessizce kalirdi. Bu yuzden yeniden
-        # firlatilir; _persist_with_retry ve cagiran katman ilgilenir.
+    except Exception as exc:  # noqa: BLE001 - a hook failure must not drop the symbol
+        # Swallowing this is dangerous since we're in the same transaction:
+        # a broken rescale would silently stick. Re-raise instead and let
+        # _persist_with_retry and the caller handle it.
         log.error("rescale hook failed", symbol=payload.symbol, error=str(exc))
         raise
 
 
 def _mark_unknown(session: Session, symbol: str, threshold: int) -> None:
-    """S8.8: ardisik 5 calistirmada unknown_symbol alan sembol is_active=0.
-    Veri SILINMEZ."""
+    """A symbol unknown for 5 consecutive runs gets is_active=0. Data is not deleted."""
     row = session.get(Symbol, symbol)
     if row is None:
-        # Evren elle yonetilir; kayitli olmayan sembol icin sayac tutulmaz.
-        # Sessiz kalmak yerine gorunur kilinir.
+        # The universe is managed by hand; a symbol not on record has no
+        # streak counter. Log it instead of staying silent.
         log.info("unknown symbol not tracked (not in symbols table)", symbol=symbol)
         return
     streak = (row.unknown_streak or 0) + 1
@@ -520,17 +516,17 @@ def _mark_unknown(session: Session, symbol: str, threshold: int) -> None:
 
 
 # --------------------------------------------------------------------------
-# Sembol kaynagi
+# Symbol source
 # --------------------------------------------------------------------------
 
-# Bir shard'in sirada ne isleyecegini soran cagri. None = kaynak tukendi.
-# Tek shard'da liste ustunde, cok shard'da mp.Queue ustunde calisir; runner
-# ikisini ayirt etmez.
+# A call asking what a shard should process next. None = source exhausted.
+# Backed by a list for a single shard, by an mp.Queue for multiple shards;
+# the runner doesn't distinguish between the two.
 SymbolSource = Callable[[], str | None]
 
 
 def list_source(symbols: Sequence[str]) -> SymbolSource:
-    """Liste tabanli kaynak; thread'ler arasinda paylasilabilir."""
+    """List-backed source; safe to share across threads."""
     iterator = iter(symbols)
     lock = threading.Lock()
 
@@ -542,11 +538,11 @@ def list_source(symbols: Sequence[str]) -> SymbolSource:
 
 
 class ProxyTracker(Protocol):
-    """runner'in proxy saglik muhasebesinden gordugu TEK arayuz.
+    """The only interface the runner sees into proxy health accounting.
 
-    Somut uygulama `yfin.proxy.ShardProxyTracker`'dir; runner ona degil bu
-    soyutlamaya baglidir, boylece proxy politikasi runner'i degistirmeden
-    evrilebilir ve testler sahte bir tracker verebilir.
+    The concrete implementation is `yfin.proxy.ShardProxyTracker`; the
+    runner depends on this abstraction instead so proxy policy can evolve
+    without touching the runner, and tests can pass a fake tracker.
     """
 
     withdrawn: bool
@@ -560,10 +556,10 @@ class ProxyTracker(Protocol):
 
 @dataclass
 class ShardCounters:
-    """Parent'a giden ILERLEME telemetrisi. YETKILI DEGILDIR (P4.5).
+    """Progress telemetry sent to the parent. Not authoritative.
 
-    Run toplamlari ve cikis kodu DB'den (`sync_run_items`) hesaplanir;
-    aksi halde iki ayri kaynak birbirini tutmayabilirdi.
+    Run totals and the exit code are computed from the DB
+    (`sync_run_items`) instead; otherwise the two sources could diverge.
     """
 
     shard_index: int = 0
@@ -574,7 +570,7 @@ class ShardCounters:
 
 
 # --------------------------------------------------------------------------
-# Run yasam dongusu
+# Run lifecycle
 # --------------------------------------------------------------------------
 
 
@@ -587,10 +583,11 @@ def open_run(
     scope: RunScope = RunScope.SYMBOLS,
     selector: str | None = None,
 ) -> int:
-    """sync_runs satirini acar ve COMMIT EDER.
+    """Opens a sync_runs row and commits it.
 
-    Commit sarttir: child'lar ayri bir baglanti kullanir ve commit
-    edilmemis bir run_id'ye item yazmak FK ihlali (23503) verirdi.
+    The commit is required: children use a separate connection, and
+    writing an item against an uncommitted run_id would raise an FK
+    violation (23503).
     """
     with factory() as session:
         run = SyncRun(
@@ -600,8 +597,8 @@ def open_run(
             symbol_count=symbol_count,
             dataset_count=dataset_count,
             shard_count=shard_count,
-            # Hangi run'in hangi evreni kapsadigi aksi halde geriye donuk
-            # bilinemez ve "eksiksizlik" iddiasi denetlenemez (AH S5.6).
+            # Without this, which universe a run covered can't be
+            # reconstructed later, and completeness can't be audited.
             selector=selector,
         )
         session.add(run)
@@ -609,28 +606,27 @@ def open_run(
         return int(run.id)
 
 
-# PostgreSQL SQLSTATE'leri. Semboller shard'lara dagitildigi icin iki
-# process ayni news / news_symbols satirina yazabilir; tek process'te bu
-# risk yoktu.
+# PostgreSQL SQLSTATEs. Symbols are spread across shards, so two processes
+# can write the same news / news_symbols row; a single process had no such
+# risk.
 #   40001 serialization_failure
 #   40P01 deadlock_detected
 #
-# 55P03 (lock_not_available) LISTEDE YOKTUR: bu kod yolunda hic olusmaz
-# cunku NOWAIT / SKIP LOCKED kullanilmiyor. Gerekcesiz bir SQLSTATE'i
-# yeniden denemek, ileride NOWAIT eklenirse yanlis davranisi sessizce
-# mesrulastirirdi.
+# 55P03 (lock_not_available) is deliberately not listed: it can't occur on
+# this code path since NOWAIT / SKIP LOCKED are not used. Retrying an
+# unjustified SQLSTATE would silently legitimize the wrong behavior if
+# NOWAIT is ever added.
 _RETRYABLE_SQLSTATES = frozenset({"40001", "40P01"})
 
 
 def _is_lock_conflict(exc: BaseException) -> bool:
-    """Hata METNI degil SQLSTATE'e bakilir.
+    """Checks SQLSTATE, not the error message.
 
-    Metin eslesmesi yerellestirilmis mesajlardan ve surucu bicim
-    degisikliklerinden etkilenir; SQLSTATE yapisal ve sabittir.
-    psycopg3 istisnalari `sqlstate` tasir ve SQLAlchemy onu
-    `DBAPIError.orig` altinda sunar. `orig` tasimayan bir istisnada
-    (programlama hatasi) getattr zinciri None doner ve YENIDEN DENENMEZ --
-    dogru davranis.
+    Text matching is affected by localized messages and driver formatting
+    changes; SQLSTATE is structural and stable. psycopg3 exceptions carry
+    `sqlstate`, and SQLAlchemy exposes it under `DBAPIError.orig`. An
+    exception without `orig` (a programming error) makes the getattr
+    chain return None and correctly skips the retry.
     """
     sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
     return sqlstate in _RETRYABLE_SQLSTATES
@@ -639,13 +635,12 @@ def _is_lock_conflict(exc: BaseException) -> bool:
 def _persist_with_retry(
     factory: sessionmaker[Session], payload: SymbolPayload, attempts: int
 ) -> list[ItemRecord]:
-    """Sembol transaction'i; kilit catismasinda jitter'li yeniden deneme.
+    """Symbol transaction with jittered retry on a lock conflict.
 
-    Transaction sembol kapsamli (S8.7) ve idempotent (S7.2) oldugu icin
-    yeniden calistirmak guvenlidir. PostgreSQL'de hata alan transaction
-    HER ZAMAN abort durumuna gecer ve ROLLBACK disinda komut kabul etmez,
-    bu yuzden yeniden denemeden once rollback ZORUNLUDUR -- motorun
-    kendisi bunu dayatir.
+    Safe to replay because the transaction is symbol-scoped and
+    idempotent. In PostgreSQL a failed transaction always enters aborted
+    state and accepts nothing but ROLLBACK, so the rollback before retry
+    is not optional -- the engine enforces it.
     """
     last_error = ""
     for attempt in range(1, attempts + 1):
@@ -674,11 +669,11 @@ def _persist_with_retry(
         for dataset, _, _, _ in payload.results
         for record in _failed_records(payload.symbol, dataset.name, last_error)
     ]
-    # Diger UC kanal da denetimde kalir. Bunlar yazma katmanina BAGLI
-    # DEGILDIR: `failures` fetch sirasinda patlamistir, `skipped` ve
-    # `out_of_scope` ise hic aga cikmamistir. Birakilsalardi o hucreler
-    # icin HICBIR satir olusmazdi -- `failed` bile degil, YOKLUK; ve
-    # "bu dataset en son ne zaman denendi" sorgusu sessizce yaniltirdi.
+    # The other three channels stay in the audit too. They don't depend on
+    # the write layer: `failures` blew up during fetch, `skipped` and
+    # `out_of_scope` never hit the network at all. Dropping them would
+    # leave no row for those cells -- not even `failed`, just absence --
+    # and silently mislead "when was this dataset last attempted".
     for dataset_name, error in payload.failures:
         records.extend(_failed_records(payload.symbol, dataset_name, error))
     for dataset_name, reason in payload.skipped:
@@ -701,10 +696,10 @@ def write_items(
     proxy_id: int | None = None,
     proxy_label: str | None = None,
 ) -> None:
-    """Denetim kayitlarini AYRI bir transaction'da yazar.
+    """Writes audit records in a separate transaction.
 
-    Sembol transaction'i ile ayni transaction'da olsaydi rollback denetim
-    izini de silerdi - oysa basarisizligin kaydi tam da o durumda gerekir.
+    In the same transaction as the symbol write, a rollback would erase
+    the audit trail too -- exactly when a record of the failure matters.
     """
     if not records:
         return
@@ -747,34 +742,34 @@ def run_shard(
     start: date | None = None,
     end: date | None = None,
 ) -> ShardCounters:
-    """Tek bir shard: kuyruktan sembol ceker, isler, denetim kaydini yazar.
+    """One shard: pulls symbols off the queue, processes them, writes audit records.
 
-    Paralellik ekseni SEMBOL'dur (S7.1); shard yalnizca bir seviye disariya
-    eklenen process sinifidir.
+    The parallelism axis is the symbol; a shard is just an extra layer of
+    process fan-out around it.
     """
     cfg = settings or get_settings()
     factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     watermarks = WatermarkReader(factory)
-    # Kapsam kumesi kosu basina BIR KEZ okunur (PB S6.5a); acik bosluklar
-    # sembol basina sorgulanir cunku sembole ozguddur.
+    # Scope set is read once per run; open gaps are queried per symbol
+    # since they're symbol-specific.
     scopes = ScopeReader(factory)
     gaps = GapReader(factory)
     bootstrap = next(d for d in datasets if d.name == SYMBOL_DATASETS.bootstrap)
     counters = ShardCounters(shard_index=shard_index)
 
-    # Kuyruk maxsize ile SINIRLIDIR (S7.1). Sinirin gercekten baglayici
-    # olmasi icin sonucu KUYRUGA WORKER'IN KENDISI koyar: kuyruk dolunca
-    # worker put() uzerinde bloke olur ve yeni sembol cekilmez.
+    # The queue is bounded by maxsize. For the bound to actually apply
+    # backpressure, the worker itself puts the result onto the queue: when
+    # full, the worker blocks on put() and pulls no new symbol.
     results: queue.Queue[SymbolPayload | None] = queue.Queue(maxsize=cfg.yf_queue_maxsize)
 
     def worker_loop() -> None:
-        # contextvars ThreadPoolExecutor worker'larina KOPYALANMAZ; bagl.
-        # her thread'in basinda yeniden yapilir (P6.5).
+        # contextvars are not copied into ThreadPoolExecutor workers, so
+        # the binding is redone at the start of each thread.
         bind_shard_context(run_id, shard_index, proxy_label)
         while True:
-            # Proxy cooldown'a girdiyse shard kendini geri ceker (P4.7).
-            # Aksi halde banlanmis proxy 429'u aninda aldigi icin kuyruktan
-            # EN COK sembolu ceker ve hepsini failed isaretlerdi.
+            # If the proxy entered cooldown, the shard withdraws itself.
+            # Otherwise a banned proxy hits 429 immediately, drains the
+            # most symbols off the queue, and marks all of them failed.
             if tracker is not None and tracker.withdrawn:
                 counters.withdrawn = True
                 return
@@ -786,8 +781,8 @@ def run_shard(
                     symbol,
                     datasets,
                     bootstrap,
-                    # fetched_at DB fonksiyonuyla degil, Python tarafinda
-                    # SEMBOL BASINA BIR KEZ uretilir (S5.4)
+                    # fetched_at is generated once per symbol in Python,
+                    # not via a DB function.
                     datetime.now(UTC),
                     watermarks,
                     full_refresh,
@@ -801,7 +796,7 @@ def run_shard(
                 payload = SymbolPayload(
                     symbol=symbol, resolved=False, error=f"{type(exc).__name__}: {exc}"
                 )
-            results.put(payload)  # kuyruk doluysa burada bloke olur
+            results.put(payload)  # blocks here if the queue is full
 
     def produce() -> None:
         try:
@@ -812,9 +807,9 @@ def run_shard(
         except BaseException as exc:  # noqa: BLE001
             log.error("producer crashed", error=f"{type(exc).__name__}: {exc}")
         finally:
-            # Sentinel MUTLAKA yazilmalidir: aksi halde executor beklenmedik
-            # bir hata verdiginde tuketici results.get() uzerinde suresiz
-            # bloke olur (kuyrukta timeout yoktur).
+            # The sentinel must always be written; otherwise, if the
+            # executor raises unexpectedly, the consumer blocks forever on
+            # results.get() (the queue has no timeout).
             results.put(None)
 
     producer = threading.Thread(target=produce, name=f"yfin-producer-{shard_index}", daemon=True)
@@ -837,8 +832,8 @@ def run_shard(
             break
         counters.symbols_seen += 1
 
-        # Proxy saglik muhasebesi TEK THREAD'de yapilir; tracker uzerinde
-        # kilide gerek kalmaz.
+        # Proxy health accounting happens on a single thread, so the
+        # tracker needs no lock.
         if tracker is not None:
             for kind in payload.error_kinds:
                 tracker.record_error(kind)
@@ -849,10 +844,10 @@ def run_shard(
                     tracker.flush(session)
 
         if not payload.resolved:
-            # TASIMA hatasi sembolun sucu DEGILDIR (P5.2'nin simetrigi).
-            # Olu bir proxy'de her sembol cozulemez; bunlar unknown_symbol
-            # sayilsaydi delist sayaci dolar ve yf_delist_threshold kosu
-            # sonunda TUM EVREN sessizce is_active=0 olurdu.
+            # A transport error is not the symbol's fault. No symbol
+            # resolves on a dead proxy; counting these as unknown_symbol
+            # would run out the delist streak and silently set is_active=0
+            # for the whole universe once yf_delist_threshold is hit.
             transport_fault = any(k in PROXY_FAULT_KINDS for k in payload.error_kinds)
             status = ItemStatus.FAILED if transport_fault else ItemStatus.UNKNOWN_SYMBOL
             emit(
@@ -885,11 +880,11 @@ def run_shard(
 def record_not_attempted(
     factory: sessionmaker[Session], run_id: int, symbols: Sequence[str]
 ) -> None:
-    """Kuyrukta islenmeden kalan semboller (P4.7).
+    """Symbols left unprocessed in the queue.
 
-    Bu satirlar yazilmasaydi o semboller icin sync_run_items'ta HIC kayit
-    olmaz, failed sayisi sifir kalir ve evrenin yarisi hic cekilmemisken
-    run 'ok' + exit 0 donerdi.
+    Without these rows, those symbols would have no sync_run_items record
+    at all, failed would stay zero, and the run could return 'ok' + exit 0
+    while half the universe was never fetched.
     """
     write_items(
         factory,
@@ -908,7 +903,7 @@ def record_not_attempted(
 
 @dataclass
 class RunTally:
-    """Run sonucunun TEK dogruluk kaynagi: sync_run_items agregasyonu."""
+    """The single source of truth for a run's result: sync_run_items aggregation."""
 
     run_id: int
     symbol_count: int
@@ -927,12 +922,12 @@ class RunTally:
 
     @property
     def cells(self) -> int:
-        """unknown_symbol, not_attempted ve out_of_scope disi hucreler.
+        """Cells excluding unknown_symbol, not_attempted, and out_of_scope.
 
-        out_of_scope da DISLANIR: "denenen her sey basarisiz" hesabina
-        hic denenmemis hucreler girmemelidir. 4.500 kapsam disi hucre
-        sayilsaydi, gercekten denenen 500 hucrenin tamami dusse bile
-        EXIT_ALL_FAILED yerine EXIT_PARTIAL donerdi.
+        out_of_scope is excluded too: never-attempted cells must not count
+        toward "everything attempted failed". If 4,500 out-of-scope cells
+        counted, EXIT_PARTIAL would return instead of EXIT_ALL_FAILED even
+        if all 500 genuinely attempted cells failed.
         """
         excluded = {
             ItemStatus.UNKNOWN_SYMBOL.value,
@@ -942,9 +937,9 @@ class RunTally:
         return sum(v for k, v in self.counts.items() if k not in excluded)
 
     def exit_code(self) -> int:
-        """failed yok -> 0 (ok U empty U skipped normaldir) - S8.1.
+        """No failures -> 0 (ok/empty/skipped are all fine).
 
-        ISLENMEMIS SEMBOL VARKEN CIKIS KODU ASLA 0 OLAMAZ (P8.1).
+        The exit code can never be 0 while an unprocessed symbol remains.
         """
         if self.symbol_count and self.resolved_symbols == 0:
             return EXIT_NO_SYMBOL_RESOLVED
@@ -970,15 +965,15 @@ def finalize_run(
     symbol_count: int,
     dataset_count: int,
 ) -> RunTally:
-    """Toplamlari ve cikis kodunu DB'den hesaplar, sync_runs'i kapatir.
+    """Computes totals and the exit code from the DB, closes out sync_runs.
 
-    Parent'a sonuc kuyruguyla ozet TASINMAZ: sync_runs toplamlari kuyruktan,
-    sync_run_items gercegi child'lardan gelseydi ikisi birbirini tutmayabilir
-    ve S8.6'nin "makine tarafindan dogrulanabilir eksiksizlik" iddiasi
-    zayiflardi.
+    The summary is not carried to the parent via the result queue: if
+    sync_runs totals came from the queue while sync_run_items reflects
+    what the children actually did, the two could diverge and undermine
+    the "machine-verifiable completeness" guarantee.
 
-    CAGIRAN, tum child'lari join ETMIS olmalidir; aksi halde agregasyon
-    yarim veri uzerinde kosar.
+    The caller must have joined all children first, or this aggregates
+    over incomplete data.
     """
     with factory() as session:
         rows = session.execute(
@@ -1008,7 +1003,7 @@ def finalize_run(
             totals["rows_verified"] += int(verified)
             totals["rows_skipped"] += int(skipped)
 
-        # Cozulmus sembol = hic unknown_symbol satiri OLMAYAN sembol.
+        # A resolved symbol is one with no unknown_symbol row at all.
         unresolved_flag = case((SyncRunItem.status == ItemStatus.UNKNOWN_SYMBOL, 1), else_=0)
         resolved_subq = (
             select(SyncRunItem.symbol)
@@ -1021,14 +1016,15 @@ def finalize_run(
             session.execute(select(func.count()).select_from(resolved_subq)).scalar_one()
         )
 
-        # MUTABAKAT (P8.1): denetimde HIC satiri olmayan sembol, coken ya da
-        # timeout'a dusen bir shard'in kuyruktan alip bitiremedigi semboldur.
-        # `shard.py` yalnizca kuyrukta KALANI drain eder; child'in elindeki
-        # sembol icin hicbir `sync_run_items` satiri olusmaz. Bu fark
-        # sayilmasaydi agregasyon eksik veriyi tam sanip EXIT_OK dondururdu
-        # -- "islenmemis sembol varken cikis kodu asla 0 olamaz" garantisi
-        # tam da burada kirilirdi. Piyasa kosularinda symbol_count=0'dir,
-        # yani bu dal is yapmaz.
+        # Reconciliation: a symbol with no row at all in the audit is one a
+        # crashed or timed-out shard pulled off the queue but never
+        # finished. `shard.py` only drains what's still in the queue, so
+        # the symbol a child was holding gets no `sync_run_items` row.
+        # Without counting this gap, aggregation would mistake incomplete
+        # data for complete and return EXIT_OK -- exactly where the
+        # "exit code can never be 0 with an unprocessed symbol" guarantee
+        # would break. symbol_count=0 for market runs, so this branch is a
+        # no-op there.
         covered = int(
             session.execute(
                 select(func.count(func.distinct(SyncRunItem.symbol))).where(
@@ -1082,14 +1078,14 @@ def run_sync(
     end: date | None = None,
     selector: str | None = None,
 ) -> RunTally:
-    """Tek shard'li, proxy'siz calistirma (geriye uyumlu giris noktasi).
+    """Single-shard, proxy-less run (backward-compatible entry point).
 
-    Advisory lock burada alinir, CLI katmaninda degil (S8.7): run_sync
-    dogrudan cagrildiginda da (kutuphane kullanimi, canli test) es zamanli
-    iki calistirmanin ayni satirlara yazmasi engellenir. `acquire_lock`
-    yalnizca kilidi disaridan tutan cagiran icin kapatilir.
+    The advisory lock is acquired here, not in the CLI layer, so that two
+    concurrent runs can't write the same rows even when run_sync is
+    called directly (library use, live tests). `acquire_lock` is turned
+    off only for a caller that already holds the lock externally.
 
-    Cok shard'li calistirma icin bkz. `yfin.shard.run_sharded`.
+    For multi-shard runs, see `yfin.shard.run_sharded`.
     """
     cfg = settings or get_settings()
     if acquire_lock:

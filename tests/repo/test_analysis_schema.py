@@ -1,8 +1,7 @@
-"""18 yeni tablonun sema kararlari (AH S5).
+"""Schema decisions for the 18 new tables.
 
-Her test, bagimsiz incelemelerin GERCEK PostgreSQL uzerinde dogruladigi bir
-karari koda baglar. Iddia yerine kanit: hepsi yfinance_test semasina karsi
-kosar ve sonunda rollback edilir.
+Each test pins one decision that independent review verified against actual
+PostgreSQL. All run against the yfinance_test schema and roll back afterward.
 """
 
 from __future__ import annotations
@@ -53,34 +52,34 @@ def test_all_eighteen_tables_registered() -> None:
 
 
 def test_as_of_tables_have_as_of_date_in_primary_key() -> None:
-    """as_of_date PK'da olmazsa tablo gecmis tutamaz (AH S6.1)."""
+    """Without as_of_date in the PK, the table cannot keep history."""
     for name in AS_OF_TABLES:
         pk = [c.name for c in Base.metadata.tables[name].primary_key.columns]
         assert pk[:2] == ["symbol", "as_of_date"], f"{name} -> {pk}"
 
 
 def test_event_tables_have_no_as_of_date() -> None:
-    """Kaynak kendi tarihini tasiyan tablolar as-of DEGILDIR (AH S5.1)."""
+    """Tables whose source carries its own date are not as-of tables."""
     for name in ("analyst_grade_changes", "earnings_history", "insider_transactions"):
         assert "as_of_date" not in Base.metadata.tables[name].c, name
 
 
 def test_fund_metrics_pk_includes_section() -> None:
-    """section PK disinda kalsaydi ayni metric adi iki bolumde ERROR 1062
-    verirdi; kardes fund_weightings zaten category'yi PK'ya koyuyor."""
+    """Without section in the PK, the same metric name in two sections would
+    collide; sibling table fund_weightings already puts category in its PK."""
     pk = [c.name for c in Base.metadata.tables["fund_metrics"].primary_key.columns]
     assert pk == ["symbol", "as_of_date", "section", "metric"]
 
 
 def test_holding_rank_is_not_named_rank() -> None:
-    """`rank` MySQL 8'de ayrilmis sozcuk: CREATE TABLE ... rank -> ERROR 1064."""
+    """`rank` is a reserved word in MySQL 8: CREATE TABLE ... rank -> ERROR 1064."""
     cols = Base.metadata.tables["fund_top_holdings"].c
     assert "rank" not in cols
     assert "holding_rank" in cols
 
 
 def test_holding_symbol_has_no_foreign_key_but_has_index() -> None:
-    """Evren disi sembol FK olsaydi FONUN TUM VERISI rollback olurdu."""
+    """An FK on an out-of-universe symbol would roll back the fund's whole row set."""
     table = Base.metadata.tables["fund_top_holdings"]
     assert table.c["holding_symbol"].foreign_keys == set()
     assert table.c["symbol"].foreign_keys != set()
@@ -89,14 +88,14 @@ def test_holding_symbol_has_no_foreign_key_but_has_index() -> None:
 
 
 def test_ownership_column_fits_the_measured_value() -> None:
-    """XOM'da 'D/I' olculdu; VARCHAR(2) kirpardi."""
+    """Measured 'D/I' on XOM; VARCHAR(2) would truncate it."""
     col = Base.metadata.tables["insider_transactions"].c["ownership"]
     assert col.type.length >= 3
 
 
 def test_nullable_columns_that_were_never_measured_non_null() -> None:
-    """date_reported ve net_trans NOT NULL/UNSIGNED olsaydi tek bir NaT ya da
-    negatif deger SEMBOLUN TUM transaction'ini dusururdu."""
+    """If date_reported or net_trans were NOT NULL/UNSIGNED, one NaT or negative
+    value would drop the symbol's entire transaction set."""
     assert Base.metadata.tables["institutional_holders"].c["date_reported"].nullable
     net_trans = Base.metadata.tables["insider_activity"].c["net_trans"]
     assert net_trans.nullable
@@ -120,13 +119,13 @@ def test_asof_state_first_seen_is_not_nullable() -> None:
 
 
 # --------------------------------------------------------------------------
-# Gercek PostgreSQL
+# Actual PostgreSQL
 # --------------------------------------------------------------------------
 
 
 def _insert(session: Session, table: str, **values: object) -> None:
-    # PostgreSQL tanimlayicilari CIFT TIRNAKLA tirnaklanir; backtick
-    # sozdizimi hatasidir.
+    # PostgreSQL quotes identifiers with double quotes; backticks are a
+    # syntax error.
     cols = ", ".join(f'"{k}"' for k in values)
     binds = ", ".join(f":{k}" for k in values)
     session.execute(text(f"INSERT INTO {table} ({cols}) VALUES ({binds})"), values)
@@ -140,7 +139,7 @@ def symbol(db_session: Session) -> str:
 
 
 def test_fund_metrics_same_name_in_two_sections(db_session: Session, symbol: str) -> None:
-    """section PK'da oldugu icin ayni metric adi iki bolumde YASAR."""
+    """The same metric name can exist in two sections because section is in the PK."""
     for section in ("equity", "bond"):
         _insert(
             db_session,
@@ -161,7 +160,7 @@ def test_fund_metrics_same_name_in_two_sections(db_session: Session, symbol: str
 def test_fact_value_type_carries_eps_and_revenue_in_one_column(
     db_session: Session, symbol: str
 ) -> None:
-    """AYNI kolonda 1.97656 ve 1_285_436_390_920 -- DECIMAL(38,10) gerekcesi."""
+    """1.97656 and 1_285_436_390_920 share a column -- why it is DECIMAL(38,10)."""
     _insert(
         db_session,
         "analyst_estimates",
@@ -192,7 +191,7 @@ def test_fact_value_type_carries_eps_and_revenue_in_one_column(
 
 
 def test_insider_activity_accepts_negative_net_shares(db_session: Session, symbol: str) -> None:
-    """KO'da net -547806 olculdu."""
+    """Measured net -547806 on KO."""
     _insert(
         db_session,
         "insider_activity",
@@ -228,8 +227,8 @@ def test_ownership_stores_three_character_value(db_session: Session, symbol: str
 
 
 def test_holder_scope_delete_leaves_sibling_type(db_session: Session, symbol: str) -> None:
-    """replace_scope kapsami (symbol, as_of_date, holder_type); komsu tipe
-    DOKUNMAZ -- iki dataset'in ayni tabloda yasamasini saglayan sey budur."""
+    """replace_scope is (symbol, as_of_date, holder_type) and leaves the
+    sibling type untouched -- this is what lets two datasets share one table."""
     for holder_type, holder in (("institution", "Vanguard"), ("mutualfund", "VFIAX")):
         _insert(
             db_session,
@@ -255,7 +254,7 @@ def test_holder_scope_delete_leaves_sibling_type(db_session: Session, symbol: st
 
 
 def test_as_of_pk_upserts_within_the_same_day(db_session: Session, symbol: str) -> None:
-    """Ayni gun ikinci calistirma YENI SATIR uretmez, ustune yazar."""
+    """A second run on the same day overwrites the row rather than inserting a new one."""
     _insert(
         db_session,
         "analyst_recommendations",
@@ -274,8 +273,8 @@ def test_as_of_pk_upserts_within_the_same_day(db_session: Session, symbol: str) 
             "INSERT INTO analyst_recommendations "
             "(symbol, as_of_date, period, strong_buy, buy, hold, sell, strong_sell, fetched_at) "
             "VALUES (:s, :d, '0m', 9, 9, 9, 9, 9, :t) "
-            # PG karsiligi: catisma hedefi ACIKCA verilir ve yeni deger
-            # `excluded` uzerinden okunur (MySQL'de VALUES(...) idi).
+            # PostgreSQL equivalent of MySQL's VALUES(...): the conflict target is
+            # explicit and the new value is read via `excluded`.
             "ON CONFLICT (symbol, as_of_date, period) "
             "DO UPDATE SET strong_buy = excluded.strong_buy"
         ),
@@ -305,7 +304,7 @@ def test_unknown_symbol_is_rejected_by_fk(db_session: Session) -> None:
 
 
 def test_holding_symbol_accepts_out_of_universe_value(db_session: Session, symbol: str) -> None:
-    """FK olmadigi icin evren disi sembol yazilir; is_known bagi isaretler."""
+    """No FK means an out-of-universe symbol can be written; is_known flags it."""
     _insert(
         db_session,
         "fund_top_holdings",

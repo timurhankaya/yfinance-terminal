@@ -1,10 +1,10 @@
-"""Canli Yahoo dogrulamalari -- Search / Lookup / Screener (SQ S10.4).
+"""Live Yahoo verifications -- Search / Lookup / Screener.
 
-CI'da KAPALI: `-m live` gerekir.
+Off in CI: requires `-m live`.
 
-Bu dosyadaki testlerin cogu bir SAYIYI degil bir ILISKIYI surer. Sayilar
-gun icinde oynuyor (`day_gainers` iki olcum arasinda 122 -> 117 gitti);
-kilitlenen sey tasarimin dayandigi DAVRANIS.
+Most tests here assert a relationship, not a number. Counts move during the
+day (`day_gainers` went 122 -> 117 between two measurements); what's pinned
+down is the behavior the design relies on.
 """
 
 from __future__ import annotations
@@ -36,19 +36,19 @@ def _mctx(variant: str) -> MarketContext:
     ).for_variant(variant)
 
 
-# --- Lookup: K6'nin iki yuzu ----------------------------------------------
+# --- Lookup: two sides of the same behavior --------------------------------
 #
-# IKISI BIRLIKTE ZORUNLUDUR. Tasarimin ilk hali YALNIZ dar terimle
-# olculup genellenmisti ve yanlis bir degismezi kilitlemisti; tek basina
-# dar test ayni hatayi yeniden uretirdi.
+# Both tests are required together. The design was originally measured and
+# generalized from the narrow-term case alone, which locked in a wrong
+# invariant; the narrow test by itself would reproduce that same mistake.
 
 
 def test_narrow_term_all_equals_typed_union() -> None:
-    """DAR terim: `all` tipli birlesimin TAMAMINI verir, fark IKI YONDE 0."""
+    """Narrow term: `all` equals the full typed union, zero diff both ways."""
     term = "AAPL"
     block = _fetch_type(term, ALL_TYPE, 1000)
     all_symbols = {d["symbol"] for d in block["documents"] if "symbol" in d}
-    assert block["lookupTotals"]["all"] <= 500, "AAPL dar terim olmali"
+    assert block["lookupTotals"]["all"] <= 500, "AAPL should be a narrow term"
 
     union: set[str] = set()
     for lookup_type in TYPED_LOOKUPS:
@@ -60,21 +60,21 @@ def test_narrow_term_all_equals_typed_union() -> None:
 
 
 def test_broad_term_all_is_truncated_and_typed_union_is_wider() -> None:
-    """GENIS terim: `all` ~1.000'de KIRPILIR ve tipli birlesim KAT KAT genis.
+    """Broad term: `all` is truncated around 1000, typed union is far wider.
 
-    Olculen (2026-09-05): GOLD -> `lookupTotals.all` 7.273, `all` 995 belge,
-    tipli birlesim 3.313; fark IKI YONLU (354 / 2.671).
+    Measured (2026-09-05): GOLD -> `lookupTotals.all` 7273, `all` returns 995
+    documents, typed union 3313; diff is two-way (354 / 2671).
 
-    Bu test kirmizi olursa K6'nin adaptif dali gereksizlesmis demektir --
-    ve o zaman KALDIRILMALIDIR, sessizce tutulmamalidir.
+    If this test goes red, the adaptive branch it protects has become
+    unnecessary and should be removed, not silently kept.
     """
     term = "GOLD"
     block = _fetch_type(term, ALL_TYPE, 1000)
     all_symbols = {d["symbol"] for d in block["documents"] if "symbol" in d}
     reported = block["lookupTotals"]["all"]
 
-    assert reported > 1000, "GOLD genis terim olmali"
-    assert len(all_symbols) < reported, "`all` kirpilmali"
+    assert reported > 1000, "GOLD should be a broad term"
+    assert len(all_symbols) < reported, "`all` should be truncated"
 
     union: set[str] = set()
     for lookup_type in TYPED_LOOKUPS:
@@ -85,21 +85,21 @@ def test_broad_term_all_is_truncated_and_typed_union_is_wider() -> None:
 
 
 def test_lookup_dataset_writes_totals_for_nine_types() -> None:
-    """`privateCompany` `LOOKUP_TYPES` sabitinde YOK; yanittan okunur."""
+    """`privateCompany` isn't in the `LOOKUP_TYPES` constant; read from the response."""
     payload = LookupDataset().fetch(_ctx("BTC"))
     assert "privateCompany" in payload.totals
     assert len(payload.totals) >= 9
 
 
-# --- Search: varsayilan olmayan bayraklar ----------------------------------
+# --- Search: non-default flags ---------------------------------------------
 
 
 def test_research_requires_an_explicit_flag() -> None:
-    """`include_research` VARSAYILANI FALSE (search.py:32-34).
+    """`include_research` defaults to False (search.py:32-34).
 
-    Acikca verilmezse `research_reports` ve `search_report_hits` HIC satir
-    almaz -- ve S9.6 eksiksizlik kaniti bunu YAKALAMAZ, cunku "kaynak bos
-    dondu" ile "istemedik" ayni gorunur.
+    Without it, `research_reports` and `search_report_hits` get no rows at
+    all -- and a completeness check would not catch this, since "source
+    returned empty" and "we didn't ask" look identical.
     """
     default = yf.Search("AAPL").response
     explicit = yf.Search("AAPL", include_research=True).response
@@ -108,14 +108,14 @@ def test_research_requires_an_explicit_flag() -> None:
 
 
 def test_search_quotes_carry_symbolless_rows() -> None:
-    """SQ K14: `include_cb=True` varsayilani Crunchbase kayitlari getiriyor.
+    """`include_cb=True` default pulls in Crunchbase records with no symbol.
 
-    Kor bir `q["symbol"]` KeyError verirdi. Serbest terimde daha gorunur.
+    A blind `q["symbol"]` would KeyError. More visible on a broad term.
     """
     raw = yf.Search("gold", max_results=10).response
     quotes = raw.get("quotes") or []
     assert quotes
-    assert any("symbol" not in q for q in quotes), "sembolsuz satir bekleniyordu"
+    assert any("symbol" not in q for q in quotes), "expected a symbolless row"
 
 
 def test_search_dataset_drops_symbolless_rows() -> None:
@@ -127,11 +127,11 @@ def test_search_dataset_drops_symbolless_rows() -> None:
     assert [r["rank_index"] for r in rows] == list(range(len(rows)))
 
 
-# --- Screener: sayfalama ve sira ------------------------------------------
+# --- Screener: paging and ordering ------------------------------------------
 
 
 def test_paging_needs_size_not_count() -> None:
-    """SQ K12: `offset` verildiginde `count` SESSIZCE yok sayilir."""
+    """When `offset` is given, `count` is silently ignored."""
     with_count = yf.screen("top_mutual_funds", offset=250, count=250)
     with_size = yf.screen("top_mutual_funds", offset=250, size=250)
     assert len(with_count["quotes"]) < len(with_size["quotes"])
@@ -139,13 +139,13 @@ def test_paging_needs_size_not_count() -> None:
 
 
 def test_offset_beyond_total_returns_empty_without_error() -> None:
-    """Durma kosulunun ucuncu dali: hata YOK, 0 satir."""
+    """Third branch of the stop condition: no error, 0 rows."""
     page = yf.screen("day_gainers", offset=9000, size=25)
     assert page["quotes"] == []
 
 
 def test_custom_screen_first_page_carries_no_metadata() -> None:
-    """Custom ekranin ILK sayfasi da POST'tur: 5 anahtar, `title` YOK."""
+    """A custom screen's first page is also a POST: 5 keys, no `title`."""
     spec = screen_by_key("tr_equity")
     assert spec.query is not None
     page = yf.screen(spec.query, size=5, sortField=spec.sort_field, sortAsc=spec.sort_asc)
@@ -160,7 +160,7 @@ def test_predefined_first_page_carries_metadata() -> None:
 
 
 def test_screener_dataset_paginates_to_total() -> None:
-    """`tr_equity` total=628 olculdu; dort sayfa hepsini almali."""
+    """`tr_equity` total was measured at 628; four pages must fetch it all."""
     from yfin.config import get_settings
 
     cfg = get_settings().model_copy(update={"yf_screen_max_pages": 4, "yf_screen_size": 250})
@@ -176,5 +176,5 @@ def test_screener_dataset_paginates_to_total() -> None:
     assert payload.total > 500
     assert len(payload.quotes) == payload.total
     symbols = [q["symbol"] for q in payload.quotes]
-    assert symbols == sorted(symbols), "sortAsc=True kararli artan sira vermeli"
-    assert len(set(symbols)) == len(symbols), "sayfalar ORTUSMEMELI"
+    assert symbols == sorted(symbols), "sortAsc=True should give a stable ascending order"
+    assert len(set(symbols)) == len(symbols), "pages must not overlap"

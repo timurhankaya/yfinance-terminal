@@ -1,9 +1,9 @@
-"""`settings_state()` ve `export_values()` SAF fonksiyonlardir. DB YOK.
+"""`settings_state()` and `export_values()` are pure functions. No DB.
 
-Ikisi de bir zamanlar DB'ye bagliydi (`settings_state` kullanmadigi bir
-`Settings` aliyordu, `export_values` CLI komutunun icinde gomuluydu) ve
-bu yuzden yalnizca repo testinde -- gercek bir veritabaniyla --
-sinanabiliyorlardi. Ayrildiklarinda bu dosya mumkun oldu.
+Both used to depend on a DB (`settings_state` took a `Settings` it never
+used, `export_values` was embedded inside a CLI command), so they could
+only be tested with a real database in a repo test. Splitting them out
+made this file possible.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from yfin.settings_store import (
 
 
 def test_rows_None_DB_YE_BAKILMADI_demektir() -> None:
-    """Erisilemeyen DB ile `YF_SETTINGS_SOURCE=env` ayni sonuca varir:
-    hicbir satir ETKIN DEGILDIR ve kaynak env/default olur."""
+    """An unreachable DB reaches the same outcome as `YF_SETTINGS_SOURCE=env`:
+    no row is active, and the source falls back to env/default."""
     states = settings_state(rows=None)
     assert set(states) == DB_MANAGED_FIELDS
     assert all(not s.has_row for s in states.values())
@@ -37,21 +37,21 @@ def test_satir_kaynagi_db_yapar() -> None:
 
 
 def test_has_row_ile_source_AYNI_SEY_DEGILDIR() -> None:
-    """Env-only bir satir TABLODA VARDIR ama UYGULANMAZ. Tek bayrakla
-    temsil edilseydi bu durum gorunmez olurdu."""
+    """An env-only row can exist in the table but is not applied. A single
+    flag could not represent that distinction."""
     states = settings_state(rows={"yf_max_shards": "9"})
-    assert "db_host" not in states, "env-only alan durum tablosunda yer almaz"
+    assert "db_host" not in states, "an env-only field has no row in the state table"
 
 
 def test_env_de_kurulu_alan_kaynagi_ENV() -> None:
-    """Ayrim `model_fields_set` ile yapilir, "deger varsayilandan farkli
-    mi" karsilastirmasiyla DEGIL: `.env`de varsayilanla AYNI degeri yazan
-    bir kurulum aksi halde `default` gorunurdu."""
+    """The distinction is made via `model_fields_set`, not by comparing
+    "is the value different from the default": a `.env` setting that
+    happens to equal the default would otherwise show up as `default`."""
     from yfin.config import bootstrap_settings
 
     env_set = bootstrap_settings().model_fields_set & DB_MANAGED_FIELDS
-    if not env_set:  # pragma: no cover - .env'e bagli
-        pytest.skip(".env hicbir DB-yonetimli alani kurmuyor")
+    if not env_set:  # pragma: no cover - depends on .env
+        pytest.skip(".env sets no DB-managed field")
     states = settings_state(rows={})
     assert all(states[key].source is Source.ENV for key in env_set)
 
@@ -62,8 +62,8 @@ def test_export_varsayilan_yalniz_satiri_olanlari_verir() -> None:
 
 
 def test_export_all_39_anahtari_NATIVE_tiple_verir() -> None:
-    """Metin donseydi `seed(export(state))` bir sonraki turda `"8"`i
-    yeniden serilestirir ve tohum dosyasi tipsiz metne kayardi."""
+    """If this returned strings, `seed(export(state))` would re-serialize
+    `"8"` on the next round and the seed file would drift into untyped text."""
     out = export_values(settings_state(rows={}), all_keys=True)
     assert set(out) == DB_MANAGED_FIELDS
     assert isinstance(out["yf_max_shards"], int)
@@ -88,21 +88,22 @@ def test_classify_env_only_alanlar(key: str) -> None:
 
 @pytest.mark.parametrize("key", ["hicboyle_yok", "YF_MAX_SHARDS", ""])
 def test_classify_bilinmeyen_anahtarlar(key: str) -> None:
-    """Kanonik olmayan bicim (`YF_MAX_SHARDS`) da BILINMEYENDIR: tabloya
-    ham SQL ile sokulmus boyle bir satirin GORUNUR kalmasi, duyarli
-    collation kararinin gerekcesidir (CFG S2)."""
+    """A non-canonical form (`YF_MAX_SHARDS`) is also UNKNOWN: keeping such
+    a row visible if it were inserted via raw SQL is why the collation
+    decision matters."""
     assert classify_key(key) is KeyVerdict.UNKNOWN
 
 
 def test_okuma_ve_yazma_yollari_AYNI_karari_verir() -> None:
-    """Politikanin tek kaynaktan geldiginin citi.
+    """Proof that the policy comes from a single source.
 
-    Iki yerde kodlanmis olsaydi, okuma yolunda unutulan bir kategori
-    GUVENLIK SINIRINI delerdi (`db_host` iceren bir satirin uygulanmasi).
+    If it were coded in two places, a category missed on the read path
+    would breach the security boundary (an applied row containing
+    `db_host`).
     """
     from yfin.settings_store import SettingRejected, filter_overrides, validate_pair
 
     for key in sorted(ENV_ONLY_FIELDS | {"hicboyle_yok"}):
-        assert filter_overrides({key: "x"}) == {}, f"{key} okuma yolunda gecti"
+        assert filter_overrides({key: "x"}) == {}, f"{key} passed on the read path"
         with pytest.raises(SettingRejected):
             validate_pair(key, "x", overrides={})

@@ -1,13 +1,14 @@
-"""Donem indeksli analist cerceveleri icin ortak taban (AH S6.3).
+"""Common base for period-indexed analyst frames.
 
-Dokuz analist dataset'inin besi ayni sekle sahiptir: goreli donem etiketi
-(`0q`, `+1q`, `0y`, `+1y`, `LTG`, `0m`..`-3m`) ile anahtarlanan tek bir
-cerceve. Ortak olan yalnizca SEKIL degil, iki KURAL'dir:
+Five of the nine analyst datasets share one shape: a single frame keyed by
+a relative period label (`0q`, `+1q`, `0y`, `+1y`, `LTG`, `0m`..`-3m`).
+Two rules follow from that shape:
 
-1. Donem etiketi GORELIDIR; `as_of_date` olmadan satir anlamsizdir. Bu
-   yuzden taban `AsOfDataset`'tir.
-2. Kaynak "bu sembolde bu modul yok" durumunu HTTP 404 ile bildirir; bu bir
-   `empty`tir, `failed` degil -- her fetch `call_optional` kullanir (AH S8.4).
+1. The period label is relative, so a row is meaningless without
+   `as_of_date` -- the base class is `AsOfDataset`.
+2. The source signals "module not available for this symbol" via HTTP
+   404, which is an `empty` result, not `failed` -- every fetch uses
+   `call_optional`.
 """
 
 from __future__ import annotations
@@ -28,17 +29,17 @@ from yfin.logging_setup import get_logger
 
 log = get_logger(__name__)
 
-# models.analysis.PERIOD_LENGTH ile ayni; AsciiKeyType(8)
+# Matches models.analysis.PERIOD_LENGTH; AsciiKeyType(8)
 PERIOD_LENGTH = 8
 
 
 @dataclass(frozen=True, slots=True)
 class Column:
-    """Kaynak anahtari -> SQL kolonu -> tipli donusum.
+    """Source key -> SQL column -> typed conversion.
 
-    Donusturucu alanin YANINDA durur; `models/kinds.py`'nin `Field` tablosu
-    burada kullanilamaz cunku bu kolonlar SQLAlchemy'de elle tanimli ve
-    FactValueType gibi bir kind tablosunda karsiligi yok.
+    The converter lives next to the field: `models/kinds.py`'s `Field` table
+    does not apply here because these columns are defined by hand in
+    SQLAlchemy with no counterpart in a kind table like FactValueType.
     """
 
     source: str
@@ -52,12 +53,12 @@ class PeriodFrameDataset(AsOfDataset[AsOfFramePayload]):
     table: str
     api_method: str
     columns: tuple[Column, ...]
-    # Satirin sabit bilesenleri (analyst_estimates'te metric); PK'ya girerler.
+    # Fixed row components (e.g. `metric` in analyst_estimates); part of the PK.
     constants: tuple[tuple[str, Any], ...] = ()
-    # `period` index'te mi, bir KOLONDA mi? recommendations'ta kolondur.
+    # Whether `period` lives in the index or in a column (recommendations uses a column).
     period_column: str | None = None
-    # Bu kolonlardan biri NULL ise satir YAZILMAZ: NOT NULL ihlali sembol
-    # basina tek transaction geregi SEMBOLUN TAMAMINI dusururdu (S8.7).
+    # If any of these columns is NULL, the row is dropped: a NOT NULL violation
+    # would drop the whole symbol, since each symbol writes in one transaction.
     required: tuple[str, ...] = ()
 
     @property
@@ -108,8 +109,8 @@ class PeriodFrameDataset(AsOfDataset[AsOfFramePayload]):
                 continue
 
             row["fetched_at"] = raw.fetched_at
-            # Kaynak ayni donemi iki kez verirse attempted=2 / verified=1
-            # yanlis `failed` uretirdi (S8.6); son kayit kazanir.
+            # If the source returns the same period twice, attempted=2 /
+            # verified=1 would falsely read as `failed`; last record wins.
             rows[period] = row
 
         if not rows:

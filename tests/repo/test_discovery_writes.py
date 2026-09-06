@@ -1,9 +1,9 @@
-"""Kesif yazimlarinin GERCEK PostgreSQL davranisi (SQ S10.3).
+"""Discovery writes' actual behavior against PostgreSQL.
 
-Unit testler `normalize`in urettigi satiri dogrular; burada o satirin
-gercekten yazilabildigi VE mevcut veriyi bozmadigi dogrulanir. Bu iki sey
-farkli hata siniflari yakalar: FK ihlali, NOT NULL, kolon kapsami ve
-`ON CONFLICT` semantigi yalnizca gercek bir INSERT'te gorunur.
+Unit tests verify the row `normalize` produces; here that row is confirmed
+to actually write AND not corrupt existing data. Different failure classes:
+FK violations, NOT NULL, column scope, and `ON CONFLICT` semantics only show
+up in a real INSERT.
 """
 
 from __future__ import annotations
@@ -79,10 +79,10 @@ class TestSearchWrites:
             assert stats.verified.get(table, 0) == attempted, table
 
     def test_free_term_can_write_its_gate_row(self, db_session: Session) -> None:
-        """REGRESYON (SQ K3a) -- `discovery_asof_state`in VAROLUS SEBEBI.
+        """Regression: this is why `discovery_asof_state` exists at all.
 
-        `asof_state.symbol` `symbols.symbol`a FK tasir. Serbest terim
-        `symbols`ta YOKTUR; o kapiya yazilsaydi `ERROR 1452` alinirdi.
+        `asof_state.symbol` carries an FK to `symbols.symbol`. A free-text
+        term is not in `symbols`; writing to that gate would raise ERROR 1452.
         """
         _write(
             db_session,
@@ -107,7 +107,7 @@ class TestSearchWrites:
         )
 
     def test_quotes_empty_but_news_written(self, db_session: Session) -> None:
-        """SQ S9.2: durum TABLO BAZINDA turetilir."""
+        """Status is derived per table."""
         _write(
             db_session,
             SearchDataset(),
@@ -121,15 +121,15 @@ class TestSearchWrites:
     def test_report_parent_precedes_hit(self, db_session: Session) -> None:
         """FK: `search_report_hits.report_id` -> `research_reports`.
 
-        Ebeveyn ayni transaction'da ONCE yazilmazsa ERROR 1452.
+        If the parent is not written first in the same transaction, ERROR 1452.
         """
         _write(db_session, SearchDataset(), _search_payload("search_AAPL", "AAPL"), symbol="AAPL")
         assert _scalar(db_session, "SELECT COUNT(*) FROM search_report_hits") > 0
 
     def test_empty_query_writes_no_gate_row(self, db_session: Session) -> None:
-        """Bos sonucta kapi satiri YAZILMAZ; aksi halde her anlamsiz terim
-        icin olu satir birikir ve `first_seen_at` "ilk kez BOS donuldu"
-        anlamina kayardi."""
+        """No gate row is written for an empty result; otherwise every nonsense
+        term would accumulate a dead row, and `first_seen_at` would come to
+        mean "first time an empty result came back"."""
         _write(
             db_session,
             SearchDataset(),
@@ -148,12 +148,10 @@ class TestSearchWrites:
 
 class TestNewsSparseUpdate:
     def test_rich_row_survives_a_search_pass(self, db_session: Session) -> None:
-        """REGRESYON (SQ S8.5).
-
-        Once `Ticker.news`in zengin govdesi yazilir, sonra ayni `news_id`
-        Search yolundan gecer. `summary`/`description`/`canonical_url`
-        KORUNMALIDIR -- Search bu alanlari hic tasimaz ve kor bir upsert
-        onlari NULL'lardi.
+        """Regression: `Ticker.news`'s rich row is written first, then the same
+        `news_id` goes through the Search path. `summary`/`description`/
+        `canonical_url` must survive -- Search never carries these fields,
+        and a blind upsert would null them out.
         """
         payload = _search_payload("search_AAPL", "AAPL")
         news_id = payload.news[0]["uuid"]
@@ -179,18 +177,16 @@ class TestNewsSparseUpdate:
         assert row.summary == "OZET"
         assert row.description == "ACIKLAMA"
         assert row.canonical_url == "https://x/y"
-        # Search'un DOLDURDUGU kolon guncellenir
+        # The column Search populates is updated
         assert row.title != "zengin"
 
 
 class TestSymbolPromotion:
     def test_activated_symbol_stays_active(self, db_session: Session) -> None:
-        """REGRESYON (SQ K10).
-
-        Operator sembolu elle aktiflestirdikten sonra ayni sembol yeniden
-        kesfedilirse `is_active` 1 KALMALIDIR. Kapsama girseydi `yfin sync`
-        o sembolu SESSIZCE cekmeyi birakirdi ve bu ancak "neden veri
-        gelmiyor" diye sorulunca fark edilirdi.
+        """Regression: once an operator manually activates a symbol, rediscovering
+        it must leave `is_active` at 1. If this were in the update scope, `yfin
+        sync` would silently stop fetching that symbol -- noticed only when
+        someone asks "why is no data coming in".
         """
         payload = _search_payload("search_AAPL", "AAPL")
         _write(db_session, SearchDataset(), payload, symbol="AAPL")
@@ -220,11 +216,9 @@ class TestSymbolPromotion:
         assert row.discovered_by == "search"
 
     def test_lookup_does_not_null_search_columns(self, db_session: Session) -> None:
-        """REGRESYON (SQ S5.12).
-
-        `lookup` yolu `long_name`/`currency` DONDURMEZ. Ortak bir
-        `update_columns` listesi kullanilsaydi her lookup kosusu
-        `search`/`screener`in yazdigi bu kolonlari SILERDI.
+        """Regression: the `lookup` path does not return `long_name`/`currency`.
+        A shared `update_columns` list would let every lookup run wipe out
+        columns that `search`/`screener` had written.
         """
         _write(db_session, SearchDataset(), _search_payload("search_AAPL", "AAPL"), symbol="AAPL")
         db_session.execute(
@@ -254,8 +248,8 @@ class TestSymbolPromotion:
 
 class TestLookupWrites:
     def test_totals_include_private_company(self, db_session: Session) -> None:
-        """SQ S4.1/10: kaynak DOKUZ tip bildiriyor; `LOOKUP_TYPES` sabiti
-        `privateCompany`yi BILMIYOR."""
+        """The source reports nine types; the `LOOKUP_TYPES` constant does not
+        know `privateCompany`."""
         raw = json.loads(
             (FIXTURES / "_discovery" / "lookup_BTC_all.json").read_text(encoding="utf-8")
         )
@@ -286,11 +280,9 @@ class TestScreenerWrites:
             assert stats.verified.get(table, 0) == attempted, table
 
     def test_replace_scope_drops_yesterdays_member(self, db_session: Session) -> None:
-        """REGRESYON (SQ S8.4).
-
-        Kadro gun icinde degisiyor (olculdu: `day_gainers` 122 -> 117).
-        Duz upsert olsaydi sabah cikip oglen dusen sembol o gunun
-        kadrosunda KALICI olarak yanlis gorunurdu.
+        """Regression: membership shifts within a day (measured: `day_gainers`
+        122 -> 117). A plain upsert would leave a symbol that dropped out at
+        noon permanently, incorrectly, in that day's membership.
         """
         first = _screen_payload("day_gainers_p0", "day_gainers")
         _write(db_session, ScreenerDataset(), first)
@@ -314,8 +306,8 @@ class TestScreenerWrites:
         )
 
     def test_quotes_survive_membership_change(self, db_session: Session) -> None:
-        """SQ K5: kotasyon EKRANDAN BAGIMSIZDIR; kadrodan cikan sembolun
-        kotasyonu SILINMEZ."""
+        """A quote is independent of the screen; a symbol dropped from
+        membership keeps its quote."""
         first = _screen_payload("day_gainers_p0", "day_gainers")
         _write(db_session, ScreenerDataset(), first)
         dropped = first.quotes[0]["symbol"]
@@ -328,7 +320,7 @@ class TestScreenerWrites:
         )
 
     def test_gate_skips_children_when_hash_matches(self, db_session: Session) -> None:
-        """Kadro degismediginde `screen_members` ATLANIR."""
+        """`screen_members` is skipped when membership hasn't changed."""
         payload = _screen_payload("day_gainers_p0", "day_gainers")
         _write(db_session, ScreenerDataset(), payload)
         stats = _write(db_session, ScreenerDataset(), payload)
@@ -337,11 +329,11 @@ class TestScreenerWrites:
 
 class TestSharedReport:
     def test_same_report_from_both_paths_is_one_row(self, db_session: Session) -> None:
-        """SQ K8: rapor kimlikleri TEK UZAY.
+        """Report ids share one namespace.
 
-        Once domain yolu gibi bir satir yazilir, sonra Search yolu ayni
-        `report_id` ile gecer. Tek satir kalmali ve DOMAIN kolonlari
-        korunmalidir.
+        A row is first written as if from the domain path, then Search
+        passes through with the same `report_id`. Only one row should
+        remain, and the domain columns must survive.
         """
         payload = _search_payload("search_AAPL", "AAPL")
         report_id = payload.reports[0]["id"]
@@ -365,6 +357,6 @@ class TestSharedReport:
             {"i": report_id},
         ).one()
         assert row.n == 1
-        # Domain'in yazdigi kolon KORUNUR, Search'unki EKLENIR
+        # The column Domain wrote is preserved, Search's is added
         assert row.head == "DOMAIN BASLIK"
         assert row.author

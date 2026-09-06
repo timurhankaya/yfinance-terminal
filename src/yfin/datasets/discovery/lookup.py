@@ -1,29 +1,28 @@
-"""lookup dataset'i (SQ S7.2) -> symbols | lookup_results | lookup_totals.
+"""lookup dataset -> symbols | lookup_results | lookup_totals.
 
-CAGRI ADAPTIFTIR (SQ K6) ve bu, tasarimin denetimde CURUTULEN ilk
-kararidir. Ilk hali "her zaman tek `all` cagrisi" idi ve tek bir DAR
-terimle (`BTC`, toplam 503) olculup genellenmisti. Bagimsiz dogrulamada
-GENIS terimlerde `all` cagrisinin ~1.000 belgede sertce kirpildigi
-gorunulmustur:
+The call is adaptive, which is a decision measurement overturned. The
+first cut always made one `all` call, and was generalized from a single
+narrow term (`BTC`, total 503). Independent verification found the `all`
+call gets hard-clipped around ~1,000 documents for broad terms:
 
-    terim   tipli birlesim   `all`   yalniz `all`   yalniz tipli
-    BTC              500      500              0              0
-    GOLD           3.313      996            354          2.671
-    TECH           4.024      998              0          3.026
+    term    typed union   `all`   `all`-only   typed-only
+    BTC          500        500        0            0
+    GOLD       3,313        996      354        2,671
+    TECH       4,024        998        0        3,026
 
-`GOLD`da fark IKI YONLUDUR: 354 sembol (hepsi `0P...` fon kodlari) yalniz
-`all`da, 2.671 sembol yalniz tipli cagrilarda. Yani tipli cagriya gecmek
-`all`i BIRAKMAK degil, ONA EKLEMEKTIR.
+For `GOLD` the difference runs both ways: 354 symbols (all `0P...` fund
+codes) appear only in `all`, 2,671 only in the typed calls. So switching
+to typed calls means adding to `all`, not replacing it.
 
-Sembol dongusunde adaptif dal neredeyse hic tetiklenmez (AAPL 57, THYAO 1),
-yani maliyet 1 istek/sembol kalir; bedeli yalnizca genis serbest terimler
-oder ve karsiliginda 3-4 kat sembol alir.
+The adaptive branch almost never fires in the per-symbol loop (57 for
+AAPL, 1 for THYAO), so cost stays at 1 request/symbol; only broad
+free-text terms pay for it, and get 3-4x the symbols in return.
 
-`_fetch_lookup` (ham govde) kullanilir, `get_all()` (DataFrame) DEGIL:
-`Lookup._parse_response` `lookupTotals` ve `total` alanlarini ATAR
-(lookup.py:96-104), oysa `lookup_totals` tablosu, eksiksizlik kaniti VE
-adaptif dalin tetikleyicisi onlara dayanir. `_fetch_lookup` sarmalayicinin
-KENDI metodudur, yani HTTP'yi ve proxy'yi yine o yapar (SQ K7 korunur).
+Uses `_fetch_lookup` (raw body), not `get_all()` (DataFrame):
+`Lookup._parse_response` discards the `lookupTotals` and `total` fields,
+but the `lookup_totals` table -- proof of completeness and the adaptive
+branch's trigger -- depends on them. `_fetch_lookup` is the wrapper's own
+method, so it still handles HTTP and the proxy itself.
 """
 
 from __future__ import annotations
@@ -53,10 +52,10 @@ from yfin.logging_setup import get_logger
 log = get_logger(__name__)
 
 ALL_TYPE = "all"
-# `lookup.py:31`deki `LOOKUP_TYPES` sabitinin `all` disindaki uyeleri.
-# Sabiti IMPORT ETMEK yerine burada tutmanin sebebi: o liste dokuzuncu tipi
-# (`privateCompany`) BILMIYOR ve kutuphane bir gun onu ekledginde bizim
-# cagri kumemizin sessizce degismesini istemeyiz.
+# The non-`all` members of yfinance's `LOOKUP_TYPES` constant. Kept here
+# rather than imported because that upstream list is unaware of the ninth
+# type (`privateCompany`), and if the library adds it one day, our call set
+# should not silently change with it.
 TYPED_LOOKUPS = (
     "equity",
     "mutualfund",
@@ -89,10 +88,9 @@ _RESULT_UPDATE = (
 
 _TOTAL_UPDATE = ("total", "fetched_at")
 
-# SQ S5.12: `lookup` yalnizca UC tanimlayici alan donduruyor. Ortak bir
-# `symbols` update listesi kullanilsaydi bu yol her kosuda `long_name`,
-# `currency`, `timezone` ve `full_exchange_name`i NULL'lar, yani
-# `search`/`screener`in yazdigini SILERDI.
+# `lookup` only returns three identifying fields. Using a shared `symbols`
+# update list would NULL `long_name`, `currency`, `timezone`, and
+# `full_exchange_name` on every run, i.e. erase what `search`/`screener` wrote.
 SYMBOL_UPDATE = ("short_name", "exchange", "quote_type", "last_seen_at")
 
 
@@ -101,17 +99,17 @@ class LookupPayload:
     query_term: str
     as_of_date: date
     fetched_at: datetime
-    # (lookup_type, belge) ciftleri; SIRA korunur
+    # (lookup_type, document) pairs; order is preserved
     documents: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     totals: dict[str, int] = field(default_factory=dict)
 
 
 def _result_block(payload: Any) -> dict[str, Any]:
-    """`{"finance": {"result": [ ... ]}}` zarfini acar.
+    """Unwraps the `{"finance": {"result": [ ... ]}}` envelope.
 
-    Zarf sekli degisirse KeyError/TypeError firlatir ve hucre `failed`
-    olur; sessizce bos donmek "veri yok" ile "yanit sekli degisti"yi
-    birbirine karistirirdi.
+    Raises KeyError/TypeError if the envelope shape changes, marking the
+    cell `failed`; returning empty silently would conflate "no data" with
+    "the response shape changed".
     """
     result = expect_dict(payload, what="lookup").get("finance", {}).get("result") or []
     return result[0] if result else {}
@@ -145,9 +143,9 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
             (ALL_TYPE, d) for d in dict_items(block, "documents")
         ]
 
-        # SQ K6: `lookupTotals.all` esigi asiyorsa `all` KIRPILMIS demektir.
-        # Esik `all`in gozlenen tavaninin (~1.000) ALTINDA tutulur ki
-        # kirpilma BASLAMADAN tipli dala gecilsin.
+        # If `lookupTotals.all` exceeds the threshold, `all` is clipped. The
+        # threshold is kept below the observed `all` cap (~1,000) so the
+        # typed branch kicks in before clipping starts.
         if totals.get(ALL_TYPE, 0) > cfg.yf_lookup_all_threshold:
             log.info(
                 "lookup all kirpildi, tipli dala geciliyor",
@@ -175,10 +173,11 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
         for index, (lookup_type, doc) in enumerate(raw.documents):
             sym = nz.to_str(doc.get("symbol"))
             if sym is None or sym in seen:
-                # Ayni sembol `all` ve tipli cagrida birden donebilir
-                # (olculdu: BTC'de uc sembol iki tipte). PK (query_term,
-                # as_of_date, symbol) oldugu icin ikinci satir birinciyi
-                # ezerdi; ILK gorulen -- yani `all`daki -- korunur.
+                # The same symbol can come back from both the `all` call
+                # and a typed call (measured: three symbols under two types
+                # for BTC). Since the PK is (query_term, as_of_date,
+                # symbol), the second row would overwrite the first; the
+                # first seen -- i.e. the one from `all` -- is kept instead.
                 continue
             seen.add(sym)
             is_known = symbol_is_writable(sym)
@@ -188,15 +187,16 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
                     "as_of_date": raw.as_of_date,
                     "symbol": sym,
                     "rank_index": index,
-                    # Kaynagin KENDI `rank` alani bir sira DEGIL, Yahoo'nun
-                    # siralama skorudur (olculen ornek 30007). Kolon adi bu
-                    # yuzden ayrildi; KAYNAK anahtari yine `rank`tir.
+                    # The source's own `rank` field is not a position but
+                    # Yahoo's ranking score (measured example: 30007). The
+                    # column name is split apart for this reason; the
+                    # source key is still `rank`.
                     "source_rank": nz.to_int(doc.get("rank")),
                     "lookup_type": lookup_type,
                     "quote_type": nz.to_str(doc.get("quoteType"), max_len=32),
                     "exchange": nz.to_str(doc.get("exchange"), max_len=32),
                     "short_name": nz.to_str(doc.get("shortName"), max_len=128),
-                    # YALNIZ `equity` belgelerinde dolu (SQ S4.1/9)
+                    # Populated only for `equity` documents
                     "industry_name": nz.to_str(doc.get("industryName"), max_len=128),
                     "industry_link": nz.to_str(doc.get("industryLink")),
                     "fullday_price": nz.to_decimal(doc.get("fulldayPrice")),
@@ -218,8 +218,8 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
                         sym,
                         source="lookup",
                         fetched_at=raw.fetched_at,
-                        # Lookup belgesi YALNIZ uc tanimlayici alan tasir;
-                        # `SYMBOL_UPDATE` da bu ucuyle sinirli (SQ S5.12).
+                        # A lookup document only carries three identifying
+                        # fields; `SYMBOL_UPDATE` is limited to those same three.
                         short_name=nz.to_str(doc.get("shortName"), max_len=128),
                         exchange=nz.to_str(doc.get("exchange"), max_len=32),
                         quote_type=nz.to_str(doc.get("quoteType"), max_len=32),
@@ -234,9 +234,9 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
                 "total": total,
                 "fetched_at": raw.fetched_at,
             }
-            # Kaynak DOKUZ tip bildiriyor (`privateCompany` dahil) ve
-            # `LOOKUP_TYPES` sabiti onu bilmiyor; bu yuzden kume YANITTAN
-            # okunur, sabitten degil (SQ S4.1/10).
+            # The source reports nine types (including `privateCompany`),
+            # which `LOOKUP_TYPES` is unaware of, so the set is read from
+            # the response, not the constant.
             for lookup_type, total in sorted(raw.totals.items())
         ]
 
@@ -264,7 +264,7 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
         )
 
 
-# OPT-IN: kayitli ama `all` genislemesine GIRMEZ (SQ K11).
-# `yfin sync --datasets lookup` calisir; ciplak
-# `yfin sync` bu dataset'i CEKMEZ ve maliyeti degismez.
+# Opt-in: registered but excluded from the `all` expansion.
+# `yfin sync --datasets lookup` runs it; a bare `yfin sync` does not fetch
+# it, so its cost is unchanged.
 register(LookupDataset(), opt_in=True)

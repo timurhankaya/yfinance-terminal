@@ -1,34 +1,33 @@
-"""as-of dataset tabani (AH S6.1, SI S6.2).
+"""as-of dataset base.
 
-Kod tabaninda IKI hash kapisi zaten var; bu UCUNCU kardestir. Digerlerinin
-neden kullanilamadigi:
+The codebase already has two hash gates; this is a third sibling. Why the
+others do not fit:
 
-- `SnapshotDataset`: karsilastirilan tablo (`snapshot_table`) ile yazilan
-  tablo (`history_table`) FARKLIDIR ve atlanan sey gecmis tablosunun
-  satirlaridir. Burada kapi bir VERI tablosu bile degildir ve 1-4 hedef
-  tablo vardir.
-- `HashGatedDataset`: kapi ile cocuk AYNI anahtar uzayindadir
-  (`financial_periods` -> `financial_facts`) ve cocugun silme kapsami
-  `gate_key_columns`'tan turetilir. Burada kapi anahtari
-  (symbol, dataset)'tir; cocuklarin `dataset` diye bir kolonu YOKTUR ve
-  silme kapsami cocugun kendi `scope_columns`'idir.
+- `SnapshotDataset`: the compared table (`snapshot_table`) and the written
+  table (`history_table`) differ, and what gets skipped is the history
+  table's rows. Here the gate is not even a data table, and there can be
+  1-4 target tables.
+- `HashGatedDataset`: the gate and the child share one key space
+  (`financial_periods` -> `financial_facts`), and the child's delete scope
+  derives from `gate_key_columns`. Here the gate key is (symbol, dataset);
+  children have no `dataset` column, and delete scope is the child's own
+  `scope_columns`.
 
-Paylasilan ilke aynen korunur: KAPI SATIRI HER DURUMDA YAZILIR, hash esitse
-yalnizca `fetched_at` guncellenir; boylece `fetched_at` "son DOGRULAMA
-zamani"dir, "son degisim zamani" degil.
+The shared rule holds: the gate row is always written; if the hash is
+unchanged, only `fetched_at` is updated. So `fetched_at` means "last time
+this was verified," not "last time this changed."
 
-SI S6.2 -- KAPI MANTIGI `Dataset` HIYERARSISINDEN AYRILDI. `AsOfGate` bir
-mixin'dir; `AsOfDataset` (sembol tarafi) ve `DomainAsOfDataset` (sektor /
-endustri tarafi) onu paylasir. Iki hiyerarsi BIRLESTIRILEMEZ: birinin
-`fetch(SyncContext)` / `normalize(raw, symbol)`, digerinin
-`fetch(DomainContext)` / `normalize(raw, key)` imzasi vardir. Mixin ne
-fetch ne normalize imzasina dokunur; yalnizca `content_hash` + `upsert`
-saglar.
+Gate logic is split out of the `Dataset` hierarchy: `AsOfGate` is a mixin
+shared by `AsOfDataset` (symbol side) and `DomainAsOfDataset` (sector /
+industry side). The two hierarchies cannot merge: one has
+`fetch(SyncContext)` / `normalize(raw, symbol)`, the other
+`fetch(DomainContext)` / `normalize(raw, key)`. The mixin touches neither
+signature -- it only supplies `content_hash` and `upsert`.
 
-`asof_gate_table` adi CIPLAK `gate_table` OLAMAZ: `HashGatedDataset` o adi
-zaten FARKLI bir anlamda kullaniyor (orada kapi bir VERI tablosudur,
-hash_gated.py:27-33). Kardes siniflarda ayni ad, farkli sozlesme sessiz bir
-tuzak olurdu.
+`asof_gate_table` cannot be named plain `gate_table`: `HashGatedDataset`
+already uses that name for something different (there the gate is a data
+table). Same name, different contract across sibling classes would be a
+silent trap.
 """
 
 from __future__ import annotations
@@ -43,43 +42,44 @@ from yfin.persistence import RowWriter, apply_write
 GATE_TABLE = "asof_state"
 GATE_KEY_COLUMNS = ("symbol", "dataset")
 
-# Domain (sektor / endustri) tarafinin kapisi (SI S5.7). Sembol tarafinin
-# `asof_state`'i KULLANILAMAZ: oradaki anahtar (symbol, dataset)'tir ve
-# domain veri tablolarindaki `symbol` SIRKETIN sembolu, domain'in degil.
+# Gate for the domain (sector / industry) side. The symbol side's
+# `asof_state` cannot be reused: its key is (symbol, dataset), and `symbol`
+# in domain data tables is the company's symbol, not the domain's.
 DOMAIN_GATE_TABLE = "domain_asof_state"
 DOMAIN_GATE_KEY_COLUMNS = ("domain_key", "dataset", "region")
 
-# Bolgesiz domain dataset'lerinin kapi satirinda yazdigi isaretci
-# (market_runner.GLOBAL_SCOPE_MARKER deseni).
+# Marker written to the gate row by region-less domain datasets
+# (mirrors market_runner.GLOBAL_SCOPE_MARKER).
 GLOBAL_REGION_MARKER = "*"
 
-# Hash'ten DISLANAN kolonlar. Ucu de her calistirmada degisir; govdeye
-# girselerdi hash HICBIR ZAMAN esitlenmez ve mekanizma sessizce hic
-# calismazdi: her gun her satir yeniden yazilir, kimse fark etmezdi.
+# Columns excluded from the hash. All three change on every run; if they
+# were part of the hash body it would never match, and every row would be
+# rewritten every day with nobody noticing.
 #
-# `first_seen_at` SI S6.2/3 ile eklendi. Bugun hicbir VERI tablosunda bu
-# kolon yok (yalniz `asof_state`'te, models/asof.py:42), bu yuzden mevcut
-# 13 as-of dataset'inin hash'i DEGISMEZ. Eklenmeseydi
-# `research_reports.first_seen_at` her koşuda degisip hash govdesine
-# girer ve kapi ASLA esitlenmezdi.
+# `first_seen_at` was added later. No data table has this column today
+# (only `asof_state` does, in models/asof.py), so the hash of the existing
+# 13 as-of datasets is unchanged. Without the exclusion,
+# `research_reports.first_seen_at` would change on every run, enter the
+# hash body, and the gate would never match.
 VOLATILE_COLUMNS = frozenset({"as_of_date", "fetched_at", "first_seen_at"})
 
-# Kapi satirinda hash DEGISTIGINDE guncellenen kolonlar. `first_seen_at`
-# BILINCLI olarak disaridadir: ON DUPLICATE KEY UPDATE onu kapsasaydi
-# "ilk INSERT'te yazilir" kurali (AH S5.4) bozulurdu.
+# Columns updated on the gate row when the hash changes. `first_seen_at` is
+# deliberately excluded: if ON DUPLICATE KEY UPDATE covered it, the rule
+# "written only on the first INSERT" would break.
 GATE_UPDATE_COLUMNS = ("as_of_date", "content_hash", "row_count", "fetched_at")
 
 
 def asof_produces(*tables: str, gate: str = GATE_TABLE) -> tuple[str, ...]:
-    """Hedef tablolar + KAPI TABLOSU (AH S6.1).
+    """Target tables plus the gate table.
 
-    `produces` sozlesmesi "yazdigi tablo adlari"dir ve `_failed_records`
-    hata yolunda onu kullanir; kapi bildirilmezse `asof_state` satiri
-    denetimden duser ve `produces` ile fiili cikti ayrisir. Yardimci
-    BURADADIR: kapi tablosunun adini bilen tek modul budur.
+    The `produces` contract means "table names this dataset writes," and
+    the `_failed_records` error path relies on it; if the gate is not
+    declared, the `asof_state` row falls out of auditing and `produces`
+    diverges from actual output. This helper is the one place that knows
+    the gate table's name.
 
-    `gate` SI S6.2/4 ile eklendi; varsayilani degismedi, bu yuzden mevcut
-    13 cagrinin ciktisi BIREBIR aynidir.
+    `gate` is a later addition; its default is unchanged, so all 13
+    existing call sites produce identical output.
     """
     return (*tables, gate)
 
@@ -89,47 +89,47 @@ def _sort_key(row: dict[str, Any], key_columns: tuple[str, ...]) -> tuple[str, .
 
 
 def _first_row(result: NormalizedResult) -> dict[str, Any]:
-    """`writes` sirasindaki ILK veri satiri.
+    """First data row in `writes` order.
 
-    `next(..., None)`: `upsert` bunu yalnizca `is_empty` FALSE iken cagirir,
-    ama `is_empty` "satir yok VE skipped bos" demektir -- satirsiz ama
-    `skipped` dolu bir sonuc StopIteration firlatirdi. Bugun ulasilamaz;
-    sozlesme bunu yasaklamadigi icin acikca korunur.
+    `next(..., None)`: `upsert` only calls this when `is_empty` is False,
+    but `is_empty` means "no rows AND skipped is empty" -- a result with no
+    rows but a populated `skipped` would raise StopIteration here. Not
+    reachable today; kept explicit because the contract does not forbid it.
     """
     first = next((row for write in result.writes for row in write.rows), None)
-    if first is None:  # pragma: no cover - savunma
+    if first is None:  # pragma: no cover - defensive
         raise ValueError("kapi satiri icin veri satiri yok")
     return first
 
 
 class AsOfGate:
-    """as-of kapisi -- `Dataset` hiyerarsisinden BAGIMSIZ mixin (SI S6.2).
+    """as-of gate -- a mixin independent of the `Dataset` hierarchy.
 
-    Alt sinif `name` ve `produces` saglar; mixin yalnizca `content_hash` ve
-    `upsert` uretir. `gate_identity()` kapi satirinin ANAHTAR alanlarini
-    dondurur ve varsayilani BUGUNKU davranistir.
+    The subclass supplies `name` and `produces`; the mixin only provides
+    `content_hash` and `upsert`. `gate_identity()` returns the gate row's key
+    fields, defaulting to today's (symbol-side) behavior.
     """
 
-    # Alt sinif saglar. `produces` burada da BILDIRILIR: `prune.py`
-    # kapsam turetmesini `AsOfGate` uzerinden yapiyor ve iki taraf
-    # (`Dataset` / `DomainDataset`) ortak bir atadan gelmiyor.
+    # Supplied by the subclass. `produces` is declared here too: `prune.py`
+    # derives scope through `AsOfGate`, and the two sides (`Dataset` /
+    # `DomainDataset`) share no common ancestor.
     name: str
     produces: tuple[str, ...]
     asof_gate_table: str = GATE_TABLE
     asof_gate_key_columns: tuple[str, ...] = GATE_KEY_COLUMNS
 
     def gate_identity(self, result: NormalizedResult) -> dict[str, Any]:
-        """Kapi satirinin anahtar alanlari (varsayilan = sembol tarafi)."""
+        """Key fields of the gate row (default: symbol side)."""
         return {"symbol": _first_row(result)["symbol"], "dataset": self.name}
 
     def content_hash(self, result: NormalizedResult) -> str:
-        """`result.writes`'in kanonik govdesinin SHA-256'si.
+        """SHA-256 of the canonical body of `result.writes`.
 
-        Satirlar `key_columns`'a gore SIRALANIR. `nz.canonical_json` yalnizca
-        sozluk anahtarlarini siralar (sort_keys=True); liste sirasi korunur.
-        Kaynak -- Yahoo'nun "ilk 10 kurum" listesi, insider_roster, domain
-        `topCompanies` -- sirayi degistirdiginde icerik ayniyken hash degisir
-        ve mekanizma her gun gereksiz yazim yapardi.
+        Rows are sorted by `key_columns`. `nz.canonical_json` only sorts
+        dict keys (sort_keys=True); list order is preserved. If a source --
+        Yahoo's "top 10 institutions" list, insider_roster, domain
+        `topCompanies` -- reorders with the same content, the hash would
+        change and the gate would rewrite unnecessarily every day.
         """
         payload: list[dict[str, Any]] = []
         for write in sorted(result.writes, key=lambda w: w.table):
@@ -167,10 +167,10 @@ class AsOfGate:
     def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
         stats = WriteStats(skipped=dict(result.skipped))
         if result.is_empty:
-            # Bos sonucta kapi satiri YAZILMAZ: aksi halde her fon-olmayan
-            # sembol (ve her liste bloğu olmayan endustri) icin olu satir
-            # birikir ve `first_seen_at` "ilk kez BOS donuldu" anlamina
-            # kayardi (AH S6.1/3). Hucre `empty` olur.
+            # No gate row is written for an empty result: otherwise every
+            # non-fund symbol (or industry with no listing block) would
+            # accumulate a dead row, and `first_seen_at` would drift to mean
+            # "first time an empty result was returned." The cell is `empty`.
             return stats
 
         digest = self.content_hash(result)
@@ -179,40 +179,40 @@ class AsOfGate:
         unchanged = current == digest
 
         if unchanged:
-            # Veri tablolarina YAZILMAZ. `skipped` yalnizca SATIR TASIYAN
-            # tabloya yazilir; bos TableWrite tasiyan hedef `empty` kalir
-            # (AH S7.2) -- BND'de fund_top_holdings 0 satirdir.
+            # Data tables are not written. `skipped` is recorded only for a
+            # table that carries rows; a target with an empty TableWrite
+            # stays `empty` -- e.g. fund_top_holdings has 0 rows for BND.
             for write in result.writes:
                 if write.rows:
                     stats.skipped[write.table] = stats.skipped.get(write.table, 0) + len(
                         write.rows
                     )
                 else:
-                    # Satir TASIMAYAN hedef aksi halde hicbir sayacta yer
-                    # almaz, `stats.tables()` disinda kalir ve
-                    # `_record_items` onu HIC gormez -- tablo o
-                    # calistirmada denetimden duserdi. Sifir attempted +
-                    # sifir skipped = `empty` (AH S7.2): BND'de
-                    # fund_top_holdings bostur, kardes uc tablo `skipped`.
+                    # A target carrying no rows would otherwise appear in no
+                    # counter, fall outside `stats.tables()`, and never reach
+                    # `_record_items` -- the table would drop out of
+                    # auditing for that run. Zero attempted + zero skipped =
+                    # `empty`: BND's fund_top_holdings is empty while its
+                    # three sibling tables are `skipped`.
                     stats.attempted.setdefault(write.table, 0)
                     stats.verified.setdefault(write.table, 0)
         else:
             for write in result.writes:
                 apply_write(writer, write, stats)
 
-        # Kapi satiri her iki dalda da yazilir ve SAYACLARA GIRER
-        # (`apply_write`), tipki `HashGatedDataset`'in baslik satirinda
-        # yaptigi gibi. Sayaclara girmeseydi `_failed_records` hata
-        # durumunda `produces`'tan bir kapi satiri uretirken basari
-        # durumunda hicbir satir olusmaz, denetim asimetrik kalirdi.
+        # The gate row is written on both branches and enters the counters
+        # (`apply_write`), matching how `HashGatedDataset` treats its header
+        # row. Without that, `_failed_records` would produce a gate row from
+        # `produces` on the error path but none on success, leaving
+        # auditing asymmetric.
         apply_write(writer, self._gate_write(result, digest=digest, unchanged=unchanged), stats)
         return stats
 
 
 class AsOfDataset[RawT](AsOfGate, Dataset[RawT]):
-    """as_of_date PK'da; content_hash degismediyse VERI tablolarina yazilmaz.
+    """PK includes as_of_date; data tables are not written if content_hash is unchanged.
 
-    Davranis SI S6.2 ayristirmasindan sonra BIREBIR ayni kalir: mixin'in
-    varsayilanlari (`GATE_TABLE`, `GATE_KEY_COLUMNS`, sembol kimligi)
-    onceki gomulu degerlerin ta kendisidir.
+    Behavior is unchanged from before the gate logic was split out: the
+    mixin's defaults (`GATE_TABLE`, `GATE_KEY_COLUMNS`, symbol identity) are
+    exactly the values that were previously hardcoded here.
     """

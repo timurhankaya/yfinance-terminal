@@ -1,16 +1,16 @@
-"""Hash kapili dataset tabani (S6.3/b).
+"""Hash-gated dataset base.
 
-`SnapshotDataset` bu is icin KULLANILAMAZ: orada karsilastirilan tablo
-(`snapshot_table`) ile yazilan tablo (`history_table`) FARKLIDIR ve atlanan
-sey gecmis tablosunun satirlaridir. Burada ise karsilastirilan tablo ile
-yazilan tablo AYNIDIR (`financial_periods`) ve atlanan sey COCUK tablodur
-(`financial_facts`).
+`SnapshotDataset` CANNOT be used for this: there, the table compared
+(`snapshot_table`) and the table written (`history_table`) are DIFFERENT,
+and what gets skipped is rows of the history table. Here the compared table
+and the written table are the SAME (`financial_periods`), and what gets
+skipped is the CHILD table (`financial_facts`).
 
-Kural:
-1. Hash sorgusu her seyden once yapilir.
-2. Hash esitse cocuk satirlari hic yazilmaz -> skipped.
-3. Baslik satiri HER DURUMDA yazilir; hash esitse yalnizca fetched_at
-   guncellenir. Boylece fetched_at "son dogrulama zamani"dir.
+Rule:
+1. The hash query runs before anything else.
+2. If the hash matches, child rows are never written -> skipped.
+3. The header row is ALWAYS written; if the hash matches, only fetched_at
+   is updated. So fetched_at means "last verified at".
 """
 
 from __future__ import annotations
@@ -20,23 +20,23 @@ from typing import Any
 from yfin.datasets.base import Dataset, NormalizedResult, TableWrite, WriteStats
 from yfin.persistence import RowWriter, apply_write
 
-# Hash degismediginde baslik satirinda yalnizca bu kolon guncellenir
+# When the hash is unchanged, only this column is updated on the header row.
 UNCHANGED_UPDATE_COLUMNS = ("fetched_at",)
 
 
 class HashGate:
-    """Hash kapisi -- `Dataset` HIYERARSISINDEN BAGIMSIZ mixin (SQ S6.2).
+    """Hash gate -- a mixin INDEPENDENT of the `Dataset` hierarchy.
 
-    `AsOfGate`in SI S6.2'de ayristirilma gerekcesinin aynisi: kapi mantigi
-    fetch/normalize IMZASINDAN bagimsizdir, ama sinif hiyerarsisi degildir.
-    `HashGatedDataset` `Dataset[RawT]`in altindadir ve
-    `fetch(SyncContext)` / `normalize(raw, symbol)` imzasini tasir; ekran
-    tarafi ise `GlobalDataset`tir ve `fetch(MarketContext)` /
-    `normalize(raw)` imzasini tasir. Iki hiyerarsi BIRLESTIRILEMEZ.
+    Same reasoning as splitting out `AsOfGate`: the gate logic is independent
+    of the fetch/normalize signature, but not of the class hierarchy.
+    `HashGatedDataset` sits under `Dataset[RawT]` with the
+    `fetch(SyncContext)` / `normalize(raw, symbol)` signature; the screener
+    side is `GlobalDataset` with `fetch(MarketContext)` / `normalize(raw)`.
+    The two hierarchies CANNOT be merged.
 
-    Mixin ne fetch ne normalize imzasina dokunur; yalnizca `upsert` saglar.
-    Davranis ayristirmadan ONCEKIYLE BIREBIR aynidir -- mevcut
-    `financial_statements` testleri bunu surer.
+    The mixin touches neither signature; it only provides `upsert`.
+    Behavior is IDENTICAL to before the split -- the existing
+    `financial_statements` tests carry this.
     """
 
     gate_table: str
@@ -54,7 +54,7 @@ class HashGate:
             w for w in result.writes if w.table not in (self.gate_table, self.child_table)
         ]
 
-        # 1. Hash sorgulari, HICBIR yazmadan once
+        # 1. Hash queries, before ANY write.
         unchanged: set[tuple[Any, ...]] = set()
         changed: list[dict[str, Any]] = []
         for write in gate_writes:
@@ -66,7 +66,7 @@ class HashGate:
                 else:
                     changed.append(row)
 
-        # 2. Baslik satirlari: degisen tam, degismeyen yalnizca fetched_at
+        # 2. Header rows: full write for changed, fetched_at only for unchanged.
         for write in gate_writes:
             changed_rows = [row for row in write.rows if self._key(row) not in unchanged]
             unchanged_rows = [row for row in write.rows if self._key(row) in unchanged]
@@ -79,18 +79,20 @@ class HashGate:
                     stats,
                 )
 
-        # 3. Cocuk satirlari: yalnizca degisen donemler icin.
-        # Silme kapsami satirlardan DEGIL, degisen baslik anahtarlarindan
-        # turetilir; aksi halde donemin tum kalemleri NaN geldiginde (rows
-        # bos) eski satirlar kalici olarak kalirdi.
-        scope_values = tuple({name: row[name] for name in self.gate_key_columns} for row in changed)
+        # 3. Child rows: only for changed periods.
+        # Delete scope is derived from the changed header keys, NOT from the
+        # rows -- otherwise a period whose items all came back NaN (rows
+        # empty) would leave its old rows in place permanently.
+        scope_values = tuple(
+            {name: row[name] for name in self.gate_key_columns} for row in changed
+        )
         for write in child_writes:
             kept = [row for row in write.rows if self._key(row) not in unchanged]
             dropped = len(write.rows) - len(kept)
             if dropped:
                 stats.skipped[write.table] = stats.skipped.get(write.table, 0) + dropped
             if not scope_values:
-                # Hicbir donem degismedi: silme de yazma da yapilmaz
+                # No period changed: neither delete nor write happens.
                 stats.attempted.setdefault(write.table, 0)
                 stats.verified.setdefault(write.table, 0)
                 continue
@@ -114,10 +116,10 @@ class HashGate:
 
 
 class HashGatedDataset[RawT](HashGate, Dataset[RawT]):
-    """Sembol ekseninin hash kapili dataset'i.
+    """Hash-gated dataset on the symbol axis.
 
-    Govde `HashGate`e tasindi (SQ S6.2); bu sinif yalnizca iki tarafi
-    birlestirir ve mevcut cagirilari degistirmeden birakir.
+    The body moved to `HashGate`; this class only combines the two sides
+    and leaves existing call sites unchanged.
     """
 
 

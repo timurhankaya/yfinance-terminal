@@ -1,8 +1,8 @@
-"""`run_domain_sync` uctan uca: sira, hucre sayisi, bolge ekseni (SI S9.3, S6.7).
+"""`run_domain_sync` end-to-end: ordering, cell counts, region axis.
 
-AG YOKTUR: `fetch_domain` fixture'lardan besleyen bir sahte ile degistirilir.
-Geri kalan her sey URETIM YOLUDUR -- gercek dataset'ler, gercek runner,
-gercek PostgreSQL, gercek `sync_run_items`.
+No network: `fetch_domain` is replaced by a fake that serves from fixtures.
+Everything else is the production path -- real datasets, real runner, real
+PostgreSQL, real `sync_run_items`.
 """
 
 from __future__ import annotations
@@ -21,21 +21,21 @@ from yfin.models import ItemStatus, RunScope
 
 pytestmark = pytest.mark.repo
 
-# Fixture'i olan alt evren. Endustri anahtarlari sektor yanitindan
-# KESFEDILIR; sahte cekim yalniz fixture'i olanlara yanit verir.
+# The sub-universe that has fixtures. Industry keys are discovered from the
+# sector response; the fake fetch only responds to keys that have a fixture.
 SECTORS = ("technology",)
 INDUSTRIES = ("semiconductors", "electronic-components")
 
 class FakeYahoo:
-    """Fixture'i olmayan anahtarda 404 taklidi yapar -> `failed` (SI S8.2)."""
+    """Simulates a 404 for a key with no fixture -> `failed`."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str]] = []
 
     def __call__(self, key: str, domain_type: str, region: str) -> dict[str, Any]:
         self.calls.append((key, domain_type, region))
-        # `domain_data` fixture yoksa `pytest.skip` atar (BaseException);
-        # burada istenen sey ATLAMAK degil, 404 taklidi yapmaktir.
+        # `domain_data` raises `pytest.skip` (a BaseException) when the
+        # fixture is missing; what's wanted here is a 404, not a skip.
         suffix = "" if region == "US" else f".{region}"
         path = FIXTURE_ROOT / "_domain" / domain_type / f"{key}{suffix}.json"
         if not path.exists():
@@ -53,7 +53,7 @@ def fake_fetch(monkeypatch: pytest.MonkeyPatch) -> FakeYahoo:
         "yfin.domain_runner",
     ):
         monkeypatch.setattr(f"{module}.fetch_domain", fake, raising=True)
-    # Bootstrap yalniz fixture'i olan sektorleri dolassin
+    # Let bootstrap only iterate sectors that have a fixture
     monkeypatch.setattr("yfin.datasets.domain.taxonomy.SECTOR_KEYS", SECTORS)
     return fake
 
@@ -116,7 +116,7 @@ def test_full_run_writes_the_taxonomy_and_records_every_cell(
         assert sectors == 1
         assert industries == 12
 
-        # Bootstrap turu: 2 hucre, `symbol` alani '*'
+        # Bootstrap pass: 2 cells, `symbol` field is '*'
         bootstrap = session.execute(
             text(
                 "SELECT table_name, symbol, region FROM sync_run_items "
@@ -132,7 +132,7 @@ def test_full_run_writes_the_taxonomy_and_records_every_cell(
 def test_sync_run_items_carry_the_domain_symbol_not_the_key(
     test_engine: Engine, fake_fetch: FakeYahoo
 ) -> None:
-    """`symbol` VARCHAR(32); bes endustri anahtari bunu asiyor (en uzun 37)."""
+    """`symbol` is VARCHAR(32); five industry keys exceed it (longest is 37)."""
     tally = _run(test_engine)
     factory = sessionmaker(bind=test_engine, future=True)
     with factory() as session:
@@ -165,7 +165,7 @@ def test_region_column_is_filled_for_regional_datasets_only(
     assert ("sector_rankings", "US") in pairs
     assert ("sector_profile", "*") in pairs
     assert ("domain_taxonomy", "*") in pairs
-    # Sembol ve piyasa tarafi NULL kalir; burada her hucre doludur.
+    # The symbol and market sides stay NULL; every cell here is filled.
     assert all(region is not None for _dataset, region in pairs)
 
 
@@ -173,8 +173,8 @@ def test_region_column_is_filled_for_regional_datasets_only(
 def test_missing_fixture_becomes_failed_not_empty(
     test_engine: Engine, fake_fetch: FakeYahoo
 ) -> None:
-    """404 -> `failed`. Kural gevsetilseydi kayip endustriler SESSIZCE
-    `empty` yazilir ve denetim "hata yok" derdi (SI S8.2)."""
+    """404 -> `failed`. Relaxing this rule would let missing industries be
+    silently written as `empty`, and the audit would report "no errors"."""
     tally = _run(test_engine)
     factory = sessionmaker(bind=test_engine, future=True)
     with factory() as session:
@@ -192,7 +192,7 @@ def test_missing_fixture_becomes_failed_not_empty(
             ),
             {"r": tally.run_id},
         ).scalar()
-    # 12 endustrinin yalniz ikisinin fixture'i var; kalani 404 verir.
+    # Only two of the 12 industries have a fixture; the rest return 404.
     assert failed
     assert "404" in (errors or "")
     assert tally.exit_code() != 0
@@ -213,10 +213,10 @@ def test_cells_exist_for_every_table_of_every_dataset(
             {"r": tally.run_id},
         ).all()
     by_dataset = {r.dataset: (r.tables, r.cells) for r in rows}
-    # Her dataset TAM olarak `produces` kadar tablo bildirir
+    # Every dataset reports exactly as many tables as `produces`
     for name, (tables, _cells) in by_dataset.items():
         assert tables == len(DOMAIN_DATASETS[name].produces), name
-    # Beklenen hucre sayisi: 2 + 4*1 + 3*1 + 5*12 + 3*12
+    # Expected cell count: 2 + 4*1 + 3*1 + 5*12 + 3*12
     assert sum(cells for _tables, cells in by_dataset.values()) == 2 + 4 + 3 + 60 + 36
 
 
@@ -269,7 +269,7 @@ def test_second_run_marks_data_cells_skipped(
 def test_industry_keys_come_from_the_database(
     test_engine: Engine, fake_fetch: FakeYahoo
 ) -> None:
-    """Anahtarlar bellekte TASINMAZ; runner onlari `domains`tan okur."""
+    """Keys are not held in memory; the runner reads them from `domains`."""
     _run(test_engine)
     requested = {key for key, kind, _ in fake_fetch.calls if kind == "industry"}
     factory = sessionmaker(bind=test_engine, future=True)
@@ -296,13 +296,13 @@ def test_sector_datasets_run_before_industry_datasets(
 def test_one_key_and_region_is_a_single_http_request(
     test_engine: Engine, fake_fetch: FakeYahoo
 ) -> None:
-    """Bir (anahtar, bolge) cifti TEK istektir ve o ciftin TUM
-    dataset'lerini besler (SI S4.5).
+    """One (key, region) pair is a single request that feeds all of that
+    pair's datasets.
 
-    BASARISIZ cekim onbellege GIRMEZ ve bir sonraki dataset onu yeniden
-    dener; bu istenen davranistir -- tur bazli hata siniri gecici bir agi
-    hatasinda tek bir dataset'i degil, o (anahtar, bolge) turunu dusurur ve
-    kardes dataset'in yeniden denemesi ucuz bir kurtarma sansidir.
+    A failed fetch is not cached, and the next dataset retries it; this is
+    intentional -- a per-kind error boundary drops the whole (key, region)
+    round on a transient network error, not just one dataset, and the
+    sibling dataset's retry is a cheap chance at recovery.
     """
     _run(test_engine)
     successful = [

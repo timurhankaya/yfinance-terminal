@@ -1,14 +1,15 @@
-"""Sektor / endustri (domain) tablolari (SI S5).
+"""Sector / industry (domain) tables.
 
-BIRLESIK TAKSONOMI, olcumle: sektor ve endustri `overview` kolon setleri
-ozdes, `topCompanies` kolon setleri BIREBIR ayni olculdu. Kod tabaninin
-kendi kurali -- ozdes kolon seti -> tek tablo + ayirici ENUM
-(`institutional_holders`+`mutualfund_holders`, `earnings_estimate`+
-`revenue_estimate`) -- burada da uygulanir.
+Unified taxonomy, by measurement: sector and industry `overview` column
+sets are identical, and `topCompanies` column sets measured identical.
+The codebase's own rule -- identical column set -> one table + a
+discriminator ENUM (institutional_holders+mutualfund_holders,
+earnings_estimate+revenue_estimate) -- applies here too.
 
-`domain_type` PK'DA DEGILDIR: 11 sektor ve 145 endustri anahtari olcumle
-ayrik (kesisim = bos), sembolleri de ayrik. PK'ya konsaydi `parent_key`
-self-FK'si iki kolonlu olur ve her JOIN'e tasinirdi.
+`domain_type` is not in the PK: the 11 sector and 145 industry keys
+measured disjoint (intersection = empty), as do their symbols. Putting
+it in the PK would make the `parent_key` self-FK two columns, carried
+into every JOIN.
 """
 
 from __future__ import annotations
@@ -45,10 +46,10 @@ from yfin.models.base import (
     symbol_fk_column,
 )
 
-# `domain_key` olculen max 37 (`utilities-independent-power-producers`);
-# 48 ile pay birakilir.
+# `domain_key` measured max 37 (`utilities-independent-power-producers`);
+# 48 leaves headroom.
 DOMAIN_KEY_LENGTH = 48
-# `report_id` olculen max 50.
+# `report_id` measured max 50.
 REPORT_ID_LENGTH = 64
 
 
@@ -88,11 +89,11 @@ RANK_TYPE_ENUM = Enum(
 
 
 def domain_key_column(**kwargs: object) -> Mapped[str]:
-    """`domains.domain_key`'e FK tasiyan anahtar kolonu.
+    """A key column carrying an FK to `domains.domain_key`.
 
-    COLLATE "C": `TECHNOLOGY` canlida 404 verdi, anahtarlar buyuk/kucuk
-    harf DUYARLIDIR; duyarsiz bir collation iki anahtari tek satira
-    indirirdi.
+    COLLATE "C": `TECHNOLOGY` returned 404 live -- keys are case
+    sensitive, and a case-insensitive collation would fold two distinct
+    keys into one row.
     """
     return mapped_column(
         AsciiKeyType(DOMAIN_KEY_LENGTH),
@@ -102,18 +103,14 @@ def domain_key_column(**kwargs: object) -> Mapped[str]:
 
 
 class Domain(Base):
-    """Statik kimlik: ad, aciklama, sembol, ebeveyn. As-of DEGIL -- upsert.
+    """Static identity: name, description, symbol, parent. Not as-of -- upsert.
 
-    Bu alanlar yilda birkac kez degisir; gunluk anlik goruntu almanin
-    karsiligi yoktur.
+    These fields change a few times a year; a daily snapshot buys nothing.
     """
 
     __tablename__ = "domains"
     __table_args__ = (
-        # Endustrinin ebeveyni olmak ZORUNDADIR; sektorde NULL'dir.
-        # (Bu vaktiyle kod tabanindaki TEK CheckConstraint idi; PostgreSQL
-        # gecisinde unsigned kolonlarin yerine gecen kisitlarla birlikte
-        # artik onlarca CHECK var, hepsi acikca adlandirilmis.)
+        # Required for an industry's parent; NULL for a sector.
         CheckConstraint(
             "domain_type = 'sector' OR parent_key IS NOT NULL",
             name="ck_domains_parent",
@@ -123,47 +120,49 @@ class Domain(Base):
 
     domain_key: Mapped[str] = mapped_column(AsciiKeyType(DOMAIN_KEY_LENGTH), primary_key=True)
     domain_type: Mapped[DomainType] = mapped_column(DOMAIN_TYPE_ENUM, nullable=False)
-    # UNIQUE: `^YH311` tek bir domain'e aittir. FK -> symbols: 156 satir
-    # `domain_taxonomy` tarafindan yazilir (SI S5.8).
+    # UNIQUE: `^YH311` belongs to exactly one domain. FK -> symbols: 156
+    # rows are written by `domain_taxonomy`.
     symbol: Mapped[str] = symbol_fk_column(nullable=False, unique=True)
-    # Self-FK. ON DELETE RESTRICT burada da gecerlidir: bir sektoru silmek
-    # 145 endustriyi oksuz birakamaz.
+    # Self-FK. ON DELETE RESTRICT applies here too: deleting a sector
+    # cannot orphan 145 industries.
     #
-    # ON UPDATE **RESTRICT**, CASCADE DEGIL -- projenin
-    # `symbol_fk_column` deseninden BILINCLI bir sapma.
+    # ON UPDATE RESTRICT, not CASCADE -- a deliberate deviation from the
+    # project's `symbol_fk_column` pattern.
     #
-    # Gerekce MOTOR KISITI DEGILDIR (MySQL'de oyleydi: CHECK'te gecen bir
-    # kolonda referential action yasakti; PostgreSQL boyle bir kisit
-    # koymaz). Karar VERIYE dayanir: `domain_key` Yahoo'nun sabit
-    # slug'idir ('technology', 'software-infrastructure') ve yeniden
-    # adlandirilmasi beklenmez. Beklenmedik bir sekilde denenirse RESTRICT
-    # GORUNUR bir hata verir, sessiz bir bozulma degil.
+    # Not an engine constraint (it was one under MySQL: a referential
+    # action was disallowed on a column used in a CHECK; PostgreSQL has
+    # no such restriction). The decision is data-driven: `domain_key` is
+    # Yahoo's fixed slug ('technology', 'software-infrastructure') and is
+    # not expected to be renamed. If a rename is attempted unexpectedly,
+    # RESTRICT gives a visible error instead of a silent corruption.
     #
-    # ON DELETE RESTRICT ayrica bir sektoru silmenin 145 endustriyi oksuz
-    # birakmasini engeller.
+    # ON DELETE RESTRICT also prevents deleting a sector from orphaning
+    # its 145 industries.
     parent_key: Mapped[str | None] = mapped_column(
         AsciiKeyType(DOMAIN_KEY_LENGTH),
         ForeignKey("domains.domain_key", onupdate="RESTRICT", ondelete="RESTRICT"),
     )
-    # Olculen max 40
+    # Measured max 40 chars.
     name: Mapped[str] = mapped_column(String(64, collation="C"), nullable=False)
-    # Olculen max 446, 156/156 dolu. SEKTORDE bootstrap yazar; ENDUSTRIDE
-    # `industries[]` blogu bu alani icermez, bu yuzden `industry_profile`
-    # yazar (SI S7.3) -- ilk profil kosusuna kadar NULL.
+    # Measured max 446 chars, 156/156 populated. Written by bootstrap for
+    # sectors; for industries the `industries[]` block does not include
+    # this field, so `industry_profile` writes it instead -- NULL until
+    # the first profile run.
     description: Mapped[str | None] = mapped_column(Text)
-    # Olculen max 15
+    # Measured max 15 chars.
     message_board_id: Mapped[str | None] = mapped_column(String(32, collation="C"))
-    # Ilk INSERT'te yazilir, bir daha guncellenmez (AH S5.4 kurali):
-    # `update_columns` kapsaminin DISINDADIR.
+    # Written on first INSERT, never updated again: kept out of
+    # `update_columns` scope.
     first_seen_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
-    # Son DOGRULAMA zamani
+    # Last verification time.
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
 class DomainMetric(Base):
-    """as-of, BOLGESIZ: `overview` + `performance` + benchmark tek satirda.
+    """as-of, region-free: `overview` + `performance` + benchmark in one row.
 
-    Bolge kolonu YOKTUR: bu bes blok US/GB/DE/JP/TR'de BIREBIR AYNI olculdu.
+    No region column: these five blocks measured identical across
+    US/GB/DE/JP/TR.
     """
 
     __tablename__ = "domain_metrics"
@@ -174,16 +173,16 @@ class DomainMetric(Base):
     domain_key: Mapped[str] = domain_key_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
 
-    # Olculen max 1517 (financial-services)
+    # Measured max 1517 (financial-services).
     companies_count: Mapped[int | None] = mapped_column(Integer)
-    # ENDUSTRI `overview`'unda bu anahtar HAM JSON'DA HIC YOKTUR (145/145);
-    # yfinance'in `.get()` cagrisi onu None'a ceviriyor. -> nullable
+    # This key is absent from the raw JSON in industry `overview` entirely
+    # (145/145); yfinance's `.get()` call turns it into None -> nullable.
     industries_count: Mapped[int | None] = mapped_column(Integer)
-    # Ham `int`; 1,23e8 ... 2,88e13
+    # Raw `int`; 1.23e8 ... 2.88e13.
     market_cap: Mapped[Decimal | None] = mapped_column(BigNumType())
-    # 1,32e-5 ... 0,746
+    # 1.32e-5 ... 0.746.
     market_weight: Mapped[Decimal | None] = mapped_column(PriceType())
-    # 18 ... 11 895 040
+    # 18 ... 11,895,040.
     employee_count: Mapped[int | None] = mapped_column(
         BigInteger,
         CheckConstraint(
@@ -191,14 +190,14 @@ class DomainMetric(Base):
         ),
     )
 
-    # `performance` blogu -- yfinance HICBIR property ile acmiyor (SI S4.3)
+    # `performance` block -- yfinance exposes it through no property.
     ytd_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
     reg_market_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
     one_year_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
     three_year_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
     five_year_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
 
-    # `performanceOverviewBenchmark` blogu -- o da yfinance'te YOK
+    # `performanceOverviewBenchmark` block -- also absent from yfinance.
     benchmark_name: Mapped[str | None] = mapped_column(String(64, collation="C"))
     benchmark_ytd_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
     benchmark_reg_market_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
@@ -206,42 +205,44 @@ class DomainMetric(Base):
     benchmark_three_year_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
     benchmark_five_year_change_pct: Mapped[Decimal | None] = mapped_column(PriceType())
 
-    # Yanitin LISTE-DISI kismi: key, name, symbol, sectorKey, sectorName,
-    # overview, performance, performanceOverviewBenchmark. Liste bloklari
-    # DAHIL DEGILDIR (SI S2): `canonical_json` liste SIRASINI korur ve tam
-    # zarf saklansaydi `topCompanies` sirasi (11 sektorun 8'inde 15 dk'da
-    # degisti) kapiyi HER KOSUDA acardi -- as-of mekanizmasi sessizce hic
-    # calismazdi.
+    # The non-list part of the response: key, name, symbol, sectorKey,
+    # sectorName, overview, performance, performanceOverviewBenchmark.
+    # List blocks are excluded: `canonical_json` preserves list order, and
+    # storing the full envelope would let `topCompanies` order (changed
+    # in 8 of 11 sectors within 15 minutes) reopen the gate on every run
+    # -- silently disabling the as-of mechanism entirely.
     raw_json: Mapped[str] = mapped_column(RawJsonType(), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
 class DomainTopCompany(Base):
-    """Domain'in en buyuk sirketleri. IKI dataset yazar (sektor + endustri).
+    """A domain's largest companies. Written by two datasets (sector + industry).
 
-    Sira (`position`) SAKLANMAZ: siralama olcutu `market_weight` zaten
-    kolonda ve sira ondan turetilebilir; saklansaydi sira degisimi
-    (11 sektorun 8'inde 15 dakikada) hash'i her kosuda degistirirdi.
+    Order (`position`) is not stored: the ranking criterion,
+    `market_weight`, is already a column, and order is derivable from it;
+    storing it would change the hash on every run (order changed in 8 of
+    11 sectors within 15 minutes).
     """
 
     __tablename__ = "domain_top_companies"
     __table_args__ = (
-        # PK'nin 4. kolonu oldugu icin "bu sirket hangi sektorlerin ilk
-        # 50'sinde" sorgusu aksi halde TAM TARAMA yapardi.
+        # This is the 4th PK column, so "which sectors have this company
+        # in their top 50" would otherwise require a full scan.
         Index("ix_domain_top_companies_symbol", "symbol"),
     )
 
     domain_key: Mapped[str] = domain_key_column(primary_key=True)
     region: Mapped[str] = mapped_column(RegionType(), primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
-    # FK YOKTUR (SI S2): SGE.L, 285A.T, ODINE.IS evren disi. FK olsaydi tek
-    # yabanci sembol TURUN transaction'ini dusururdu (`news_symbols`
-    # gerekcesi). Bunun yerine `is_known` bayragi DB'den doldurulur.
+    # No FK: SGE.L, 285A.T, ODINE.IS are outside the universe. An FK
+    # would fail the whole domain's transaction over one foreign symbol
+    # (same reasoning as news_symbols). Instead, `is_known` is populated
+    # from the DB.
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
 
     name: Mapped[str | None] = mapped_column(String(255, collation="C"))
-    # Olculen: Strong Buy / Buy / Hold / Underperform / Sell. ENUM DEGIL --
-    # kapali liste oldugunun kaniti yok (AH'nin `action` karari).
+    # Measured: Strong Buy / Buy / Hold / Underperform / Sell. Not an
+    # ENUM -- no evidence the list is closed (same decision as `action`).
     rating: Mapped[str | None] = mapped_column(String(32, collation="C"))
     market_weight: Mapped[Decimal | None] = mapped_column(PriceType())
     market_cap: Mapped[Decimal | None] = mapped_column(BigNumType())
@@ -254,13 +255,14 @@ class DomainTopCompany(Base):
 
 
 class DomainTopFund(Base):
-    """topETFs + topMutualFunds -- YALNIZ SEKTOR.
+    """topETFs + topMutualFunds -- sector only.
 
-    Endustri yaniti bu iki blogu HIC ICERMEZ (top-level anahtar listesiyle
-    dogrulandi); sessiz veri kaybi degil, olculmus bir yokluk.
+    The industry response does not contain these two blocks at all
+    (confirmed against its top-level key list); an absence measured, not
+    silent data loss.
 
-    `fund_type` PK'dadir: kolon setleri birebir ayni, sembol kumeleri bugun
-    ayrik -- ama bunun yarin da ayrik kalacaginin kaniti yok.
+    `fund_type` is in the PK: identical column sets, symbol sets disjoint
+    today -- but nothing proves they stay disjoint tomorrow.
     """
 
     __tablename__ = "domain_top_funds"
@@ -269,11 +271,11 @@ class DomainTopFund(Base):
     region: Mapped[str] = mapped_column(RegionType(), primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     fund_type: Mapped[FundType] = mapped_column(FUND_TYPE_ENUM, primary_key=True)
-    # Ticker OLMAYABILIR: `0P0001WO1I` bir Morningstar kimligi (healthcare
-    # topMutualFunds'ta olculdu).
+    # May not be a ticker: `0P0001WO1I` is a Morningstar id (measured in
+    # healthcare topMutualFunds).
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
 
-    # Gunluk 220 fon satirinin 7'sinde YOK; yedisi de yatirim fonu tarafinda
+    # Absent in 7 of 220 daily fund rows; all seven on the mutual fund side.
     name: Mapped[str | None] = mapped_column(String(255, collation="C"))
     net_assets: Mapped[Decimal | None] = mapped_column(BigNumType())
     expense_ratio: Mapped[Decimal | None] = mapped_column(PriceType())
@@ -284,12 +286,13 @@ class DomainTopFund(Base):
 
 
 class DomainTopMover(Base):
-    """topPerformingCompanies + topGrowthCompanies -- YALNIZ ENDUSTRI.
+    """topPerformingCompanies + topGrowthCompanies -- industry only.
 
-    `rank_type` PK'da olmasi VERI KAYBINI onler, sadece cakismayi degil:
-    24 endustrilik TAM-LISTE olcumunde 50 ortak sembolun 8'inde iki uc
-    FARKLI `ytdReturn` bildiriyor. PK'da olmasaydi biri sessizce kaybolurdu
-    (`fund_metrics.section`'in ayni gerekcesi).
+    `rank_type` in the PK prevents data loss, not just collisions: a
+    full-list measurement across 24 industries found 8 of 50 shared
+    symbols reporting two different `ytdReturn` values. Without it in the
+    PK, one would silently disappear (same reasoning as
+    `fund_metrics.section`).
     """
 
     __tablename__ = "domain_top_movers"
@@ -301,37 +304,37 @@ class DomainTopMover(Base):
     symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
 
     name: Mapped[str | None] = mapped_column(String(255, collation="C"))
-    # ELOX (biotechnology) 9999.0 olculdu; SENTINEL SAYILMAZ, oldugu gibi
-    # yazilir (`currentPriceTarget = 0.0`'in NULL'a cevrilmemesiyle ayni
-    # ilke).
+    # ELOX (biotechnology) measured 9999.0; not treated as a sentinel,
+    # written as-is (same principle as not converting
+    # `currentPriceTarget = 0.0` to NULL).
     ytd_return: Mapped[Decimal | None] = mapped_column(PriceType())
     last_price: Mapped[Decimal | None] = mapped_column(PriceType())
-    # Yalniz `performing` listesinde
+    # Only in the `performing` list.
     target_price: Mapped[Decimal | None] = mapped_column(PriceType())
-    # Yalniz `growth` listesinde; RELL 81.5, alt uc -9.999999999999998
+    # Only in the `growth` list; RELL 81.5, low end -9.999999999999998.
     growth_estimate: Mapped[Decimal | None] = mapped_column(PriceType())
     is_known: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
 class ResearchReport(Base):
-    """Analist raporu -- PAYLASILAN varlik, IKI kaynakli (SQ K8).
+    """Analyst report -- a shared entity from two sources.
 
-    Gunde 624 rapor satiri uretiliyor ama yalniz 516'si TEKIL; 37 tekil
-    sektor raporunun HEPSI bir endustride de goruluyor (%100 ortusme). Tek
-    tabloda tekillik ihlali verirdi, bu yuzden rapor + bag tablosu.
+    624 report rows are produced per day but only 516 are unique; all 37
+    unique sector reports also appear in an industry (100% overlap). A
+    single table would violate uniqueness, hence report + link table.
 
-    ADI `domain_research_reports` DEGILDIR (SQ S5.4): `Search.research` ayni
-    raporlari AYNI kimlik uzayindan dondurur -- bicim
-    `<SAGLAYICI>_<KAYNAK_KIMLIK>_<Tur>_<epoch_ms>`, orn.
-    `ARGUS_48138_TechnicalAnalysis_1788520901000` (Sector) ve
-    `ARGUS_2660_AnalystReport_1785496444000` (Search). Iki ayri tablo ayni
-    raporu iki kez, FARKLI kolon altkumeleriyle tutardi.
+    Not named `domain_research_reports`: `Search.research` returns the
+    same reports from the same identity space -- format
+    `<PROVIDER>_<SOURCE_ID>_<Type>_<epoch_ms>`, e.g.
+    `ARGUS_48138_TechnicalAnalysis_1788520901000` (Sector) and
+    `ARGUS_2660_AnalystReport_1785496444000` (Search). Two separate
+    tables would store the same report twice, with different column subsets.
 
-    Iki kaynak farkli kolonlari doldurur ve BIRBIRINI EZMEZ:
-    domain -> `head_html`, `report_title`, `report_type`, hedef fiyat/derece;
-    search -> `author`, `report_headline`. Ortak olan `provider` ve
-    `report_ts_utc`.
+    The two sources populate different columns and do not overwrite each
+    other: domain -> `head_html`, `report_title`, `report_type`, target
+    price/rating; search -> `author`, `report_headline`. Shared:
+    `provider` and `report_ts_utc`.
     """
 
     __tablename__ = "research_reports"
@@ -340,48 +343,50 @@ class ResearchReport(Base):
     )
 
     report_id: Mapped[str] = mapped_column(AsciiKeyType(REPORT_ID_LENGTH), primary_key=True)
-    # PK'DA DEGILDIR -- "en son gorulduğu gun". Rapor icerigi degismez;
-    # hangi gun hangi domain'de gorundugunu `domain_report_links` tasir.
-    # Kolonun VAR OLMASI ise ZORUNLUDUR: `AsOfGate` kapi satirinin
-    # `as_of_date`'ini `writes`'in ILK satirindan okur ve bu tablo ilk
-    # sirada gelebilir -- kolon olmasaydi KeyError verirdi.
+    # Not part of the PK -- "last seen on this day". Report content does
+    # not change; which day it appeared in which domain is carried by
+    # `domain_report_links`. The column's existence is still required:
+    # `AsOfGate` reads its gate row's `as_of_date` from the first row of
+    # `writes`, and this table can come first -- without the column that
+    # would raise KeyError.
     as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
     provider: Mapped[str | None] = mapped_column(String(64, collation="C"))
     report_type: Mapped[str | None] = mapped_column(String(64, collation="C"))
-    # Olculen max 59
+    # Measured max 59 chars.
     head_html: Mapped[str | None] = mapped_column(String(255, collation="C"))
-    # UZUNLUK SINIRI OLMAMALI: olculen max 23 570 karakter (104 rapor,
-    # medyan 281). MySQL'de `TEXT` 65 535 BAYT'ti ve utf8mb4'te tasabildigi
-    # icin `MEDIUMTEXT` gerekiyordu; PostgreSQL `text` SINIRSIZDIR.
+    # Must have no length limit: measured max 23,570 characters (104
+    # reports, median 281). MySQL's `TEXT` was 65,535 bytes and could
+    # overflow under utf8mb4, requiring `MEDIUMTEXT`; PostgreSQL `text`
+    # has no limit.
     report_title: Mapped[str | None] = mapped_column(Text)
-    # 104 raporun 17'sinde HIC YOK. Ayrica CIPLAK float gelir (oysa
-    # topCompanies[].targetPrice SARMALI) -- SI S4.4.
+    # Absent entirely in 17 of 104 reports. Also arrives as a bare float
+    # (unlike topCompanies[].targetPrice, which is wrapped).
     target_price: Mapped[Decimal | None] = mapped_column(PriceType())
-    # Olculen: Maintained / Increased / Decreased / yok
+    # Measured: Maintained / Increased / Decreased / absent.
     target_price_status: Mapped[str | None] = mapped_column(String(32, collation="C"))
-    # Olculen: Bullish / Neutral / Bearish / yok
+    # Measured: Bullish / Neutral / Bearish / absent.
     investment_rating: Mapped[str | None] = mapped_column(String(32, collation="C"))
-    # DOMAIN yolunda ISO metin, SEARCH yolunda epoch MILISANIYE gelir
-    # (SQ S4.3). Ortak bir donusturucu varsayilsaydi biri sessizce NULL
-    # olurdu; her dataset kendi donusturucusunu uygular.
+    # ISO text on the domain path, epoch milliseconds on the search path.
+    # A shared converter would silently NULL one of them; each dataset
+    # applies its own.
     report_ts_utc: Mapped[datetime | None] = mapped_column(TsType())
-    # --- yalniz SEARCH yolunda dolar (SQ S5.4) ---
-    # Domain yaniti yazar alani TASIMAZ.
+    # --- populated only on the search path ---
+    # The domain response carries no author field.
     author: Mapped[str | None] = mapped_column(String(128, collation="C"))
-    # `Search.research` -> `reportHeadline`. Domain yolunda NULL KALIR:
-    # oradaki baslik `head_html` / `report_title` kolonlarinda durur ve
-    # ikisi ayni sey degildir (SQ S4.3).
+    # `Search.research` -> `reportHeadline`. Stays NULL on the domain
+    # path: its title lives in `head_html` / `report_title`, and the two
+    # are not the same thing.
     report_headline: Mapped[str | None] = mapped_column(String(512, collation="C"))
-    # `update_columns` DISINDA (AH S5.4)
+    # Kept out of `update_columns`.
     first_seen_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
 class DomainReportLink(Base):
-    """Rapor <-> domain bagi, gun bazinda.
+    """Report <-> domain link, per day.
 
-    Bolge kolonu YOKTUR: rapor kimlikleri 5 bolgede BIREBIR ayni sirayla
-    dondu.
+    No region column: report ids returned in the identical order across
+    all 5 regions.
     """
 
     __tablename__ = "domain_report_links"
@@ -393,19 +398,20 @@ class DomainReportLink(Base):
         ForeignKey("research_reports.report_id", onupdate="CASCADE", ondelete="CASCADE"),
         primary_key=True,
     )
-    # Liste sirasi
+    # List order.
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
 class DomainAsOfState(Base):
-    """Domain tarafinin as-of KAPISI (SI S5.7).
+    """The as-of gate for the domain side.
 
-    NEDEN `asof_state` KULLANILMIYOR: oradaki anahtar (symbol, dataset) ve
-    kapi sembolu `row["symbol"]`den okunuyor -- domain tablolarindaki
-    `symbol` SIRKETIN sembolu, kapi yanlis varliga yazilirdi. Ayrica bolge
-    ekseni oraya sigmaz. Bu, `asof_base.py`'nin `SnapshotDataset` /
-    `HashGatedDataset`'i neden kullanmadigini aciklayan gerekcenin aynisi.
+    Why `asof_state` is not reused: its key is (symbol, dataset), and the
+    gate symbol is read from `row["symbol"]` -- but `symbol` on domain
+    tables is the company's symbol, so the gate would write against the
+    wrong entity. The region axis also has no room there. Same reasoning
+    as why `asof_base.py`'s `SnapshotDataset` / `HashGatedDataset` are
+    not used here.
     """
 
     __tablename__ = "domain_asof_state"
@@ -415,8 +421,8 @@ class DomainAsOfState(Base):
 
     domain_key: Mapped[str] = domain_key_column(primary_key=True)
     dataset: Mapped[str] = mapped_column(AsciiKeyType(32), primary_key=True)
-    # Bolgesiz dataset'ler '*' yazar (market_runner.GLOBAL_SCOPE_MARKER
-    # deseni).
+    # Region-free datasets write '*' (the market_runner.GLOBAL_SCOPE_MARKER
+    # pattern).
     region: Mapped[str] = mapped_column(RegionType(), primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
     content_hash: Mapped[str] = mapped_column(HashType(), nullable=False)

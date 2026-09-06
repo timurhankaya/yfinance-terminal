@@ -1,13 +1,14 @@
-"""Degerleme olcutleri dataset'leri (`get_valuation_measures`).
+"""Valuation measure datasets (`get_valuation_measures`).
 
-`get_valuation_measures` cercevesi finansal tablolarla AYNI sekildedir:
-index kalem etiketi, kolonlar donem. Bu yuzden ne yeni tablo ne yeni
-normalize gerekir; `StatementDataset` `statement='valuation'` ile yeniden
-kullanilir ve tek fark kolon etiketlerinin ONCE tarihe cevrilmesidir.
+`get_valuation_measures`'s frame has the SAME shape as the financial
+statements: index is the item label, columns are periods. No new table or
+normalize logic is needed; `StatementDataset` is reused with
+`statement='valuation'`, the only difference being that column labels must
+first be converted to dates.
 
-Kaynak (yfinance 1.7.0 `scrapers/quote.py:739-830`) veriyi statement'larla
-ayni fundamentals-timeseries ucundan alir; degerler ham float'tir (eski
-key-statistics kazimasindaki '3.76T' bicimli dizeler DEGIL).
+Source (yfinance 1.7.0 `scrapers/quote.py:739-830`) pulls this from the same
+fundamentals-timeseries endpoint as the statements; values are raw floats
+(NOT strings like the old key-statistics scrape's '3.76T' format).
 """
 
 from __future__ import annotations
@@ -29,24 +30,25 @@ from yfin.models.financials import API_FREQ, StatementFreq, StatementKind
 
 log = get_logger(__name__)
 
-# Kaynagin donem disi tek kolonu. Kolon etiketlerini kaynak
-# `f"{d.month}/{d.day}/{d.year}"` ile uretir (quote.py:815).
+# The source's one non-period column. Source builds column labels as
+# f"{d.month}/{d.day}/{d.year}" (quote.py:815).
 CURRENT_COLUMN = "Current"
 COLUMN_FORMAT = "%m/%d/%Y"
 
 
 def period_columns(frame: pd.DataFrame, *, symbol: str, dataset: str) -> pd.DataFrame:
-    """'M/D/YYYY' kolonlarini donem sonu damgasina cevirir, digerlerini atar.
+    """Convert 'M/D/YYYY' columns to period-end timestamps; drop the rest.
 
-    `Current` DUSURULUR: donem sonu tarihi yoktur (PK bileseni bos kalirdi)
-    ve degeri cekim anindaki fiyata baglidir -- kalici arsivde bayatlayan
-    bir sutun, price-history tarafinda `adj_close`in dislanma gerekcesiyle
-    ayni sinifta. Guncel piyasa degeri zaten `info.marketCap` ile gelir.
+    `Current` is DROPPED: it has no period-end date (the PK component would
+    be null) and its value depends on the price at fetch time -- a column
+    that goes stale in a permanent archive, same class as `adj_close`'s
+    exclusion on the price-history side. Current market value already comes
+    via `info.marketCap`.
 
-    Cevrim `pd.Timestamp`e BIRAKILMAZ: '1/2/2026' etiketinde ay/gun sirasi
-    pandas'in varsayimina kalirdi. Kaynak bicimi bilindigi icin acikca
-    verilir; cozulemeyen etiket WARNING ile dusurulur (kutuphane
-    yukseltmelerine karsi emniyet valfi).
+    Conversion is NOT left to `pd.Timestamp`: for a label like '1/2/2026',
+    month/day order would depend on pandas's guess. The source format is
+    known, so it is given explicitly; an unparseable label is dropped with a
+    WARNING (a safety valve against library upgrades).
     """
     renamed: dict[Any, pd.Timestamp] = {}
     for column in frame.columns:
@@ -70,24 +72,25 @@ def period_columns(frame: pd.DataFrame, *, symbol: str, dataset: str) -> pd.Data
 
 
 def quote_currency(ctx: SyncContext) -> str | None:
-    """info.currency -- KOTASYON para birimi; BEST-EFFORT.
+    """info.currency -- the QUOTE currency; BEST-EFFORT.
 
-    `statements.financial_currency` (info.financialCurrency) BURADA YANLIS
-    OLURDU. Olcum (THYAO.IS): financialCurrency=USD, currency=TRY ve
-    valuation 'Market Cap' = 4,14e11 -- `info.marketCap` (4,08e11, TRY) ile
-    ayni mertebede, USD karsiliginin ~30 kati. Yani degerleme olcutleri
-    borsanin KOTASYON para birimindedir, raporlama para biriminde DEGIL.
-    Oranlar (P/E, P/S, PEG) zaten birimsizdir; kolonun anlami buradaki iki
-    parasal olcut (Market Cap, Enterprise Value) icindir.
+    Using `statements.financial_currency` (info.financialCurrency) here
+    would be WRONG. Measured (THYAO.IS): financialCurrency=USD,
+    currency=TRY, and valuation 'Market Cap' = 4.14e11 -- same order of
+    magnitude as `info.marketCap` (4.08e11, TRY), about 30x its USD
+    equivalent. So valuation measures are in the exchange's QUOTE currency,
+    NOT the reporting currency. Ratios (P/E, P/S, PEG) are already
+    unitless; the currency matters only for the two monetary measures here
+    (Market Cap, Enterprise Value).
 
-    `info` onbellegi statement'larla PAYLASILIR: ayni ctx icinde ikinci bir
-    istek dogurmaz.
+    The `info` cache is SHARED with the statements: no second request within
+    the same ctx.
     """
     try:
         info = ctx.cached(
             "info", lambda: call_yahoo(ctx.ticker.get_info, what=f"info:{ctx.symbol}")
         )
-    except Exception as exc:  # noqa: BLE001 - ikincil alan, hucreyi dusurmez
+    except Exception as exc:  # noqa: BLE001 - secondary field, does not fail the cell
         log.warning("quote currency unavailable", symbol=ctx.symbol, error=str(exc))
         return None
     if not isinstance(info, dict):
@@ -96,10 +99,10 @@ def quote_currency(ctx: SyncContext) -> str | None:
 
 
 class ValuationDataset(StatementDataset):
-    """`statement='valuation'` olan StatementDataset.
+    """A StatementDataset with `statement='valuation'`.
 
-    `produces`, `gate_table`, `gate_key_columns` ve `normalize`in govdesi
-    tabandan gelir; hash kapisi da aynen isler.
+    `produces`, `gate_table`, `gate_key_columns`, and `normalize`'s body come
+    from the base class; the hash gate works unchanged.
     """
 
     def __init__(self, name: str, freq: StatementFreq) -> None:
@@ -107,10 +110,11 @@ class ValuationDataset(StatementDataset):
 
     def fetch(self, ctx: SyncContext) -> StatementPayload:
         api_freq = API_FREQ[self.freq]
-        # `periods=None`: varsayilan 5, cerceveyi ISTEMCIDE kirpar
-        # (quote.py:640-644) -- tum gecmis ZATEN ayni istekle gelir, kirpmak
-        # bedava veriyi atmak olurdu. Onbellek anahtari statement'lardan
-        # ayridir; ayni Ticker'da iki farkli uc bulunur.
+        # `periods=None`: the default of 5 truncates the frame CLIENT-SIDE
+        # (quote.py:640-644) -- full history already comes back on the same
+        # request, so truncating would throw away free data. This cache key
+        # is separate from the statements'; the same Ticker holds two
+        # distinct endpoints.
         frame = ctx.cached(
             f"valuation:{api_freq}",
             lambda: call_optional(
@@ -129,20 +133,20 @@ class ValuationDataset(StatementDataset):
         assert isinstance(frame, pd.DataFrame)
         dated = period_columns(frame, symbol=symbol, dataset=self.name)
         if dated.empty:
-            # Yalnizca 'Current' geldi: yazilacak donem yok, hata da yok
+            # Only 'Current' came back: no period to write, and no error either.
             return NormalizedResult()
         return super().normalize(replace(raw, frame=dated), symbol)
 
 
-# 'trailing' KAYIT DEGILDIR. Olcum (AAPL, freq='trailing'): 13 kolon ve
-# tarihleri DUZENSIZ (9/2, 9/1, 8/27, 8/11, 8/10, 7/31/2026, 10/3/2025);
-# ustelik ayni kolonda olcutlerin bir kismi NaN -- Market Cap 9/2'de,
-# Trailing P/E 9/1'de dolu. Bunlar donem sonu DEGIL anlik gozlem
-# damgalaridir: her kosu yeni `period_end` satirlari uretir ve EAV'nin
-# (sembol, tablo, frekans, donem) tanesini anlamsizlastirirdi.
-# 'monthly' de KAYIT DEGILDIR: StatementFreq'e yeni bir uye eklemek iki
-# tabloda PAYLASILAN native ENUM'u genisletir; ihtiyac dogarsa MONTHLY
-# eklenip bu spec listesine bir satir yeter.
+# 'trailing' is NOT REGISTERED. Measured (AAPL, freq='trailing'): 13 columns
+# with IRREGULAR dates (9/2, 9/1, 8/27, 8/11, 8/10, 7/31/2026, 10/3/2025),
+# and within the same column some measures are NaN -- Market Cap populated
+# on 9/2, Trailing P/E on 9/1. These are point-in-time observation
+# timestamps, NOT period ends: every run would produce new `period_end`
+# rows and make the EAV (symbol, table, freq, period) grain meaningless.
+# 'monthly' is also NOT REGISTERED: adding a new StatementFreq member would
+# extend a native ENUM SHARED by two tables; if ever needed, add MONTHLY
+# and one line to this spec list.
 _SPECS: tuple[tuple[str, StatementFreq], ...] = (
     ("valuation_measures", StatementFreq.ANNUAL),
     ("quarterly_valuation_measures", StatementFreq.QUARTERLY),

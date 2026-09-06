@@ -1,4 +1,4 @@
-"""info dataset'i (S6.3 #8) -> ticker_info, ticker_info_history, company_officers."""
+"""info dataset -> ticker_info, ticker_info_history, company_officers."""
 
 from __future__ import annotations
 
@@ -26,8 +26,8 @@ _OFFICER_COLUMNS = (
     "unexercised_value",
 )
 
-# companyOfficers tabloya gider; corporateActions, executiveTeam ve maxAge
-# raw_json'da kalir (S8.3)
+# companyOfficers goes to a table; corporateActions, executiveTeam, and
+# maxAge stay in raw_json.
 _IGNORE_FOR_WARNING = INFO_NESTED_KEYS | {"maxAge", "symbol", "uuid"}
 
 
@@ -41,8 +41,8 @@ def _officer_rows(symbol: str, officers: Any) -> list[dict[str, Any]]:
         name = nz.to_str(raw_name, 255)
         if name is None:
             continue
-        # Kaynakta cift bosluk var ("Mr. Kevan  Parekh"); normalize
-        # edilmezse Yahoo boslugu degistirdiginde duplike satir olusur (S8.3)
+        # Source has double spaces ("Mr. Kevan  Parekh"); without
+        # normalizing, a Yahoo whitespace change would produce a duplicate row.
         name = nz.normalize_person_name(name)
         if name in seen:
             continue
@@ -52,7 +52,7 @@ def _officer_rows(symbol: str, officers: Any) -> list[dict[str, Any]]:
                 "symbol": symbol,
                 "name": name,
                 "title": nz.to_str(entry.get("title"), 255),
-                # age, yearBorn ve totalPay kaynakta OPSIYONELDIR
+                # age, yearBorn, and totalPay are OPTIONAL in the source.
                 "age": nz.to_int(entry.get("age")),
                 "year_born": nz.to_int(entry.get("yearBorn")),
                 "fiscal_year": nz.to_int(entry.get("fiscalYear")),
@@ -83,8 +83,8 @@ class InfoDataset(SnapshotDataset[InfoPayload]):
             return NormalizedResult()
 
         payload = dict(info)
-        # Alan seti sembole gore degisir (AAPL 187, BTC-USD 91); ham veri
-        # raw_json'da oldugu icin veri kaybi yoktur, log terfi sinyalidir
+        # Field set varies by symbol (AAPL 187, BTC-USD 91); raw data stays
+        # in raw_json so nothing is lost, the log is only a signal to investigate.
         warn_unmapped(payload, INFO_FIELDS, dataset="info", ignore=_IGNORE_FOR_WARNING)
         nz.warn_unmapped_epoch_like(payload, nz.EPOCH_SEC_FIELDS | nz.EPOCH_MS_FIELDS)
 
@@ -113,7 +113,7 @@ class InfoDataset(SnapshotDataset[InfoPayload]):
                     rows=officers,
                     key_columns=("symbol", "name"),
                     update_columns=_OFFICER_COLUMNS,
-                    # sirketten ayrilan yonetici kaydi kalici durmasin (S6.1)
+                    # An officer who has left the company should not stay forever.
                     mode="replace_scope",
                 )
             )

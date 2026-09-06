@@ -1,4 +1,4 @@
-"""Shard'li yazimin MySQL davranisi: monotonik kolon ve kilit catismasi."""
+"""Sharded write behavior: monotonic columns and lock conflicts."""
 
 from __future__ import annotations
 
@@ -55,8 +55,8 @@ def seeded_symbol(test_engine: Engine) -> Any:
 
 @pytest.mark.usefixtures("seeded_symbol")
 class TestMonotonicRepairColumn:
-    """P6.3: onarim heuristikleri pencere uzunluguna baglidir; dar bir
-    artimli pencerede ayni satir bir kez 1, ertesi kez 0 gelir."""
+    """Repair heuristics depend on window length; in a narrow incremental
+    window the same row can come back as 1 once and 0 the next time."""
 
     def test_repaired_flag_never_regresses(self, test_engine: Engine) -> None:
         day = date(2026, 1, 2)
@@ -65,7 +65,7 @@ class TestMonotonicRepairColumn:
             writer.write(_price_write(day, repaired=True))
             session.commit()
 
-            # Ikinci calistirma ayni satiri onarimsiz bildiriyor
+            # Second run reports the same row as not repaired
             writer.write(_price_write(day, repaired=False))
             session.commit()
 
@@ -74,7 +74,7 @@ class TestMonotonicRepairColumn:
                     PriceHistory.symbol == SYMBOL, PriceHistory.session_date == day
                 )
             ).scalar_one()
-            assert row.is_repaired is True, "GREATEST bilgiyi geri yazmamali"
+            assert row.is_repaired is True, "GREATEST must not write the information back"
 
     def test_flag_still_rises_from_zero(self, test_engine: Engine) -> None:
         day = date(2026, 1, 5)
@@ -94,11 +94,11 @@ class TestMonotonicRepairColumn:
 
 
 class _FakeDbapiError(Exception):
-    """`DBAPIError.orig` seklini taklit eder.
+    """Mimics the shape of `DBAPIError.orig`.
 
-    SQLAlchemy surucu istisnasini `.orig` altinda sunar ve psycopg3
-    istisnalari `.sqlstate` tasir; siniflandirma artik METNE degil buna
-    bakar (PG S6).
+    SQLAlchemy exposes the driver exception under `.orig`, and psycopg3
+    exceptions carry `.sqlstate`; classification looks at this, not the
+    error text.
     """
 
     def __init__(self, sqlstate: str) -> None:
@@ -118,28 +118,28 @@ class TestLockConflictClassification:
         assert _is_lock_conflict(_FakeDbapiError(sqlstate))
 
     def test_other_sqlstates_are_not_retried(self) -> None:
-        # 42703 undefined_column -- programlama hatasi, yeniden denemek
-        # sonsuza kadar ayni sonucu verirdi.
+        # 42703 undefined_column -- a programming error; retrying would give
+        # the same result forever.
         assert not _is_lock_conflict(_FakeDbapiError("42703"))
 
     def test_55p03_is_deliberately_excluded(self) -> None:
-        """lock_not_available BILEREK listede degil: bu kod yolunda
-        NOWAIT / SKIP LOCKED kullanilmiyor, yani hic olusmaz. Gerekcesiz
-        bir SQLSTATE'i yeniden denemek ileride NOWAIT eklenirse yanlis
-        davranisi sessizce mesrulastirirdi (PG S6)."""
+        """lock_not_available is deliberately excluded: this code path uses
+        no NOWAIT / SKIP LOCKED, so it never occurs. Retrying an SQLSTATE
+        with no justification would silently legitimize wrong behavior if
+        NOWAIT were added later."""
         assert not _is_lock_conflict(_FakeDbapiError("55P03"))
 
     def test_exception_without_orig_is_not_retried(self) -> None:
-        """`orig` tasimayan istisna programlama hatasidir; getattr
-        zinciri None dondurur ve YENIDEN DENENMEZ."""
-        assert not _is_lock_conflict(RuntimeError("duz hata"))
+        """An exception with no `orig` is a programming error; the getattr
+        chain returns None and it is not retried."""
+        assert not _is_lock_conflict(RuntimeError("plain error"))
 
 
 class _FlakyDataset:
-    """Ilk denemede kilit catismasi, ikincide basari.
+    """Lock conflict on the first attempt, success on the second.
 
-    Semboller shard'lara dagitildigi icin iki process ayni news /
-    news_symbols satirina yazabilir; tek process'te bu risk yoktu (P4.10).
+    Symbols are distributed across shards, so two processes can write to the
+    same news / news_symbols row; a single process has no such risk.
     """
 
     name = "flaky"
@@ -170,7 +170,7 @@ class TestTransactionRetry:
 
         records = _persist_with_retry(factory, payload, attempts=3)
 
-        assert dataset.calls == 2, "ilk deneme kilit catismasiyla dusmeli"
+        assert dataset.calls == 2, "the first attempt must fail with a lock conflict"
         assert all(r.status.value != "failed" for r in records)
         with Session(test_engine) as session:
             assert (
@@ -198,20 +198,20 @@ class TestTransactionRetry:
         )
 
         records = _persist_with_retry(factory, payload, attempts=3)
-        assert dataset.calls == 1, "deterministik hata tekrarlanmamali"
+        assert dataset.calls == 1, "a deterministic error must not be retried"
         assert all(r.status.value == "failed" for r in records)
 
 
 @pytest.mark.usefixtures("seeded_symbol")
 class TestFailedTransactionAudit:
-    """B3 regresyonu: transaction dusse de UC kanal denetimde kalir."""
+    """Regression test: even if the transaction fails, all three channels stay audited."""
 
     class _Exploding:
         name = "boom"
         produces = ("price_history",)
 
         def upsert(self, writer, result):  # type: ignore[no-untyped-def]
-            raise RuntimeError("yazma dustu")
+            raise RuntimeError("write failed")
 
     def test_failures_and_skipped_survive_a_failed_transaction(
         self, test_engine: Engine
@@ -221,12 +221,12 @@ class TestFailedTransactionAudit:
         payload.results.append((self._Exploding(), NormalizedResult(), 1, 0))  # type: ignore[arg-type]
         payload.failures.append(("info", "HTTPError: 500"))
         payload.skipped.append(("news", "date_range=none"))
-        payload.out_of_scope.append(("bars_1m", "intraday_scope disi"))
+        payload.out_of_scope.append(("bars_1m", "outside intraday_scope"))
 
         records = _persist_with_retry(factory, payload, attempts=1)
 
         by_dataset = {r.dataset: r.status.value for r in records}
-        # Yazma dustugu icin `boom` failed; ama diger uc kanal YOK OLMAZ
+        # `boom` fails because the write failed, but the other three channels survive
         assert by_dataset["boom"] == "failed"
         assert by_dataset["info"] == "failed"
         assert by_dataset["news"] == "skipped"

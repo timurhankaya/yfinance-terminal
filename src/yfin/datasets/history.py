@@ -1,4 +1,4 @@
-"""history dataset'i (S6.3 #2) -> price_history."""
+"""history dataset -> price_history."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ CACHE_HISTORY = "history_df"
 
 log = get_logger(__name__)
 
-# Bir kez olculur; process omru boyunca degismez.
+# Measured once; unchanged for the process lifetime.
 _REPAIR_AVAILABLE: bool | None = None
 
 _ZERO = Decimal(0)
@@ -38,9 +38,9 @@ _COLUMN_MAP: dict[str, str] = {
     "Capital Gains": "capital_gain",
 }
 
-# Paylasilan cerceveyi tuketen (dataset -> tablo, tarih kolonu) esleme.
-# `start` bunlarin watermark'larinin MINIMUMUDUR: price_history guncel ama
-# dividends bossa dar bir artimli pencere eski temettuleri kacirirdi.
+# (dataset -> table, date column) mapping of consumers of the shared frame.
+# `start` is the MINIMUM of their watermarks: if price_history is current but
+# dividends is empty, a narrow incremental window would miss old dividends.
 FRAME_CONSUMERS: dict[str, tuple[str, str]] = {
     "history": ("price_history", "session_date"),
     "dividends": ("dividends", "ex_date"),
@@ -62,20 +62,20 @@ UPDATE_COLUMNS = (
     "is_repaired",
 )
 
-# is_repaired GERI YAZILMAZ, yalnizca 0 -> 1 yonunde ilerler (S6.2).
+# is_repaired is never written BACK to False; it only moves 0 -> 1.
 MONOTONIC_COLUMNS = ("is_repaired",)
 
 
 def repair_enabled() -> bool:
-    """Onarim istendi VE [repair] ekstrasi kurulu mu?
+    """Repair requested AND the [repair] extra installed?
 
-    yfinance onarim heuristiklerinde scipy.ndimage ve
-    sklearn.cluster.DBSCAN'i TEMBEL import eder (scrapers/history.py:820,
-    1338). Ekstra eksikse cagri ModuleNotFoundError ile duser ve bu, her
-    sembolde `history` + `dividends` + `splits` + `capital_gains`
-    hucrelerini birden basarisiz yapar - yani price_history HIC yazilmaz.
-    Toplam veri kesintisi yerine onarimsiz ama calisan bir kosu tercih
-    edilir; eksiklik bir kez GORUNUR sekilde loglanir.
+    yfinance LAZILY imports scipy.ndimage and sklearn.cluster.DBSCAN in its
+    repair heuristics (scrapers/history.py:820, 1338). If the extra is
+    missing, the call fails with ModuleNotFoundError, which fails
+    `history` + `dividends` + `splits` + `capital_gains` cells all at once
+    for every symbol -- price_history never gets written at all. A working
+    run without repair is preferred over a total data outage; the gap is
+    logged once, VISIBLY.
     """
     if not get_settings().yf_history_repair:
         return False

@@ -1,4 +1,4 @@
-"""`symbols`a yazilan 156 satirin politikasi (SI S9.3, S5.8, S7.8)."""
+"""Policy for the 156 rows written to `symbols`."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ pytestmark = pytest.mark.repo
 
 
 def test_domain_symbols_are_written_inactive(db_session: Session) -> None:
-    """Varsayilan `yfin sync` bu sembolleri CEKMEZ."""
+    """The default `yfin sync` does not fetch these symbols."""
     run_taxonomy(db_session, ("technology",))
     rows = list(
         db_session.execute(
@@ -36,7 +36,7 @@ def test_domain_symbols_are_written_inactive(db_session: Session) -> None:
 
 
 def test_manual_activation_is_not_overwritten(db_session: Session) -> None:
-    """`is_active` ve `unknown_streak` `update_columns` DISINDA."""
+    """`is_active` and `unknown_streak` are outside `update_columns`."""
     run_taxonomy(db_session, ("technology",))
     symbol = db_session.execute(
         text("SELECT symbol FROM domains WHERE domain_key = 'technology'")
@@ -74,11 +74,11 @@ def test_short_name_is_refreshed(db_session: Session) -> None:
 
 
 def test_symbols_are_included_in_symbol_scoped_tables(db_session: Session) -> None:
-    """`domains` FK tasidigi icin `yfin symbols purge` onu KENDILIGINDEN kapsar."""
+    """`domains` carries an FK, so `yfin symbols purge` covers it automatically."""
     from yfin.models import symbol_scoped_tables
 
     assert "domains" in symbol_scoped_tables()
-    # FK TASIMAYAN domain tablolari kapsamda OLMAMALI: oradaki `symbol`
-    # sirketin sembolu.
+    # Domain tables without an FK must not be in scope: their `symbol` column
+    # is a company symbol, not this one.
     for table in ("domain_top_companies", "domain_top_funds", "domain_top_movers"):
         assert table not in symbol_scoped_tables(), table

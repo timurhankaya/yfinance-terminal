@@ -1,8 +1,8 @@
-"""major_holders dataset'i -> holder_breakdown (AH S6.3).
+"""major_holders dataset -> holder_breakdown.
 
-Kaynak `majorHoldersBreakdown` sozlugunu tek kolonlu ('Value') bir cerceveye
-ceviriyor (holders.py:139-146); index ANAHTAR adlaridir. 19/19 sembolde ayni
-dort anahtar olculdu, bu yuzden EAV degil TIPLI kolonlar kullanilir.
+Source turns the `majorHoldersBreakdown` dict into a single-column ('Value')
+frame (holders.py:139-146); the index holds KEY names. The same four keys
+were measured across 19/19 symbols, so typed columns are used instead of EAV.
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ class MajorHoldersDataset(AsOfDataset[AsOfFramePayload]):
             "symbol": symbol,
             "as_of_date": raw.fetched_at.date(),
             **{column: nz.to_decimal(values.get(source)) for source, column in FIELDS},
-            # Kaynakta float geliyor (7750.0)
+            # Source sends this as a float (7750.0).
             "institutions_count": nz.to_int(values.get(COUNT_SOURCE)),
             "fetched_at": raw.fetched_at,
         }

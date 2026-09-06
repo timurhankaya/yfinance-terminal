@@ -1,10 +1,12 @@
-"""recommendations dataset'i (AH S6.3).
+"""recommendations dataset.
 
-`recommendations_summary` AYRI BIR DATASET DEGILDIR: kaynakta
-`get_recommendations_summary` govdesi `return self.get_recommendations(...)`
-(base.py:220-221). Registry'de ALIAS olarak durur.
+`recommendations_summary` is not a separate dataset: the source's
+`get_recommendations_summary` body is just
+`return self.get_recommendations(...)`. It exists in the registry as an
+alias.
 
-Satir sayisi DEGISKENDIR: 19 sembolun 10'unda 4, 9'unda 3 donem geldi.
+Row count varies: of 19 symbols measured, 10 returned 4 periods and 9
+returned 3.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ class RecommendationsDataset(PeriodFrameDataset):
     produces = asof_produces("analyst_recommendations")
     table = "analyst_recommendations"
     api_method = "get_recommendations"
-    # `period` burada INDEX degil KOLONDUR (kaynak RangeIndex kullaniyor)
+    # `period` is a column here, not the index (source uses a RangeIndex)
     period_column = "period"
     columns = (
         Column("strongBuy", "strong_buy", nz.to_int),
@@ -29,7 +31,7 @@ class RecommendationsDataset(PeriodFrameDataset):
         Column("sell", "sell", nz.to_int),
         Column("strongSell", "strong_sell", nz.to_int),
     )
-    # Bes sayac da NOT NULL; 19/19 sembolde int64 ve NaN yok olculdu.
+    # All five counters are NOT NULL; measured int64 with no NaN on 19/19 symbols.
     required = ("strong_buy", "buy", "hold", "sell", "strong_sell")
 
 

@@ -1,8 +1,8 @@
-"""Domain repo testleri icin ortak kosum yardimcilari (SI S9.3).
+"""Shared run helpers for domain repo tests.
 
-Uretim yolunun AYNISINI kullanir: gercek dataset ornekleri, gercek
-`PostgresRowWriter`, gercek `NormalizedResult`. Tek fark cekimin fixture'dan
-gelmesidir.
+Uses the same production path: real dataset instances, real
+`PostgresRowWriter`, real `NormalizedResult`. The only difference is the
+fetch comes from a fixture.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from yfin.persistence import PostgresRowWriter
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 AS_OF = date(2026, 9, 4)
 
-# Fixture'i olan sektorler; taksonomi bunlar uzerinden kurulur.
+# Sectors that have a fixture; taxonomy is built from these.
 FIXTURE_SECTORS = ("technology", "utilities", "healthcare", "financial-services")
 
 
@@ -54,8 +54,8 @@ def run_dataset(
         data=domain_data(kind, key, region),
         fetched_at=fetched_at,
         as_of_date=as_of,
-        # Bolgesiz dataset'ler satirlarina `region` yazmaz; bolgeli olanlar
-        # `payload.region`i kullanir.
+        # Region-less datasets don't write `region` on their rows;
+        # region-scoped ones use `payload.region`.
         region=region,
         domain_type=kind,
         expected_parent=parent,

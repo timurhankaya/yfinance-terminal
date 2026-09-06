@@ -1,7 +1,7 @@
-"""Proxy parolasinin Fernet ile sifrelenmesi (P3.4).
+"""Proxy password encryption via Fernet.
 
-Parola DB'ye DUZ METIN yazilmaz; anahtar .env'deki YF_PROXY_SECRET_KEY'dir.
-Boylece bir DB dokumu tek basina kullanilamaz.
+Passwords are never stored in plaintext; the key is YF_PROXY_SECRET_KEY
+in .env, so a DB dump alone is not enough to recover them.
 """
 
 from __future__ import annotations
@@ -14,19 +14,19 @@ from yfin.proxy.dsn import ProxyEndpoint
 
 
 class SecretKeyMissing(RuntimeError):
-    """YF_PROXY_SECRET_KEY yok; parolali proxy eklenemez/cozulemez."""
+    """YF_PROXY_SECRET_KEY is unset; a password-protected proxy can't be added or decrypted."""
 
 
 class PasswordUndecryptable(RuntimeError):
-    """Token mevcut anahtarla cozulemedi (anahtar degismis olabilir)."""
+    """Token could not be decrypted with the current key (key may have changed)."""
 
 
 def _fernet(settings: Settings) -> Fernet:
     key = settings.yf_proxy_secret_key.strip()
     if not key:
         raise SecretKeyMissing(
-            "YF_PROXY_SECRET_KEY tanimli degil; parolali proxy eklenemez. "
-            "Anahtar uretmek icin: python -c "
+            "YF_PROXY_SECRET_KEY is not set; cannot add a password-protected proxy. "
+            "Generate a key with: python -c "
             "'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
         )
     return Fernet(key.encode())
@@ -45,7 +45,7 @@ def decrypt_password(token: bytes | None, settings: Settings | None = None) -> s
         return _fernet(settings or get_settings()).decrypt(token).decode()
     except InvalidToken as exc:
         raise PasswordUndecryptable(
-            "proxy parolasi cozulemedi; YF_PROXY_SECRET_KEY degismis olabilir"
+            "could not decrypt proxy password; YF_PROXY_SECRET_KEY may have changed"
         ) from exc
 
 
@@ -60,5 +60,5 @@ def endpoint_of(row: Proxy, settings: Settings | None = None) -> ProxyEndpoint:
 
 
 # --------------------------------------------------------------------------
-# Saglik durum makinesi (saf)
+# Health state machine (pure)
 # --------------------------------------------------------------------------

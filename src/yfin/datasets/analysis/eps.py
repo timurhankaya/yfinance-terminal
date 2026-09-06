@@ -1,9 +1,9 @@
-"""eps_trend + eps_revisions dataset'leri (AH S6.3).
+"""eps_trend + eps_revisions datasets.
 
-`downLast7Days` ANAHTARINDA D BUYUKTUR. Kaynak 19/19 sembolde boyle
-donuyor; resmi dokumantasyon (base.py:355) dordunu de kucuk yaziyor. Kucuk
-`d` ile okunursa kolon SESSIZCE hep NULL kalir -- bu dosyanin en kirilgan
-tek satiri budur ve fixture testiyle baglanmistir.
+`downLast7Days` capitalizes the D. Measured on 19/19 symbols; the official
+docs write all four keys lowercase. Reading it as `d` leaves the column
+silently NULL forever -- the most fragile line in this file, pinned by a
+fixture test.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ class EpsTrendDataset(PeriodFrameDataset):
     api_method = "get_eps_trend"
     columns = (
         Column("current", "current", to_fact_value),
-        # Kolon adi rakamla baslayamaz: 7daysAgo -> days_ago_7
+        # Column names cannot start with a digit: 7daysAgo -> days_ago_7
         Column("7daysAgo", "days_ago_7", to_fact_value),
         Column("30daysAgo", "days_ago_30", to_fact_value),
         Column("60daysAgo", "days_ago_60", to_fact_value),
@@ -43,7 +43,7 @@ class EpsRevisionsDataset(PeriodFrameDataset):
     columns = (
         Column("upLast7days", "up_last_7d", nz.to_int),
         Column("upLast30days", "up_last_30d", nz.to_int),
-        # D BUYUK -- 19/19 sembolde olculdu
+        # Capital D -- measured on 19/19 symbols
         Column("downLast7Days", "down_last_7d", nz.to_int),
         Column("downLast30days", "down_last_30d", nz.to_int),
         Column("currency", "currency", _currency),

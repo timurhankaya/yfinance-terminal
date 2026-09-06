@@ -1,9 +1,9 @@
-"""Domain dataset'lerinin fetch ciktilari (SI S7).
+"""Fetch outputs of domain datasets.
 
-`normalize` DB'ye ve aga dokunmaz; ihtiyac duydugu her sey buradan gelir.
-`fetched_at` ve `as_of_date` payload'da tasinir cunku ikisi de RUN basina
-uretilir ve normalize'in `datetime.now()` cagirmasi testleri
-belirsizlestirirdi.
+`normalize` touches neither the DB nor the network; everything it needs
+comes from here. `fetched_at` and `as_of_date` travel in the payload
+because both are generated once per run -- if `normalize` called
+`datetime.now()` itself, tests would become nondeterministic.
 """
 
 from __future__ import annotations
@@ -15,22 +15,22 @@ from typing import Any
 
 @dataclass(frozen=True)
 class DomainPayload:
-    """Tek bir (anahtar, bolge) ciftinin ham yaniti."""
+    """Raw response for a single (key, region) pair."""
 
     data: dict[str, Any]
     fetched_at: datetime
     as_of_date: date
     region: str
-    # Bolgesiz dataset'lerin satirlarina `region` YAZILMAZ; bu alan yalniz
-    # bolgeli tablolarin PK'sini besler.
+    # Region-less datasets do not write `region` to their rows; this field
+    # only feeds the PK of region-scoped tables.
     domain_type: str = "sector"
-    # DB'deki ebeveyn sektor anahtari (yalniz endustri profilinde kullanilir)
+    # Parent sector key in the DB (used only for industry profile)
     expected_parent: str | None = None
 
 
 @dataclass(frozen=True)
 class TaxonomyPayload:
-    """11 sektorun ham yaniti; bootstrap TEK turda hepsini isler."""
+    """Raw response for all 11 sectors; bootstrap processes them in one pass."""
 
     sectors: dict[str, dict[str, Any]] = field(default_factory=dict)
     fetched_at: datetime = datetime.min

@@ -1,15 +1,15 @@
-"""`settings` tablosunun okunmasi, dogrulanmasi ve yazilmasi (CFG S3.2/S5/S6.3).
+"""Reads, validates, and writes the `settings` table.
 
-Bu modul yapilandirma katmaninin TEK yazma kapisidir. Dogrulama CLI
-komutunun icine gomulmedi cunku gelecek yonetim paneli o komutu ATLAR ve
-dogrudan ham SQL'e duserdi -- CFG S7 bunu felaket senaryosu sayiyor.
-`yfin config set` bu modulun INCE bir sarmalayicisidir; panel AYNI
-fonksiyonu cagirir.
+This module is the only write gate for the configuration layer. Validation is
+not embedded in the CLI command because a future admin panel would bypass
+that command and hit raw SQL directly.
+`yfin config set` is a thin wrapper around this module; the panel calls the
+same functions.
 
-Dogrulama, OKUMANIN kullandigi kod yolunun aynisidir: deger
-`Settings(**{**mevcut_ezmeler, key: value})` kurularak sinanir. Iki ayri
-dogrulama yazilsaydi biri gevser ve panel "gecerli" dedigi degeri bir
-sonraki kosuda coktururdu.
+Validation reuses the exact code path READ uses: a candidate value is tested
+by building `Settings(**{**current_overrides, key: value})`. Two separate
+validation paths would drift, and the panel could then accept a value that
+the next run rejects.
 """
 
 from __future__ import annotations
@@ -44,16 +44,16 @@ SEED_PATH = Path("config/settings.seed.json")
 
 
 class SettingRejected(ValueError):
-    """Deger YAZILMADI. CLI bunu cikis kodu 2'ye cevirir.
+    """The value was not written. The CLI turns this into exit code 2.
 
-    Cikis kodu 2 kod tabaninda "yapilandirma reddi" anlamina gelir
-    (`PruneDisabledError` deseni); 1 ile ayrilmasi, bir CI adiminin
-    "gecersiz ayar" ile "komut hata verdi"yi ayirt edebilmesi icindir.
+    Exit code 2 means "configuration rejected" in this codebase (same
+    pattern as `PruneDisabledError`); keeping it distinct from 1 lets a CI
+    step tell "invalid setting" apart from "command errored".
     """
 
 
 class Source(StrEnum):
-    """Etkin degerin NEREDEN geldigi."""
+    """Where the effective value came from."""
 
     DB = "db"
     ENV = "env"
@@ -62,12 +62,11 @@ class Source(StrEnum):
 
 @dataclass(frozen=True)
 class SettingState:
-    """Tek bir anahtarin ETKIN durumu.
+    """The effective state of a single key.
 
-    `has_row` `source is Source.DB` ile AYNI SEY DEGILDIR: bir anahtarin
-    satiri olabilir ama `ENV_ONLY_FIELDS` filtresine takilip
-    uygulanmamis olabilir. Ikisini tek bayrakla temsil etmek o durumu
-    gorunmez kilardi.
+    `has_row` is not the same as `source is Source.DB`: a key can have a row
+    that was filtered out by `ENV_ONLY_FIELDS` and never applied. Collapsing
+    both into one flag would hide that case.
     """
 
     key: str
@@ -76,50 +75,49 @@ class SettingState:
     has_row: bool
 
 
-# --- serilestirme (CFG S4.4) ----------------------------------------------
+# --- serialization ----------------------------------------------------------
 
 
 def serialize(value: Any) -> str:
-    """Python degeri -> `value` sutununun metni.
+    """Python value -> text stored in the `value` column.
 
-    DB-yonetimli alanlarin tamami skalerdir (bool / float / int / str).
-    Karmasik tip
-    icin kural TANIMLANMAMISTIR cunku boyle bir alan yoktur; skaler citi
-    (`tests/unit/test_settings_split.py`) biri eklenirse patlar ve bu
-    fonksiyonun guncellenmesini ZORUNLU kilar.
+    All DB-managed fields are scalar (bool / float / int / str). There is no
+    rule for a complex type because none exists; the scalar test
+    (`tests/unit/test_settings_split.py`) will fail if one is ever added,
+    forcing this function to be updated.
     """
     if isinstance(value, bool):
-        # "True" YAZILMAZ: pydantic onu da cozer ama `.env` bicimiyle
-        # gidis-donus esitligi (`seed(export(state)) == state`) bozulurdu.
+        # Not "True": pydantic would still parse it, but it would break
+        # round-trip equality with the `.env` format (`seed(export(state)) == state`).
         return "true" if value else "false"
     return str(value)
 
 
 def normalize_key(raw: str) -> str:
-    """Operator girdisini kanonik anahtara cevirir.
+    """Convert operator input into the canonical key.
 
-    Kanonik bicim MODEL ALAN ADIDIR (kucuk harf). Operator `.env`
-    aliskanligiyla `YF_MAX_SHARDS` yazacaktir; bunu reddetmek gereksiz
-    surtunmedir. Tablo collation'inin duyarli olmasi bu normalizasyonla
-    CELISMEZ: amac cakismayi onlemek degil, ham SQL ile sokulmus
-    `YF_MAX_SHARDS` satirinin AYRI ve GORUNUR kalip "bilinmeyen anahtar"
-    uyarisina takilmasidir (CFG S2).
+    The canonical form is the model field name (lowercase). Operators will
+    type `.env`-style `YF_MAX_SHARDS` out of habit; rejecting that would be
+    needless friction. This doesn't conflict with the table's
+    collation-sensitivity: the goal isn't to prevent collisions, it's to
+    make a row inserted via raw SQL as `YF_MAX_SHARDS` show up as a distinct,
+    visible "unknown key" warning instead of silently merging.
     """
     return raw.strip().lower()
 
 
-# --- okuma ----------------------------------------------------------------
+# --- reading ------------------------------------------------------------
 
 
 def _engine(settings: Settings) -> Engine:
-    """`create_db_engine` DEGIL (CFG S2).
+    """Deliberately not `create_db_engine`.
 
-    Uc gerekce: (1) argumansiz cagrilirsa `settings or get_settings()`
-    yuzunden RecursionError uretir -- yukleyici zaten `get_settings()`in
-    ICINDEDIR; (2) havuz boyutlandirmasi ve `pool_pre_ping` TEK bir
-    SELECT icin olu agirliktir; (3) `connect_timeout` olmadan DB
-    erisilemezken CLI onlarca saniye asili kalir. Depo bu deseni zaten
-    kullaniyor (`migrations/env.py` -> `poolclass=pool.NullPool`).
+    Three reasons: (1) called with no arguments it would recurse via
+    `settings or get_settings()`, since the loader is already inside
+    `get_settings()`; (2) pool sizing and `pool_pre_ping` are dead weight for
+    a single SELECT; (3) without `connect_timeout` the CLI hangs for tens of
+    seconds when the DB is unreachable. The repo already uses this pattern
+    (`migrations/env.py` -> `poolclass=pool.NullPool`).
     """
     return create_engine(
         settings.db_url(),
@@ -129,21 +127,20 @@ def _engine(settings: Settings) -> Engine:
 
 
 def fetch_rows(settings: Settings) -> dict[str, str] | None:
-    """Tablodaki HAM satirlar; tablo yoksa `None`.
+    """Raw rows from the table; `None` if the table doesn't exist.
 
-    Tablonun varligi `inspect(engine).has_table()` ile sinanir, hata
-    koduna (MySQL 1146 / PG 42P01) BAKILMAZ: kod kontrolu motora
-    baglidir ve motor degistiginde SESSIZCE yanlis olurdu.
+    Table existence is checked via `inspect(engine).has_table()`, not by
+    error code (MySQL 1146 / PG 42P01): code-based detection is
+    engine-specific and would silently break on an engine change.
 
-    Yetki hatasi ve erisilemeyen veritabani YUKSELIR. Sessizce env-only
-    devam etmek, yanlis yapilandirmayla kosmak demektir (CFG S7).
+    Permission errors and an unreachable database propagate. Silently
+    falling back to env-only would mean running with the wrong configuration.
     """
     engine = _engine(settings)
     try:
         if not sqlalchemy.inspect(engine).has_table(TABLE_NAME):
-            # `yfin db upgrade` komutunun KENDISI get_settings() cagiriyor
-            # ve tablo o an henuz yoktur; bu bir hata degil normal bir
-            # kurulum anidir.
+            # `yfin db upgrade` itself calls get_settings() before the table
+            # exists; this is a normal setup state, not an error.
             log.info("settings tablosu yok; yalniz env kullaniliyor")
             return None
         with Session(engine) as session:
@@ -154,7 +151,7 @@ def fetch_rows(settings: Settings) -> dict[str, str] | None:
 
 
 class KeyVerdict(StrEnum):
-    """Bir anahtarin DB katmaninda YERI VAR MI."""
+    """Whether a key has a place in the DB layer."""
 
     OK = "ok"
     ENV_ONLY = "env_only"
@@ -162,16 +159,15 @@ class KeyVerdict(StrEnum):
 
 
 def classify_key(key: str) -> KeyVerdict:
-    """Anahtar politikasinin TEK dogruluk kaynagi.
+    """The single source of truth for key policy.
 
-    Okuma yolu (`filter_overrides`) ve yazma yolu (`validate_pair`) ayni
-    karari vermek ZORUNDADIR. Karar iki yerde kodlanmis olsaydi -- ilk
-    yazimda oyleydi -- ileride eklenen ucuncu bir kategori (ornegin
-    kullanimdan kaldirilmis anahtarlar) birinde unutulabilirdi. Yazma
-    yolunda unutmak yalnizca can sikici olurdu; OKUMA yolunda unutmak
-    GUVENLIK SINIRINI delerdi: bir DB satiri `db_host`u degistirip
-    baglantiyi baska yere cevirebilir ya da `yf_proxy_secret_key`i
-    ezebilirdi.
+    The read path (`filter_overrides`) and the write path (`validate_pair`)
+    must make the same decision. When the decision was coded in both places
+    -- as it originally was -- a later third category (e.g. deprecated keys)
+    could be added to one and forgotten in the other. Forgetting it on the
+    write path would just be annoying; forgetting it on the READ path would
+    breach a security boundary: a DB row could override `db_host` and
+    redirect the connection, or overwrite `yf_proxy_secret_key`.
     """
     if key in ENV_ONLY_FIELDS:
         return KeyVerdict.ENV_ONLY
@@ -180,10 +176,9 @@ def classify_key(key: str) -> KeyVerdict:
     return KeyVerdict.OK
 
 
-# Karar ORTAK, mesajlar AYRI: ikisi ayni siddette degildir. Env-only bir
-# satir bir guvenlik olayidir ("reddedildi"); bilinmeyen bir anahtar
-# cogunlukla ham SQL ile sokulmus kanonik olmayan bir addir ("yok
-# sayildi").
+# Decision is shared, messages are not: they aren't equally severe. An
+# env-only row is a security event ("rejected"); an unknown key is usually
+# a non-canonical name inserted via raw SQL ("ignored").
 _LOG_MESSAGE = {
     KeyVerdict.ENV_ONLY: "settings satiri REDDEDILDI: env-only alan DB'den ezilemez",
     KeyVerdict.UNKNOWN: "settings satiri yok sayildi: bilinmeyen anahtar",
@@ -198,12 +193,12 @@ _REJECT_MESSAGE = {
 
 
 def filter_overrides(rows: Mapping[str, str]) -> dict[str, str]:
-    """Uygulanabilir satirlar. Elenen HICBIRI sessiz gecmez.
+    """Applicable rows. Nothing dropped passes silently.
 
-    Gecersiz DEGER burada yakalanmaz: bu fonksiyon ham metin dondurur ve
-    hata `Settings(**overrides)` cagrisinda `ValidationError` olarak
-    dogar. Boylece DEGER dogrulamasi tek yerde kalir (CFG S3.2), ANAHTAR
-    politikasi ise `classify_key`te.
+    Invalid VALUES are not caught here: this function returns raw text, and
+    the error surfaces as a `ValidationError` from `Settings(**overrides)`.
+    That keeps value validation in one place, while key policy stays in
+    `classify_key`.
     """
     out: dict[str, str] = {}
     for key, value in rows.items():
@@ -211,21 +206,20 @@ def filter_overrides(rows: Mapping[str, str]) -> dict[str, str]:
         if verdict is KeyVerdict.OK:
             out[key] = value
         else:
-            # `Settings` extra="ignore" tasiyor ve bilinmeyen kwarg'i
-            # SESSIZCE yutuyor (canli dogrulandi); bu uyari bir "iyi
-            # olur" degil ZORUNLULUKTUR -- atlanirsa hicbir test
-            # kirmiziya donmez.
+            # `Settings` has extra="ignore" and silently swallows an unknown
+            # kwarg (verified live); this warning is mandatory, not a nicety
+            # -- skip it and no test goes red.
             log.warning(_LOG_MESSAGE[verdict], setting_key=key)
     return out
 
 
 def load_overrides(settings: Settings) -> dict[str, str]:
-    """Uygulanacak DB ezmeleri (ham metin).
+    """DB overrides to apply (raw text).
 
-    Bootstrap `Settings`i PARAMETRE ALIR; bu bir test kolayligi degil
-    sozlesmenin parcasidir (CFG S3.2): repo testleri onu test semasina
-    yoneltebilsin ve `get_settings()` cagrilmasin diye -- cagrilsaydi
-    yukleyici kendi kendini cagirir ve RecursionError uretirdi.
+    Bootstrap `Settings` is a parameter, not a test convenience but part of
+    the contract: repo tests can point it at the test schema without
+    calling `get_settings()`, which would otherwise recurse into its own
+    loader.
     """
     rows = fetch_rows(settings)
     if rows is None:
@@ -234,22 +228,21 @@ def load_overrides(settings: Settings) -> dict[str, str]:
 
 
 def settings_state(*, rows: Mapping[str, str] | None = None) -> dict[str, SettingState]:
-    """DB-yonetimli her anahtarin ETKIN degeri ve kaynagi.
+    """Effective value and source for every DB-managed key.
 
-    `Settings` PARAMETRESI YOKTUR ve bu bilinclidir. Ilk yazimda vardi,
-    kullanilmiyordu ve imza YALAN SOYLUYORDU: cagiran (ozellikle repo
-    testi) onu vererek okumayi yonlendirdigini saniyordu, oysa okuma
-    tamamen `rows`tan geliyor. Baglantiyi kim acacaksa `fetch_rows`u O
-    cagirir; bu fonksiyon SAFTIR.
+    Deliberately has no `Settings` parameter. It had one originally, unused,
+    and the signature lied: callers (especially repo tests) assumed passing
+    it steered the read, when the read comes entirely from `rows`. Whoever
+    opens the connection calls `fetch_rows`; this function is pure.
 
-    `rows=None` "DB'ye BAKILMADI" demektir (erisilemedi ya da
-    `YF_SETTINGS_SOURCE=env`); o durumda kaynak env/default olur ve
-    `yfin config list` COKMEZ. Kurtarma komutu, kurtarmaya calistigi
-    arizaya kurban gitmemelidir (CFG S6.2).
+    `rows=None` means the DB was not consulted (unreachable, or
+    `YF_SETTINGS_SOURCE=env`); source then falls back to env/default and
+    `yfin config list` doesn't crash. A recovery command must not fall
+    victim to the outage it's meant to help recover from.
 
-    Kaynak ayrimi `model_fields_set` ile yapilir, "deger varsayilandan
-    farkli mi" karsilastirmasiyla DEGIL: `.env`de varsayilanla AYNI degeri
-    yazan bir kurulum aksi halde `default` gorunurdu.
+    Source is determined via `model_fields_set`, not by comparing "value
+    differs from default": a setup where `.env` happens to match the
+    default would otherwise show as `default`.
     """
     overrides = filter_overrides(rows) if rows is not None else {}
     env_only = bootstrap_settings()
@@ -275,16 +268,16 @@ def settings_state(*, rows: Mapping[str, str] | None = None) -> dict[str, Settin
 def export_values(
     states: Mapping[str, SettingState], *, all_keys: bool = False
 ) -> dict[str, Any]:
-    """`yfin config export`in JSON govdesi. SAF fonksiyon.
+    """JSON body of `yfin config export`. Pure function.
 
-    Degerler NATIVE tiple doner (int / bool / float / str), metin degil:
-    `seed(export(state)) == state` gidis-donus garantisi buna dayanir
-    (CFG S4.4/S8.2) ve tohum dosyasi da native tip kullanir.
+    Values are returned as native types (int / bool / float / str), not
+    text: the round-trip guarantee `seed(export(state)) == state` depends on
+    it, and the seed file also uses native types.
 
-    CLI'nin icine gomulu birakilmisti; repo testi ayni uc satiri
-    KOPYALAMAK zorunda kaldi ve o kopya, ciktinin dogrulugunu sinamak
-    yerine kendi kendini sinar hale geldi. Buraya cikarilinca hem tek
-    dogruluk kaynagi oldu hem de DB'siz test edilebildi.
+    This used to be inline in the CLI; a repo test had to duplicate the same
+    three lines, so the copy ended up testing itself rather than the actual
+    output. Extracting it made this the single source of truth and testable
+    without a DB.
     """
     resolved = settings_from_overrides({key: state.value for key, state in states.items()})
     return {
@@ -294,15 +287,15 @@ def export_values(
     }
 
 
-# --- dogrulama ------------------------------------------------------------
+# --- validation ---------------------------------------------------------
 
 
 def validate_pair(key: str, value: str, *, overrides: Mapping[str, str]) -> None:
-    """Tek bir (anahtar, deger) ciftini reddeder ya da sessizce gecer.
+    """Reject a single (key, value) pair, or pass silently.
 
-    Diger ezmeler de kurulumda yer alir cunku dogrulama OKUMANIN kod
-    yolunun aynisi olmak zorundadir; ileride alanlar arasi bir validator
-    eklenirse bu cagri onu da yakalar.
+    Other overrides are included in the build because validation must reuse
+    the read path's code; a future cross-field validator would then be
+    caught here too.
     """
     verdict = classify_key(key)
     if verdict is not KeyVerdict.OK:
@@ -319,15 +312,15 @@ def _first_error(exc: ValidationError) -> str:
     return str(errors[0].get("msg", exc)) if errors else str(exc)
 
 
-# --- yazma ----------------------------------------------------------------
+# --- writing --------------------------------------------------------------
 
 
 def _upsert(session: Session, key: str, value: str) -> None:
-    """Var olan satiri gunceller, yoksa ekler.
+    """Update the existing row, or insert one.
 
-    Motora ozgu bir upsert deyimi (`ON CONFLICT` / `ON DUPLICATE KEY`)
-    KULLANILMAZ: bu tablo tek bir operatorun (ya da panelin) dokundugu,
-    on satirlik bir tablodur ve motor notrlugu (CFG S2) ucuza korunur.
+    No engine-specific upsert clause (`ON CONFLICT` / `ON DUPLICATE KEY`):
+    this is a ten-row table touched by one operator (or the panel), so
+    engine neutrality is cheap to keep.
     """
     row = session.get(SettingRow, key)
     if row is None:
@@ -337,10 +330,10 @@ def _upsert(session: Session, key: str, value: str) -> None:
 
 
 def set_setting(key: str, value: str, *, settings: Settings) -> str:
-    """Dogrular ve YAZAR. Kanonik anahtari dondurur.
+    """Validate and write. Returns the canonical key.
 
-    Gecersiz deger YAZIM ANINDA reddedilir; hata bir sonraki gece
-    cron'unda cikmamalidir (CFG S1).
+    An invalid value is rejected at write time; the error must not surface
+    in the next night's cron run instead.
     """
     canonical = normalize_key(key)
     validate_pair(canonical, value, overrides=load_overrides(settings))
@@ -355,9 +348,9 @@ def set_setting(key: str, value: str, *, settings: Settings) -> str:
 
 
 def unset_setting(key: str, *, settings: Settings) -> bool:
-    """Satiri siler. Satir yoksa `False` -- HATA DEGIL (idempotent).
+    """Delete the row. `False` if it didn't exist -- not an error (idempotent).
 
-    Silinen anahtar `.env`e, o da yoksa model varsayilanina duser.
+    A removed key falls back to `.env`, and from there to the model default.
     """
     canonical = normalize_key(key)
     engine = _engine(settings)
@@ -374,7 +367,7 @@ def unset_setting(key: str, *, settings: Settings) -> bool:
 
 
 def write_all(plan: Mapping[str, str], *, settings: Settings) -> None:
-    """Plani TEK transaction'da yazar (ya hep ya hic, CFG S5.2)."""
+    """Write the plan in a single transaction (all or nothing)."""
     if not plan:
         return
     engine = _engine(settings)
@@ -387,17 +380,16 @@ def write_all(plan: Mapping[str, str], *, settings: Settings) -> None:
         engine.dispose()
 
 
-# --- tohum (CFG S5) -------------------------------------------------------
+# --- seeding ---------------------------------------------------------------
 
 
 def load_seed_file(path: Path = SEED_PATH) -> dict[str, Any]:
-    """`config/settings.seed.json` -- BU KURULUMUN yapilandirmasi.
+    """`config/settings.seed.json` -- this installation's configuration.
 
-    Dosya TAM LISTE olmak zorunda DEGILDIR ve olmamalidir: yalnizca
-    varsayilandan sapmak istenen anahtarlar yazilir. Yazilmayan bir
-    anahtarin degeri model varsayilanindan gelir ve `Settings`teki
-    varsayilan degistiginde kuruluma YANSIR -- tam liste yazilsaydi bu
-    bag kopardi (CFG S5.1).
+    The file must not be a complete list: only keys that deviate from the
+    default belong here. A key left out inherits the model default and
+    tracks it when that default changes later -- a complete list would break
+    that link.
     """
     if not path.exists():
         raise SettingRejected(f"tohum dosyasi bulunamadi: {path}")
@@ -414,23 +406,23 @@ def plan_seed(
     force: bool = False,
     adopt_env: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
-    """Yazilacak satirlar. SAF fonksiyon: DB'ye BAKMAZ.
+    """Rows to write. Pure function: never touches the DB.
 
-    Kapsam YALNIZCA JSON'daki anahtarlardir:
+    Scope is limited to keys present in the JSON:
 
-        JSON'daki anahtarin satiri YOK -> JSON degeri yazilir
-        JSON'daki anahtarin satiri VAR -> DOKUNULMAZ (--force ile ezilir)
-        JSON'da OLMAYAN anahtar        -> HICBIR SEY (--force dahil)
+        key in JSON, no existing row -> JSON value is written
+        key in JSON, row exists      -> untouched (overwritten with --force)
+        key not in JSON              -> nothing happens (--force included)
 
-    Son satir kritiktir. Ilk taslak `seed`i "tum eksik satirlari doldur"
-    olarak tanimliyordu; o tanimla `seed` `unset`i SESSIZCE geri alir,
-    yani iki komut birbirinin isini bozardi (CFG S5.3). `--force` da
-    yalnizca JSON anahtarlarini ezer; aksi halde operatorun panelden
-    yaptigi TUM ezmeleri sessizce silerdi.
+    That last rule matters. An earlier draft defined seeding as "fill every
+    missing row", which meant `seed` silently undid a prior `unset` -- the
+    two commands would fight each other. `--force` also only overwrites keys
+    present in the JSON; otherwise it would silently erase every override an
+    operator made from the panel.
 
-    YA HEP YA HIC: once JSON'un tamami dogrulanir, sonra tek
-    transaction'da yazilir. Yarim yazilmis bir tohum, hangi anahtarin
-    hangi kaynaktan geldigini belirsiz birakirdi.
+    All-or-nothing: the whole JSON is validated first, then written in one
+    transaction. A partially written seed would leave it unclear which key
+    came from which source.
     """
     plan: dict[str, str] = {}
     validated: dict[str, str] = {}
@@ -445,9 +437,8 @@ def plan_seed(
             plan[key] = value
 
     if adopt_env is not None:
-        # Bir kereligine, GOC icin (CFG S5.2). `.env`inde YF_MAX_SHARDS=8
-        # olan bir kurulum bu adim olmadan migration sonrasi sessizce
-        # 4'e donerdi.
+        # One-time, for migration. A setup with YF_MAX_SHARDS=8 in `.env`
+        # would otherwise silently drop back to 4 after this migration.
         for key, value in adopt_env.items():
             if key in validated or key in existing:
                 continue
@@ -456,11 +447,11 @@ def plan_seed(
 
 
 def adopt_env_values() -> dict[str, str]:
-    """DB katmani DEVRE DISI bir bootstrap'tan okunan ETKIN degerler.
+    """Effective values read from a bootstrap with the DB layer disabled.
 
-    `get_settings()` KULLANILMAZ: kullanilsaydi tohumlama kendi yazdigi
-    satirlari geri besler ve `--adopt-env` "env'i devral" olmaktan cikip
-    "DB'yi DB'den kopyala"ya donerdi (CFG S5.2).
+    Does not use `get_settings()`: doing so would feed seeding its own
+    freshly written rows back to itself, turning `--adopt-env` from
+    "adopt the env" into "copy the DB from the DB".
     """
     env_only = bootstrap_settings()
     return {key: serialize(getattr(env_only, key)) for key in sorted(DB_MANAGED_FIELDS)}

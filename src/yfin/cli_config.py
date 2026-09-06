@@ -1,13 +1,13 @@
-"""`yfin config` komut grubu (CFG S6.2).
+"""`yfin config` command group.
 
-Komutlar `settings_store`un INCE sarmalayicilaridir. Dogrulama ve yazma
-mantigi bilincli olarak burada DEGIL orada durur: gelecek yonetim paneli
-bu komutlari cagirmayacak, ayni fonksiyonlari cagiracak. Mantik buraya
-gomulseydi panel onu ATLAR ve ham SQL'e duserdi (CFG S7).
+Commands are THIN wrappers over `settings_store`. Validation and write logic
+deliberately live there, not here: the future admin panel won't call these
+commands, it will call the same functions. Burying logic here would make the
+panel BYPASS it and fall back to raw SQL.
 
-`list` / `get` / `schema` DB ERISILEMEZKEN DE COKMEZ: uyari basip
-`source=env|default` ile devam ederler. Kurtarma komutu, kurtarmaya
-calistigi arizaya kurban gitmemelidir.
+`list` / `get` / `schema` DON'T CRASH when the DB is unreachable: they print
+a warning and continue with `source=env|default`. A recovery command must
+not become a casualty of the failure it's trying to recover from.
 """
 
 from __future__ import annotations
@@ -43,19 +43,19 @@ from yfin.settings_store import (
     write_all,
 )
 
-config_app = typer.Typer(help="DB tabanli yapilandirma (settings tablosu)", no_args_is_help=True)
+config_app = typer.Typer(help="DB-backed configuration (settings table)", no_args_is_help=True)
 
-# Yapilandirma REDDI. `1` (komut hatasi) ile ayrilmasi, bir CI adiminin
-# "gecersiz ayar" ile "komut patladi"yi ayirt edebilmesi icindir
-# (cli.py'deki PruneDisabledError deseni).
+# Configuration REJECTION. Using `2` (distinct from a plain command error, 1)
+# lets a CI step tell "invalid setting" apart from "command crashed" (same
+# pattern as PruneDisabledError in cli.py).
 EXIT_REJECTED = 2
 
 
 def _read_rows_or_warn(settings: Settings) -> dict[str, str] | None:
-    """Satirlari okur; DB katmani kapaliysa ya da erisilemezse `None`.
+    """Read rows; `None` if the DB layer is off or unreachable.
 
-    `None` "DB'ye BAKILMADI" demektir ve `settings_state` bunu etkin
-    kaynagi env/default gostererek dogru sekilde yansitir.
+    `None` means "DB WAS NOT CONSULTED", and `settings_state` reflects that
+    correctly by reporting the effective source as env/default.
     """
     if source_is_env():
         typer.echo(
@@ -67,7 +67,7 @@ def _read_rows_or_warn(settings: Settings) -> dict[str, str] | None:
         return None
     try:
         return fetch_rows(settings)
-    except Exception as exc:  # noqa: BLE001 - kurtarma komutu cokmemeli
+    except Exception as exc:  # noqa: BLE001 - a recovery command must not crash
         typer.echo(f"settings tablosu okunamadi ({exc}); env/default ile devam ediliyor.", err=True)
         return None
 
@@ -82,20 +82,21 @@ def _defaults() -> dict[str, str]:
 
 @config_app.command("list")
 def config_list(
-    group: Annotated[str | None, typer.Option("--group", help="Yalniz bu grup")] = None,
+    group: Annotated[str | None, typer.Option("--group", help="Only this group")] = None,
     changed: Annotated[
-        bool, typer.Option("--changed", help="Etkin degeri model varsayilanindan FARKLI olanlar")
+        bool, typer.Option("--changed", help="Only values DIFFERENT from the model default")
     ] = False,
     source: Annotated[
         str | None, typer.Option("--source", help="db | env | default")
     ] = None,
 ) -> None:
-    """DB-yonetimli ayarlarin etkin degeri ve kaynagi.
+    """Effective value and source for each DB-managed setting.
 
-    8 env-only alan (db_*, yf_proxy_secret_key, log_level) BURADA YER
-    ALMAZ: panelden yonetilemezler. `--changed` "satiri var mi"yi degil
-    "etkin deger varsayilandan farkli mi"yi sorar -- operatorun sordugu
-    soru budur; satir varligi icin `--source db` kullanilir.
+    The 8 env-only fields (db_*, yf_proxy_secret_key, log_level) are NOT
+    LISTED HERE: they can't be managed from the panel. `--changed` asks
+    "is the effective value different from the default", not "does a row
+    exist" -- that's the question an operator actually has; use
+    `--source db` for row existence.
     """
     if group is not None and group not in SETTING_GROUPS:
         typer.echo(f"bilinmeyen grup: {group} ({', '.join(SETTING_GROUPS)})", err=True)
@@ -117,9 +118,9 @@ def config_list(
             continue
         if changed and state.value == defaults[key]:
             continue
-        # `*` = satiri YOK. Isaretlemek zorunludur: goc sonrasi `.env`
-        # katmani fiilen bostur, yani satirsiz bir anahtar dogrudan model
-        # varsayilanina duser (CFG S5.4).
+        # `*` = no row. Must be marked: after migration the `.env` layer is
+        # effectively empty, so a keyless entry falls straight to the model
+        # default.
         mark = " " if state.has_row else "*"
         typer.echo(f"{mark} {key:<34} {state.value:<28} {state.source.value:<8} {groups[key]}")
         shown += 1
@@ -127,8 +128,8 @@ def config_list(
 
 
 @config_app.command("get")
-def config_get(key: Annotated[str, typer.Argument(help="Ayar anahtari")]) -> None:
-    """Tek bir ayarin etkin degeri ve kaynagi."""
+def config_get(key: Annotated[str, typer.Argument(help="Setting key")]) -> None:
+    """Effective value and source of a single setting."""
     canonical = normalize_key(key)
     settings = bootstrap_settings()
     states = _states(settings)
@@ -142,13 +143,13 @@ def config_get(key: Annotated[str, typer.Argument(help="Ayar anahtari")]) -> Non
 
 @config_app.command("set")
 def config_set(
-    key: Annotated[str, typer.Argument(help="Ayar anahtari")],
-    value: Annotated[str, typer.Argument(help="Deger (metin; pydantic cozer)")],
+    key: Annotated[str, typer.Argument(help="Setting key")],
+    value: Annotated[str, typer.Argument(help="Value (text; pydantic resolves the type)")],
 ) -> None:
-    """Dogrular ve `settings` satirini yazar.
+    """Validate and write a `settings` row.
 
-    Gecersiz deger YAZIM ANINDA reddedilir (cikis 2); hata bir sonraki
-    gece cron'unda cikmamalidir.
+    An invalid value is rejected AT WRITE TIME (exit 2); the error must not
+    surface in tomorrow night's cron run instead.
     """
     try:
         canonical = set_setting(key, value, settings=bootstrap_settings())
@@ -159,10 +160,10 @@ def config_set(
 
 
 @config_app.command("unset")
-def config_unset(key: Annotated[str, typer.Argument(help="Ayar anahtari")]) -> None:
-    """Satiri siler; anahtar `.env`e ve model varsayilanina duser.
+def config_unset(key: Annotated[str, typer.Argument(help="Setting key")]) -> None:
+    """Delete the row; the key falls back to `.env` and the model default.
 
-    Satir yoksa cikis kodu 0 ve bilgilendirme: komut IDEMPOTENTTIR.
+    Exit code 0 and a message if no row existed: the command is IDEMPOTENT.
     """
     canonical = normalize_key(key)
     if canonical not in DB_MANAGED_FIELDS:
@@ -173,14 +174,14 @@ def config_unset(key: Annotated[str, typer.Argument(help="Ayar anahtari")]) -> N
     removed = unset_setting(canonical, settings=settings)
     typer.echo(f"{canonical}: satir silindi" if removed else f"{canonical}: zaten satir yoktu")
 
-    # `settings` DB katmani devre disi kurulmus bir bootstrap'tir, yani
-    # `.env` -> varsayilan zincirinin sonucunu tasir: satir silindikten
-    # sonra gecerli olacak deger tam olarak budur.
+    # `settings` here is a bootstrap instance with the DB layer disabled, so
+    # it already carries the result of the `.env` -> default chain: exactly
+    # the value that becomes effective once the row is gone.
     typer.echo(f"artik gecerli olacak deger: {serialize(getattr(settings, canonical))}")
 
-    # Anahtar seed dosyasindaysa `unset` KALICI DEGILDIR ve bunu
-    # soylemek zorundayiz: JSON "bu kurulumun yapilandirmasi"dir, bir
-    # sonraki `seed` degeri geri koyar (CFG S5.3).
+    # If the key is in the seed file, `unset` is NOT PERMANENT and this must
+    # be said: the JSON is "this deployment's configuration", the next
+    # `seed` run puts the value back.
     try:
         seed = {normalize_key(str(k)) for k in load_seed_file(SEED_PATH)}
     except (SettingRejected, ValueError):
@@ -194,23 +195,23 @@ def config_unset(key: Annotated[str, typer.Argument(help="Ayar anahtari")]) -> N
 
 @config_app.command("seed")
 def config_seed(
-    dry_run: Annotated[bool, typer.Option("--dry-run", help="Yalniz plani basar")] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Only print the plan")] = False,
     force: Annotated[
-        bool, typer.Option("--force", help="JSON'daki anahtarlarin var olan satirlarini EZER")
+        bool, typer.Option("--force", help="OVERWRITE existing rows for keys present in the JSON")
     ] = False,
     adopt_env: Annotated[
         bool,
-        typer.Option("--adopt-env", help="JSON disi, satirsiz anahtarlar icin etkin .env degeri"),
+        typer.Option("--adopt-env", help="Use the effective .env value for rowless, non-JSON keys"),
     ] = False,
 ) -> None:
-    """`config/settings.seed.json` dosyasini uygular (CFG S5.2).
+    """Apply `config/settings.seed.json`.
 
-    Kapsam YALNIZCA JSON'daki anahtarlardir; `--force` bile JSON DISI bir
-    satira dokunmaz -- aksi halde operatorun panelden yaptigi tum
-    ezmeleri sessizce silerdi.
+    Scope is ONLY the keys in the JSON; even `--force` never touches a row
+    OUTSIDE the JSON -- otherwise it would silently erase every override an
+    operator made from the panel.
 
-    `--dry-run` eksik satir varsa CIKIS KODU 1 doner, boylece CI'da
-    "tohum guncel mi" adimi olarak kullanilabilir.
+    `--dry-run` returns EXIT CODE 1 if any row is missing, so it can be used
+    as a "is the seed up to date" step in CI.
     """
     settings = bootstrap_settings()
     try:
@@ -221,7 +222,7 @@ def config_seed(
 
     try:
         rows = fetch_rows(settings)
-    except Exception as exc:  # noqa: BLE001 - okunamiyorsa yazmayi da denemeyiz
+    except Exception as exc:  # noqa: BLE001 - if it can't be read, don't try to write either
         typer.echo(f"settings tablosu okunamadi: {exc}", err=True)
         raise typer.Exit(code=1) from None
     if rows is None:
@@ -236,7 +237,7 @@ def config_seed(
             adopt_env=adopt_env_values() if adopt_env else None,
         )
     except SettingRejected as exc:
-        # YA HEP YA HIC: gecersiz bir JSON'da HICBIR SEY yazilmaz.
+        # ALL OR NOTHING: an invalid JSON writes NOTHING.
         typer.echo(f"tohum reddedildi, hicbir sey yazilmadi: {exc}", err=True)
         raise typer.Exit(code=EXIT_REJECTED) from None
 
@@ -254,16 +255,16 @@ def config_seed(
 @config_app.command("export")
 def config_export(
     all_keys: Annotated[
-        bool, typer.Option("--all", help="DB-yonetimli her degerin tam anlik goruntusu")
+        bool, typer.Option("--all", help="Full snapshot of every DB-managed value")
     ] = False,
 ) -> None:
-    """HER ZAMAN JSON basar.
+    """Always prints JSON.
 
-    Varsayilan yalnizca DB SATIRI OLANLARI icerir -- yani seed dosyasinin
-    dogal tersidir. `--all` model varsayilanlarini da icerir; bu cikti
-    `config/settings.seed.json`a YAZILMAMALIDIR (CFG S9): yazilirsa
-    varsayilan degisikliklerinin kuruluma yansima bagi kopar. Yedek depo
-    DISINA alinir.
+    By default includes only keys WITH A DB ROW -- the natural inverse of
+    the seed file. `--all` also includes model defaults; that output must
+    NOT BE WRITTEN to `config/settings.seed.json`: doing so would sever the
+    link between a future default change and this deployment. Keep it out
+    of the seed repo.
     """
     states = _states(bootstrap_settings())
     typer.echo(
@@ -275,9 +276,9 @@ def config_export(
 
 @config_app.command("schema")
 def config_schema(
-    as_json: Annotated[bool, typer.Option("--json", help="Panel bicimi")] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="Panel-ready format")] = False,
 ) -> None:
-    """Panelin formu cizmesi icin gereken metadata. DB'ye BAKMAZ."""
+    """Metadata the panel needs to draw its form. Never touches the DB."""
     note = (
         "Not: 8 env-only alan (db_*, yf_proxy_secret_key, log_level) "
         "burada YER ALMAZ; onlar .env'de kalir."

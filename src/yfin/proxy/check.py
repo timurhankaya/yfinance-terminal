@@ -1,7 +1,7 @@
-"""Aktif proxy kontrolu: ham curl_cffi istegi, yfinance KULLANILMAZ.
+"""Active proxy check: raw curl_cffi request, not yfinance.
 
-yf.config process-global oldugu icin N proxy'yi yfinance uzerinden
-paralel kontrol etmek N process gerektirirdi.
+yf.config is process-global, so checking N proxies in parallel through
+yfinance would need N processes.
 """
 
 from __future__ import annotations
@@ -13,28 +13,29 @@ from yfin.logging_setup import scrub
 from yfin.proxy.dsn import ProxyEndpoint
 from yfin.proxy.health import HealthEvent
 
-# Gercek sync trafiginin gectigi iki nokta. Chart crumb istemez
-# (data.py:442-447), ama her istek /v1/test/getcrumb'dan da gecer; tek
-# endpoint'lik bir kontrol crumb'da bloklanan proxy'yi healthy raporlardi.
+# The two endpoints real sync traffic hits. Chart doesn't need a crumb
+# (data.py:442-447), but every request also goes through
+# /v1/test/getcrumb; checking chart alone would report a proxy blocked
+# on crumb as healthy.
 CHECK_CHART_URL = "https://query2.finance.yahoo.com/v8/finance/chart/AAPL?range=1d&interval=1d"
 CHECK_CRUMB_URL = "https://query1.finance.yahoo.com/v1/test/getcrumb"
 
 @dataclass(frozen=True)
 class CheckResult:
     label: str
-    event: HealthEvent | None  # None = durum degismedi (parola cozulemedi)
+    event: HealthEvent | None  # None = no state change (password undecryptable)
     latency_ms: int | None = None
     detail: str = ""
 
 
 def _new_check_session(endpoint: ProxyEndpoint | None) -> tuple[object, bool]:
-    """(session, impersonated). curl_cffi yoksa duz requests'e duser."""
+    """(session, impersonated). Falls back to plain requests if curl_cffi is absent."""
     try:
         from curl_cffi import requests as backend
 
         session = backend.Session(impersonate="chrome")
         impersonated = True
-    except ImportError:  # pragma: no cover - ortama bagli
+    except ImportError:  # pragma: no cover - depends on environment
         import requests as backend  # type: ignore[no-redef]
 
         session = backend.Session()
@@ -46,17 +47,17 @@ def _new_check_session(endpoint: ProxyEndpoint | None) -> tuple[object, bool]:
 
 
 def check_endpoint(endpoint: ProxyEndpoint, timeout: float) -> CheckResult:
-    """yfinance KULLANILMAZ: yf.config process-global oldugu icin N
-    proxy'yi paralel kontrol etmek N process gerektirirdi. Ham istek
-    basit bir thread havuzunda kosar.
+    """Not yfinance: yf.config is process-global, so checking N proxies in
+    parallel through it would need N processes. The raw request runs in a
+    plain thread pool instead.
 
-    SINIR: ham istekte cookie jar bostur, gercek istekler cookie'li
-    gider. Bu yuzden `check` TAMAMLAYICIDIR; birincil saglik kaynagi
-    pasif gozlemdir (sync sonuclari).
+    Limitation: the raw request has an empty cookie jar, unlike real
+    traffic. `check` is complementary; the primary health signal is
+    passive observation of sync results.
     """
     label = endpoint.host
     session, impersonated = _new_check_session(endpoint)
-    detail = "" if impersonated else "curl_cffi yok: TLS taklidi olmadan olculdu"
+    detail = "" if impersonated else "curl_cffi absent: measured without TLS impersonation"
     latency: int | None = None
     try:
         for index, url in enumerate((CHECK_CHART_URL, CHECK_CRUMB_URL)):
@@ -74,15 +75,15 @@ def check_endpoint(endpoint: ProxyEndpoint, timeout: float) -> CheckResult:
             if code >= 400:
                 return CheckResult(label, HealthEvent.NETWORK, latency, f"{url} -> {code}")
             if 300 <= code < 400:
-                # Consent/captcha sayfasina yonlendirme: proxy CALISIYOR
-                # ama Yahoo onu engelliyor. `<400` hepsini SUCCESS sayardi
-                # ve olu bir proxy havuzda saglikli gorunurdu.
+                # Redirect to a consent/captcha page: the proxy works but
+                # Yahoo blocks it. Treating all `<400` as SUCCESS would
+                # report a dead proxy as healthy.
                 return CheckResult(label, HealthEvent.BLOCKED, latency, f"{url} -> {code}")
             if code != 200:
-                # Basari olcutu 200'dur; 2xx'in geri kalani (204, 206...)
-                # bu uclarda beklenmez ve dogrulanmamis sayilir.
+                # Only 200 counts as success; other 2xx codes (204, 206...)
+                # are unexpected here and treated as unverified.
                 return CheckResult(label, HealthEvent.NETWORK, latency, f"{url} -> {code}")
-    except Exception as exc:  # noqa: BLE001 - her tasima hatasi NETWORK'tur
+    except Exception as exc:  # noqa: BLE001 - every transport error is NETWORK
         return CheckResult(label, HealthEvent.NETWORK, None, scrub(f"{type(exc).__name__}: {exc}"))
     finally:
         close = getattr(session, "close", None)

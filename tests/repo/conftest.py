@@ -1,10 +1,9 @@
-"""Repo testlerine ozel fixture'lar (`settings` katmani).
+"""Repo-test-only fixtures (`settings` layer).
 
-`load_overrides` ve `set_setting` KENDI engine'lerini kurar
-(`create_db_engine` DEGIL -- CFG S2). Bu yuzden onlari test semasina
-yoneltmenin tek yolu, aldiklari bootstrap `Settings`i degistirmektir;
-`load_overrides(settings)`in `settings` parametresi tam da bunun icin
-sozlesmenin parcasidir (CFG S3.2).
+`load_overrides` and `set_setting` build their own engine (not
+`create_db_engine`). So the only way to point them at the test schema is
+to change the bootstrap `Settings` they receive; the `settings` parameter
+of `load_overrides(settings)` exists in the contract for exactly this.
 """
 
 from __future__ import annotations
@@ -27,29 +26,28 @@ def store_settings(
     test_schema: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Settings:
-    """Yapilandirma katmanini TEST semasina yoneltir.
+    """Points the config layer at the test schema.
 
-    IKI SEY birden gerekir ve ikincisi kolayca atlanir:
+    Two things are needed, and the second is easy to miss:
 
-      1. Dogru VERITABANI -- `settings.db_name` test veritabanina cevrilir.
-         `load_overrides(settings)`in `settings` parametresi tam da bunun
-         icin sozlesmenin parcasidir (CFG S3.2).
-      2. Dogru SEMA -- testler surece ozel bir PG semasinda kosar
-         (`tests/conftest.py`), oysa `settings_store._engine` uretim
-         yolunda `search_path` KURMAZ ve `public`e bakar. Yamanmasaydi bu
-         testler `settings` tablosunu bulamaz ve "tablo yok" dalina
-         duserek YANLIS NEDENLE yesil kalirdi.
+      1. The right database -- `settings.db_name` is switched to the test
+         database, via the `settings` parameter of `load_overrides(settings)`.
+      2. The right schema -- tests run in a process-specific PG schema
+         (`tests/conftest.py`), but the production `settings_store._engine`
+         doesn't set `search_path` and looks at `public`. Without this
+         patch these tests can't find the `settings` table and would pass
+         for the wrong reason, via a "table missing" branch.
 
-    Yama URETIM koduna bir `schema` parametresi eklemekten yeglenir:
-    o parametrenin tek cagirani testler olurdu.
+    Patching here rather than adding a `schema` parameter to production
+    code, since tests would be its only caller.
     """
 
     def _schema_engine(cfg: Settings) -> Engine:
         return create_engine(
             cfg.db_url(),
             poolclass=NullPool,
-            # `public` de listede: uretim yolundaki `create_db_engine` ile
-            # ayni gerekce (timescaledb eklentisi oraya kurulu).
+            # `public` stays in the list, same reason as the production
+            # `create_db_engine` path (timescaledb extension lives there).
             connect_args={"options": f"-c search_path={test_schema},public"},
         )
 
@@ -59,11 +57,10 @@ def store_settings(
 
 @pytest.fixture
 def clean_settings_table(test_engine: Engine) -> Iterator[None]:
-    """Her test BOS bir tabloyla baslar ve arkasini toplar.
+    """Each test starts with an empty table and cleans up after itself.
 
-    Satir sayisi bu tabloda bir DEGISMEZ DEGILDIR (CFG S4.1); onceki
-    testten kalan bir satir "seed kac satir yazdi" iddiasini sessizce
-    yanlislardi.
+    Row count in this table is not invariant; a row left over from a
+    previous test would silently falsify a "seed wrote N rows" assertion.
     """
     with test_engine.connect() as conn:
         conn.execute(text("DELETE FROM settings"))
@@ -76,13 +73,13 @@ def clean_settings_table(test_engine: Engine) -> Iterator[None]:
 
 @pytest.fixture
 def db_layer_on(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """DB katmanini ACAR ve singleton'i sifirlar.
+    """Turns on the DB layer and resets the settings singleton.
 
-    `conftest.py` YF_SETTINGS_SOURCE=env kuruyor (uretim semasina
-    baglanmayi onlemek icin). DB yolunu sinayan testler onu kaldirmak
-    ZORUNDADIR -- ve sifirlama olmadan singleton onceki testlerden dolu
-    gelir, `load_overrides` HIC cagrilmaz ve test YANLIS NEDENLE yesil
-    kalir (CFG S8.2).
+    `conftest.py` sets YF_SETTINGS_SOURCE=env to prevent connecting to the
+    production schema. Tests exercising the DB path must remove it --
+    and without the reset, the singleton stays populated from a previous
+    test, `load_overrides` never gets called, and the test passes for the
+    wrong reason.
     """
     monkeypatch.delenv(SETTINGS_SOURCE_VAR, raising=False)
     config_mod.reset_settings()

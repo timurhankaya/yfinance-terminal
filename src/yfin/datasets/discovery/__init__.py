@@ -1,14 +1,14 @@
-"""Kesif dataset ailesi: Search + Lookup (SQ S6.4).
+"""Discovery dataset family: Search + Lookup.
 
-Bu paketin `__init__`i YALNIZCA YAN ETKI icindir: modul duzeyindeki
-`register(...)` cagrilari ancak modul import edilirse kosar ve bu paket
-`yfin.datasets.__init__`in import listesindedir. Eklenmemis olsaydi iki
-dataset hicbir zaman kaydolmaz, `--datasets search` `UnknownDatasetError`
-verirdi.
+This package's `__init__` exists only for its side effect: the
+module-level `register(...)` calls run only if the module is imported, and
+this package is in `yfin.datasets.__init__`'s import list. Without this,
+neither dataset would ever register and `--datasets search` would raise
+`UnknownDatasetError`.
 
-RE-EXPORT YOKTUR: `datasets/domain/` ve `datasets/financials/` de tutmuyor.
-Tuketiciler `yfin.datasets.discovery.base`ten dogrudan alir; ikinci bir
-import yolu, hangisinin kanonik oldugu sorusunu bedava yaratirdi.
+No re-export: `datasets/domain/` and `datasets/financials/` don't either.
+Consumers import directly from `yfin.datasets.discovery.base`; a second
+import path would raise a free question about which one is canonical.
 """
 
 from __future__ import annotations

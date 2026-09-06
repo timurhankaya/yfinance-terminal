@@ -1,7 +1,7 @@
-"""Canli entegrasyon testi (S9.3).
+"""Live integration test.
 
-Varsayilan olarak ATLANIR. Elle calistirmak icin:  pytest -m live
-Gercek Yahoo API + gercek PostgreSQL; CI'da calistirilmaz.
+Skipped by default. Run manually with: pytest -m live
+Uses the real Yahoo API and a real PostgreSQL; not run in CI.
 """
 
 from __future__ import annotations
@@ -33,13 +33,12 @@ def live_run(test_engine: Engine):  # type: ignore[no-untyped-def]
                 {"s": symbol},
             )
         session.commit()
-    # OPT-IN dataset'ler ACIKCA eklenir (SQ K11). `resolve(None)` onlari
-    # bilincli olarak DISLAR -- ciplak `yfin sync`e sembol basina iki istek
-    # eklememek icin. Canli kapsam testi ise KAYITLI HER dataset'i
-    # gormelidir; ikisi arasindaki dogru koprü, iddiayi zayiflatmak degil
-    # kapsami genisletmektir.
-    # `"all"` YALNIZCA tek basinayken sihirlidir (registry.py) ve bu dogru
-    # davranistir; burada KAYITLI HER AD acikca verilir.
+    # Opt-in datasets are added explicitly. `resolve(None)` deliberately
+    # excludes them, to avoid adding two requests per symbol to a plain
+    # `yfin sync`. This live coverage test should see every registered
+    # dataset, so the right bridge is widening scope, not weakening the
+    # assertion. `"all"` is only magic when passed alone (registry.py);
+    # here every registered name is given explicitly.
     summary = run_sync(test_engine, list(SYMBOLS), SYMBOL_DATASETS.resolve(list(SYMBOL_DATASETS)))
     return summary
 
@@ -53,8 +52,9 @@ def _count(session: Session, table: str, symbol: str | None = None) -> int:
 
 
 def test_run_succeeds(test_engine: Engine, live_run) -> None:  # type: ignore[no-untyped-def]
-    # RunTally ozeti sync_run_items'tan AGREGE edilir; hucre kirilimi icin
-    # denetim tablosu okunur (tek dogruluk kaynagi orasidir)
+    # RunTally's summary aggregates sync_run_items; the audit table is read
+    # directly for per-cell detail, since that table is the single source
+    # of truth.
     with Session(test_engine) as session:
         failures = session.execute(
             text(
@@ -68,10 +68,10 @@ def test_run_succeeds(test_engine: Engine, live_run) -> None:  # type: ignore[no
 
 
 def test_every_registered_dataset_is_covered(test_engine: Engine, live_run) -> None:  # type: ignore[no-untyped-def]
-    """Kapsam SABIT bir sayiya degil REGISTRY'ye baglanir.
+    """Coverage is tied to the registry, not a fixed count.
 
-    Onceki hali 11'i sabit yaziyordu ve financials/market eklenince
-    kirildi; registry buyudukce testin de buyumesi gerekir.
+    A previous version hardcoded 11 and broke when financials/market were
+    added; the test must grow as the registry grows.
     """
     with Session(test_engine) as session:
         datasets = set(
@@ -94,7 +94,7 @@ def test_row_counts(test_engine: Engine) -> None:
 
 
 def test_capital_gains_empty_is_expected(test_engine: Engine, live_run) -> None:  # type: ignore[no-untyped-def]
-    """'dolu gelmeli' beklentisi KURULMAZ - empty beklenen sonuctur (S9.3)."""
+    """No "must be non-empty" expectation here -- empty is the expected result."""
     with Session(test_engine) as session:
         statuses = set(
             session.execute(
@@ -113,12 +113,12 @@ def test_shares_full_expectations(test_engine: Engine) -> None:
     with Session(test_engine) as session:
         assert _count(session, "shares_full", "AAPL") > 0
         assert _count(session, "shares_full", "THYAO.IS") > 0
-        # Kripto icin veri gelmez
+        # No data comes back for crypto
         assert _count(session, "shares_full", "BTC-USD") == 0
 
 
 def test_not_null_columns_are_populated(test_engine: Engine) -> None:
-    """S5.2'de NOT NULL isaretli alanlarin dolu oldugu."""
+    """Columns marked NOT NULL are actually populated."""
     with Session(test_engine) as session:
         for table, column in (
             ("price_history", "close"),

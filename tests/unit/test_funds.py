@@ -1,8 +1,8 @@
-"""funds_data dataset'i (AH S9.1). Agsiz, DB'siz.
+"""funds_data dataset. No network, no database.
 
-`ctx.cached` on-bellek anahtarlari testte ELLE doldurulur; boylece hem
-gercek bir HTTP cagrisi yapilmaz hem de on kontrolun `symbols`
-bootstrap'inin biraktigi degerleri okudugu gorunur hale gelir.
+`ctx.cached` prefetch keys are filled in by hand in the test, so no real
+HTTP call is made and it becomes visible that the precheck reads values
+left behind by the `symbols` bootstrap.
 """
 
 from __future__ import annotations
@@ -33,12 +33,13 @@ def _write(result: NormalizedResult, table: str) -> TableWrite:
 
 
 class FakeFundsData:
-    """Gercek `FundsData`nin sekli: `quote_type` METOTTUR, digerleri degil.
+    """Shape of the real `FundsData`: `quote_type` is a method, the rest are not.
 
-    yfinance 1.7.0'da on alanin dokuzu `@property` tasiyor, `quote_type`
-    tasimiyor (`scrapers/funds.py:47`) -- canli olcumle dogrulandi. Sahte
-    nesne bu tutarsizligi TASIR, aksi halde test gecerken uretim kodu NOT
-    NULL kolona "<bound method ...>" yazardi.
+    In yfinance 1.7.0, nine of ten fields carry `@property`, but
+    `quote_type` does not (`scrapers/funds.py:47`) -- verified with a live
+    measurement. This fake carries that inconsistency, otherwise the test
+    would pass while production code writes "<bound method ...>" into a
+    NOT NULL column.
     """
 
     def __init__(self, *, sectors: dict[str, float], ratings: dict[str, float], holdings: int):
@@ -116,14 +117,14 @@ class FakeTicker:
 
 def _context(ticker: FakeTicker, quote_type: str | None, instrument_type: str | None = None):
     ctx = SyncContext("SPY", ticker, NOW)
-    # Bootstrap `symbols` dataset'inin ctx onbellegine biraktigi degerler
+    # Values left in the ctx cache by the `symbols` bootstrap dataset
     ctx.cached(CACHE_FAST_INFO, lambda: ({"quoteType": quote_type} if quote_type else {}))
     ctx.cached(CACHE_HISTORY_METADATA, lambda: {"instrumentType": instrument_type})
     return ctx
 
 
 def _equity_fund() -> FakeFundsData:
-    """SPY/QQQ/VFIAX olcumu: 11 sektor + 1 rating, 10 holding."""
+    """Measured from SPY/QQQ/VFIAX: 11 sectors + 1 rating, 10 holdings."""
     return FakeFundsData(
         sectors={f"sector_{i}": 0.09 for i in range(11)},
         ratings={"aaa": 1.0},
@@ -132,7 +133,7 @@ def _equity_fund() -> FakeFundsData:
 
 
 def _bond_fund() -> FakeFundsData:
-    """BND/TLT olcumu: 0 sektor + 9 rating, top_holdings BOS."""
+    """Measured from BND/TLT: 0 sectors + 9 ratings, top_holdings empty."""
     return FakeFundsData(
         sectors={},
         ratings={"us_government": 0.0, "aaa": 0.4, "below_b": 0.01},
@@ -140,11 +141,11 @@ def _bond_fund() -> FakeFundsData:
     )
 
 
-# --- on kontrol ------------------------------------------------------------
+# --- precheck ----------------------------------------------------------------
 
 
 def test_non_fund_symbol_makes_no_request_at_all() -> None:
-    """Fon olmayan sembolde HIC ISTEK YAPILMAZ; hucre `empty` olur."""
+    """For a non-fund symbol, no request is made at all; the cell is `empty`."""
     ticker = FakeTicker(_equity_fund())
     payload = DATASET.fetch(_context(ticker, "EQUITY"))
 
@@ -154,8 +155,9 @@ def test_non_fund_symbol_makes_no_request_at_all() -> None:
 
 
 def test_precheck_falls_back_to_instrument_type() -> None:
-    """`fast_info['quoteType']` yoksa `history_metadata['instrumentType']`;
-    ikisi de AYNI chart istegiyle beslenir, ek maliyet yoktur."""
+    """Without `fast_info['quoteType']`, falls back to
+    `history_metadata['instrumentType']`; both come from the same chart
+    request, so there is no extra cost."""
     ticker = FakeTicker(_equity_fund())
     payload = DATASET.fetch(_context(ticker, None, "ETF"))
 
@@ -164,8 +166,8 @@ def test_precheck_falls_back_to_instrument_type() -> None:
 
 
 def test_precheck_reads_camelcase_key() -> None:
-    """Anahtar `quoteType`tir; `quote_type` (snake_case) HER sembolde None
-    doner ve on kontrol sessizce her sembol icin istek yapardi."""
+    """The key is `quoteType`; `quote_type` (snake_case) returns None for
+    every symbol, and the precheck would silently request every symbol."""
     ticker = FakeTicker(_equity_fund())
     ctx = SyncContext("SPY", ticker, NOW)
     ctx.cached(CACHE_FAST_INFO, lambda: {"quote_type": "ETF"})
@@ -175,8 +177,8 @@ def test_precheck_reads_camelcase_key() -> None:
 
 
 def test_raw_key_error_is_absorbed_as_empty() -> None:
-    """hide_exceptions=False altinda kaynak YFDataException DEGIL ham
-    KeyError('topHoldings') firlatiyor (scrapers/funds.py:190-194)."""
+    """Under hide_exceptions=False, the source raises a raw
+    KeyError('topHoldings'), not YFDataException (scrapers/funds.py:190-194)."""
     ticker = FakeTicker(error=KeyError("topHoldings"))
     assert DATASET.fetch(_context(ticker, "ETF")).data is None
 
@@ -186,24 +188,25 @@ def test_yf_data_exception_is_absorbed_as_empty() -> None:
     assert DATASET.fetch(_context(ticker, "ETF")).data is None
 
 
-# --- normalizasyon ---------------------------------------------------------
+# --- normalization -----------------------------------------------------------
 
 
 def test_equity_fund_writes_four_tables() -> None:
     result = DATASET.normalize(FundsPayload(_collect(_equity_fund()), NOW), "SPY")
 
     assert len(_rows(result, "fund_profile")) == 1
-    assert len(_rows(result, "fund_weightings")) == 12  # 11 sektor + 1 rating
+    assert len(_rows(result, "fund_weightings")) == 12  # 11 sectors + 1 rating
     assert len(_rows(result, "fund_top_holdings")) == 10
-    # 6 equity + 3 bond: metrik seti SABITTIR, degeri NULL olan satir da
-    # yazilir ("metrik var, deger yok") -- analyst_estimates'teki kararin
-    # aynisi. Kaynak hisse fonunda da bond cercevesini 3 satirla kuruyor.
+    # 6 equity + 3 bond: the metric set is fixed, and a row with a NULL
+    # value is still written ("metric exists, no value") -- same decision
+    # as analyst_estimates. The source builds a 3-row bond frame even for
+    # an equity fund.
     assert len(_rows(result, "fund_metrics")) == 9
 
 
 def test_bond_fund_has_no_sector_weights_and_no_holdings() -> None:
-    """BND/TLT: 0 sektor + 9 rating; `fund_top_holdings` BOS -> o tablo
-    `empty`, kardesleri dolu (AH S7.2)."""
+    """BND/TLT: 0 sectors + 9 ratings; `fund_top_holdings` is empty --
+    that table is `empty`, its siblings are not."""
     result = DATASET.normalize(FundsPayload(_collect(_bond_fund()), NOW), "BND")
 
     weights = _rows(result, "fund_weightings")
@@ -212,15 +215,15 @@ def test_bond_fund_has_no_sector_weights_and_no_holdings() -> None:
 
 
 def test_bond_rating_zero_is_a_real_weight() -> None:
-    """`us_government = 0.0` gercek bir degerdir, NULL degil."""
+    """`us_government = 0.0` is a real value, not NULL."""
     result = DATASET.normalize(FundsPayload(_collect(_bond_fund()), NOW), "BND")
     weights = {row["item_key"]: row["weight"] for row in _rows(result, "fund_weightings")}
     assert weights["us_government"] == Decimal("0")
 
 
 def test_fund_metrics_keep_section_in_key() -> None:
-    """`section` PK'dadir: disarida kalsaydi ayni `metric` adi iki bolumde
-    geldiginde ERROR 1062 alinirdi."""
+    """`section` is part of the PK: without it, the same `metric` name
+    appearing in two sections would raise ERROR 1062."""
     result = DATASET.normalize(FundsPayload(_collect(_equity_fund()), NOW), "SPY")
     write = _write(result, "fund_metrics")
     assert write.key_columns == ("symbol", "as_of_date", "section", "metric")
@@ -230,7 +233,7 @@ def test_fund_metrics_keep_section_in_key() -> None:
 
 
 def test_fund_operations_first_column_is_read_by_position() -> None:
-    """0. kolonun ADI SEMBOLUN KENDISIDIR; ada gore okunamaz."""
+    """Column 0's name is the symbol itself; it cannot be read by name."""
     result = DATASET.normalize(FundsPayload(_collect(_equity_fund()), NOW), "SPY")
     row = _rows(result, "fund_profile")[0]
     assert row["expense_ratio"] == Decimal("0.0945")
@@ -238,7 +241,7 @@ def test_fund_operations_first_column_is_read_by_position() -> None:
 
 
 def test_asset_classes_are_typed_columns_not_eav() -> None:
-    """Alti anahtari 10 fonun 10'unda da sabit olculdu."""
+    """The six keys were measured as fixed across all 10 of 10 funds."""
     result = DATASET.normalize(FundsPayload(_collect(_equity_fund()), NOW), "SPY")
     row = _rows(result, "fund_profile")[0]
     assert row["stock_position"] == Decimal("0.99")
@@ -246,8 +249,8 @@ def test_asset_classes_are_typed_columns_not_eav() -> None:
 
 
 def test_profile_carries_raw_json() -> None:
-    """EAV'a indirgenirken kategori bilgisi kaybolabilecegi icin govde
-    korunur; raw_json YALNIZCA bu tablodadir."""
+    """The body is kept because category info can be lost when reducing to
+    an EAV; raw_json exists ONLY in this table."""
     result = DATASET.normalize(FundsPayload(_collect(_equity_fund()), NOW), "SPY")
     row = _rows(result, "fund_profile")[0]
     assert '"sector_weightings"' in row["raw_json"]
@@ -256,27 +259,27 @@ def test_profile_carries_raw_json() -> None:
 def test_top_holdings_are_ranked_and_scoped() -> None:
     result = DATASET.normalize(FundsPayload(_collect(_equity_fund()), NOW), "SPY")
     write = _write(result, "fund_top_holdings")
-    # Ad `rank` OLAMAZ: pencere fonksiyonu olarak ayrilmis
+    # Cannot be named `rank`: reserved as a window function
     assert [row["holding_rank"] for row in write.rows] == list(range(10))
     assert write.scope_values == ({"symbol": "SPY", "as_of_date": AS_OF},)
 
 
 def test_is_known_defaults_to_false_and_is_filled_at_upsert() -> None:
-    """`holding_symbol`de FK YOKTUR: kaynakta evren disi semboller geliyor
-    (2330.TW, 0700.HK, hatta FON sembolleri VRTPX). FK olsaydi FONUN TUM
-    VERISI rollback olurdu."""
+    """`holding_symbol` has no FK: the source includes symbols outside the
+    universe (2330.TW, 0700.HK, even fund symbols like VRTPX). With an FK,
+    the fund's entire write would roll back."""
     result = DATASET.normalize(FundsPayload(_collect(_equity_fund()), NOW), "SPY")
     assert all(row["is_known"] is False for row in _rows(result, "fund_top_holdings"))
 
 
 def test_quote_type_is_read_as_a_method_not_an_attribute() -> None:
-    """Kor `funds.quote_type` erisimi bound method yazardi (canli olcum)."""
+    """A blind `funds.quote_type` access would write a bound method (live measurement)."""
     data = _collect(_equity_fund())
     assert data["quote_type"] == "ETF"
 
 
 def test_property_form_of_quote_type_also_works() -> None:
-    """Ust-akis tutarsizligi duzeltilirse okuma KIRILMAMALIDIR."""
+    """If the upstream inconsistency gets fixed, the read must not break."""
     from yfin.datasets.funds import _read
 
     class Fixed:
@@ -288,8 +291,8 @@ def test_property_form_of_quote_type_also_works() -> None:
 
 
 def test_partial_object_without_quote_type_writes_nothing() -> None:
-    """Fon olmayan sembolde `description` IKINCI erisimde sirket ozetini
-    donduruyor; kismen dolu nesneye guvenilmez."""
+    """For a non-fund symbol, a second access to `description` returns a
+    company summary instead; a partially populated object cannot be trusted."""
     data = _collect(_equity_fund())
     data["quote_type"] = None
     assert DATASET.normalize(FundsPayload(data, NOW), "AAPL").is_empty

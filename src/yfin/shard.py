@@ -1,13 +1,13 @@
-"""Koordinator: proxy basina bir OS process, dinamik sembol kuyrugu (P4).
+"""Coordinator: one OS process per proxy, a dynamic symbol queue.
 
-Neden process? `yf.config` ve `YfData` yfinance'te PROCESS-GLOBAL
-singleton'lardir (config.py:21-61, data.py:83): dort worker thread'i ayni
-anda farkli proxy kullanamaz, biri digerinin proxy'sini ezer. Bu yuzden
-rotasyonun ekseni thread degil PROCESS'tir.
+Why a process? `yf.config` and `YfData` are process-global singletons in
+yfinance (config.py:21-61, data.py:83): four worker threads can't use
+different proxies at once, one overwrites another's proxy. So rotation must
+pivot on PROCESS, not thread.
 
-Yan fayda: `client._bucket` ve `config._settings` de process-global oldugu
-icin her shard kendi token-bucket'ini kurar ve rate limit proxy (cikis
-IP'si) basina anlam kazanir.
+Side benefit: since `client._bucket` and `config._settings` are also
+process-global, each shard gets its own token bucket, and the rate limit
+becomes meaningful per proxy (per egress IP).
 """
 
 from __future__ import annotations
@@ -61,25 +61,25 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Kuyruk sonu isareti. Her shard bir tane tuketir.
+# End-of-queue marker. Each shard consumes one.
 SENTINEL = "\x00"
 
-# Child'in kendi havuzu: gercek es zamanli tuketici IKIDIR (WatermarkReader
-# kendi kilidiyle okumalari serilestirir, arti ana thread'in sembol
-# transaction'i). Invariant: (shard_count x 5) + 2 <= max_connections.
+# Child's own pool: there are two real concurrent consumers (WatermarkReader
+# serializes reads with its own lock, plus the main thread's symbol
+# transaction). Invariant: (shard_count x 5) + 2 <= max_connections.
 CHILD_POOL_SIZE = 3
 
 
 class NoEligibleProxy(RuntimeError):
-    """--require-proxy verildi ama uygun proxy yok."""
+    """--require-proxy was given but no eligible proxy exists."""
 
 
 @dataclass(frozen=True)
 class ShardSpec:
-    """Process sinirindan gecen TUM veri. Pickle'lanabilir olmalidir.
+    """Everything that crosses the process boundary. Must be picklable.
 
-    `__main__` DISINDA bir modulde tanimlidir; spawn ile baslatilan
-    child'in hedefi ve argumanlari import edilebilir olmak zorundadir.
+    Defined outside `__main__`: a spawn-started child's target and arguments
+    must be importable.
     """
 
     run_id: int
@@ -89,34 +89,36 @@ class ShardSpec:
     database: str | None
     proxy_id: int | None = None
     proxy_label: str | None = None
-    # Cozulmus DSN; parola YALNIZCA bellekte ve bu pipe'ta bulunur,
-    # hicbir log satirina girmez (logging_setup.redact_credentials).
+    # Resolved DSN; the password exists only in memory and on this pipe,
+    # never in a log line (logging_setup.redact_credentials).
     proxy_dsn: str | None = None
-    # --start/--end ve sembol evreni secicisi (AH S6.5/7). Bunlar process
-    # sinirindan gecmezse proxy havuzu doluyken -- VARSAYILAN yol --
-    # child `start=None` ile kosar: "filter" dataset'leri araligi
-    # uygulamaz, "none" dataset'leri atlanmaz ve kullanici "aralik
-    # uygulandi" sanir. `full_refresh` icin ayni zincir zaten kurulu.
+    # --start/--end and the symbol universe selector. If these didn't cross
+    # the process boundary while the proxy pool is full -- the default
+    # path -- the child would run with `start=None`: "filter" datasets
+    # wouldn't apply the range, "none" datasets wouldn't be skipped, and
+    # the user would believe the range was applied. Same chain already
+    # exists for `full_refresh`.
     start: date | None = None
     end: date | None = None
     selector: str | None = None
-    # Parent'in COZDUGU DB ezmeleri (CFG S3.5). Child kendi
-    # `get_settings()`ini cagirsaydi uc sorun dogardi: (a) araya giren bir
-    # `yfin config set` shard-0 ile shard-3'u FARKLI yapilandirmayla
-    # kostururdu, (b) N ekstra baglanti acilirdi, (c) child
-    # `settings.db_name`e baglanip asil isini `spec.database`de yapar --
-    # yani `--database` ile YONLENDIRILMEDIGI semadan ayar okurdu.
+    # DB overrides already resolved by the parent. If the child called its
+    # own `get_settings()` three problems would follow: (a) a `yfin config
+    # set` racing in between would make shard-0 and shard-3 run with
+    # different configuration, (b) N extra connections would open, (c) the
+    # child would connect to `settings.db_name` and do its actual work in
+    # `spec.database` -- i.e. read settings from a schema other than the
+    # one `--database` redirected it to.
     settings_overrides: dict[str, str] = field(default_factory=dict)
 
     @property
     def proxy_key(self) -> str:
-        """tz/cookie/ISIN cache dizini anahtari.
+        """Cache-directory key for tz/cookie/ISIN caches.
 
-        shard_index ILE ANAHTARLANMAZ: proxy secimi latency/health'e gore
-        siralandigi icin shard-0 bir sonraki run'da baska bir proxy
-        olabilir ve A'nin IP'siyle mintlenmis cookie B'nin cikis IP'siyle
-        kullanilirdi. Cookie cache'in PK'si `strategy`'dir (cache.py:314),
-        yani paylasilan bir dosyada tum shard'lar ayni iki satiri ezerdi.
+        Not keyed by shard_index: since proxy selection is ordered by
+        latency/health, shard-0 can be a different proxy on the next run,
+        and a cookie minted against A's IP would then be used with B's
+        egress IP. The cookie cache's PK is `strategy` (cache.py:314), so a
+        shared file would have every shard overwrite the same two rows.
         """
         return f"proxy-{self.proxy_id}" if self.proxy_id is not None else "direct"
 
@@ -133,17 +135,16 @@ def _queue_source(queue: MPQueue[str]) -> SymbolSource:
 
 
 def shard_main(spec: ShardSpec, queue: MPQueue[str]) -> None:
-    """Child process girisi. MODUL SEVIYESINDE olmak zorundadir (spawn)."""
-    # Child DB'ye HIC SELECT atmaz: parent'in cozdugu ezmeler `spec` ile
-    # tasindi (CFG S3.5). Kosan bir sync boylece tutarli TEK bir anlik
-    # goruntu kullanir.
+    """Child process entry point. Must be module-level (spawn)."""
+    # The child never issues a SELECT to the DB: overrides resolved by the
+    # parent travel via `spec`. A running sync thus uses one consistent
+    # snapshot.
     settings = settings_from_overrides(spec.settings_overrides)
     install_settings(settings, spec.settings_overrides)
 
-    # ILK ADIM: structlog cache_logger_on_first_use=True ile calisir ve
-    # modul seviyesindeki logger'lar ilk kullanimda yapilandirmayi
-    # onbellege alir. Bundan once log basilirsa child sessizce
-    # yapilandirilmamis PrintLogger'a duser.
+    # First step: structlog runs with cache_logger_on_first_use=True, and
+    # module-level loggers cache configuration on first use. Logging before
+    # this silently falls back to an unconfigured PrintLogger in the child.
     configure_logging(settings.log_level)
 
     datasets = SYMBOL_DATASETS.resolve(list(spec.dataset_names))
@@ -186,22 +187,23 @@ def _effective_shards(
     no_proxy: bool,
     require_proxy: bool,
 ) -> list[Proxy]:
-    """Uygun proxy'ler; bos liste = tek shard, dogrudan baglanti.
+    """Eligible proxies; an empty list means a single, direct connection.
 
-    Formul (P4.4):
-        shard_count = 1                              --no-proxy ise
-                    = max(1, min(N, |eligible|))     aksi halde
-    PROXY'SIZ SHARD ASLA ACILMAZ; tek istisna havuzun bos/uygunsuz
-    oldugu tek-shard dogrudan baglanti halidir.
+    Formula:
+        shard_count = 1                              if --no-proxy
+                    = max(1, min(N, |eligible|))      otherwise
+    A shard is never opened without a proxy; the one exception is a
+    single-shard direct connection when the pool is empty or has no
+    eligible entries.
     """
     if no_proxy:
         if require_proxy:
-            # Ikisi bir arada ANLAMSIZDIR ve sessizce --no-proxy'nin
-            # kazanmasi, ban riskini kullaniciya haber vermeden alirdi.
+            # The two together are meaningless, and silently letting
+            # --no-proxy win would take on ban risk without telling the user.
             raise ValueError("--no-proxy ile --require-proxy birlikte verilemez")
         if max_shards is not None and max_shards > 1:
-            # Ayni cikis IP'sinden N shard kosmak toplam hizi N katina
-            # cikarir; rate limit shard BASINA tanimlidir.
+            # Running N shards from the same egress IP multiplies effective
+            # rate by N; the rate limit is defined per shard.
             log.warning("--no-proxy ile shard sayisi 1'e indirildi", requested=max_shards)
         return []
 
@@ -214,8 +216,8 @@ def _effective_shards(
     if require_proxy:
         raise NoEligibleProxy(f"uygun proxy yok (havuzda {total} kayit); --require-proxy verildi")
     if total:
-        # Sessizce dogrudan baglanmak ban riskini kullaniciya haber
-        # vermeden alirdi.
+        # Silently connecting directly would take on ban risk without
+        # telling the user.
         log.warning("havuzda proxy var ama hicbiri uygun degil; dogrudan baglaniliyor", total=total)
     else:
         log.info("proxy havuzu bos; dogrudan baglaniliyor")
@@ -223,10 +225,10 @@ def _effective_shards(
 
 
 def _drain(queue: MPQueue[str]) -> list[str]:
-    """Kuyrukta kalan sembolleri toplar (sentinel'ler atilir).
+    """Collect symbols left in the queue (sentinels discarded).
 
-    join()'dan ONCE degil SONRA cagrilir; ama kuyruk her hâlükârda
-    bosaltilir, aksi halde feeder thread dolu bir kuyrukta asili kalir.
+    Called after join(), not before; but the queue is drained regardless,
+    otherwise a feeder thread would hang on a full queue.
     """
     leftover: list[str] = []
     while True:
@@ -234,7 +236,7 @@ def _drain(queue: MPQueue[str]) -> list[str]:
             value = queue.get_nowait()
         except Empty:
             break
-        except (OSError, ValueError):  # pragma: no cover - kapanmis kuyruk
+        except (OSError, ValueError):  # pragma: no cover - queue already closed
             break
         if value != SENTINEL:
             leftover.append(value)
@@ -248,7 +250,7 @@ def _terminate(processes: Sequence[Any]) -> None:
     for process in processes:
         process.join(timeout=5)
     for process in processes:
-        if process.is_alive():  # pragma: no cover - son care
+        if process.is_alive():  # pragma: no cover - last resort
             process.kill()
             process.join(timeout=5)
 
@@ -268,12 +270,12 @@ def run_sharded(
     end: date | None = None,
     selector: str | None = None,
 ) -> RunTally:
-    """Advisory lock -> proxy secimi -> run acilisi -> shard'lar -> finalize.
+    """Advisory lock -> proxy selection -> run open -> shards -> finalize.
 
-    Advisory lock YALNIZCA burada alinir; child'lar kilit almaz. Kilit,
-    child'larin tamami sonlanmadan BIRAKILMAZ: aksi halde parent olunce
-    kilit serbest kalir, orphan child'lar yazmaya devam eder ve yeni bir
-    cron tetiklemesi ayni satirlara biner (S8.7 garantisi duserdi).
+    The advisory lock is taken only here; children never take it. It is
+    held until every child has finished: otherwise, if the parent dies, the
+    lock is released, orphan children keep writing, and a new cron trigger
+    lands on the same rows.
     """
     cfg = settings or get_settings()
     factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
@@ -287,18 +289,18 @@ def run_sharded(
                 no_proxy=no_proxy,
                 require_proxy=require_proxy,
             )
-            # Endpoint'ler kilit altinda cozulur; Proxy nesneleri
-            # session'a bagli, ShardSpec ise saf veridir.
+            # Endpoints are resolved under the lock; Proxy objects are
+            # session-bound, while ShardSpec is plain data.
             specs_source = _build_specs(session, eligible, cfg)
             if require_proxy and eligible and not specs_source:
-                # SQL uygunluk sorgusu proxy BULDU ama hicbirinin parolasi
-                # cozulemedi (tipik neden: YF_PROXY_SECRET_KEY dondu).
-                # `_effective_shards`in kontrolu bu noktadan ONCE calisir,
-                # bu yuzden burada tekrar bakilir; aksi halde akis
-                # "proxy yok" dalina duser ve TUM EVREN operatorun kendi
-                # IP'sinden cekilir -- --require-proxy'nin onlemek icin
-                # var oldugu senaryonun ta kendisi (cikis kodu da 5 degil
-                # 0/2 olurdu).
+                # The SQL eligibility query found proxies, but none of their
+                # passwords could be decrypted (typically: YF_PROXY_SECRET_KEY
+                # rotated). `_effective_shards`'s check runs before this
+                # point, so it's re-checked here; otherwise the flow falls
+                # into the "no proxy" branch and the entire universe gets
+                # fetched from the operator's own IP -- exactly the scenario
+                # --require-proxy exists to prevent (and the exit code would
+                # be 0/2 instead of 5).
                 raise NoEligibleProxy(
                     f"uygun {len(eligible)} proxy'nin hicbirinin parolasi cozulemedi; "
                     "--require-proxy verildi (YF_PROXY_SECRET_KEY dogru mu?)"
@@ -314,8 +316,8 @@ def run_sharded(
         )
 
         if not specs_source:
-            # Tek shard, proxy'siz: ayri process'e gerek yok. yfinance
-            # config'i bu process'te de kurulmalidir.
+            # Single shard, no proxy: no separate process needed. yfinance
+            # config must still be set up in this process.
             configure_yfinance(None, proxy_key="direct", settings=cfg)
             run_shard(
                 engine,
@@ -370,8 +372,8 @@ def _build_specs(
         try:
             endpoint = endpoint_of(row, settings)
         except PasswordUndecryptable as exc:
-            # Proxy'yi dead YAPMAZ: yanlis teshis uretmemek icin acikca
-            # raporlanir ve o proxy bu run'da atlanir.
+            # Doesn't mark the proxy dead: reported explicitly to avoid a
+            # wrong diagnosis, and it's just skipped for this run.
             log.error("proxy parolasi cozulemedi", proxy=row.label, error=str(exc))
             continue
         plans.append(_ProxyPlan(proxy_id=int(row.id), proxy_label=row.label, dsn=endpoint.dsn()))
@@ -391,9 +393,9 @@ def _spawn_and_wait(
     start: date | None = None,
     end: date | None = None,
 ) -> list[str]:
-    # spawn ACIKCA secilir. macOS/3.13'te zaten varsayilandir; acik secim
-    # Linux (3.13 varsayilani fork) icin tasinabilirlik geregidir. fork'ta
-    # paylasilan soketler ve curl_cffi'nin CFFI handle'lari bozuk davranir.
+    # spawn is chosen explicitly. Already the default on macOS/3.13; the
+    # explicit choice is for Linux portability (whose 3.13 default is fork).
+    # Shared sockets and curl_cffi's CFFI handles misbehave under fork.
     ctx = mp.get_context("spawn")
     queue: MPQueue[str] = ctx.Queue()
     for symbol in symbols:
@@ -430,7 +432,7 @@ def _spawn_and_wait(
 
     try:
         signal.signal(signal.SIGTERM, _on_sigterm)
-    except ValueError:  # pragma: no cover - ana thread disinda
+    except ValueError:  # pragma: no cover - not on the main thread
         previous = None
 
     try:
@@ -451,9 +453,10 @@ def _spawn_and_wait(
     ]
     _terminate(processes)
 
-    # Olen/zaman asimina ugrayan child kendi durumunu flush EDEMEZ; karari
-    # parent yazar - ayni saf apply_outcome fonksiyonuyla, politika tek
-    # yerde kalir. SHARD_CRASH esikten BAGIMSIZ olarak cooldown uretir.
+    # A dead/timed-out child cannot flush its own status; the parent writes
+    # the verdict, through the same pure apply_outcome function, so policy
+    # stays in one place. SHARD_CRASH triggers a cooldown regardless of
+    # threshold.
     if crashed:
         _record_crashes(factory, [plan for plan, _ in crashed], settings)
 

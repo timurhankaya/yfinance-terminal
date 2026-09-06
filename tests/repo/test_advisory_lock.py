@@ -1,16 +1,13 @@
-"""advisory_lock davranisi ve HATA MESAJININ ICERIGI.
+"""advisory_lock behavior and the content of its error message.
 
-Mesajin icerigi bir "kozmetik" ayrinti degildir: ciplak "advisory lock
-alinamadi" mesaji 2026-09-04'te bir oturumu yanlis yere baktirdi. Iki
-live kosusu yanlislikla ust uste baslatilmisti; belirti modul
-fixture'larinda 18 ERROR ve tutarsiz satir sayilariydi, yani KOD HATASI
-gibi gorunuyordu. Kilidi KIMIN tuttugunu soyleyen bir mesaj bunu tek
-adimda cozerdi.
+The message content is not cosmetic: a bare "could not acquire advisory lock"
+sent a 2026-09-04 debugging session down the wrong path when two live runs
+were accidentally started concurrently. The symptom (18 ERRORs and
+inconsistent row counts in module fixtures) looked like a code bug. A message
+naming who holds the lock would have resolved it in one step.
 
-PostgreSQL'de mesaj MySQL'dekinden DAHA zengindir: `IS_USED_LOCK`
-yalnizca bir connection id donduruyordu, `pg_locks JOIN
-pg_stat_activity` ise pid, application_name ve calisan sorguyu verir
-(PG S5.3).
+`pg_locks JOIN pg_stat_activity` reports pid, application_name and the
+running query, which is why this message is richer than a raw connection id.
 """
 
 from __future__ import annotations
@@ -27,14 +24,14 @@ TEST_LOCK = "yfin_test_lock"
 
 def test_lock_is_acquired_and_released(test_engine: Engine) -> None:
     with advisory_lock(test_engine, name=TEST_LOCK), test_engine.connect() as conn:
-        assert lock_holder(conn, TEST_LOCK) is not None, "kilit alinmamis"
+        assert lock_holder(conn, TEST_LOCK) is not None, "lock was not acquired"
 
     with test_engine.connect() as conn:
         assert lock_holder(conn, TEST_LOCK) is None
 
 
 def test_second_holder_gets_a_message_naming_the_first(test_engine: Engine) -> None:
-    """Mesaj kilidi tutan oturumu TARIF ETMELI."""
+    """The message must describe who holds the lock."""
     with (
         advisory_lock(test_engine, name=TEST_LOCK),
         pytest.raises(LockNotAcquired) as excinfo,
@@ -44,23 +41,23 @@ def test_second_holder_gets_a_message_naming_the_first(test_engine: Engine) -> N
 
     message = str(excinfo.value)
     assert TEST_LOCK in message
-    assert "pid=" in message, "kilidi kimin tuttugu soylenmiyor"
-    # pid sayisal olmali
+    assert "pid=" in message, "message does not say who holds the lock"
+    # pid must be numeric
     assert any(part.isdigit() for part in message.replace("pid=", " ").split())
-    # application_name teshisin ikinci yarisidir: hangi shard/surec
+    # application_name is the second half of the diagnosis: which shard/process
     assert "application_name=" in message
 
 
 def test_lock_is_released_even_when_the_body_raises(test_engine: Engine) -> None:
-    """Govde patlasa da pg_advisory_unlock cagrilmali; aksi halde kilit
-    OTURUM sonuna kadar sizar ve sonraki kosu sebepsiz duser."""
+    """pg_advisory_unlock must run even if the body raises, or the lock leaks
+    for the rest of the session and the next run fails for no visible reason."""
     with pytest.raises(RuntimeError), advisory_lock(test_engine, name=TEST_LOCK):
-        raise RuntimeError("patlama")
+        raise RuntimeError("boom")
 
     with test_engine.connect() as conn:
         assert lock_holder(conn, TEST_LOCK) is None
 
 
 def test_sync_lock_name_is_the_documented_one() -> None:
-    """conftest guard'i ve hata mesajlari bu ada gore yazildi."""
+    """The conftest guard and error messages are written against this name."""
     assert SYNC_LOCK_NAME == "yfin_sync"

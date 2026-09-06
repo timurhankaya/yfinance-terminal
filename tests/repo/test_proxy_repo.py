@@ -1,4 +1,4 @@
-"""Proxy havuzu ve shard'li yazim: gercek PostgreSQL, ag yok (P10.2)."""
+"""Proxy pool and sharded writes: real PostgreSQL, no network."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ pytestmark = pytest.mark.repo
 
 
 def _load_seed_proxies() -> Any:
-    """`scripts/` bir paket DEGILDIR; dosyadan yuklenir."""
+    """`scripts/` is not a package; load it from the file directly."""
     import importlib.util
     from pathlib import Path
 
@@ -47,10 +47,10 @@ POLICY = ProxyPolicy(failure_threshold=3, cooldown_seconds=900, dead_rounds=3)
 NOW = datetime.now(UTC)
 
 
-# Host DETERMINISTIK uretilir. Onceki surum abs(hash(label)) kullaniyordu;
-# Python'un string hash'i her process'te farkli tohumlandigi icin iki label
-# ayni host'a dusup UNIQUE (scheme, host, port, username) kisitini ihlal
-# edebiliyordu - testi kararsiz yapan gercek bir kusurdu.
+# Hosts are generated deterministically. The previous version used
+# abs(hash(label)); Python's string hash is seeded differently per process,
+# so two labels could land on the same host and violate the UNIQUE
+# (scheme, host, port, username) constraint -- a real source of flakiness.
 _HOSTS = itertools.count(1)
 
 
@@ -79,7 +79,7 @@ def clean_proxies(test_engine: Engine) -> Iterator[None]:
 
 @pytest.mark.usefixtures("clean_proxies")
 class TestEligibility:
-    """Uygunluk dogruluk tablosu (P3.2)."""
+    """Eligibility truth table."""
 
     def test_truth_table(self, committed_session: Session) -> None:
         rows = [
@@ -105,8 +105,8 @@ class TestEligibility:
         assert labels == {"ok-unknown", "ok-healthy", "ok-expired"}
 
     def test_unknown_ranks_before_previously_measured(self, committed_session: Session) -> None:
-        """Aksi halde yeni eklenen proxy HIC kullanilmaz, defalarca
-        cooldown'a girmis olan tercih edilirdi (P5.1)."""
+        """Otherwise a newly added proxy would never be used, while one that
+        has repeatedly gone through cooldown would be preferred."""
         committed_session.add_all(
             [
                 _proxy(
@@ -146,14 +146,14 @@ class TestEligibility:
 @pytest.mark.usefixtures("clean_proxies")
 class TestUniqueness:
     def test_same_endpoint_cannot_be_added_twice(self, committed_session: Session) -> None:
-        """username NOT NULL DEFAULT '' oldugu icin kisit GERCEKTEN
-        uygulanir; nullable olsaydi MySQL tekilligi zorlamazdi (P3.3)."""
+        """username is NOT NULL DEFAULT '', so the constraint actually applies;
+        if nullable, uniqueness would not be enforced."""
         committed_session.add(_proxy("a", host="10.0.0.9", port=1080))
         committed_session.commit()
         committed_session.add(_proxy("b", host="10.0.0.9", port=1080))
-        # PG: "duplicate key value violates unique constraint" + kisit adi.
-        # Kisit ADI arandi: mesajin dilinden bagimsiz ve hangi
-        # tekilligin ihlal edildigini de kanitlar.
+        # PG raises "duplicate key value violates unique constraint" + the
+        # constraint name. Matching on the constraint name is
+        # language-independent and proves which uniqueness was violated.
         with pytest.raises(Exception, match="uq_proxies_endpoint"):
             committed_session.commit()
         committed_session.rollback()
@@ -161,13 +161,12 @@ class TestUniqueness:
     def test_host_case_does_not_create_a_second_proxy(
         self, committed_session: Session
     ) -> None:
-        """Hostname'ler buyuk/kucuk harf duyarsizdir (RFC 4343).
+        """Hostnames are case-insensitive (RFC 4343).
 
-        MySQL bunu `ascii_general_ci` ile SEMADA sagliyordu; kolon artik
-        COLLATE "C" oldugu icin duyarsizlik YAZMA YOLUNA tasindi
-        (scripts/seed_proxies.py, PG S2.5.2). Bu test o tasimanin
-        gercekten calistigini GERCEK semaya karsi kanitlar: normalize
-        edilmis iki bicim ayni satira duser.
+        MySQL enforced this in the schema via `ascii_general_ci`; the column
+        is now COLLATE "C", so case-insensitivity moved to the write path
+        (scripts/seed_proxies.py). This test proves that move works against
+        the real schema: two normalized forms land on the same row.
         """
         from yfin.models import ProxyScheme as _Scheme
 
@@ -188,8 +187,8 @@ class TestUniqueness:
 @pytest.mark.usefixtures("clean_proxies")
 class TestPersistEvent:
     def test_counters_are_incremental(self, committed_session: Session) -> None:
-        """Okunan degeri geri yazmak lost update uretirdi: ayni satira
-        child'in flush'i, parent'in SHARD_CRASH'i ve `proxy check` biner."""
+        """Writing back a read value would produce a lost update: a child's
+        flush, the parent's SHARD_CRASH, and `proxy check` all hit the same row."""
         committed_session.add(_proxy("p1", success_count=5, failure_count=2))
         committed_session.commit()
         row = committed_session.execute(select(Proxy)).scalar_one()
@@ -239,7 +238,7 @@ class TestPersistEvent:
 
 
 class TestRunAggregation:
-    """Toplamlar ve cikis kodu DB'den hesaplanir (P4.5)."""
+    """Totals and the exit code are computed from the DB."""
 
     def test_not_attempted_prevents_exit_zero(self, test_engine: Engine) -> None:
         from sqlalchemy.orm import sessionmaker
@@ -272,19 +271,19 @@ class TestRunAggregation:
         assert labels == {"eu-1", None}
 
     def test_symbols_missing_from_audit_cannot_exit_zero(self, test_engine: Engine) -> None:
-        """B2 regresyonu: coken/timeout olan shard'in ELINDEKI sembol.
+        """A symbol held by a crashed/timed-out shard.
 
-        `shard.py` yalnizca kuyrukta KALANI drain eder; child'in alip
-        bitiremedigi sembol icin hicbir `sync_run_items` satiri olusmaz.
-        Mutabakat olmadan agregasyon eksik veriyi tam sanip EXIT_OK
-        dondururdu -- P8.1'in "islenmemis sembol varken cikis kodu asla 0
-        olamaz" garantisi tam da burada kirilirdi.
+        `shard.py` only drains what remains in the queue; a symbol the child
+        picked up but never finished produces no `sync_run_items` row.
+        Without reconciliation, aggregation would treat the missing data as
+        complete and return EXIT_OK -- breaking the guarantee that the exit
+        code is never 0 while a symbol was left unprocessed.
         """
         from sqlalchemy.orm import sessionmaker
 
         factory = sessionmaker(bind=test_engine, expire_on_commit=False, future=True)
         run_id = open_run(factory, symbol_count=3, dataset_count=1, shard_count=2)
-        # Ucunden YALNIZ ikisi denetime yansidi; ucuncusu iz birakmadan yok
+        # Only two of three show up in the audit; the third vanishes without a trace
         write_items(
             factory,
             run_id,

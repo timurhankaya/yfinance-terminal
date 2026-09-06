@@ -1,25 +1,24 @@
-"""Ortak test fixture'lari."""
+"""Shared test fixtures."""
 
 from __future__ import annotations
 
 import os
 
-# MODUL SEVIYESINDE ve HER `yfin` import'undan ONCE (CFG S8.3).
+# Module level, before any `yfin` import.
 #
-# Autouse bir session fixture'i YETMEZ: pytest once tum test modullerini
-# IMPORT eder, fixture'lar ondan SONRA calisir -- import aninda kurulan
-# bir `Settings` yukleyiciyi coktan tetiklemis olurdu. Ayrica
-# session-scoped bir fixture function-scoped `monkeypatch`i isteyemez
-# (ScopeMismatch).
+# An autouse session fixture is not enough: pytest imports all test
+# modules first, fixtures run after -- a `Settings` loader set up at
+# import time would already have fired. Also a session-scoped fixture
+# can't depend on a function-scoped `monkeypatch` (ScopeMismatch).
 #
-# Zorunludur cunku `load_overrides` `db_name`e -- yani URETIM SEMASINA --
-# baglanir, oysa testler surece ozel bir semada kosar
-# (`tests/helpers.py`). `setdefault` kullanilir: DB yolunu sinayan repo
-# testleri `monkeypatch.delenv` + `config.reset_settings()` ile bu
-# korumayi bilincli olarak kaldirir.
+# Required because `load_overrides` binds to `db_name`, i.e. the
+# production schema, while tests run in a process-specific schema
+# (`tests/helpers.py`). Uses `setdefault` so repo tests exercising the DB
+# path can deliberately lift this guard via `monkeypatch.delenv` +
+# `config.reset_settings()`.
 #
-# Spawn edilen child'lar `os.environ`i miras alir (shard.py), dolayisiyla
-# degisken onlara da gecer.
+# Spawned children inherit `os.environ` (shard.py), so the variable
+# propagates to them too.
 os.environ.setdefault("YF_SETTINGS_SOURCE", "env")
 
 from collections.abc import Iterator  # noqa: E402
@@ -46,19 +45,20 @@ def settings() -> Settings:
 
 @pytest.fixture(scope="session")
 def test_schema(settings: Settings) -> str:
-    """Bu pytest surecine ait sema adi."""
+    """Schema name for this pytest process."""
     return schema_name(settings.db_test_name)
 
 
 @pytest.fixture(scope="session")
 def bootstrap_engine(settings: Settings) -> Iterator[Engine]:
-    """`postgres` bakim veritabani. YALNIZCA `CREATE DATABASE` icin.
+    """`postgres` maintenance database, for `CREATE DATABASE` only.
 
-    Sema islemleri BU ENGINE ILE YAPILAMAZ: `information_schema`
-    VERITABANINA OZELDIR, yani buradan acilan bir baglanti
-    `yfinance_test` icindeki semalari GOREMEZ (PG S9.1).
+    Schema operations can't use this engine: `information_schema` is
+    database-specific, so a connection opened here can't see schemas
+    inside `yfinance_test`.
 
-    AUTOCOMMIT sart: `CREATE DATABASE` transaction blogunda calismaz.
+    AUTOCOMMIT is required: `CREATE DATABASE` cannot run in a transaction
+    block.
     """
     engine = create_engine(settings.bootstrap_url(), isolation_level="AUTOCOMMIT")
     yield engine
@@ -67,12 +67,12 @@ def bootstrap_engine(settings: Settings) -> Iterator[Engine]:
 
 @pytest.fixture(scope="session")
 def test_db_engine(settings: Settings, bootstrap_engine: Engine) -> Iterator[Engine]:
-    """Test VERITABANINA bagli engine (sema secmeden).
+    """Engine bound to the test database (no schema selected).
 
-    Sema olusturma/silme ve bayat sema temizligi bunu kullanir.
-    Eklenti burada kurulur cunku `CREATE EXTENSION` VERITABANI
-    duzeyindedir; atlanirsa `create_hypertable` "function
-    by_range(unknown, interval) does not exist" ile duser.
+    Used for schema create/drop and stale-schema cleanup. The extension
+    is installed here because `CREATE EXTENSION` is database-scoped;
+    skipping it makes `create_hypertable` fail with "function
+    by_range(unknown, interval) does not exist".
     """
     try:
         with bootstrap_engine.connect() as conn:
@@ -83,7 +83,7 @@ def test_db_engine(settings: Settings, bootstrap_engine: Engine) -> Iterator[Eng
             if not exists:
                 conn.execute(text(f'CREATE DATABASE "{settings.db_test_name}"'))
     except Exception as exc:  # pragma: no cover
-        pytest.skip(f"PostgreSQL erisilemiyor: {exc}")
+        pytest.skip(f"PostgreSQL unreachable: {exc}")
 
     engine = create_engine(
         settings.db_url(settings.db_test_name), isolation_level="AUTOCOMMIT"
@@ -98,16 +98,16 @@ def test_db_engine(settings: Settings, bootstrap_engine: Engine) -> Iterator[Eng
 def test_engine(
     settings: Settings, test_schema: str, test_db_engine: Engine
 ) -> Iterator[Engine]:
-    """Surece ozel test SEMASI; kosu sonunda TAMAMEN dusurulur."""
+    """Process-specific test schema; fully dropped at the end of the run."""
     drop_stale_schemas(test_db_engine, settings.db_test_name)
     with test_db_engine.connect() as conn:
         conn.execute(text(f'DROP SCHEMA IF EXISTS "{test_schema}" CASCADE'))
         conn.execute(text(f'CREATE SCHEMA "{test_schema}"'))
 
-    # search_path'te `public` ZORUNLUDUR: timescaledb eklentisi oraya
-    # kurulur ve `create_hypertable` / `timescaledb_information.*` aksi
-    # halde cozulemez. Unutulursa testler SESSIZCE duz tabloya duser
-    # (PG S9.1).
+    # `public` must stay on the search_path: the timescaledb extension
+    # lives there, and create_hypertable / timescaledb_information.* can't
+    # resolve otherwise. Omitting it makes tests silently fall back to a
+    # plain table.
     engine = create_db_engine(
         settings,
         settings.db_test_name,
@@ -118,25 +118,25 @@ def test_engine(
     with engine.connect() as conn:
         conn.execute(text(V_ACTIONS_CREATE))
         conn.execute(text(V_PRICE_BARS_REGULAR_CREATE))
-        # create_all() hypertable'lari BILMEZ (Alembic de autogenerate
-        # edemez). Migration ile AYNI sabit burada da uygulanmazsa
-        # price_bars duz bir tablo olarak olusur ve chunk davranisi hic
-        # dogrulanamaz (PB S9.2, PG S7.6).
+        # create_all() doesn't know about hypertables (Alembic can't
+        # autogenerate them either). Without applying the same DDL as the
+        # migration, price_bars stays a plain table and chunk behavior
+        # can never be verified.
         for stmt in timescale_ddl():
             conn.execute(text(stmt))
         conn.commit()
     yield engine
     engine.dispose()
 
-    # `DROP SCHEMA ... CASCADE` chunk'lari da temizler (olculdu:
-    # "drop cascades to table _timescaledb_internal._hyper_1_1_chunk").
+    # `DROP SCHEMA ... CASCADE` also cleans up chunks (observed: "drop
+    # cascades to table _timescaledb_internal._hyper_1_1_chunk").
     with test_db_engine.connect() as conn:
         conn.execute(text(f'DROP SCHEMA IF EXISTS "{test_schema}" CASCADE'))
 
 
 @pytest.fixture
 def db_session(test_engine: Engine) -> Iterator[Session]:
-    """Her test kendi transaction'inda; sonunda rollback (S9.2)."""
+    """Each test runs in its own transaction, rolled back at the end."""
     connection = test_engine.connect()
     transaction = connection.begin()
     session = Session(bind=connection, expire_on_commit=False)
@@ -150,11 +150,11 @@ def db_session(test_engine: Engine) -> Iterator[Session]:
 
 @pytest.fixture
 def committed_session(test_engine: Engine) -> Iterator[Session]:
-    """GERCEKTEN COMMIT EDEN oturum; es zamanlilik testleri icindir.
+    """Session that actually commits, for concurrency tests.
 
-    `db_session` tek baglantida acilip sonunda rollback edilen bir
-    transaction'dir: ikinci bir oturum onun yazdigini GOREMEZ ve deadlock
-    hic olusmaz. Bu fixture kendi satirlarini kendisi temizler.
+    `db_session` opens one connection and rolls back at the end, so a
+    second session never sees its writes and no deadlock can occur. This
+    fixture cleans up its own rows.
     """
     session = Session(bind=test_engine, expire_on_commit=False)
     try:
@@ -166,7 +166,7 @@ def committed_session(test_engine: Engine) -> Iterator[Session]:
 
 @pytest.fixture
 def cleanup_tables(test_engine: Engine) -> Iterator[list[str]]:
-    """Testin kirlettigi tablolari sonunda bosaltir (FK sirasi cagiranda)."""
+    """Empties the tables a test dirtied, at the end (caller sets FK order)."""
     tables: list[str] = []
     try:
         yield tables
@@ -179,19 +179,19 @@ def cleanup_tables(test_engine: Engine) -> Iterator[list[str]]:
 
 @pytest.fixture(scope="session", autouse=True)
 def _guard_concurrent_live_runs(request: pytest.FixtureRequest) -> None:
-    """Ikinci bir live kosusu baslatildiysa ANLASILIR sekilde durdurur.
+    """Stop a second concurrent live run with a clear message.
 
-    `run_sync` 'yfin_sync' advisory kilidini alir; iki live kosusu ust
-    uste binerse ikincisi LockNotAcquired ile duser ve bu, dosya
-    fixture'larinda ERROR, testlerde tutarsiz satir sayisi olarak
-    gorunur - yani KOD HATASI gibi. Bu oturumda tam olarak bu yasandi:
-    arka planda suren bir live kosusunun uzerine ikincisi baslatildi ve
-    5 failed + 18 error uretti; hicbiri gercek bir regresyon degildi.
+    `run_sync` takes the 'yfin_sync' advisory lock; two overlapping live
+    runs make the second fail with LockNotAcquired, which shows up as
+    ERROR in file fixtures and inconsistent row counts in tests -- looks
+    like a code bug. This happened once: a live run started while another
+    was already in progress and produced 5 failed + 18 error, none of it
+    a real regression.
 
-    Guard yalnizca GERCEKTEN live testi kosulacaksa calisir. Karar
-    `-m` ifadesinin METNINDEN degil, TOPLANAN testlerden verilir:
-    `"live" in markexpr` kontrolu `-m "not live"` ifadesinde de DOGRU
-    doner ve unit kosusunu bosuna durdururdu.
+    The guard only runs when live tests are actually selected. That's
+    decided from the collected tests, not the `-m` expression text:
+    `"live" in markexpr` would also be true for `-m "not live"` and would
+    needlessly block the unit run.
     """
     if not any(item.get_closest_marker("live") for item in request.session.items):
         return
@@ -200,24 +200,24 @@ def _guard_concurrent_live_runs(request: pytest.FixtureRequest) -> None:
     from yfin.config import get_settings
     from yfin.db import SYNC_LOCK_NAME, lock_holder
 
-    # CANLI veritabanina baglanir, test veritabanina DEGIL. PostgreSQL
-    # advisory kilitleri VERITABANI KAPSAMLIDIR (MySQL GET_LOCK sunucu
-    # genelindeydi): `run_sync` kilidi canli veritabaninda alir, bu yuzden
-    # guard da orada bakmalidir. Test veritabanina bakilsaydi kilit HIC
-    # gorunmez ve guard SESSIZCE islevsiz kalirdi (PG S5.2.1).
+    # Connects to the live database, not the test database. PostgreSQL
+    # advisory locks are database-scoped (unlike MySQL's server-wide
+    # GET_LOCK): `run_sync` takes its lock on the live database, so the
+    # guard must check there too. Checking the test database would never
+    # see the lock and the guard would silently do nothing.
     engine = create_engine(get_settings().db_url())
     try:
         with engine.connect() as conn:
             holder = lock_holder(conn, SYNC_LOCK_NAME)
-    except Exception:  # noqa: BLE001 - sunucu yoksa asil fixture zaten skip eder
+    except Exception:  # noqa: BLE001 - no server means the real fixture already skips
         return
     finally:
         engine.dispose()
 
     if holder is not None:
         pytest.exit(
-            f"'{SYNC_LOCK_NAME}' advisory kilidi MESGUL ({holder}). "
-            "Baska bir sync ya da live test kosusu devam ediyor; live testler "
-            "es zamanli KOSTURULAMAZ. Once o kosunun bitmesini bekleyin.",
+            f"'{SYNC_LOCK_NAME}' advisory lock is held ({holder}). "
+            "Another sync or live test run is in progress; live tests cannot run "
+            "concurrently. Wait for it to finish first.",
             returncode=1,
         )

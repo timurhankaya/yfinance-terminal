@@ -1,14 +1,14 @@
-"""price_bars normalizasyonu ve is_extended (PB S6.4, S8.3).
+"""price_bars normalization and is_extended.
 
-Gercek fixture'larla kosar; agsiz ve DB'siz. Her sembol tek basina bir
-kenar durumun kanitidir - fixture'lardaki olculmus dagilim:
+Runs against real fixtures; no network, no database. Each symbol is proof
+of its own edge case -- measured distribution in the fixtures:
 
-    AAPL      849 bar, 522'si seans disi   (hasPrePost=True)
-    SHEL.L    503 bar,   5'i seans disi    (hasPrePost=FALSE)
-    VWCE.DE   504 bar,   8'i seans disi    (hasPrePost=FALSE)
-    THYAO.IS  479 bar,   0                 (pre/post dejenere)
-    BTC-USD  1322 bar,   0                 (7/24)
-    GC=F     1232 bar,   0                 (bar 18:10'da acilir)
+    AAPL      849 bars, 522 extended   (hasPrePost=True)
+    SHEL.L    503 bars,   5 extended   (hasPrePost=FALSE)
+    VWCE.DE   504 bars,   8 extended   (hasPrePost=FALSE)
+    THYAO.IS  479 bars,   0            (pre/post degenerate)
+    BTC-USD  1322 bars,   0            (24/7)
+    GC=F     1232 bars,   0            (bar opens at 18:10)
 """
 
 from __future__ import annotations
@@ -55,25 +55,27 @@ def test_extended_bar_counts_match_the_measured_fixtures(
 
 
 def test_shell_l_regression_extended_bars_despite_has_prepost_false() -> None:
-    """SILINEN "kapi 1"in geri gelmesini engelleyen test.
+    """Prevents a removed early exit from coming back.
 
-    SHEL.L hasPrePostMarketData=False bildirir ama 16:30/16:35 barlari
-    doner (regular seans 08:00-16:30). has_pre_post_market_data'ya dayanan
-    bir erken cikis bunlari NORMAL SEANS sayar ve v_price_bars_regular'a
-    sokar - yani view'in onlemek icin var oldugu bozulmanin ta kendisi.
+    SHEL.L reports hasPrePostMarketData=False but still returns 16:30/16:35
+    bars (regular session is 08:00-16:30). An early exit based on
+    has_pre_post_market_data would count these as regular session and let
+    them into v_price_bars_regular -- exactly the corruption that view
+    exists to prevent.
     """
     rows = _rows("SHEL.L")
     extended = [r for r in rows if r["is_extended"]]
 
-    assert extended, "hasPrePost=False diye erken cikilmis olabilir"
+    assert extended, "may have exited early on hasPrePost=False"
     assert all(r["ts_utc"].time() >= datetime(2026, 1, 1, 15, 30).time() for r in extended)
 
 
 def test_thyao_degenerate_pre_post_columns_do_not_mark_everything_extended() -> None:
-    """THYAO'da dejenere olan pre_*/post_* kolonlaridir, start/end DEGIL.
+    """For THYAO, the pre_*/post_* columns degenerate, not start/end.
 
     tradingPeriods: pre=09:30-09:30, reg=09:30-18:00, post=18:00-18:00.
-    Kural yalniz start/end'e baktigi icin tum barlar normal seanstir.
+    The rule only looks at start/end, so all bars land in the regular
+    session.
     """
     rows = _rows("THYAO.IS")
 
@@ -82,12 +84,12 @@ def test_thyao_degenerate_pre_post_columns_do_not_mark_everything_extended() -> 
 
 
 def test_multiday_intervals_carry_no_extended_column() -> None:
-    """1wk/1mo'da kavram anlamsizdir (PB S6.4 kural 1).
+    """The concept is meaningless for 1wk/1mo.
 
-    Eskiden bu satirlar `is_extended=False` tasiyordu. Artik KOLONU HIC
-    TASIMIYORLAR: gun ustu barlar `periodic_bars`a gider ve o tabloda
-    boyle bir kolon YOKTUR (PG S7.1). "Anlamsiz alani False ile
-    doldurmak" yerine "alani hic olusturmamak" -- kavram semada da yok.
+    These rows used to carry `is_extended=False`. Now they carry no such
+    column at all: bars above daily go to `periodic_bars`, which has no
+    such column. Instead of "fill a meaningless field with False", the
+    field is not created -- the concept does not exist in the schema either.
     """
     for dataset, interval in (("bars_1wk", "1wk"), ("bars_1mo", "1mo")):
         rows = _rows("AAPL", dataset, interval)
@@ -96,8 +98,8 @@ def test_multiday_intervals_carry_no_extended_column() -> None:
 
 
 def test_missing_trading_periods_defaults_to_not_extended() -> None:
-    """Guvenli varsayilan 0'dir: bilinmeyen bari seans disi saymak onu
-    v_price_bars_regular'dan GIZLERDI; ters hata daha gorunurdur."""
+    """The safe default is 0: counting an unknown bar as extended would hide
+    it from v_price_bars_regular; the opposite failure is more visible."""
     payload = BarPayload(frame=_payload("AAPL").frame, trading_periods=None, interval="5m")
 
     rows = normalize_bars(payload, "AAPL").writes[0].rows
@@ -106,8 +108,8 @@ def test_missing_trading_periods_defaults_to_not_extended() -> None:
 
 
 def test_trading_periods_without_pre_post_columns_is_accepted() -> None:
-    """prepost=False ile cekilen tradingPeriods yalniz start/end tasir;
-    pre_start'a erisen kod KeyError verirdi (PB S4.5/3)."""
+    """tradingPeriods fetched with prepost=False carries only start/end;
+    code accessing pre_start would raise a KeyError."""
     payload = _payload("SHEL.L")
     assert payload.trading_periods is not None
     trimmed = payload.trading_periods[["start", "end"]]
@@ -123,29 +125,29 @@ def test_trading_periods_without_pre_post_columns_is_accepted() -> None:
     assert sum(1 for r in rows if r["is_extended"]) == 5
 
 
-# --- normalizasyon --------------------------------------------------------
+# --- normalization -------------------------------------------------------
 
 
 def test_local_date_is_the_local_calendar_day_not_the_utc_day() -> None:
-    """GC=F seansi aksam acilir ve UTC gece yarisini GECER.
+    """GC=F's session opens in the evening and crosses UTC midnight.
 
-    America/New_York -04:00 oldugu icin yerel 20:00 bari UTC'de ERTESI
-    GUNE duser. local_date'i ts_utc'den turetmek o barin gunu bir ileri
-    kaydirirdi; kaynak index zaten yerel tz tasidigi icin tarih ondan
-    alinir (S5.4'un ayni dersi, ters yonde).
+    Since America/New_York is -04:00, a local 20:00 bar falls on the next
+    UTC day. Deriving local_date from ts_utc would shift that bar's day
+    forward by one; the source index already carries the local tz, so the
+    date is taken from there instead.
     """
     rows = _rows("GC=F")
     shifted = [r for r in rows if r["local_date"] != r["ts_utc"].date()]
 
-    assert shifted, "UTC gunune tasan bar bulunamadi - fixture beklenmedik"
+    assert shifted, "no bar crossing the UTC day found - unexpected fixture"
     for row in shifted:
-        # UTC gunu yerel gunun BIR ILERISI olmali
+        # UTC day must be exactly one ahead of the local day
         assert (row["ts_utc"].date() - row["local_date"]).days == 1
         assert row["ts_utc"].hour < 5
 
 
 def test_ts_utc_is_naive_utc() -> None:
-    """Kolon timestamptz(6); cevrim normalize'da yapilir ve UTC-aware doner."""
+    """Column is timestamptz(6); conversion happens in normalize and returns UTC-aware."""
     rows = _rows("AAPL")
 
     assert all(r["ts_utc"].tzinfo is UTC for r in rows)
@@ -163,13 +165,13 @@ def test_write_targets_price_bars_with_the_three_column_key() -> None:
 
 
 def test_derived_action_columns_are_not_written() -> None:
-    """dividend/split_ratio/capital_gain TUREVDIR; otorite dividends,
-    splits, capital_gains tablolaridir (PB K3). adj_close da yazilmaz:
-    kalici arsivde bayatlar."""
+    """dividend/split_ratio/capital_gain are derived; the authoritative
+    tables are dividends, splits, capital_gains. adj_close is also not
+    written: it goes stale in a permanent archive."""
     rows = _rows("AAPL")
 
     for banned in ("dividend", "split_ratio", "capital_gain", "adj_close", "is_repaired"):
-        assert banned not in rows[0], f"{banned} price_bars'a yazilmamali"
+        assert banned not in rows[0], f"{banned} must not be written to price_bars"
 
 
 def test_rows_carry_the_interval() -> None:
@@ -180,7 +182,7 @@ def test_rows_carry_the_interval() -> None:
 
 
 def test_row_without_close_is_dropped() -> None:
-    """close NOT NULL; kapanissiz bar anlamsizdir."""
+    """close is NOT NULL; a bar without a close is meaningless."""
     payload = _payload("AAPL")
     frame = payload.frame.copy()
     frame.iloc[0, frame.columns.get_loc("Close")] = None

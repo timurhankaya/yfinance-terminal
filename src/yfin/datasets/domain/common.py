@@ -1,11 +1,11 @@
-"""Domain dataset'lerinin ortak parcalari (SI S6.4, S6.5, S7.1, S7.6).
+"""Shared pieces for domain datasets.
 
-VERI KAYNAGI HAM JSON'DUR. yfinance'in `Sector`/`Industry` siniflari ham
-yanitin 24 alanini ATIYOR; bunlarin 11'i iki TAM blok (`performance` ve
-`performanceOverviewBenchmark`) ve HICBIR property ile erisilemiyorlar
-(SI S4.3). `Domain._fetch` zaten `YfData`'nin ince bir sarmalayicisidir;
-ham JSON'a inmek yfinance'ten CIKMAK degil, ayni HTTP / proxy / cookie /
-curl_cffi katmanini kullanmaktir.
+The data source is the raw JSON. yfinance's `Sector`/`Industry` classes
+discard 24 fields of the raw response; 11 of those are two entire blocks
+(`performance` and `performanceOverviewBenchmark`) unreachable through any
+property. `Domain._fetch` is already a thin wrapper over `YfData`, so
+going to raw JSON does not mean leaving yfinance -- it uses the same HTTP /
+proxy / cookie / curl_cffi layer.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ log = get_logger(__name__)
 
 _QUERY = "https://query1.finance.yahoo.com/v1/finance"
 
-# --- tablo adlari ----------------------------------------------------------
+# --- table names ----------------------------------------------------------
 
 DOMAINS_TABLE = "domains"
 SYMBOLS_TABLE = "symbols"
@@ -34,18 +34,19 @@ TOP_MOVERS_TABLE = "domain_top_movers"
 REPORTS_TABLE = "research_reports"
 REPORT_LINKS_TABLE = "domain_report_links"
 
-# --- anahtar evreni --------------------------------------------------------
+# --- key universe --------------------------------------------------------
 
-# Kendi sabitimiz. Yahoo'da "sektorleri listele" ucu YOKTUR; 11/11 canli
-# dogrulandi. `test_domain_key_source.py` bu kumenin
-# `SECTOR_INDUSTY_MAPPING_LC`'nin ust duzey anahtarlariyla ayni oldugunu
-# surer -- kutuphane degisirse sessizce sapmayiz.
+# Our own constant. Yahoo has no "list sectors" endpoint; verified live
+# for all 11. `test_domain_key_source.py` asserts this set matches the
+# top-level keys of yfinance's `SECTOR_INDUSTY_MAPPING_LC`, so a library
+# change would not silently diverge from us.
 #
-# ENDUSTRI anahtarlari BURADA YOKTUR ve kutuphane sabitinden HIC IMPORT
-# EDILMEZ: `SECTOR_INDUSTY_MAPPING_LC`'nin 145 endustri anahtarinin 32'si
-# canli API'de 404 veriyor (const.py:313-318 em-dash ve `&` karakterine
-# dokunmuyor: `software—application`, `oil-gas-e&p`). Evren YALNIZ sektor
-# yanitinin `industries[].key` alanindan kesfedilir (SI S6.5).
+# Industry keys are NOT listed here and are never imported from the
+# library constant: 32 of `SECTOR_INDUSTY_MAPPING_LC`'s 145 industry keys
+# 404 against the live API (the library's constant doesn't handle the
+# em-dash and `&` characters: `software—application`, `oil-gas-e&p`). The
+# universe is instead discovered solely from the sector response's
+# `industries[].key` field.
 SECTOR_KEYS: tuple[str, ...] = (
     "basic-materials",
     "communication-services",
@@ -60,12 +61,12 @@ SECTOR_KEYS: tuple[str, ...] = (
     "utilities",
 )
 
-# --- as-of gunu ------------------------------------------------------------
+# --- as-of day ------------------------------------------------------------
 
-# 6/6 domain sembolunun timezone'u America/New_York, para birimi USD,
-# benchmark "S&P 500" -- bu bir ABD piyasa toplamidir. UTC gunu
-# kullanilsaydi 23:30 ve 00:30 kosulari AYNI islem gunu icin IKI satir
-# uretirdi ve PK bunu ayirt edemezdi (SI S7.7).
+# All 6 domain symbols measured have timezone America/New_York, currency
+# USD, benchmark "S&P 500" -- this is a US market aggregate. Using the UTC
+# day would produce two rows for the same trading day from runs at 23:30
+# and 00:30, and the PK could not tell them apart.
 MARKET_TZ = ZoneInfo("America/New_York")
 
 
@@ -74,16 +75,17 @@ def as_of_day(fetched_at: datetime) -> date:
     return moment.astimezone(MARKET_TZ).date()
 
 
-# --- sarmalayici acma ------------------------------------------------------
+# --- envelope unwrapping ---------------------------------------------------
 
 
 def unwrap(value: Any) -> Any:
-    """Yahoo'nun {"raw":..., "fmt":...} sarmalayicisini acar.
+    """Unwraps Yahoo's {"raw":..., "fmt":...} envelope.
 
-    AYNI ALAN IKI BLOKTA IKI FARKLI BICIMDE gelebiliyor:
-    `topCompanies[].targetPrice` SARMALI, `researchReports[].targetPrice`
-    CIPLAK float, ve 104 raporun 17'sinde anahtar HIC YOK (SI S4.4). Iki
-    ayri ayristirici yazilsaydi biri sessizce None yazardi.
+    The same field can arrive in two different shapes across two blocks:
+    `topCompanies[].targetPrice` is wrapped, `researchReports[].targetPrice`
+    is a bare float, and the key is missing entirely for 17 of 104
+    reports measured. Two separate parsers would have silently written
+    None for one of them.
     """
     if isinstance(value, Mapping):
         return value.get("raw")
@@ -91,7 +93,7 @@ def unwrap(value: Any) -> Any:
 
 
 def _text(value: Any, max_len: int | None) -> str | None:
-    """Metin alani; BOS DIZE NULL'a cevrilir (AH'nin priceTargetAction kurali)."""
+    """Text field; a blank string is converted to NULL (same rule as AH's priceTargetAction)."""
     text = nz.to_str(unwrap(value), max_len=max_len)
     if text is None:
         return None
@@ -104,7 +106,7 @@ def text_of(row: Mapping[str, Any], key: str, max_len: int | None = None) -> str
 
 
 def dec_of(row: Mapping[str, Any], key: str) -> Any:
-    """DECIMAL(28,12) alani. Eksik anahtar -> None -> NULL."""
+    """DECIMAL(28,12) field. Missing key -> None -> NULL."""
     return nz.to_decimal(unwrap(row.get(key)))
 
 
@@ -124,12 +126,12 @@ def ubig_of(row: Mapping[str, Any], key: str) -> Any:
     return KINDS["ubig"].convert(unwrap(row.get(key)))
 
 
-# --- eslenmis anahtar kumeleri (SI S7.6) -----------------------------------
+# --- mapped key sets -----------------------------------------------------
 
-# `overview` IKI VARYANT tanir: sektorde 7 anahtar (`industriesCount`
-# DAHIL), endustride 6 -- anahtar ham JSON'da HIC YOKTUR (145/145 olculdu).
-# Tek kume kullanilsaydi her endustri "eksik anahtar" ya da her sektor
-# "fazla anahtar" uyarisi uretirdi.
+# `overview` has two variants: 7 keys for a sector (including
+# `industriesCount`), 6 for an industry -- the key is simply absent from
+# the raw JSON (measured 145/145). A single shared set would warn "missing
+# key" for every industry, or "extra key" for every sector.
 _MAPPED_OVERVIEW_KEYS: dict[str, frozenset[str]] = {
     "sector": frozenset(
         {
@@ -200,7 +202,7 @@ _MAPPED_REPORT_KEYS = frozenset(
 _MAPPED_INDUSTRY_ROW_KEYS = frozenset(
     {"key", "name", "symbol", "marketWeight", "ytdReturn", "regMarketChangePercent"}
 )
-# Yanitin top-level anahtarlari; hepsi ya tipli kolona ya `raw_json`a gider.
+# Top-level keys of the response; each goes to either a typed column or `raw_json`.
 _MAPPED_TOP_LEVEL_KEYS = frozenset(
     {
         "key",
@@ -242,11 +244,11 @@ def warn_unmapped(
     payload: Any,
     known: frozenset[str],
 ) -> list[str]:
-    """Bilinen kume disindaki anahtarlari WARNING ile loglar.
+    """Logs a warning for keys outside the known set.
 
-    Veri KAYBI olmaz (`raw_json`'da durur ya da liste bloklari %100 tipli
-    kolona gider); log tipli kolona TERFI sinyalidir
-    (`market/status.py`'deki `_MAPPED_SUMMARY_KEYS` deseni).
+    No data is lost (it stays in `raw_json`, or list blocks go 100% to
+    typed columns); the log is a promotion signal for typed columns
+    (mirrors the `_MAPPED_SUMMARY_KEYS` pattern in `market/status.py`).
     """
     rows = payload if isinstance(payload, list) else [payload]
     extra: dict[str, None] = {}
@@ -263,22 +265,21 @@ def warn_unmapped(
     return sorted(extra)
 
 
-# --- cekim -----------------------------------------------------------------
+# --- fetch -----------------------------------------------------------------
 
 
 def fetch_domain(key: str, domain_type: str, region: str) -> dict[str, Any]:
-    """Ham sektor / endustri yaniti.
+    """Raw sector / industry response.
 
-    `call_optional` KULLANILMAZ, `call_yahoo` kullanilir: 404 -> `failed`
-    (SI S8.2). AH S8.4'un "404 -> empty" kurali SEMBOL TARAFI icindir --
-    orada anahtar KULLANICININ verdigi bir semboldur ve o sembolde o
-    modulun olmamasi mesrudur. Burada anahtar AYNI KOSUDA KENDI
-    KESFIMIZDEN gelir; 404 "taksonomi bayat" demektir ve denetimde
-    GORUNMESI gerekir.
+    Uses `call_yahoo`, not `call_optional`: 404 -> `failed`. AH's "404 ->
+    empty" rule is for the symbol side, where the key is a symbol the user
+    supplied and that module legitimately not existing for it is normal.
+    Here the key comes from our own discovery earlier in the same run;
+    a 404 means "taxonomy is stale" and must be visible in auditing.
 
-    `payload["data"]` yoklugu `KeyError('data')` firlatir ->
-    `classify_error` -> DATA -> `failed`; bos anahtar bu yoldan yakalanir
-    (HTTP durumu YOKTUR, olculdu).
+    A missing `payload["data"]` raises `KeyError('data')` ->
+    `classify_error` -> DATA -> `failed`; an empty key is caught this way
+    (measured: no distinct HTTP status for it).
     """
     from yfinance.data import YfData
 
@@ -294,6 +295,6 @@ def fetch_domain(key: str, domain_type: str, region: str) -> dict[str, Any]:
         what=f"{domain_type}:{key}:{region}",
     )
     data = payload["data"]
-    if not isinstance(data, dict):  # pragma: no cover - savunma
+    if not isinstance(data, dict):  # pragma: no cover - defensive
         raise KeyError("data")
     return data

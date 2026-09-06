@@ -1,4 +1,4 @@
-"""Engine, session factory ve PostgreSQL advisory lock."""
+"""Engine, session factory, and PostgreSQL advisory lock."""
 
 from __future__ import annotations
 
@@ -15,30 +15,30 @@ SYNC_LOCK_NAME = "yfin_sync"
 
 
 def _lock_key(name: str) -> int:
-    """Ad -> imzali 64-bit advisory kilit anahtari.
+    """Name -> signed 64-bit advisory lock key.
 
-    PostgreSQL'in `hashtext()`'i KULLANILMAZ: dokumante edilmemis bir ic
-    fonksiyondur ve donus degeri surumler arasinda degisebilir. Anahtarin
-    surumden bagimsiz olmasi, farkli sunucu surumlerine karsi kosan iki
-    istemcinin AYNI kilidi gormesi icin gereklidir.
+    Not PostgreSQL's `hashtext()`: it's an undocumented internal function
+    and its output can change between versions. The key must be
+    version-independent so two clients on different server versions see
+    the same lock.
     """
     digest = hashlib.blake2b(name.encode("utf-8"), digest_size=8).digest()
     return int.from_bytes(digest, "big", signed=True)
 
 
 def _lock_key_parts(key: int) -> tuple[int, int]:
-    """`pg_locks.classid` / `objid` -- IKISI DE `oid`, ISARETSIZ 32-bit.
+    """`pg_locks.classid` / `objid` are both `oid`, unsigned 32-bit.
 
-    Ayristirma SQL'de DEGIL burada yapilir. SQL'de `(:key >> 32)::int`
-    yazilsaydi iki ayri hata cikardi:
-      1. Alt 32 bit 2^31'i astiginda `::int` ERROR 22003 verir.
-      2. Negatif anahtarda `>>` aritmetik kaydirmadir, isareti uzatir ve
-         ust 32 biti VERMEZ.
-    'yfin_sync' anahtari HER IKI kosulu da saglar (olculdu: anahtar
-    negatif, classid = 3 089 743 290), yani hata TEORIK DEGILDIR --
-    projenin tek advisory kilidinde ilk kullanimda patlardi. Ustelik bu,
-    LockNotAcquired hata yolunun ICINDE oldugu icin asil hatayi
-    maskelerdi.
+    Splitting happens here, not in SQL. `(:key >> 32)::int` in SQL would
+    fail two ways:
+      1. `::int` raises ERROR 22003 once the low 32 bits exceed 2^31.
+      2. `>>` on a negative key is an arithmetic shift: it sign-extends
+         and never yields the top 32 bits.
+    The 'yfin_sync' key hits both cases (measured: key is negative,
+    classid = 3,089,743,290), so this isn't theoretical -- it would
+    break on first use of the project's only advisory lock, and since
+    that's inside the LockNotAcquired error path, it would mask the
+    real error.
     """
     unsigned = key & 0xFFFF_FFFF_FFFF_FFFF
     return unsigned >> 32, unsigned & 0xFFFF_FFFF
@@ -52,37 +52,36 @@ def create_db_engine(
     pool_size: int | None = None,
     application_name: str = "yfin",
 ) -> Engine:
-    """Havuz, es zamanli tuketicilere gore boyutlandirilir.
+    """Pool is sized for concurrent consumers.
 
-    Ayni anda baglanti isteyenler: ana thread'in sembol transaction'i,
-    UC salt-okunur saglayici (watermark, scope, gap) ve advisory lock'u
-    tutan oturum. Varsayilan pool_size=5 bu toplamda sinirda kalip
-    QueuePool timeout uretebiliyordu.
+    Concurrent connection requesters: the main thread's symbol
+    transaction, three read-only providers (watermark, scope, gap), and
+    the session holding the advisory lock. The old default pool_size=5
+    was right at that total and could produce QueuePool timeouts.
     """
     cfg = settings or get_settings()
-    # Shard'lar acik pool_size ile kurar (P4.12): gercek es zamanli
-    # tuketici process basina DORTTUR. Uc salt-okunur saglayici kendi
-    # threading.Lock'lariyla okumalari serilestirir, yani her biri EN
-    # FAZLA bir baglanti tutar - WatermarkReader, ScopeReader ve
-    # GapReader (PB S6.3, S6.5a) - arti ana thread'in sembol
-    # transaction'i.
-    # Invariant: process basina UST SINIR pool_size + max_overflow'dur,
-    # yani 2 x pool_size. Varsayilan pool_size = max(5, workers+4) = 8
-    # (workers=4) oldugundan shard basina en fazla 16, N shard icin
-    # (N x 16) + 2 baglanti. PostgreSQL max_connections buna gore
-    # ayarlanmalidir (docker-compose.yml: 200).
+    # Shards set pool_size explicitly: real concurrent consumers per
+    # process are four. The three read-only providers (WatermarkReader,
+    # ScopeReader, GapReader) each serialize their own reads with a
+    # threading.Lock, so each holds at most one connection, plus the
+    # main thread's symbol transaction.
+    # Invariant: per-process ceiling is pool_size + max_overflow, i.e.
+    # 2 x pool_size. Default pool_size = max(5, workers+4) = 8
+    # (workers=4), so at most 16 per shard, (N x 16) + 2 for N shards.
+    # PostgreSQL max_connections must be sized accordingly
+    # (docker-compose.yml: 200).
     if pool_size is None:
         pool_size = max(5, cfg.yf_max_workers + 4)
 
-    # `options` TEK BIR DIZEDIR. timezone ve search_path ayri
-    # connect_args anahtarlari olarak verilseydi biri digerini ezerdi.
+    # `options` is a single string: timezone and search_path as separate
+    # connect_args keys would have one overwrite the other.
     options = ["-c timezone=UTC"]
     if schema is not None:
-        # `public` ZORUNLUDUR: timescaledb eklentisi oraya kurulur ve
-        # `create_hypertable` / `timescaledb_information.*` aksi halde
-        # cozulemez ("function by_range(unknown, interval) does not
-        # exist" -- olculdu). Testler bunu fark etmeden duz tabloya
-        # duserdi (S9.1).
+        # `public` is required: the timescaledb extension lives there,
+        # and without it `create_hypertable` / `timescaledb_information.*`
+        # fail to resolve ("function by_range(unknown, interval) does
+        # not exist" -- measured). Tests would silently fall back to a
+        # plain table without noticing.
         options.append(f"-c search_path={schema},public")
 
     return create_engine(
@@ -94,8 +93,8 @@ def create_db_engine(
         pool_timeout=60,
         future=True,
         connect_args={
-            # Kilidi kimin tuttugunu teshis edilebilir kilar (S5.3).
-            # Shard'lar kendi indekslerini ekler (`yfin-shard-2`).
+            # Makes lock ownership diagnosable. Shards append their own
+            # index (`yfin-shard-2`).
             "application_name": application_name,
             "options": " ".join(options),
         },
@@ -103,7 +102,7 @@ def create_db_engine(
 
 
 class LockNotAcquired(RuntimeError):
-    """Advisory kilit alinamadi; baska bir sync calisiyor."""
+    """Advisory lock could not be acquired; another sync is running."""
 
 
 _HOLDER_SQL = text(
@@ -113,19 +112,14 @@ _HOLDER_SQL = text(
     "  JOIN pg_stat_activity a ON a.pid = l.pid "
     " WHERE l.locktype = 'advisory' "
     "   AND l.classid = :classid AND l.objid = :objid "
-    # objsubid = 1 tek-bigint bicimidir; iki-int bicimi 2 kullanir
-    # (olculdu). Yanlis objsubid ile sorgu SESSIZCE bos doner.
+    # objsubid = 1 is the single-bigint form; the two-int form uses 2
+    # (measured). Wrong objsubid makes the query silently return empty.
     "   AND l.objsubid = 1 AND l.granted"
 )
 
 
 def lock_holder(conn: Any, name: str = SYNC_LOCK_NAME) -> str | None:
-    """Kilidi tutan oturumun insan okunur tarifi (yoksa None).
-
-    MySQL'de `IS_USED_LOCK` yalnizca bir connection id donduruyordu ve
-    hata mesaji kullaniciya `SHOW PROCESSLIST` tavsiye ediyordu.
-    PostgreSQL'de pid, application_name ve calisan sorgu DOGRUDAN alinir.
-    """
+    """Human-readable description of the lock holder session (None if unlocked)."""
     classid, objid = _lock_key_parts(_lock_key(name))
     row = conn.execute(_HOLDER_SQL, {"classid": classid, "objid": objid}).first()
     if row is None:
@@ -138,30 +132,27 @@ def lock_holder(conn: Any, name: str = SYNC_LOCK_NAME) -> str | None:
 
 @contextmanager
 def advisory_lock(engine: Engine, name: str = SYNC_LOCK_NAME) -> Iterator[None]:
-    """pg_try_advisory_lock; alinamazsa LockNotAcquired.
+    """pg_try_advisory_lock; raises LockNotAcquired if unavailable.
 
-    `timeout` PARAMETRESI YOKTUR. MySQL imzasinda vardi ama tum cagiranlar
-    0 veriyordu (olculdu: bes cagiranin hicbiri deger gecmiyor) ve
-    PostgreSQL'de karsiligi saniye cinsinden bir sure DEGIL, ikili bir
-    secimdir -- `pg_advisory_lock` (sonsuz bekleme) ya da
-    `pg_try_advisory_lock` (hic beklememe). Yaniltici bir parametreyi
-    tasimak legacy birakmak olurdu.
+    No `timeout` parameter: PostgreSQL's equivalent isn't a duration in
+    seconds but a binary choice -- `pg_advisory_lock` (wait forever) or
+    `pg_try_advisory_lock` (don't wait at all). Carrying a parameter that
+    implies otherwise would be misleading.
 
-    KAPSAM FARKI: PostgreSQL advisory kilitleri VERITABANI kapsamlidir;
-    MySQL GET_LOCK sunucu genelindeydi. Farkli veritabanlarindaki iki
-    kosu birbirini GORMEZ. Bu yuzden live testler ve `run_sync` AYNI
-    veritabanini kullanmalidir (S5.2.1).
+    Scope: PostgreSQL advisory locks are per-database, so two runs
+    against different databases never see each other's lock. Live tests
+    and `run_sync` must use the same database.
 
-    Kilit oturum kapsamlidir, bu yuzden ayni baglanti sonuna kadar tutulur.
+    The lock is session-scoped, so the same connection is held open for
+    the duration.
     """
     key = _lock_key(name)
     conn = engine.connect()
     try:
         got = conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": key}).scalar()
         if not got:
-            # KIMIN tuttugu mesaja KONUR. Ciplak "alinamadi" mesaji, iki
-            # kosuyu yanlislikla ust uste baslatan birine hicbir sey
-            # soylemiyor.
+            # Include who holds it. A bare "not acquired" message tells
+            # someone who accidentally started two overlapping runs nothing.
             holder = lock_holder(conn, name) or "sahip bulunamadi"
             raise LockNotAcquired(
                 f"advisory lock alinamadi: {name} ({holder}). "

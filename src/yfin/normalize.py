@@ -1,7 +1,7 @@
-"""Normalizasyon kurallari (tasarim dokumani S8.3 ve S8.4).
+"""Normalization rules.
 
-Buradaki her kural canli API gozlemine dayanir; sadelestirme girisimleri
-dokumanda listelenen somut hatalari geri getirir.
+Every rule here is based on a live-API observation; simplifying any of
+them reintroduces a concrete, previously-observed bug.
 """
 
 from __future__ import annotations
@@ -20,10 +20,10 @@ from yfin.logging_setup import get_logger
 
 log = get_logger(__name__)
 
-# S8.3: kaynakta "veri yok" anlamina gelen sentinel degerler
+# Sentinel values meaning "no data" in the source
 SENTINELS: frozenset[str] = frozenset({"-", "", "N/A", "n/a", "None", "null"})
 
-# S8.4: epoch alan haritasi. Birim tahmin edilmez.
+# Epoch field map. Units are never guessed.
 EPOCH_MS_FIELDS: frozenset[str] = frozenset({"firstTradeDateMilliseconds"})
 
 EPOCH_SEC_FIELDS: frozenset[str] = frozenset(
@@ -51,7 +51,7 @@ EPOCH_SEC_FIELDS: frozenset[str] = frozenset(
     }
 )
 
-# Adi epoch cagristirsa da donusturulmeyen alanlar (S8.4)
+# Fields whose name suggests epoch but that aren't converted
 NOT_EPOCH_FIELDS: frozenset[str] = frozenset(
     {
         "fullTimeEmployees",
@@ -63,20 +63,20 @@ NOT_EPOCH_FIELDS: frozenset[str] = frozenset(
     }
 )
 
-# Haritalanmamis alanlarda "epoch gibi duruyor" uyarisi icin aralik:
-# 1990-01-01 .. 2100-01-01 (saniye)
+# Range for the "looks like epoch" warning on unmapped fields:
+# 1990-01-01 .. 2100-01-01 (seconds)
 _EPOCH_LOW = 631_152_000
 _EPOCH_HIGH = 4_102_444_800
 
 
 def normalize_symbol(symbol: str) -> str:
-    """Tek kanonik bicim (S8.3). COLLATE "C" ile birlikte
-    'aapl'/'AAPL' karisikligini imkansiz kilar."""
+    """One canonical form. With COLLATE "C" this makes 'aapl'/'AAPL'
+    collisions impossible."""
     return symbol.strip().upper()
 
 
 def is_missing(value: Any) -> bool:
-    """None / NaN / NaT / pd.NA / sentinel string -> eksik."""
+    """None / NaN / NaT / pd.NA / sentinel string -> missing."""
     if value is None or value is pd.NaT or value is pd.NA:
         return True
     if isinstance(value, str):
@@ -95,15 +95,15 @@ def to_str(value: Any, max_len: int | None = None) -> str | None:
     if text in SENTINELS:
         return None
     if max_len is not None and len(text) > max_len:
-        # Kirpma veri kaybi degildir (tam metin raw_json'da durur) ama
-        # sessiz kalmasi kolon genisligi kararlarini gorunmez kilar.
+        # Truncation isn't data loss (the full text stays in raw_json), but
+        # doing it silently hides column-width decisions.
         log.debug("value truncated", max_len=max_len, original_len=len(text))
         text = text[:max_len]
     return text
 
 
 def to_int(value: Any) -> int | None:
-    """numpy tamsayilari dahil Python int'e cevirir."""
+    """Converts to a Python int, including numpy integer types."""
     if is_missing(value):
         return None
     if isinstance(value, bool | np.bool_):
@@ -138,12 +138,12 @@ def to_bool(value: Any) -> bool | None:
 
 
 def to_decimal(value: Any) -> Decimal | None:
-    """float -> DECIMAL donusumu (S8.3).
+    """float -> DECIMAL conversion.
 
-    ``Decimal(repr(float(x)))`` zorunludur:
-    - Ciplak ``Decimal(repr(x))`` numpy 2.x'te patlar, cunku
+    ``Decimal(repr(float(x)))`` is required:
+    - Bare ``Decimal(repr(x))`` breaks on numpy 2.x, since
       ``repr(np.float64(0.00187))`` == ``'np.float64(0.00187)'``.
-    - ``Decimal(float(x))`` ise ikili artik uretir (0.001870000000000000041...).
+    - ``Decimal(float(x))`` produces binary residue (0.001870000000000000041...).
     """
     if is_missing(value):
         return None
@@ -158,11 +158,10 @@ def to_decimal(value: Any) -> Decimal | None:
 
 
 def to_datetime_utc(value: Any) -> datetime | None:
-    """tz-aware degeri UTC'ye cevirir, naive degeri UTC KABUL EDER.
+    """Converts a tz-aware value to UTC; treats a naive value as UTC.
 
-    Donen deger UTC-AWARE'dir. MySQL DATETIME(6) tz tasimadigi icin damga
-    naive'e indiriliyordu; PostgreSQL kolonu `timestamptz`tir ve tz
-    bilgisini SAKLAR (PG S2.3).
+    Returns a UTC-aware value. The PostgreSQL column is `timestamptz` and
+    retains tz info.
     """
     if is_missing(value):
         return None
@@ -176,10 +175,10 @@ def to_datetime_utc(value: Any) -> datetime | None:
         aware: datetime = ts.to_pydatetime()
         return aware
     if isinstance(value, datetime):
-        # Naive deger UTC KABUL EDILIR (dokumante edilmis sozlesme) ve
-        # acikca isaretlenir; aksi halde `timestamptz` kolonuna naive
-        # deger giderdi ve psycopg onu baglanti TZ'sine gore yorumlardi --
-        # sonuc dogru cikar ama tip tutarsizligi kalicilasir.
+        # A naive value is treated as UTC (documented contract) and marked
+        # explicit; otherwise a naive value would go into the `timestamptz`
+        # column and psycopg would interpret it by connection TZ -- the
+        # result comes out right but the type inconsistency persists.
         if value.tzinfo is None:
             return value.replace(tzinfo=UTC)
         return value.astimezone(UTC)
@@ -189,11 +188,11 @@ def to_datetime_utc(value: Any) -> datetime | None:
 
 
 def to_local_date(value: Any) -> date | None:
-    """Borsanin YEREL seans tarihi (S5.4).
+    """The exchange's local session date.
 
-    UTC'ye cevirip tarih almak pozitif ofsetli borsalarda (BIST, Tokyo)
-    tarihi bir gun geri kaydirir: THYAO 2000-05-10 00:00+03:00 ->
-    2000-05-09 21:00 UTC. Bu yuzden tz donusumu YAPILMAZ.
+    Converting to UTC first and taking the date shifts it back a day for
+    positive-offset exchanges (BIST, Tokyo): THYAO 2000-05-10 00:00+03:00
+    -> 2000-05-09 21:00 UTC. So no tz conversion happens here.
     """
     if is_missing(value):
         return None
@@ -213,7 +212,7 @@ def to_local_date(value: Any) -> date | None:
 
 
 def epoch_to_datetime(value: Any, *, unit: str = "s") -> datetime | None:
-    """Epoch -> UTC-AWARE datetime. unit 's' veya 'ms'."""
+    """Epoch -> UTC-aware datetime. unit is 's' or 'ms'."""
     raw = to_int(value)
     if raw is None:
         return None
@@ -225,16 +224,16 @@ def epoch_to_datetime(value: Any, *, unit: str = "s") -> datetime | None:
 
 
 def convert_epoch_field(key: str, value: Any) -> datetime | None:
-    """Alan adina gore dogru birimle cozer (S8.4)."""
+    """Resolves the correct unit by field name."""
     if key in EPOCH_MS_FIELDS:
         return epoch_to_datetime(value, unit="ms")
     if key in EPOCH_SEC_FIELDS:
         return epoch_to_datetime(value, unit="s")
-    raise KeyError(f"epoch haritasinda yok: {key}")
+    raise KeyError(f"not in epoch map: {key}")
 
 
 def warn_unmapped_epoch_like(payload: Mapping[str, Any], mapped_keys: frozenset[str]) -> list[str]:
-    """Haritada olmayip epoch araliginda gorunen alanlari uyarir (S8.4)."""
+    """Warns about fields not in the map that fall in the epoch range."""
     suspects: list[str] = []
     for key, value in payload.items():
         if key in mapped_keys or key in NOT_EPOCH_FIELDS:
@@ -244,8 +243,8 @@ def warn_unmapped_epoch_like(payload: Mapping[str, Any], mapped_keys: frozenset[
         if isinstance(value, int | np.integer):
             number = int(value)
         elif isinstance(value, float | np.floating) and float(value).is_integer():
-            # Yahoo bir epoch'u float olarak dondurebilir (1704067200.0);
-            # yalnizca int taransaydi bu alan sessizce kacardi.
+            # Yahoo can return an epoch as a float (1704067200.0); scanning
+            # ints only would silently miss this field.
             number = int(value)
         else:
             continue
@@ -257,10 +256,10 @@ def warn_unmapped_epoch_like(payload: Mapping[str, Any], mapped_keys: frozenset[
 
 
 def is_empty_result(raw: Any) -> bool:
-    """Bos sonuc kontrolu (S8.3).
+    """Empty-result check.
 
-    ``.empty`` tek basina yetmez: ``get_shares_full`` None donebilir ve
-    ``None.empty`` AttributeError verir.
+    ``.empty`` alone isn't enough: ``get_shares_full`` can return None,
+    and ``None.empty`` raises AttributeError.
     """
     if raw is None:
         return True
@@ -275,10 +274,10 @@ def is_empty_result(raw: Any) -> bool:
 
 
 class YFJSONEncoder(json.JSONEncoder):
-    """raw_json icin encoder (S8.3).
+    """Encoder for raw_json.
 
-    ``HistoryMetadata`` bir dict degil, Mapping'dir; ``tradingPeriods`` bir
-    DataFrame'dir. Duz ``json.dumps`` TypeError verir.
+    ``HistoryMetadata`` is a Mapping, not a dict; ``tradingPeriods`` is a
+    DataFrame. Plain ``json.dumps`` raises TypeError on these.
     """
 
     def default(self, o: Any) -> Any:
@@ -308,7 +307,7 @@ class YFJSONEncoder(json.JSONEncoder):
 
 
 def _scrub_nan(value: Any) -> Any:
-    """NaN/Inf degerlerini None'a cevirir; allow_nan=False'in patlamamasi icin."""
+    """Converts NaN/Inf to None so allow_nan=False doesn't raise."""
     if isinstance(value, Mapping):
         return {str(k): _scrub_nan(v) for k, v in value.items()}
     if isinstance(value, list | tuple):
@@ -323,18 +322,17 @@ def _scrub_nan(value: Any) -> Any:
 
 
 def canonical_json(payload: Any) -> str:
-    """Kanonik JSON (S7.2).
+    """Canonical JSON.
 
-    sort_keys + allow_nan=False + ensure_ascii=False + kompakt ayiricilar.
+    sort_keys + allow_nan=False + ensure_ascii=False + compact separators.
 
-    allow_nan=False ZORUNLUDUR. Gerekce motor degisimiyle DEGISMEDI,
-    yalnizca belirtisi degisti: MySQL JSON tipi NaN iceren govdeyi
-    reddediyordu (ERROR 3140) ve tum sembolun transaction'i geri
-    alinirdi. Kolon artik TEXT oldugu icin (PG S2.4) NaN sessizce
-    YAZILIRDI -- ve `content_hash` uzerinden karsilastirildiginda
-    `NaN != NaN` oldugu icin hash kapisi HER KOSUDA acilir, degismeyen
-    veri surekli yeniden yazilirdi. Yani kapi artik motorun degil BU
-    fonksiyonun sorumlulugundadir.
+    allow_nan=False is required, and the reason hasn't changed even though
+    the database engine has: MySQL's JSON type used to reject a body
+    containing NaN (ERROR 3140), rolling back the whole symbol's
+    transaction. The column is TEXT now, so NaN would be written silently
+    -- and since `NaN != NaN`, comparing via `content_hash` would open the
+    hash gate on every run, rewriting unchanged data forever. So this
+    function, not the storage engine, is responsible for the gate.
     """
     return json.dumps(
         _scrub_nan(payload),
@@ -347,7 +345,7 @@ def canonical_json(payload: Any) -> str:
 
 
 def content_hash(payload: Any | None = None, *, canonical: str | None = None) -> str:
-    """Kanonik JSON uzerinden SHA-256 (S7.2). Her zaman Python tarafinda."""
+    """SHA-256 over canonical JSON. Always computed in Python."""
     import hashlib
 
     text = canonical if canonical is not None else canonical_json(payload)
@@ -355,21 +353,22 @@ def content_hash(payload: Any | None = None, *, canonical: str | None = None) ->
 
 
 def as_mapping(raw: Any) -> dict[str, Any]:
-    """Kaynak nesnesini guvenle dict'e cevirir.
+    """Safely converts a source object to a dict.
 
-    HistoryMetadata bir dict DEGIL, Mapping'dir (S8.3) - ve Mapping
-    sozlesmesini de ihlal eder: keys() 'tradingPeriods' anahtarini
-    listeler ama __getitem__ ayni anahtar icin KeyError firlatir
-    (yfinance/scrapers/history.py:55). Bu, yatirim fonlarinda (VFIAX)
-    gozlendi ve duz dict(raw) cagrisi tum sembolu unknown_symbol yapiyordu.
-    Bu yuzden anahtarlar tek tek okunur, cozulemeyen anahtar atlanir.
+    HistoryMetadata is a Mapping, not a dict -- and violates the Mapping
+    contract itself: keys() lists 'tradingPeriods' but __getitem__ raises
+    KeyError for that same key (yfinance/scrapers/history.py:55). Observed
+    on mutual funds (VFIAX), where a plain dict(raw) call turned the whole
+    symbol into unknown_symbol. So keys are read one by one, and an
+    unreadable key is skipped.
     """
     if isinstance(raw, dict):
         return raw
 
     out: dict[str, Any] = {}
     unreadable: list[str] = []
-    # .keys() bilincli: kaynak nesneler dict degil ve __iter__ garantisi yok
+    # .keys() is deliberate: source objects aren't dicts, and __iter__
+    # isn't guaranteed
     for key in raw.keys():  # noqa: SIM118
         try:
             out[str(key)] = raw[key]
@@ -381,6 +380,6 @@ def as_mapping(raw: Any) -> dict[str, Any]:
 
 
 def normalize_person_name(name: str) -> str:
-    """company_officers.name (S8.3): kaynakta cift bosluk var
-    ('Mr. Kevan  Parekh'); normalize edilmezse duplike satir olusur."""
+    """company_officers.name: the source has double spaces
+    ('Mr. Kevan  Parekh'); without normalizing, duplicate rows result."""
     return " ".join(name.split())

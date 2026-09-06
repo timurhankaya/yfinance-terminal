@@ -1,4 +1,4 @@
-"""Fixture'lar GERCEK PostgreSQL'e yazilir; satir sayilari ve tip round-trip'i (SI S9.3)."""
+"""Fixtures written to actual PostgreSQL: row counts and type round-trip."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def test_taxonomy_writes_symbols_and_domains(db_session: Session) -> None:
     )
     assert _count(db_session, "domains", "domain_type = 'sector'") == len(FIXTURE_SECTORS)
     assert _count(db_session, "domains", "domain_type = 'industry'") == expected_industries
-    # `symbols` satirlari FK'nin ONCESINDE yazilir
+    # `symbols` rows are written before the FK that references them
     assert _count(db_session, "symbols", "quote_type = 'INDEX'") == len(
         FIXTURE_SECTORS
     ) + expected_industries
@@ -34,7 +34,7 @@ def test_taxonomy_writes_symbols_and_domains(db_session: Session) -> None:
 
 
 def test_industries_count_matches_the_discovered_universe(db_session: Session) -> None:
-    """EKSIKSIZLIGIN BEKLENEN DEGERINI API'NIN KENDISI VERIYOR."""
+    """The API itself supplies the expected count for completeness checks."""
     run_taxonomy(db_session)
     for key in FIXTURE_SECTORS:
         run_dataset(db_session, "sector_profile", "sector", key)
@@ -69,7 +69,7 @@ def test_industry_rankings_write_movers(db_session: Session) -> None:
 
 
 def test_numeric_round_trip_is_lossless(db_session: Session) -> None:
-    """Ust ve alt uclar KAYIPSIZ geri okunur."""
+    """Upper and lower extremes round-trip without loss."""
     run_taxonomy(db_session)
     run_dataset(db_session, "sector_profile", "sector", "technology")
     run_dataset(db_session, "sector_rankings", "sector", "technology")
@@ -100,12 +100,13 @@ def test_numeric_round_trip_is_lossless(db_session: Session) -> None:
 
 
 def test_extreme_growth_estimate_round_trips(db_session: Session) -> None:
-    """DECIMAL(28,12) OLCEGINDE kayipsiz.
+    """Lossless at DECIMAL(28,12) scale.
 
-    Kaynak `0.7656249999999998` gibi cift-duyarlikli artiklar dondurebiliyor;
-    kolon 12 haneye yuvarlar. Bu bir KAYIP DEGIL, kolonun ilan edilmis
-    olcegidir -- `PriceType` kod tabaninin her yerinde ayni sozlesmeyi
-    tasir. Test bu yuzden AYNI olcege quantize eder.
+    The source can return double-precision remainders like
+    `0.7656249999999998`; the column rounds to 12 digits. That is not a
+    loss, it is the column's declared scale -- `PriceType` carries the same
+    contract everywhere in the codebase. The test quantizes to the same
+    scale for this reason.
     """
     run_taxonomy(db_session)
     run_dataset(db_session, "industry_rankings", "industry", "electronic-components")
@@ -126,7 +127,7 @@ def test_extreme_growth_estimate_round_trips(db_session: Session) -> None:
         ).scalar_one()
         assert stored == Decimal(str(expected)).quantize(scale)
         checked += 1
-    assert checked, "growthEstimate tasiyan satir bekleniyordu"
+    assert checked, "expected at least one row carrying growthEstimate"
 
 
 def test_empty_industry_writes_nothing_and_no_gate_row(db_session: Session) -> None:
@@ -148,13 +149,13 @@ def test_regional_rows_carry_their_region(db_session: Session) -> None:
         ).scalars()
     )
     assert regions == {"US", "GB"}
-    # GB'de topETFs BOS: satir yok, hata degil
+    # topETFs is empty for GB: no rows, not an error
     assert _count(db_session, "domain_top_funds", "region = 'GB'") == 0
     assert _count(db_session, "domain_top_funds", "region = 'US'") > 0
 
 
 def test_domain_metrics_have_no_region_column(db_session: Session) -> None:
-    """`overview`/`performance` 5 bolgede BIREBIR ayni olculdu."""
+    """`overview`/`performance` measured identical across all 5 regions."""
     columns = set(
         db_session.execute(
             text(

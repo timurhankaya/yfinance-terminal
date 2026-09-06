@@ -1,4 +1,4 @@
-"""sync_runs ve sync_run_items denetim tablolari (S5.2, S8.1)."""
+"""sync_runs and sync_run_items audit tables."""
 
 from __future__ import annotations
 
@@ -29,12 +29,12 @@ from yfin.models.base import (
 
 
 class RunScope(enum.StrEnum):
-    """Bir run'in kapsami: sembol dongusu mu, piyasa dongusu mu (S5.5)."""
+    """A run's scope: a symbol loop or a market loop."""
 
     SYMBOLS = "symbols"
     MARKET = "market"
-    # Sektor / endustri turu (SI S5.9). Ucuncu bir eksen: ne sembol ne
-    # bolge dongusudur -- 156 anahtar, her biri kendi HTTP istegi.
+    # Sector / industry type. A third axis, neither a symbol nor a region
+    # loop -- 156 keys, each its own HTTP request.
     DOMAIN = "domain"
 
 
@@ -47,20 +47,20 @@ class RunStatus(enum.StrEnum):
 
 class ItemStatus(enum.StrEnum):
     OK = "ok"
-    EMPTY = "empty"  # kaynak veri yok - HATA DEGIL (S8.2)
-    SKIPPED = "skipped"  # content_hash degismedi
+    EMPTY = "empty"  # No source data -- not an error.
+    SKIPPED = "skipped"  # content_hash unchanged.
     FAILED = "failed"
     UNKNOWN_SYMBOL = "unknown_symbol"
-    # Kuyrukta islenmeden kaldi (shard cekildi/oldu). SKIPPED ile
-    # KARISTIRILMAZ: onun anlami "content_hash degismedi"dir ve bu ayrim
-    # olmasaydi cekilmemis sembol "veri guncel" sanilirdi.
+    # Left unprocessed in the queue (shard pulled or died). Distinct from
+    # SKIPPED, which means "content_hash unchanged" -- without this
+    # distinction an unpulled symbol would look like "data is current".
     NOT_ATTEMPTED = "not_attempted"
-    # Dataset o sembol icin BILEREK kosturulmadi (intraday_scope kapsami
-    # disi, PB S6.5). NOT_ATTEMPTED ILE KARISTIRILMAZ: onun anlami "shard
-    # cekildi, bu semboller ISLENMEDI" - yani gercek bir eksikliktir ve
-    # RunTally.exit_code onu gorunce kosuyu PARTIAL yapar. Kapsam disilik
-    # ise kasitli bir karardir; 4.500 sembole not_attempted yazmak
-    # `yfin sync`i her gun exit 2 dondururdu.
+    # Dataset deliberately not run for this symbol (outside
+    # intraday_scope). Distinct from NOT_ATTEMPTED, whose meaning is
+    # "shard was pulled, these symbols were not processed" -- a real gap
+    # that makes RunTally.exit_code mark the run PARTIAL. Out-of-scope is
+    # an intentional decision; writing not_attempted for 4,500 symbols
+    # would make `yfin sync` return exit 2 every day.
     OUT_OF_SCOPE = "out_of_scope"
 
 
@@ -70,8 +70,8 @@ class SyncRun(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
     started_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
-    # server_default mevcut satirlari geriye donuk etiketler; NOT NULL kisiti
-    # ilk calistirmada patlamaz (ALGORITHM=INSTANT, 50k satirda 16 ms)
+    # server_default backfills existing rows; the NOT NULL constraint does
+    # not break on first run (ALGORITHM=INSTANT, 16ms measured on 50k rows).
     scope: Mapped[RunScope] = mapped_column(
         Enum(RunScope, values_callable=lambda e: [m.value for m in e], name="run_scope"),
         nullable=False,
@@ -86,13 +86,13 @@ class SyncRun(Base):
     )
     symbol_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     dataset_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    # Proxy secimi bilindikten SONRA yazilir (P4.4)
+    # Written after proxy selection is known.
     shard_count: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="1")
-    # Bu calistirmanin sembol evreni ve tarih araligi, insan-okunur biçimde
-    # ("exchange=IST quote_type=EQUITY start=2020-01-01"). `scope` yalnizca
-    # symbols/market ayrimini tasir; hangi run'in hangi evreni kapsadigi aksi
-    # halde geriye donuk bilinemez ve eksiksizlik iddiasi denetlenemez
-    # (AH S5.6). server_default YOKTUR: mevcut satirlar NULL kalir = filtresiz.
+    # This run's symbol universe and date range, human-readable
+    # ("exchange=IST quote_type=EQUITY start=2020-01-01"). `scope` only
+    # carries the symbols/market split; without this, which universe a
+    # past run covered would be unknowable, and completeness claims
+    # unauditable. No server_default: existing rows stay NULL = unfiltered.
     selector: Mapped[str | None] = mapped_column(String(255, collation="C"))
     rows_fetched: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     rows_written: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
@@ -101,7 +101,7 @@ class SyncRun(Base):
 
 
 class SyncRunItem(Base):
-    """Cok tabloya yazan dataset'ler icin tablo basina bir satir yazilir."""
+    """For datasets writing to multiple tables, one row is written per table."""
 
     __tablename__ = "sync_run_items"
     __table_args__ = (
@@ -114,8 +114,8 @@ class SyncRunItem(Base):
     run_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("sync_runs.id", ondelete="CASCADE"), nullable=False
     )
-    # FK YOKTUR (S5.5): cozulemeyen sembol icin unknown_symbol kaydi
-    # yazilamazdi (FK ihlali). Denetim kaydi sembol silinse de kalmalidir.
+    # No FK: an unresolvable symbol could not get an unknown_symbol record
+    # written (FK violation). The audit record must survive symbol deletion.
     symbol: Mapped[str] = mapped_column(SymbolType(), nullable=False)
     dataset: Mapped[str] = mapped_column(String(64, collation="C"), nullable=False)
     status: Mapped[ItemStatus] = mapped_column(
@@ -131,20 +131,19 @@ class SyncRunItem(Base):
     rows_skipped: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
-    # Domain hucrelerinin bolge ekseni (SI S5.9). Sembol ve piyasa
-    # tarafinda NULL kalir. `symbol` alanina domain SEMBOLU yazilir
-    # (`^YH31130020`), anahtar DEGIL: kolon VARCHAR(32) ve bes endustri
-    # anahtari bunu asiyor (en uzun 37).
+    # Region axis for domain cells; NULL for symbol and market runs.
+    # `symbol` holds the domain SYMBOL (`^YH31130020`), not the key: the
+    # column is VARCHAR(32) and five industry keys exceed that (longest 37).
     region: Mapped[str | None] = mapped_column(RegionType())
 
     shard_index: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
-    # FK YOKTUR (P3.5) - `symbol` ile ayni gerekce ve bir tanesi daha:
-    # Her INSERT ebeveyn proxies satirina paylasimli kilit alir;
-    # shard binlerce item yazarken kendi proxy satirini S-kilitler ve
-    # komsu shard'in saglik flush'i (X-lock) beklerdi. FK, tam da
-    # engellemek istedigimiz deadlock'u uretirdi.
+    # No FK -- same reasoning as `symbol`, plus one more: each INSERT
+    # takes a shared lock on the parent proxies row. A shard writing
+    # thousands of items would S-lock its proxy row and wait on a
+    # neighboring shard's health flush (X-lock). An FK would create
+    # exactly the deadlock this avoids.
     proxy_id: Mapped[int | None] = mapped_column(
         BigInteger, CheckConstraint('"proxy_id" >= 0', name="ck_sync_run_items_proxy_id_nonneg")
     )
-    # Anlik kopya: proxy silinse de denetim kaydi okunabilir kalir
+    # Point-in-time copy: readable even if the proxy is later deleted.
     proxy_label: Mapped[str | None] = mapped_column(ProxyLabelType())

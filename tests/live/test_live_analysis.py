@@ -1,17 +1,17 @@
-"""Analiz + sahiplik + fon canli entegrasyon testi (AH S9.3).
+"""Live integration test for analysis + holders + funds.
 
-Varsayilan olarak ATLANIR. Elle calistirmak icin:  pytest -m live
-Gercek Yahoo API + gercek PostgreSQL; CI'da calistirilmaz.
+Skipped by default. Run manually with: pytest -m live
+Uses the real Yahoo API and a real PostgreSQL; not run in CI.
 
-Iki iddia BURADA baglanir; ikisi de yalnizca canli kaynakla gorulebilir:
+Two claims can only be checked against the live source:
 
-1. ISTEK SAYISI -- 16 dataset tek sembolde YEDI istek yapar (fonlarda
-   sekiz). Sayi sessizce artarsa (biri taze bir `Ticker` kurarsa) test
-   kirilir; AH S4.4'un varsayimini koda baglayan TEK sey budur.
-2. 404 KURALI -- `hide_exceptions=False` altinda ^GSPC'nin butun hucreleri
-   `empty` olur, `failed` DEGIL, ve run cikis kodu 0 kalir.
+1. Request count -- 16 datasets on one symbol make 7 requests (8 for
+   funds). If the count silently grows (e.g. a dataset builds its own
+   fresh `Ticker`), this test breaks -- that's the point.
+2. The 404 rule -- with `hide_exceptions=False`, all of ^GSPC's cells come
+   back `empty`, not `failed`, and the run exit code stays 0.
 
-Bos gelmesi beklenen hicbir hucreye "dolu olmali" iddiasi KURULMAZ (S8.2).
+No cell expected to come back empty is asserted "should be non-empty".
 """
 
 from __future__ import annotations
@@ -27,25 +27,25 @@ from yfin.runner import EXIT_OK, run_sync
 
 pytestmark = pytest.mark.live
 
-# AH S9.1 referans sembolleri; her biri bir kenar durumun kanitidir.
+# Reference symbols; each is evidence for one edge case.
 SYMBOLS = ("AAPL", "PFE", "XOM", "NVDA", "KO", "THYAO.IS", "SPY", "BND", "^GSPC")
 DATASETS = ("analysis", "holders", "funds")
 
-# Sembol basina beklenen Yahoo modul istegi (AH S4.4): recommendationTrend,
+# Expected Yahoo module requests per symbol: recommendationTrend,
 # upgradeDowngradeHistory, financialData, earningsTrend, earningsHistory,
-# industry+sector+indexTrend, holders demeti.
+# industry+sector+indexTrend, holders bundle.
 EXPECTED_REQUESTS = 7
 
 
 @pytest.fixture(scope="module", autouse=True)
 def configured() -> None:
-    """404 KURALI ANCAK BU AYARLA anlamlidir.
+    """The 404 rule only holds with this setting applied.
 
-    `run_sync` dogrudan cagrildiginda `configure_yfinance`i CAGIRMAZ -- o,
-    `shard.run_sharded` ve `market_runner`in isidir. Ayar yapilmazsa
-    yfinance varsayilani (`hide_exceptions=True`) gecerli olur, ag hatasi
-    sessizce bos sonuca doner ve test "hicbir hucre failed degil" derken
-    aslinda VERI KAYBINI onaylardi (AH S8.4).
+    Calling `run_sync` directly does not call `configure_yfinance` -- that is
+    done by `shard.run_sharded` and `market_runner`. Without it, yfinance's
+    default (`hide_exceptions=True`) applies, a network error silently
+    returns an empty result, and "no cell is failed" would actually be
+    approving data loss.
     """
     configure_yfinance(None, proxy_key="direct")
 
@@ -85,17 +85,17 @@ def _statuses(session: Session, run_id: int, symbol: str) -> set[str]:
     return {ItemStatus(row).value for row in rows}
 
 
-# --- run butunlugu ---------------------------------------------------------
+# --- run integrity ----------------------------------------------------------
 
 
 def test_run_succeeds_despite_empty_symbols(live_analysis, test_engine: Engine) -> None:  # type: ignore[no-untyped-def]
-    """^GSPC ve BND'nin bos hucreleri run'i `partial` YAPMAZ."""
+    """Empty cells for ^GSPC and BND do not make the run `partial`."""
     assert live_analysis.exit_code() == EXIT_OK
     assert live_analysis.failed == 0
 
 
 def test_index_symbol_produces_only_empty_cells(live_analysis, test_engine: Engine) -> None:  # type: ignore[no-untyped-def]
-    """404 KURALI: veri yoklugu `empty`tir, `failed` degil (AH S8.4)."""
+    """404 rule: missing data is `empty`, not `failed`."""
     factory = sessionmaker(bind=test_engine, expire_on_commit=False, future=True)
     with factory() as session:
         statuses = _statuses(session, live_analysis.run_id, "^GSPC")
@@ -117,13 +117,13 @@ def test_fund_symbol_fills_fund_tables(live_analysis, test_engine: Engine) -> No
     with factory() as session:
         assert _count(session, "fund_profile", "SPY") == 1
         assert _count(session, "fund_top_holdings", "SPY") > 0
-        # BND tahvil fonudur: profil dolar, top_holdings BOS kalir
+        # BND is a bond fund: profile is filled, top_holdings stays empty.
         assert _count(session, "fund_profile", "BND") == 1
         assert _count(session, "fund_weightings", "BND") > 0
 
 
 def test_asof_row_count_matches_written_rows(live_analysis, test_engine: Engine) -> None:  # type: ignore[no-untyped-def]
-    """`asof_state.row_count` denetim icindir; yazilan satirla tutmali."""
+    """`asof_state.row_count` is for auditing; must match rows actually written."""
     factory = sessionmaker(bind=test_engine, expire_on_commit=False, future=True)
     with factory() as session:
         written = _count(session, "analyst_recommendations", "AAPL")
@@ -136,14 +136,14 @@ def test_asof_row_count_matches_written_rows(live_analysis, test_engine: Engine)
     assert int(recorded) == written
 
 
-# --- istek sayisi ----------------------------------------------------------
+# --- request count -----------------------------------------------------------
 
 
 def test_symbol_costs_seven_requests(test_engine: Engine) -> None:
-    """Sembol basina TEK `Ticker`; 16 dataset YEDI istek paylasir.
+    """One `Ticker` per symbol; 16 datasets share 7 requests.
 
-    `news`'un taze-Ticker istisnasi (T S6.3) buraya genisletilirse maliyet
-    16 istege cikar ve bu test kirilir -- amaci tam olarak budur.
+    If `news`'s fresh-Ticker exception is ever extended here, the cost rises
+    to 16 requests and this test breaks -- that's exactly the point.
     """
     from yfinance.data import YfData
 

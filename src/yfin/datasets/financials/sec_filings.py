@@ -1,8 +1,9 @@
-"""sec_filings dataset'i (S6.5).
+"""sec_filings dataset.
 
-Kaynak ABD sembollerinde `list[dict]`, ABD disinda ve fon/ETF'te **{} (dict)**
-doner (`quote.py:592`). Dict uzerinde `for f in raw` anahtarlari gezer ve
-`f["type"]` TypeError verir; bu yuzden tip kontrolu zorunludur.
+Source returns `list[dict]` for US symbols; for non-US and fund/ETF symbols
+it returns **{} (dict)** (`quote.py:592`). Iterating a dict with `for f in
+raw` walks its keys, and `f["type"]` then raises TypeError -- hence the type
+check is mandatory.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from yfin.logging_setup import get_logger
 
 log = get_logger(__name__)
 
-# edgarUrl icindeki accession numarasi: AAPL'de 80/80 basarili
+# Accession number inside edgarUrl: 80/80 successful for AAPL.
 ACCESSION_RE = re.compile(r"(\d{10}-\d{2}-\d{6})")
 
 FILING_UPDATE_COLUMNS = (
@@ -50,12 +51,12 @@ class SecFilingsDataset(Dataset[SecFilingsPayload]):
     produces = ("sec_filings", "sec_filing_exhibits")
 
     def fetch(self, ctx: SyncContext) -> SecFilingsPayload:
-        # ABD disi sembolde 404, fon/ETF'te {} doner; ikisi de empty
+        # 404 for non-US symbols, {} for fund/ETF; both count as empty.
         raw = ctx.cached(
             "sec_filings",
             lambda: call_optional(ctx.ticker.get_sec_filings, what=f"sec_filings:{ctx.symbol}"),
         )
-        # ABD disinda {} doner; liste degilse bos kabul edilir
+        # Non-US returns {}; anything that isn't a list is treated as empty.
         filings = list(raw) if isinstance(raw, list) else []
         return SecFilingsPayload(filings=filings, fetched_at=ctx.fetched_at)
 
@@ -63,10 +64,10 @@ class SecFilingsDataset(Dataset[SecFilingsPayload]):
         if not raw.filings:
             return NormalizedResult()
 
-        # PK'ya gore TEKILLESTIRILIR (kardes dataset'lerin `rows[key] = ...`
-        # deseni). Kaynak ayni `filing_id`'yi iki kez verirse duz listede
-        # `attempted=2 / verified=1` olur ve `_record_items` hucreyi
-        # YANLISLIKLA `failed` yapar -- veri dogru yazilmis olmasina ragmen.
+        # Deduplicated by PK (same `rows[key] = ...` pattern as sibling
+        # datasets). If the source repeats a `filing_id`, a plain list would
+        # give `attempted=2 / verified=1` and `_record_items` would wrongly
+        # mark the cell `failed` even though the data was written correctly.
         filings: dict[str, dict[str, Any]] = {}
         exhibits_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
 
@@ -74,12 +75,13 @@ class SecFilingsDataset(Dataset[SecFilingsPayload]):
             if not isinstance(entry, dict):
                 continue
             filing_date = nz.to_local_date(entry.get("date"))
-            # epochDate SANIYE cinsindendir (1788220800 -> 2026-09-01)
+            # epochDate is in SECONDS (1788220800 -> 2026-09-01).
             filed_ts = nz.epoch_to_datetime(entry.get("epochDate"), unit="s")
             filing_type = nz.to_str(entry.get("type"), max_len=32)
             if filing_date is None or filed_ts is None or filing_type is None:
-                # Zorunlu alani eksik dosyalama ATLANIR; yazilsaydi
-                # NOT NULL ihlali (23502) sembolun TUM transaction'ini dusururdu
+                # A filing missing a required field is SKIPPED; writing it
+                # would raise a NOT NULL violation (23502) and drop the
+                # symbol's ENTIRE transaction.
                 log.warning(
                     "sec filing missing required field", symbol=symbol, entry=str(entry)[:120]
                 )
@@ -90,7 +92,7 @@ class SecFilingsDataset(Dataset[SecFilingsPayload]):
             if not isinstance(exhibits, dict):
                 exhibits = {}
             for exhibit_type, url in exhibits.items():
-                # PK bileseni -> KIRPILMAZ
+                # PK component -> NOT truncated.
                 type_key = key_value(
                     exhibit_type, 32, field="exhibit_type", dataset=self.name, symbol=symbol
                 )
@@ -102,8 +104,9 @@ class SecFilingsDataset(Dataset[SecFilingsPayload]):
                     "symbol": symbol,
                     "filing_id": filing_id,
                     "exhibit_type": type_key,
-                    # url TEXT oldugu icin PK'ya giremez (btree tuple siniri);
-                    # ayni dosyalamada iki farkli URL'li EX-99.1 olur
+                    # url is TEXT so it cannot join the PK (btree tuple limit);
+                    # the same filing can have two EX-99.1 entries with
+                    # different URLs.
                     "url_hash": url_hash,
                     "url": url_text,
                 }
@@ -117,9 +120,9 @@ class SecFilingsDataset(Dataset[SecFilingsPayload]):
                     "filing_type": filing_type,
                     "title": nz.to_str(entry.get("title")),
                     "edgar_url": nz.to_str(entry.get("edgarUrl")),
-                    # yfinance ek listesini {type: url}'e cevirirken ayni
-                    # tipteki ikinci egi uzerine yazar: bu sayi TEKIL ek tipi
-                    # sayisidir
+                    # yfinance overwrites same-type exhibits when building its
+                    # {type: url} dict, so this count is the number of DISTINCT
+                    # exhibit types.
                     "exhibit_count": len(exhibits),
                     "raw_json": nz.canonical_json(entry),
                     "fetched_at": raw.fetched_at,

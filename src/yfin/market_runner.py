@@ -1,14 +1,14 @@
-"""Piyasa sync orkestrasyonu (S7.2).
+"""Market sync orchestration.
 
-Sembol dongusu yoktur: 6 dataset, tipik ~20 istek. Paralellik, kuyruk ve
-backpressure makinesi burada karsiligi olmayan bir karmasiklik olurdu.
+No symbol loop: 6 datasets, ~20 requests typically. Parallelism, a
+queue, and backpressure machinery would be unwarranted complexity here.
 
-Transaction siniri TUR duzeyindedir (dataset x bolge): economic_calendar
-patladiginda splits_calendar yazilmis kalir; market_summary'nin EUROPE turu
-patladiginda US turu kalir.
+Transaction boundary is per turn (dataset x region): if
+economic_calendar fails, splits_calendar stays written; if
+market_summary's EUROPE turn fails, its US turn stays written.
 
-Kilit adi 'yfin_market_sync'tir; sembol sync'inin 'yfin_sync' kilidiyle
-catismaz, iki komut es zamanli kosabilir.
+Lock name is 'yfin_market_sync', distinct from symbol sync's
+'yfin_sync', so the two commands can run concurrently.
 """
 
 from __future__ import annotations
@@ -51,20 +51,21 @@ from yfin.runner import (
 log = get_logger(__name__)
 
 MARKET_LOCK_NAME = "yfin_market_sync"
-# Bolgesiz (global) dataset'lerin denetim kaydinda kullanilan sembol alani
+# Symbol field used in the audit record for region-less (global) datasets
 GLOBAL_SCOPE_MARKER = "*"
 
 
 def market_regions(settings: Settings | None = None) -> list[str]:
-    """Config'teki bolgeler; MarketRegion enum'una gore dogrulanir.
+    """Regions from config, validated against the MarketRegion enum.
 
-    Gecersiz bolge Market(...) icinde ValueError firlatir -- bu `empty`
-    degil `failed`'dir, bu yuzden konfigurasyon asamasinda yakalanir.
+    An invalid region raises ValueError here rather than inside
+    Market(...), so it's `failed`, not `empty`, and caught at the
+    configuration stage.
     """
     from yfinance import MarketRegion
 
     cfg = settings or get_settings()
-    # MarketRegion bir StrEnum degil: str(member) "MarketRegion.US" verir
+    # MarketRegion isn't a StrEnum: str(member) gives "MarketRegion.US"
     valid = {member.value for member in MarketRegion}
     regions = [r.strip().upper() for r in cfg.yf_market_regions.split(",") if r.strip()]
     unknown = [r for r in regions if r not in valid]
@@ -83,10 +84,10 @@ def default_window(settings: Settings | None = None) -> tuple[date, date]:
 
 
 def _fail(dataset: GlobalDataset[Any], scope_label: str, exc: Exception) -> list[ItemRecord]:
-    """Basarisiz tur icin TABLO BASINA bir denetim kaydi.
+    """One audit record per table for a failed turn.
 
-    Sembol tarafiyla ayni fonksiyon kullanilir; `_failed_records` registry'yi
-    parametre olarak alir, boylece tablo adlari MARKET_DATASETS'ten cozulur.
+    Reuses the symbol side's function; `_failed_records` takes the
+    registry as a parameter so table names resolve from MARKET_DATASETS.
     """
     return _failed_records(
         scope_label, dataset.name, f"{type(exc).__name__}: {exc}", MARKET_DATASETS
@@ -100,12 +101,12 @@ def _run_turn(
     scope_label: str,
     tracker: ProxyTracker | None = None,
 ) -> list[ItemRecord]:
-    """Tek tur: fetch -> normalize -> upsert, kendi transaction'inda."""
+    """One turn: fetch -> normalize -> upsert, in its own transaction."""
     started = time.perf_counter()
     try:
         raw = dataset.fetch(mctx)
         result = dataset.normalize(raw)
-    except Exception as exc:  # noqa: BLE001 - (dataset x bolge) hata siniri
+    except Exception as exc:  # noqa: BLE001 - (dataset x region) error boundary
         kind = classify_error(exc)
         log.warning(
             "market dataset failed",
@@ -157,14 +158,14 @@ def run_market_sync(
 
     factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
-    # Piyasa dataset'leri SEMBOL EKSENLI DEGILDIR: kuyruk ve shard'lama
-    # burada anlamsizdir (her dataset zaten tek bir global cagridir).
-    # Proxy yine de kullanilir - tek process, havuzdan tek proxy.
+    # Market datasets aren't symbol-oriented: queueing and sharding are
+    # meaningless here (each dataset is already a single global call).
+    # A proxy is still used -- one process, one proxy from the pool.
     proxy_id, proxy_label, tracker = _setup_proxy(factory, cfg)
 
-    # symbol_count=0 ZORUNLUDUR: exit_code() kod 1'i yalnizca symbol_count
-    # doluysa uretir; bolge sayisi yazilsaydi "cozulen sembol" semantigi
-    # sessizce kayardi
+    # symbol_count=0 is required: exit_code() only produces code 1 when
+    # symbol_count is nonzero; writing the region count would silently
+    # shift the "resolved symbol" semantics.
     run_id = open_run(
         factory,
         symbol_count=0,
@@ -181,18 +182,18 @@ def run_market_sync(
     items: list[ItemRecord] = []
     for dataset in datasets:
         if dataset.scope == "region":
-            # Bolge dongusu dataset'in DISINDA: sync_run_items granulerligi
-            # dogal olarak (dataset x tablo x bolge) olur
+            # Region loop is outside the dataset: sync_run_items
+            # granularity naturally becomes (dataset x table x region)
             for region in regions:
                 items.extend(
                     _run_turn(factory, dataset, base_ctx.for_region(region), region, tracker)
                 )
         elif dataset.scope == "variant":
-            # SQ S6.1: ekran dongusu, bolge dongusuyle AYNI gerekceyle
-            # disaridadir. Varyant listesi KENDI kisa omurlu session'inda
-            # okunur ve MADDILESTIRILIR: tur transaction'lari (`_run_turn`)
-            # kendi session'larini acar, acik bir okuma session'ini tur
-            # boyunca tutmak bosuna bir baglanti tutardi.
+            # Screen loop is outside for the same reason as the region
+            # loop. The variant list is read in its own short-lived
+            # session and materialized: turn transactions (`_run_turn`)
+            # open their own sessions, so holding a read session open
+            # across the loop would waste a connection.
             with factory() as session:
                 variants = list(dataset.variants(cfg, session))
             for variant in variants:
@@ -212,10 +213,11 @@ def run_market_sync(
 def _setup_proxy(
     factory: sessionmaker[Any], settings: Settings
 ) -> tuple[int | None, str | None, ProxyTracker | None]:
-    """Havuzdan TEK proxy secip yfinance'i ona baglar.
+    """Pick one proxy from the pool and point yfinance at it.
 
-    Uygun proxy yoksa dogrudan baglanti (sembol tarafiyla ayni politika).
-    Parolasi cozulemeyen proxy dead YAPILMAZ, atlanir ve raporlanir.
+    Falls back to a direct connection if none is eligible, same policy
+    as the symbol side. A proxy whose password can't be decrypted is
+    skipped and reported, not marked dead.
     """
     with factory() as session:
         for row in select_eligible(session, limit=1):
