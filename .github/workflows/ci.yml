@@ -1,0 +1,40 @@
+# Sozlesme kilidi (tasarim K5) bir CI olmadan uygulanamaz: openapi.json
+# depoda tutulur ve uretilenle DIFF'lenir. Bu is akisi o kilidin
+# calistigi yerdir; ruff/mypy/pytest ayni kosuda tutulur ki sozlesme
+# kontrolu ayri bir mekanizma olmasin.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: uv kurulumu
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # requires-python = ">=3.13"; surum uv tarafindan saglanir.
+      - name: Bagimliliklar
+        run: uv sync --extra dev
+
+      - name: ruff
+        run: uv run ruff check .
+
+      - name: mypy --strict
+        run: uv run mypy
+
+      # `repo` ve `live` marker'lari addopts ile zaten deselect edilir:
+      # PostgreSQL ve gercek Yahoo API gerektirirler, CI'da kosmazlar.
+      - name: pytest
+        run: uv run pytest -q
