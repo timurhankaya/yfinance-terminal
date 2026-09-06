@@ -975,5 +975,11 @@ kararlastirilan isler. Kaybolmasinlar diye burada dururlar.
   anahtar aramasi, yazma tarafinda kosu basina bir upsert.
 - **Compose'daki `api` servisi ve Dockerfile.** Uc noktalar var artik;
   kalan is imaji ve servisi yazmaktir.
-- **Kafka icin bir uretici/tuketici.** Broker ayakta ama kullanilmiyor;
-  ne yayimlanacagina karar verilmedi.
+- **Kafka icin bir uretici/tuketici.** Broker compose'da ayakta. Amaci
+  bu spec yazildiktan sonra netlesti: canli WebSocket akisi tasariminin
+  (`2026-09-06-websocket-streaming-design.md`, K5) transactional outbox
+  uzerinden OPSIYONEL yayin yolu. Bu API'nin okuma yuzeyi ona baglanmaz.
+
+- **Dataset'lerin geri kalaninin `ApiExposure` ile isaretlenmesi.**
+  Mekanizma ve dort holders dataset'i yerinde; kalani mekanik bir istir
+  (§5.4).
