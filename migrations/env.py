@@ -10,6 +10,11 @@ from sqlalchemy import engine_from_config, pool
 from yfin.core.config import get_settings
 from yfin.models import Base
 
+# Imported for the side effect: the API tables share this Base, and
+# without the import autogenerate would see them as absent and write a
+# migration that drops them.
+import yfin.api.models  # noqa: F401,E402  isort:skip
+
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

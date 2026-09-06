@@ -27,6 +27,7 @@ import pytest  # noqa: E402
 from sqlalchemy import Engine, create_engine, text  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
+import yfin.api.models  # noqa: E402,F401  API tables share Base.metadata
 from helpers import drop_stale_schemas, schema_name  # noqa: E402
 from yfin.core.config import Settings, get_settings  # noqa: E402
 from yfin.models import (  # noqa: E402

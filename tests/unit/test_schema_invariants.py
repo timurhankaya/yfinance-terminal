@@ -167,6 +167,13 @@ def test_child_tables_inherit_their_parent_timestamp() -> None:
         "settings",
     }
     for table in Base.metadata.tables.values():
+        # The API's own tables (api_*) hold credentials, plans and usage
+        # counters. Nothing in them is fetched from a source, so
+        # "when was this fetched" has no meaning to answer; they carry
+        # created_at / updated_at / day instead. Excluded by prefix rather
+        # than listed one by one, since the set will keep growing.
+        if table.name.startswith("api_"):
+            continue
         if table.name in exempt or "fetched_at" in table.c:
             continue
         parents = {fk.referred_table.name for fk in table.foreign_key_constraints}

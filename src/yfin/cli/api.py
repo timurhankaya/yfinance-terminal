@@ -1,0 +1,188 @@
+"""`yfin api client` command group.
+
+Thin wrappers over `api/storage/clients.py`, for the same reason
+`yfin config` is a thin wrapper over `settings_store`: the self-service
+portal will call that module directly, and any rule buried in a command
+would be a rule the portal silently bypasses.
+
+Two behaviours are worth stating outright.
+
+A secret is printed exactly once, to stdout, and never stored in the
+clear. There is no command to recover it -- if it is lost, rotate.
+
+`disable` and `revoke` are not done when the database row is written.
+Token verification does not read the database, so the change only takes
+effect once Redis carries it. If that write fails, the command exits
+non-zero and says so: an operator who believes they have cut off a
+misbehaving client, but has not, is worse off than one who knows the
+command failed.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+import typer
+from sqlalchemy.orm import Session, sessionmaker
+
+from yfin.api.core.config import get_api_settings
+from yfin.api.models.clients import ApiScope
+from yfin.api.ratelimit.revocation import publish_revocation
+from yfin.api.storage import clients as repo
+from yfin.core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
+api_app = typer.Typer(help="Read API administration", no_args_is_help=True)
+client_app = typer.Typer(help="API client credentials", no_args_is_help=True)
+api_app.add_typer(client_app, name="client")
+
+EXIT_REJECTED = 2
+#: The DB row is written but the change has not propagated to Redis.
+EXIT_NOT_PROPAGATED = 3
+
+
+def _session_factory() -> sessionmaker[Session]:
+    # Imported here, not at module level: cli.app mounts this group, so a
+    # top-level import would be circular.
+    from yfin.cli.app import _session_factory as factory
+
+    return factory()
+
+
+def _scope_values() -> list[str]:
+    return [s.value for s in ApiScope]
+
+
+def _propagate(client_id: str, epoch: int, *, disabled: bool | None = None) -> bool:
+    """Publishes an authorisation change to Redis so live tokens stop.
+
+    Returns False instead of raising: the database change is already
+    committed, so the honest report is a partial success, not a failure
+    of the whole operation.
+    """
+    try:
+        publish_revocation(get_api_settings(), client_id, epoch=epoch, disabled=disabled)
+        return True
+    except Exception as exc:  # noqa: BLE001 - reported, never swallowed
+        log.error("revocation_not_propagated", client_id=client_id, error=str(exc))
+        return False
+
+
+@client_app.command("create")
+def client_create(
+    name: Annotated[str, typer.Option(help="Human-readable client name")],
+    owner_email: Annotated[str, typer.Option(help="Contact address for the owner")],
+    plan: Annotated[str, typer.Option(help="Plan name from api_plans")] = "free",
+    scope: Annotated[
+        list[str] | None, typer.Option(help="Scope; repeat for several")
+    ] = None,
+) -> None:
+    """Creates a client and prints its secret ONCE."""
+    scopes = scope or []
+    unknown = sorted(set(scopes) - set(_scope_values()))
+    if unknown:
+        typer.echo(f"unknown scope: {', '.join(unknown)}", err=True)
+        typer.echo(f"valid scopes: {', '.join(_scope_values())}", err=True)
+        raise typer.Exit(EXIT_REJECTED)
+
+    factory = _session_factory()
+    with factory() as session:
+        try:
+            created = repo.create_client(
+                session, name=name, owner_email=owner_email, plan=plan, scopes=scopes
+            )
+        except repo.UnknownPlan:
+            typer.echo(f"unknown plan: {plan}", err=True)
+            raise typer.Exit(EXIT_REJECTED) from None
+        session.commit()
+
+    typer.echo(f"client_id     : {created.client_id}")
+    typer.echo(f"client_secret : {created.secret}")
+    typer.echo("")
+    typer.echo("The secret is shown ONCE and never stored. If it is lost, rotate.")
+
+
+@client_app.command("list")
+def client_list() -> None:
+    factory = _session_factory()
+    with factory() as session:
+        rows = repo.list_clients(session)
+        for row in rows:
+            scopes = ", ".join(repo.scopes_of(session, row.client_id)) or "-"
+            state = "active" if row.is_active else "disabled"
+            live = len(repo.live_secrets(session, row.client_id))
+            typer.echo(
+                f"{row.client_id}  {row.plan:<6} {state:<8} "
+                f"secrets={live} epoch={row.auth_epoch}  {row.name}  [{scopes}]"
+            )
+        if not rows:
+            typer.echo("no clients registered")
+
+
+@client_app.command("rotate")
+def client_rotate(
+    client_id: Annotated[str, typer.Argument(help="Client id to rotate")],
+) -> None:
+    """Issues a new secret; the old one keeps working for a grace period."""
+    factory = _session_factory()
+    with factory() as session:
+        try:
+            secret = repo.rotate_secret(session, client_id)
+        except repo.TooManyLiveSecrets:
+            typer.echo(
+                "this client already has two valid secrets; revoke the old one first",
+                err=True,
+            )
+            raise typer.Exit(EXIT_REJECTED) from None
+        except repo.UnknownClient:
+            typer.echo(f"unknown client: {client_id}", err=True)
+            raise typer.Exit(EXIT_REJECTED) from None
+        epoch = repo.epoch_of(session, client_id)
+        session.commit()
+
+    typer.echo(f"client_secret : {secret}")
+    if not _propagate(client_id, epoch):
+        typer.echo(
+            "WARNING: the rotation is committed but was not propagated to Redis; "
+            "existing tokens may stay valid for up to one token lifetime.",
+            err=True,
+        )
+        raise typer.Exit(EXIT_NOT_PROPAGATED)
+
+
+@client_app.command("disable")
+def client_disable(
+    client_id: Annotated[str, typer.Argument(help="Client id to disable")],
+) -> None:
+    _set_active(client_id, active=False)
+
+
+@client_app.command("enable")
+def client_enable(
+    client_id: Annotated[str, typer.Argument(help="Client id to re-enable")],
+) -> None:
+    _set_active(client_id, active=True)
+
+
+def _set_active(client_id: str, *, active: bool) -> None:
+    factory = _session_factory()
+    with factory() as session:
+        try:
+            repo.set_active(session, client_id, active)
+        except repo.UnknownClient:
+            typer.echo(f"unknown client: {client_id}", err=True)
+            raise typer.Exit(EXIT_REJECTED) from None
+        epoch = repo.epoch_of(session, client_id)
+        session.commit()
+
+    word = "enabled" if active else "disabled"
+    typer.echo(f"{client_id} {word}")
+    if not _propagate(client_id, epoch, disabled=not active):
+        typer.echo(
+            f"WARNING: the client is {word} in the database but this was not "
+            "propagated to Redis; existing tokens may stay valid for up to "
+            "one token lifetime.",
+            err=True,
+        )
+        raise typer.Exit(EXIT_NOT_PROPAGATED)
