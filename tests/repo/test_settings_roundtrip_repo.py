@@ -13,8 +13,8 @@ import json
 import pytest
 from sqlalchemy import Engine
 
-from yfin.config import DB_MANAGED_FIELDS, Settings
-from yfin.settings_store import (
+from yfin.core.config import DB_MANAGED_FIELDS, Settings
+from yfin.storage.settings_store import (
     export_values,
     fetch_rows,
     plan_seed,

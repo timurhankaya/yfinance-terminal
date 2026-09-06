@@ -7,7 +7,7 @@ import random
 import pytest
 
 from yfin.datasets.domain.common import SECTOR_KEYS, fetch_domain
-from yfin.domain_runner import RegionValidationError, domain_regions
+from yfin.pipeline.domain_runner import RegionValidationError, domain_regions
 
 pytestmark = pytest.mark.live
 
@@ -62,7 +62,7 @@ def test_library_industry_keys_still_return_404() -> None:
 
 
 def test_invalid_region_is_rejected_by_the_empirical_probe() -> None:
-    from yfin.config import Settings
+    from yfin.core.config import Settings
 
     settings = Settings(yf_domain_regions="XX", yf_domain_reference_sector="technology")
     with pytest.raises(RegionValidationError):
@@ -70,7 +70,7 @@ def test_invalid_region_is_rejected_by_the_empirical_probe() -> None:
 
 
 def test_supported_region_passes_the_probe() -> None:
-    from yfin.config import Settings
+    from yfin.core.config import Settings
 
     settings = Settings(yf_domain_regions="US,GB", yf_domain_reference_sector="technology")
     assert domain_regions(settings) == ["US", "GB"]

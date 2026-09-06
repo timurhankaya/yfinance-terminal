@@ -12,13 +12,7 @@ from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
 
 from yfin.models import ItemStatus, Proxy, ProxyHealth, ProxyScheme, SyncRunItem
-from yfin.proxy import (
-    HealthEvent,
-    ProxyPolicy,
-    persist_event,
-    select_eligible,
-)
-from yfin.runner import (
+from yfin.pipeline.runner import (
     EXIT_OK,
     EXIT_PARTIAL,
     ItemRecord,
@@ -26,6 +20,12 @@ from yfin.runner import (
     open_run,
     record_not_attempted,
     write_items,
+)
+from yfin.proxy import (
+    HealthEvent,
+    ProxyPolicy,
+    persist_event,
+    select_eligible,
 )
 
 pytestmark = pytest.mark.repo

@@ -13,9 +13,9 @@ from typing import Any
 
 import pytest
 
-from yfin import config as config_mod
-from yfin import settings_store
-from yfin.config import SETTINGS_SOURCE_VAR, get_settings
+from yfin.core import config as config_mod
+from yfin.core.config import SETTINGS_SOURCE_VAR, get_settings
+from yfin.storage import settings_store
 
 # `.env` bu alani KURMAZ (dogrulandi); varsayilani 4. Env'de kurulu bir
 # alan secilseydi "DB > env" iddiasi "DB > varsayilan"a duserdi.

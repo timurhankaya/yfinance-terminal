@@ -39,7 +39,7 @@ def test_replace_scope_removes_a_company_that_left_the_list(db_session: Session)
     from helpers import domain_data
     from yfin.datasets.domain.payloads import DomainPayload
     from yfin.datasets.registry import DOMAIN_DATASETS
-    from yfin.persistence import PostgresRowWriter
+    from yfin.storage.persistence import PostgresRowWriter
 
     run_taxonomy(db_session)
     run_dataset(db_session, "sector_rankings", "sector", "technology")

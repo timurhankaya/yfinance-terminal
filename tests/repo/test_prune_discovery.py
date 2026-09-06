@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from yfin.prune import prune_orphan_reports, prune_screens
+from yfin.pipeline.prune import prune_orphan_reports, prune_screens
 
 pytestmark = pytest.mark.repo
 

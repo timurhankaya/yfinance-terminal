@@ -28,7 +28,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
-from yfin.logging_setup import configure_logging, get_logger
+from yfin.core.logging_setup import configure_logging, get_logger
 
 log = get_logger(__name__)
 
@@ -410,7 +410,7 @@ def _load() -> Settings:
     # LOCAL import: settings_store -> db/models -> config would otherwise
     # cycle. The codebase's pattern for this case is a local import (see
     # prune.py).
-    from yfin.settings_store import load_overrides
+    from yfin.storage.settings_store import load_overrides
 
     overrides = load_overrides(env_only)
     if not overrides:

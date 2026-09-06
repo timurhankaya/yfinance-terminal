@@ -22,16 +22,16 @@ from typing import Any
 
 import pandas as pd
 
-from yfin import normalize as nz
-from yfin.client import call_yahoo
-from yfin.config import get_settings
+from yfin.core import normalize as nz
+from yfin.core.config import get_settings
+from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult, TableWrite, WriteStats
 from yfin.datasets.common import key_value
 from yfin.datasets.market.base import GlobalDataset, MarketContext
 from yfin.datasets.payloads import CalendarFramePayload
 from yfin.datasets.registry import register_market
-from yfin.logging_setup import get_logger
-from yfin.persistence import RowWriter, apply_write
+from yfin.ingest.client import call_yahoo
+from yfin.storage.persistence import RowWriter, apply_write
 
 log = get_logger(__name__)
 

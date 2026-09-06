@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from yfin.models import ItemStatus
-from yfin.runner import (
+from yfin.pipeline.runner import (
     EXIT_ALL_FAILED,
     EXIT_NO_SYMBOL_RESOLVED,
     EXIT_OK,
@@ -81,7 +81,7 @@ class TestItemStatusMapping:
         self, attempted: int, verified: int, skipped: int, expected: ItemStatus
     ) -> None:
         from yfin.datasets.base import Dataset, WriteStats
-        from yfin.runner import _record_items
+        from yfin.pipeline.runner import _record_items
 
         class Dummy(Dataset):
             name = "dummy"
@@ -105,7 +105,7 @@ class TestItemStatusMapping:
         """Cok tabloya yazan dataset'ler icin tablo basina bir satir (S8.1)."""
         from yfin.datasets import SYMBOL_DATASETS as REGISTRY
         from yfin.datasets.base import WriteStats
-        from yfin.runner import _record_items
+        from yfin.pipeline.runner import _record_items
 
         stats = WriteStats(
             attempted={"ticker_info": 1, "ticker_info_history": 1, "company_officers": 10},

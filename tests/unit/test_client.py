@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from yfin.client import TokenBucket, is_retryable
+from yfin.ingest.client import TokenBucket, is_retryable
 
 
 class TestTokenBucket:
@@ -83,7 +83,7 @@ class TestRetryClassification:
 @pytest.fixture(autouse=True)
 def _fast_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     """Testte exponential backoff beklemesi anlamsizdir."""
-    from yfin import config
+    from yfin.core import config
 
     settings = config.get_settings()
     monkeypatch.setattr(settings, "yf_retry_initial_sec", 0.0)
@@ -92,7 +92,7 @@ def _fast_retries(monkeypatch: pytest.MonkeyPatch) -> None:
 
 class TestCallYahoo:
     def test_retries_then_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from yfin import client
+        from yfin.ingest import client
 
         monkeypatch.setattr(client, "_bucket", TokenBucket(1000.0, 1000.0))
         attempts = {"n": 0}
@@ -107,7 +107,7 @@ class TestCallYahoo:
         assert attempts["n"] == 3
 
     def test_non_retryable_raises_immediately(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from yfin import client
+        from yfin.ingest import client
 
         monkeypatch.setattr(client, "_bucket", TokenBucket(1000.0, 1000.0))
         attempts = {"n": 0}
@@ -122,7 +122,7 @@ class TestCallYahoo:
 
     def test_retries_pass_through_the_limiter(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """tenacity retry'lari da limiter'dan gecer (S7.5)."""
-        from yfin import client
+        from yfin.ingest import client
 
         calls = {"n": 0}
 

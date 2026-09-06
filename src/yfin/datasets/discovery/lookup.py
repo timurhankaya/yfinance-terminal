@@ -33,9 +33,9 @@ from typing import Any
 
 import yfinance as yf
 
-from yfin import normalize as nz
-from yfin.client import call_yahoo
-from yfin.config import get_settings
+from yfin.core import normalize as nz
+from yfin.core.config import get_settings
+from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite
 from yfin.datasets.common import (
@@ -47,7 +47,7 @@ from yfin.datasets.common import (
 )
 from yfin.datasets.discovery.base import DISCOVERY_GATE_TABLE, DiscoveryDataset
 from yfin.datasets.registry import register
-from yfin.logging_setup import get_logger
+from yfin.ingest.client import call_yahoo
 
 log = get_logger(__name__)
 

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from domain_support import NOW, run_dataset, run_taxonomy
 from yfin.datasets.registry import DOMAIN_DATASETS
 from yfin.models import ItemStatus
-from yfin.runner import _record_items
+from yfin.pipeline.runner import _record_items
 
 pytestmark = pytest.mark.repo
 

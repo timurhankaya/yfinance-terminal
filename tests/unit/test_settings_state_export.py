@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from yfin.config import DB_MANAGED_FIELDS, ENV_ONLY_FIELDS
-from yfin.settings_store import (
+from yfin.core.config import DB_MANAGED_FIELDS, ENV_ONLY_FIELDS
+from yfin.storage.settings_store import (
     KeyVerdict,
     Source,
     classify_key,
@@ -47,7 +47,7 @@ def test_env_de_kurulu_alan_kaynagi_ENV() -> None:
     """The distinction is made via `model_fields_set`, not by comparing
     "is the value different from the default": a `.env` setting that
     happens to equal the default would otherwise show up as `default`."""
-    from yfin.config import bootstrap_settings
+    from yfin.core.config import bootstrap_settings
 
     env_set = bootstrap_settings().model_fields_set & DB_MANAGED_FIELDS
     if not env_set:  # pragma: no cover - depends on .env
@@ -101,7 +101,7 @@ def test_okuma_ve_yazma_yollari_AYNI_karari_verir() -> None:
     would breach the security boundary (an applied row containing
     `db_host`).
     """
-    from yfin.settings_store import SettingRejected, filter_overrides, validate_pair
+    from yfin.storage.settings_store import SettingRejected, filter_overrides, validate_pair
 
     for key in sorted(ENV_ONLY_FIELDS | {"hicboyle_yok"}):
         assert filter_overrides({key: "x"}) == {}, f"{key} passed on the read path"

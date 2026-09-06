@@ -8,14 +8,14 @@ from typing import Any
 
 import pandas as pd
 
-from yfin import normalize as nz
-from yfin.client import call_yahoo
-from yfin.config import get_settings
+from yfin.core import normalize as nz
+from yfin.core.config import get_settings
+from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
 from yfin.datasets.common import date_range_kwargs
 from yfin.datasets.payloads import FramePayload
 from yfin.datasets.registry import register
-from yfin.logging_setup import get_logger
+from yfin.ingest.client import call_yahoo
 
 CACHE_HISTORY = "history_df"
 
@@ -96,10 +96,10 @@ def repair_enabled() -> bool:
 
 
 def _shared_watermark(ctx: SyncContext) -> date | datetime | None:
-    """Cerceveyi tuketen SECILI tablolarin watermark minimumu.
+    """Minimum watermark across the SELECTED tables consuming the frame.
 
-    Herhangi biri bossa None doner (period="max"): o tablo icin gecmisin
-    tamami cekilmelidir.
+    Returns None if any of them is empty (period="max"): that table needs
+    its full history fetched.
     """
     names = ctx.selected if ctx.selected is not None else set(FRAME_CONSUMERS)
     marks: list[date | datetime] = []
@@ -111,30 +111,30 @@ def _shared_watermark(ctx: SyncContext) -> date | datetime | None:
             return None
         marks.append(mark)
     if not marks:
-        # Hicbir tuketici secili degil (dogrudan cagri); price_history'ye
-        # duser, boylece davranis eskisiyle ayni kalir.
+        # No consumer is selected (direct call); falls back to
+        # price_history, keeping behavior unchanged from before.
         return ctx.watermark("price_history", "session_date")
     return min(marks, key=_as_date)
 
 
 def fetch_history_frame(ctx: SyncContext) -> pd.DataFrame:
-    """Tek gunluk seri. capital_gains AYRI BIR AG CAGRISI DEGILDIR -
-    ayni onbellekten gelir (history.py:723), ctx.cached bunu paylasir."""
+    """Single daily series. capital_gains is NOT A SEPARATE NETWORK CALL -
+    it comes from the same cache (history.py:723), shared via ctx.cached."""
 
     def _call() -> pd.DataFrame:
         kwargs: dict[str, Any] = {
             "interval": "1d",
-            "auto_adjust": False,  # 'Adj Close' ayri kolon olarak gelsin
-            # actions=True SART: dividends/splits/capital_gains bu
-            # kolonlardan beslenir (history.py:619-620 aksi halde duser)
+            "auto_adjust": False,  # so 'Adj Close' comes as a separate column
+            # actions=True is REQUIRED: dividends/splits/capital_gains are
+            # fed from these columns (history.py:619-620, otherwise dropped).
             "actions": True,
-            # Yahoo'nun bilinen veri hatalarini duzeltir (eksik bolunme/
-            # temettu duzeltmesi, 100x kur hatalari, mukerrer temettu).
-            # Yalniz 1g interval'de guvenilirdir - kullandigimiz interval.
+            # Fixes Yahoo's known data errors (missing split/dividend
+            # adjustment, 100x currency errors, duplicate dividends).
+            # Reliable only at the 1d interval -- the one used here.
             "repair": repair_enabled(),
         }
-        # --start/--end WATERMARK'I GECERSIZ KILAR (AH S7.3): kullanici
-        # acikca bir aralik istediginde artimli pencere onu daraltamaz.
+        # --start/--end OVERRIDES the watermark: when the user explicitly
+        # requests a range, the incremental window cannot narrow it.
         if ctx.start is not None or ctx.end is not None:
             kwargs.update(date_range_kwargs(ctx.start, ctx.end))
         else:
@@ -158,8 +158,8 @@ class HistoryDataset(Dataset[FramePayload]):
     name = "history"
     depends_on = ("symbols",)
     produces = ("price_history",)
-    # Aralik yfinance CAGRISINA gecer -> GERCEK geriye donuk cekim; bu
-    # "satir eleme" degildir (AH S6.2).
+    # The range passes into the yfinance CALL -> a REAL backfill, not
+    # "row filtering".
     date_range = "api"
 
     def fetch(self, ctx: SyncContext) -> FramePayload:
@@ -170,8 +170,8 @@ class HistoryDataset(Dataset[FramePayload]):
             return NormalizedResult()
 
         frame: pd.DataFrame = raw
-        # Kolon seti sembole gore DEGISIR (fon/ETF'te 'Capital Gains'
-        # eklenir); sabit siraya veya varliga guvenilmez (S8.3)
+        # Column set VARIES by symbol ('Capital Gains' is added for
+        # fund/ETF); never relies on a fixed order or presence.
         present = {src: dst for src, dst in _COLUMN_MAP.items() if src in frame.columns}
 
         rows: list[dict[str, Any]] = []
@@ -182,7 +182,7 @@ class HistoryDataset(Dataset[FramePayload]):
                 continue
             close = nz.to_decimal(record.get("Close"))
             if close is None:
-                # close NOT NULL; kapanissiz satir anlamsizdir
+                # close is NOT NULL; a row with no close is meaningless.
                 continue
 
             row: dict[str, Any] = {
@@ -193,12 +193,12 @@ class HistoryDataset(Dataset[FramePayload]):
                 "dividend": _ZERO,
                 "split_ratio": _ZERO,
                 "capital_gain": _ZERO,
-                # SABIT sozlukte tutulur, _COLUMN_MAP'e KONMAZ: jenerik
-                # dongu onu `else` dalinda to_decimal ile isler ve BOOLEAN
-                # kolona Decimal yazardi. Ayrica burada her satirda mevcut
-                # oldugu icin `present` kesisimine hic girmez; girseydi
-                # kolon gelmedigi kosuda ON DUPLICATE KEY UPDATE
-                # kapsamindan da duserdi.
+                # Kept in a FIXED dict, NOT put in _COLUMN_MAP: the generic
+                # loop would process it with to_decimal in the `else` branch
+                # and write a Decimal into a BOOLEAN column. Also, since it's
+                # present in every row here, it never enters the `present`
+                # intersection; if it did, a run where the column is absent
+                # would also drop it from the ON DUPLICATE KEY UPDATE scope.
                 "is_repaired": bool(nz.to_bool(record.get("Repaired?"))),
             }
             for src, dst in present.items():

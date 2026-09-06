@@ -101,7 +101,7 @@ class TestAdaptiveBranch:
 
     def test_threshold_is_read_from_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Esik kodda gomulu DEGIL: olcum degistiginde ayardan duzeltilir."""
-        from yfin.config import Settings
+        from yfin.core.config import Settings
 
         monkeypatch.setenv("YF_LOOKUP_ALL_THRESHOLD", "10")
         assert Settings().yf_lookup_all_threshold == 10

@@ -17,7 +17,7 @@ from typing import Annotated
 
 import typer
 
-from yfin.config import (
+from yfin.core.config import (
     DB_MANAGED_FIELDS,
     SETTING_GROUPS,
     Settings,
@@ -25,7 +25,7 @@ from yfin.config import (
     settings_schema,
     source_is_env,
 )
-from yfin.settings_store import (
+from yfin.storage.settings_store import (
     SEED_PATH,
     SettingRejected,
     SettingState,

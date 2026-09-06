@@ -12,13 +12,13 @@ from typing import Any
 
 import pandas as pd
 
-from yfin import normalize as nz
-from yfin.client import call_yahoo
-from yfin.config import get_settings
+from yfin.core import normalize as nz
+from yfin.core.config import get_settings
+from yfin.core.errors import DatasetOutOfScope
+from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
 from yfin.datasets.registry import register
-from yfin.errors import DatasetOutOfScope
-from yfin.logging_setup import get_logger
+from yfin.ingest.client import call_yahoo
 from yfin.models.bars import (
     BAR_INTERVALS,
     GAP_FETCH_FAILED,

@@ -19,7 +19,7 @@ from yfin.datasets.discovery.lookup import ALL_TYPE, TYPED_LOOKUPS, LookupDatase
 from yfin.datasets.discovery.search import SearchDataset
 from yfin.datasets.market.base import MarketContext
 from yfin.datasets.market.screener import ScreenerDataset
-from yfin.screens import screen_by_key
+from yfin.ingest.screens import screen_by_key
 
 pytestmark = pytest.mark.live
 
@@ -161,10 +161,10 @@ def test_predefined_first_page_carries_metadata() -> None:
 
 def test_screener_dataset_paginates_to_total() -> None:
     """`tr_equity` total was measured at 628; four pages must fetch it all."""
-    from yfin.config import get_settings
+    from yfin.core.config import get_settings
 
     cfg = get_settings().model_copy(update={"yf_screen_max_pages": 4, "yf_screen_size": 250})
-    import yfin.config as config_mod
+    import yfin.core.config as config_mod
 
     original = config_mod.get_settings
     config_mod.get_settings = lambda: cfg  # type: ignore[assignment]

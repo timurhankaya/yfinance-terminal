@@ -2,7 +2,7 @@
 
 Independent of SQLAlchemy and the database: defines which data goes to
 which table, with which keys, and with what column scope. How the write
-happens lives in `yfin.persistence`.
+happens lives in `yfin.storage.persistence`.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 if TYPE_CHECKING:
-    from yfin.persistence import RowWriter
+    from yfin.storage.persistence import RowWriter
 
 
 class WatermarkProvider(Protocol):
@@ -261,7 +261,7 @@ class Dataset[RawT](ABC):
     def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
         """Default implementation: idempotent upsert plus key-existence
         verification for each TableWrite."""
-        from yfin.persistence import apply_write
+        from yfin.storage.persistence import apply_write
 
         stats = WriteStats(skipped=dict(result.skipped))
         for write in result.writes:

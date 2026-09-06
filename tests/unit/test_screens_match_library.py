@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from yfinance import PREDEFINED_SCREENER_QUERIES
 
-from yfin.screens import PREDEFINED_SCREENS, ScreenDef
+from yfin.ingest.screens import PREDEFINED_SCREENS, ScreenDef
 
 
 def test_predefined_keys_match_library() -> None:

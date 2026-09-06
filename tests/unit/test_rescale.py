@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from yfin.rescale import RescaleSkipped, rescale_factors, split_boundary_utc
+from yfin.storage.rescale import RescaleSkipped, rescale_factors, split_boundary_utc
 
 
 def test_forward_split_divides_price_and_multiplies_volume() -> None:

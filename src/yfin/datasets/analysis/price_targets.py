@@ -12,13 +12,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from yfin import normalize as nz
-from yfin.client import call_optional
+from yfin.core import normalize as nz
+from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite
 from yfin.datasets.payloads import AsOfMappingPayload
 from yfin.datasets.registry import register
-from yfin.logging_setup import get_logger
+from yfin.ingest.client import call_optional
 
 log = get_logger(__name__)
 

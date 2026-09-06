@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import quote, unquote, urlsplit
 
-from yfin.logging_setup import scrub
+from yfin.core.logging_setup import scrub
 from yfin.models import ProxyScheme
 
 

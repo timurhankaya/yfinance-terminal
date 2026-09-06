@@ -22,9 +22,9 @@ import yfinance as yf
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from yfin import normalize as nz
-from yfin.client import call_yahoo
-from yfin.config import Settings, get_settings
+from yfin.core import normalize as nz
+from yfin.core.config import Settings, get_settings
+from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult, TableWrite
 from yfin.datasets.common import (
     dict_items,
@@ -38,10 +38,10 @@ from yfin.datasets.common import (
 from yfin.datasets.hash_gated import HashGate
 from yfin.datasets.market.base import GlobalDataset, MarketContext
 from yfin.datasets.registry import register_market
-from yfin.logging_setup import get_logger
+from yfin.ingest.client import call_yahoo
+from yfin.ingest.screens import ALL_SCREENS, ScreenDef, screen_by_key
 from yfin.models.discovery import Screen
 from yfin.models.fields import SCREENER_NON_COLUMN_SOURCES, SCREENER_QUOTE_FIELDS
-from yfin.screens import ALL_SCREENS, ScreenDef, screen_by_key
 
 log = get_logger(__name__)
 
@@ -411,8 +411,9 @@ def _quote_row(
 
 
 def _symbol_row(symbol: str, quote: dict[str, Any], raw: ScreenPayload) -> dict[str, Any]:
-    """Screener kotasyonu UC KESIF YOLUNUN EN GENISI: dokuz tanimlayici
-    alan tasir, bu yuzden `SYMBOL_UPDATE` da en genis olan odur (SQ S5.12).
+    """The screener quote is the WIDEST of the three discovery paths: it
+    carries nine identifying fields, which is why `SYMBOL_UPDATE` is the
+    widest one too.
     """
     return discovered_symbol_row(
         symbol,
@@ -431,8 +432,8 @@ def _symbol_row(symbol: str, quote: dict[str, Any], raw: ScreenPayload) -> dict[
     )
 
 
-# OPT-IN (SQ K11): `yfin screen sync` bu dataset'i ADIYLA cozer
-# (`MARKET_DATASETS.resolve(["screener"])`), yani komut calisir. Ciplak
-# `yfin market sync` ise onu CEKMEZ -- aksi halde o komutun maliyeti ~20
-# istekten ~50'ye sessizce cikardi ve bunu kimse istemis olmazdi.
+# OPT-IN: `yfin screen sync` resolves this dataset BY NAME
+# (`MARKET_DATASETS.resolve(["screener"])`), so the command works. A bare
+# `yfin market sync` does NOT pull it in -- otherwise that command's cost
+# would silently jump from ~20 requests to ~50, which nobody asked for.
 register_market(ScreenerDataset(), opt_in=True)

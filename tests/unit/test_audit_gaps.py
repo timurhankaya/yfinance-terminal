@@ -20,7 +20,7 @@ from yfin.datasets.base import (
 )
 from yfin.datasets.registry import Registry
 from yfin.models import ItemStatus
-from yfin.runner import SymbolPayload, _failed_records, _record_items, _worker
+from yfin.pipeline.runner import SymbolPayload, _failed_records, _record_items, _worker
 
 FETCHED_AT = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 
@@ -131,7 +131,7 @@ def test_no_range_runs_everything() -> None:
 
 def test_skipped_datasets_become_item_records() -> None:
     """Elenen dataset sessizce kaybolmaz; SKIPPED olarak yazilir."""
-    from yfin.runner import _skipped_records
+    from yfin.pipeline.runner import _skipped_records
 
     registry: Registry[Dataset[Any]] = Registry()
     registry.register(_Watchonly())
@@ -166,7 +166,7 @@ def test_shard_spec_carries_range(field_name: str) -> None:
     """
     import pickle
 
-    from yfin.shard import ShardSpec
+    from yfin.pipeline.shard import ShardSpec
 
     spec = ShardSpec(
         run_id=1,

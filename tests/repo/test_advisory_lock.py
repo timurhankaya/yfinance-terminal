@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import Engine
 
-from yfin.db import SYNC_LOCK_NAME, LockNotAcquired, advisory_lock, lock_holder
+from yfin.storage.db import SYNC_LOCK_NAME, LockNotAcquired, advisory_lock, lock_holder
 
 pytestmark = pytest.mark.repo
 

@@ -7,8 +7,8 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any
 
-from yfin import normalize as nz
-from yfin.logging_setup import get_logger
+from yfin.core import normalize as nz
+from yfin.core.logging_setup import get_logger
 from yfin.models.base import FACT_PRECISION
 from yfin.models.fields import Field
 from yfin.models.kinds import KINDS

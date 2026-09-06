@@ -14,9 +14,9 @@ import pytest
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.pool import NullPool
 
-from yfin import config as config_mod
-from yfin import settings_store
-from yfin.config import SETTINGS_SOURCE_VAR, Settings
+from yfin.core import config as config_mod
+from yfin.core.config import SETTINGS_SOURCE_VAR, Settings
+from yfin.storage import settings_store
 
 
 @pytest.fixture

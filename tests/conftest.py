@@ -28,14 +28,14 @@ from sqlalchemy import Engine, create_engine, text  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from helpers import drop_stale_schemas, schema_name  # noqa: E402
-from yfin.config import Settings, get_settings  # noqa: E402
-from yfin.db import create_db_engine  # noqa: E402
+from yfin.core.config import Settings, get_settings  # noqa: E402
 from yfin.models import (  # noqa: E402
     V_ACTIONS_CREATE,
     V_PRICE_BARS_REGULAR_CREATE,
     Base,
     timescale_ddl,
 )
+from yfin.storage.db import create_db_engine  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -197,8 +197,8 @@ def _guard_concurrent_live_runs(request: pytest.FixtureRequest) -> None:
         return
     from sqlalchemy import create_engine
 
-    from yfin.config import get_settings
-    from yfin.db import SYNC_LOCK_NAME, lock_holder
+    from yfin.core.config import get_settings
+    from yfin.storage.db import SYNC_LOCK_NAME, lock_holder
 
     # Connects to the live database, not the test database. PostgreSQL
     # advisory locks are database-scoped (unlike MySQL's server-wide

@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from yfin.models import PriceBar, Split, Symbol
-from yfin.rescale import (
+from yfin.storage.rescale import (
     apply_pending,
     pending_splits,
     seed_baseline,

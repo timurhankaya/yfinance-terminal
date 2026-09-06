@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from yfin.db import SYNC_LOCK_NAME, _lock_key, _lock_key_parts
+from yfin.storage.db import SYNC_LOCK_NAME, _lock_key, _lock_key_parts
 
 
 def test_key_is_deterministic() -> None:

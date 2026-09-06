@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from yfin.config import Settings, get_settings
+from yfin.core.config import Settings, get_settings
 from yfin.models import Proxy, ProxyScheme
 from yfin.proxy.dsn import ProxyEndpoint
 

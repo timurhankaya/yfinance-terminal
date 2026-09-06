@@ -14,10 +14,10 @@ from sqlalchemy import Engine, text
 from sqlalchemy.orm import sessionmaker
 
 from helpers import FIXTURE_ROOT, domain_data
-from yfin.config import Settings
+from yfin.core.config import Settings
 from yfin.datasets.registry import DOMAIN_DATASETS
-from yfin.domain_runner import run_domain_sync
 from yfin.models import ItemStatus, RunScope
+from yfin.pipeline.domain_runner import run_domain_sync
 
 pytestmark = pytest.mark.repo
 
@@ -50,7 +50,7 @@ def fake_fetch(monkeypatch: pytest.MonkeyPatch) -> FakeYahoo:
         "yfin.datasets.domain.taxonomy",
         "yfin.datasets.domain.profile",
         "yfin.datasets.domain.rankings",
-        "yfin.domain_runner",
+        "yfin.pipeline.domain_runner",
     ):
         monkeypatch.setattr(f"{module}.fetch_domain", fake, raising=True)
     # Let bootstrap only iterate sectors that have a fixture

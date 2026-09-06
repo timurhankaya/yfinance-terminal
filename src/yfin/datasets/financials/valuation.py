@@ -19,13 +19,13 @@ from typing import Any
 
 import pandas as pd
 
-from yfin import normalize as nz
-from yfin.client import call_optional, call_yahoo
+from yfin.core import normalize as nz
+from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult, SyncContext
 from yfin.datasets.financials.statements import StatementDataset
 from yfin.datasets.payloads import StatementPayload
 from yfin.datasets.registry import register
-from yfin.logging_setup import get_logger
+from yfin.ingest.client import call_optional, call_yahoo
 from yfin.models.financials import API_FREQ, StatementFreq, StatementKind
 
 log = get_logger(__name__)

@@ -10,7 +10,7 @@ from datetime import date
 
 from typer.testing import CliRunner
 
-from yfin.cli import _csv_upper, _selector, app
+from yfin.cli.app import _csv_upper, _selector, app
 from yfin.datasets import SYMBOL_DATASETS
 
 runner = CliRunner()

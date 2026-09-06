@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from yfin.logging_setup import scrub
+from yfin.core.logging_setup import scrub
 from yfin.proxy.dsn import ProxyEndpoint
 from yfin.proxy.health import HealthEvent
 

@@ -13,10 +13,10 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from yfin import normalize as nz
+from yfin.core import normalize as nz
 from yfin.datasets.base import TableWrite, WriteStats
 from yfin.models import Base, PriceHistory, Symbol
-from yfin.persistence import PostgresRowWriter, apply_write
+from yfin.storage.persistence import PostgresRowWriter, apply_write
 
 pytestmark = pytest.mark.repo
 

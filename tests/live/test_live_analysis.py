@@ -20,10 +20,10 @@ import pytest
 from sqlalchemy import Engine, func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from yfin.client import configure_yfinance
 from yfin.datasets import SYMBOL_DATASETS
+from yfin.ingest.client import configure_yfinance
 from yfin.models import Base, ItemStatus, SyncRunItem
-from yfin.runner import EXIT_OK, run_sync
+from yfin.pipeline.runner import EXIT_OK, run_sync
 
 pytestmark = pytest.mark.live
 
@@ -147,8 +147,8 @@ def test_symbol_costs_seven_requests(test_engine: Engine) -> None:
     """
     from yfinance.data import YfData
 
-    from yfin.client import make_ticker
     from yfin.datasets.base import SyncContext
+    from yfin.ingest.client import make_ticker
 
     calls: list[str] = []
     original = YfData.get_raw_json

@@ -16,9 +16,9 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from yfin.config import Settings, get_settings
-from yfin.errors import is_absent_data, is_retryable
-from yfin.logging_setup import bridge_yfinance_logging, get_logger
+from yfin.core.config import Settings, get_settings
+from yfin.core.errors import is_absent_data, is_retryable
+from yfin.core.logging_setup import bridge_yfinance_logging, get_logger
 
 log = get_logger(__name__)
 

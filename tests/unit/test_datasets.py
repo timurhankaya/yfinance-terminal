@@ -158,7 +158,7 @@ class TestInfo:
         assert "NaN" not in row["raw_json"]
         body = json.loads(row["raw_json"])
         assert body["symbol"] == "AAPL"
-        from yfin import normalize as nz
+        from yfin.core import normalize as nz
 
         assert nz.content_hash(canonical=row["raw_json"]) == row["content_hash"]
 
@@ -311,7 +311,7 @@ class TestSourceMappingContract:
         """
         from collections.abc import Mapping
 
-        from yfin.normalize import as_mapping
+        from yfin.core.normalize import as_mapping
 
         class BrokenMetadata(Mapping):  # type: ignore[type-arg]
             _data = {"currency": "USD", "shortName": "Fon"}

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from yfin.datasets.base import NormalizedResult, TableWrite, WriteStats
 from yfin.datasets.hash_gated import HashGatedDataset
 from yfin.models import Base
-from yfin.persistence import PostgresRowWriter, apply_write
+from yfin.storage.persistence import PostgresRowWriter, apply_write
 
 pytestmark = pytest.mark.repo
 
@@ -460,7 +460,7 @@ class TestPrune:
         )
 
     def test_disabled_by_default_refuses_to_delete(self, db_session: Session) -> None:
-        from yfin.prune import PruneDisabledError, run_prune
+        from yfin.pipeline.prune import PruneDisabledError, run_prune
 
         old = datetime(2020, 1, 1, 4, 0)
         self._seed_calendar(db_session, old)
@@ -469,20 +469,20 @@ class TestPrune:
         assert _count(db_session, "calendar_splits") == 1  # row still there
 
     def test_default_settings_have_prune_disabled(self) -> None:
-        from yfin.config import Settings
+        from yfin.core.config import Settings
 
         assert Settings().yf_prune_enabled is False
 
     def test_orphan_news_still_runs_when_disabled(self, db_session: Session) -> None:
         """Orphan-news cleanup is not date-bounded; it runs even when disabled."""
-        from yfin.prune import run_prune
+        from yfin.pipeline.prune import run_prune
 
         report = run_prune(db_session, enabled=False)
         assert report.calendars == {}
         assert report.history == {}
 
     def test_enabled_deletes_only_rows_before_cutoff(self, db_session: Session) -> None:
-        from yfin.prune import run_prune
+        from yfin.pipeline.prune import run_prune
 
         old, new = (
             datetime(2020, 1, 1, 4, 0, tzinfo=UTC),
@@ -499,7 +499,7 @@ class TestPrune:
         assert remaining == [new]
 
     def test_dry_run_counts_without_deleting(self, db_session: Session) -> None:
-        from yfin.prune import run_prune
+        from yfin.pipeline.prune import run_prune
 
         old = datetime(2020, 1, 1, 4, 0)
         self._seed_calendar(db_session, old)
@@ -516,7 +516,7 @@ class TestPrune:
     def test_history_tables_are_derived_from_metadata(self) -> None:
         """Derived from metadata, not a hand-written list: a new snapshot pair is
         covered automatically."""
-        from yfin.prune import history_tables
+        from yfin.pipeline.prune import history_tables
 
         derived = set(history_tables())
         assert {
@@ -529,7 +529,7 @@ class TestPrune:
         assert all(name.endswith("_history") for name in derived)
 
     def test_history_prune_respects_cutoff(self, db_session: Session) -> None:
-        from yfin.prune import run_prune
+        from yfin.pipeline.prune import run_prune
 
         _seed_symbol(db_session)
         rows = [

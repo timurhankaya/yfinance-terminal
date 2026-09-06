@@ -14,13 +14,13 @@ from typing import Any
 
 import pandas as pd
 
-from yfin import normalize as nz
-from yfin.client import call_yahoo, make_ticker
-from yfin.config import get_settings
+from yfin.core import normalize as nz
+from yfin.core.config import get_settings
+from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
 from yfin.datasets.payloads import EarningsDatesPayload
 from yfin.datasets.registry import register
-from yfin.logging_setup import get_logger
+from yfin.ingest.client import call_yahoo, make_ticker
 
 log = get_logger(__name__)
 

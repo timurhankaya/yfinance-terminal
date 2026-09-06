@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from yfin import normalize as nz
-from yfin.client import call_yahoo, make_ticker
-from yfin.config import get_settings
+from yfin.core import normalize as nz
+from yfin.core.config import get_settings
 from yfin.datasets.base import (
     Dataset,
     NormalizedResult,
@@ -17,7 +16,8 @@ from yfin.datasets.base import (
 from yfin.datasets.common import key_value
 from yfin.datasets.payloads import NewsPayload
 from yfin.datasets.registry import register
-from yfin.persistence import RowWriter, apply_write
+from yfin.ingest.client import call_yahoo, make_ticker
+from yfin.storage.persistence import RowWriter, apply_write
 
 _NEWS_UPDATE = (
     "title",

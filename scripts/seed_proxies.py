@@ -28,11 +28,11 @@ from collections.abc import Iterable, Iterator
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from yfin.config import get_settings
-from yfin.db import create_db_engine
-from yfin.logging_setup import configure_logging
+from yfin.core.config import get_settings
+from yfin.core.logging_setup import configure_logging
 from yfin.models import Proxy, ProxyScheme
 from yfin.proxy import ProxyEndpoint, SecretKeyMissing, encrypt_password
+from yfin.storage.db import create_db_engine
 
 
 def parse_line(line: str, scheme: ProxyScheme) -> ProxyEndpoint | None:

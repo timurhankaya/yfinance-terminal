@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy import Engine, create_engine, text
 
-from yfin.config import Settings, get_settings
+from yfin.core.config import Settings, get_settings
 
 SYNC_LOCK_NAME = "yfin_sync"
 

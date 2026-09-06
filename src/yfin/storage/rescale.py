@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from yfin.logging_setup import get_logger
+from yfin.core.logging_setup import get_logger
 from yfin.models import INTRADAY_INTERVALS, Base
 
 log = get_logger(__name__)

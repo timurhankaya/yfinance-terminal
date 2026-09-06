@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from yfin.datasets.base import Dataset, NormalizedResult, TableWrite, WriteStats
-from yfin.persistence import RowWriter, SnapshotWriter, apply_write
+from yfin.storage.persistence import RowWriter, SnapshotWriter, apply_write
 
 
 def snapshot_upsert(

@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from domain_support import AS_OF, FIXTURE_SECTORS, run_dataset, run_taxonomy
-from yfin.domain_audit import audit_domains, expected_cell_count
+from yfin.pipeline.domain_audit import audit_domains, expected_cell_count
 
 pytestmark = pytest.mark.repo
 

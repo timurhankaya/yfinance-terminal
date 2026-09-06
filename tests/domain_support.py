@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from helpers import domain_data
 from yfin.datasets.domain.payloads import DomainPayload, TaxonomyPayload
 from yfin.datasets.registry import DOMAIN_DATASETS
-from yfin.persistence import PostgresRowWriter
+from yfin.storage.persistence import PostgresRowWriter
 
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 AS_OF = date(2026, 9, 4)

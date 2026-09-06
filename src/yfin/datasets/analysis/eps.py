@@ -8,7 +8,7 @@ fixture test.
 
 from __future__ import annotations
 
-from yfin import normalize as nz
+from yfin.core import normalize as nz
 from yfin.datasets.analysis.base import Column, PeriodFrameDataset
 from yfin.datasets.asof_base import asof_produces
 from yfin.datasets.common import to_fact_value

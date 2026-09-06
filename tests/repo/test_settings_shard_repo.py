@@ -14,11 +14,11 @@ import pickle
 import pytest
 from sqlalchemy import Engine
 
-from yfin import config as config_mod
-from yfin import settings_store
-from yfin.config import Settings, applied_overrides, get_settings
-from yfin.settings_store import write_all
-from yfin.shard import ShardSpec
+from yfin.core import config as config_mod
+from yfin.core.config import Settings, applied_overrides, get_settings
+from yfin.pipeline.shard import ShardSpec
+from yfin.storage import settings_store
+from yfin.storage.settings_store import write_all
 
 pytestmark = pytest.mark.repo
 
@@ -65,7 +65,7 @@ def test_child_SELECT_ATMAZ_ve_dogru_degeri_kullanir(
 ) -> None:
     """The child uses `settings_from_overrides` + `install_settings`;
     it never touches `fetch_rows`."""
-    from yfin.config import install_settings, settings_from_overrides
+    from yfin.core.config import install_settings, settings_from_overrides
 
     write_all({"yf_max_shards": "9"}, settings=store_settings)
     monkeypatch.setattr(config_mod, "bootstrap_settings", lambda: store_settings)
@@ -91,7 +91,7 @@ def test_spec_database_db_name_den_FARKLIYKEN_de_dogru_deger(
     """The child runs in `spec.database` but would read settings from
     `settings.db_name` -- the wrong schema in a run redirected via
     `--database`. This transfer removes that distinction entirely."""
-    from yfin.config import settings_from_overrides
+    from yfin.core.config import settings_from_overrides
 
     write_all({"yf_max_shards": "9"}, settings=store_settings)
     spec = _spec(settings_overrides={"yf_max_shards": "9"})

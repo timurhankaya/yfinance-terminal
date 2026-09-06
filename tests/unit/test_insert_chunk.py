@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 
 from yfin.datasets.base import TableWrite
-from yfin.persistence import INSERT_CHUNK, PostgresRowWriter, dedupe_rows
+from yfin.storage.persistence import INSERT_CHUNK, PostgresRowWriter, dedupe_rows
 
 
 class RecordingSession:

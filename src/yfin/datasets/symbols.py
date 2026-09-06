@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from yfin import normalize as nz
-from yfin.client import call_yahoo
+from yfin.core import normalize as nz
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
 from yfin.datasets.common import convert_field
 from yfin.datasets.payloads import SymbolsPayload
 from yfin.datasets.registry import register
+from yfin.ingest.client import call_yahoo
 from yfin.models.fields import HISTORY_METADATA_FIELDS, Field
 
 # fast_info and history_metadata share the same two calls; ctx.cached

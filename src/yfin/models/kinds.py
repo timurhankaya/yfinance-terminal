@@ -17,8 +17,8 @@ from typing import Any
 from sqlalchemy import BigInteger, Boolean, Integer, String, Text
 from sqlalchemy.types import TypeEngine
 
-from yfin import normalize as nz
-from yfin.logging_setup import get_logger
+from yfin.core import normalize as nz
+from yfin.core.logging_setup import get_logger
 from yfin.models.base import BIG_PRECISION, BigNumType, PriceType, TsType
 
 log = get_logger(__name__)

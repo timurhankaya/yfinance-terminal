@@ -7,7 +7,7 @@ bir DB baglantisi olmadan kosamazdi.
 
 from __future__ import annotations
 
-from yfin.config import DB_MANAGED_FIELDS, SETTING_GROUPS, Settings, settings_schema
+from yfin.core.config import DB_MANAGED_FIELDS, SETTING_GROUPS, Settings, settings_schema
 
 
 def test_kayit_sayisi_ve_siralama() -> None:

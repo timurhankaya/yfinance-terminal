@@ -60,13 +60,12 @@ def _golden_result(order: tuple[str, ...]) -> NormalizedResult:
 
 
 def _asof_datasets() -> list[AsOfDataset[Any]]:
-    """`asof_state` KAPI AILESI -- bu dosyanin konusu olan 13 dataset.
+    """The `asof_state` gate family -- the 13 datasets this file is about.
 
-    Kapi tablosuna gore SUZULUR, yalnizca tipe gore DEGIL: SQ ile gelen
-    `search`/`lookup` da `AsOfDataset`tir ama KENDI kapisini kullanir
-    (`discovery_asof_state`, SQ K3a). Tipe gore suzmek bu dosyanin surdugu
-    "13 dataset'in sozlesmesi degismedi" iddiasini, alakasiz bir ailenin
-    buyumesiyle her seferinde kirardi.
+    Filtered by gate table, not just by type: `search`/`lookup` are also
+    `AsOfDataset`s but use their own gate (`discovery_asof_state`).
+    Filtering by type alone would break this file's "the 13 datasets'
+    contract is unchanged" claim every time an unrelated family grows.
     """
     return [
         SYMBOL_DATASETS[name]
@@ -77,7 +76,7 @@ def _asof_datasets() -> list[AsOfDataset[Any]]:
 
 
 def _discovery_datasets() -> list[AsOfDataset[Any]]:
-    """`discovery_asof_state` kapi ailesi (SQ S6.2)."""
+    """The `discovery_asof_state` gate family."""
     from yfin.datasets.discovery.base import DISCOVERY_GATE_TABLE
 
     return [
@@ -126,10 +125,10 @@ def test_symbol_side_gate_identity_is_symbol_and_dataset() -> None:
 
 
 def test_first_seen_at_cannot_affect_any_existing_hash() -> None:
-    """`asof_state` ailesinin hicbir VERI tablosunda `first_seen_at` YOK.
+    """No data table in the `asof_state` family carries `first_seen_at`.
 
-    Kolonu tasiyan tek sembol-tarafi tablosu kapinin kendisidir
-    (`asof_state`) ve o hash GOVDESINE hic girmez.
+    The only symbol-side table carrying that column is the gate itself
+    (`asof_state`), and that never enters the hash body.
     """
     carriers = {
         table.name
@@ -148,12 +147,12 @@ def test_first_seen_at_cannot_affect_any_existing_hash() -> None:
 
 
 def test_discovery_family_uses_its_own_gate() -> None:
-    """SQ K3a: `asof_state` KULLANILAMAZ.
+    """`asof_state` cannot be used here.
 
-    O tablonun `symbol` kolonu `symbols.symbol`a FK tasir; serbest arama
-    terimi orada olmadigi icin kapi satiri `ERROR 1452` alirdi. Bu test,
-    birinin "tutarlilik olsun" diye kesif dataset'lerini eski kapiya
-    tasimasini engeller.
+    That table's `symbol` column carries an FK to `symbols.symbol`; a free
+    search term is not in there, so a gate row would raise `ERROR 1452`.
+    This test stops someone moving discovery datasets to the old gate "for
+    consistency".
     """
     from yfin.datasets.discovery.base import (
         DISCOVERY_GATE_KEY_COLUMNS,
@@ -169,13 +168,13 @@ def test_discovery_family_uses_its_own_gate() -> None:
 
 
 def test_discovery_first_seen_at_carrier_is_ungated() -> None:
-    """`research_reports` `first_seen_at` TASIR ve `search`in `produces`
-    listesindedir -- ama KAPI DISINDADIR (SQ S6.2.1).
+    """`research_reports` carries `first_seen_at` and is in `search`'s
+    `produces`, but sits outside the gate.
 
-    Yani hash govdesine hic girmez ve `first_seen_at`in "her kosuda degisir"
-    ozelligi kapiyi bozamaz. Bu, ustteki testin kesif ailesindeki
-    karsiligidir; kanit `UNGATED_TABLES`tan turetilir, elle yazilmis bir
-    istisna listesinden degil.
+    So it never enters the hash body, and `first_seen_at`'s "changes every
+    run" nature cannot break the gate. This is the discovery-family
+    counterpart of the test above; the proof is derived from
+    `UNGATED_TABLES`, not a hand-written exception list.
     """
     from yfin.datasets.discovery.base import UNGATED_TABLES
 
@@ -189,15 +188,15 @@ def test_discovery_first_seen_at_carrier_is_ungated() -> None:
         if table != dataset.asof_gate_table and table not in UNGATED_TABLES
     }
     assert gated_targets & carriers == set()
-    # Iddianin BOS OLMADIGININ kaniti: tasiyici gercekten `produces`ta ve
-    # gercekten kapi disinda.
+    # Proof the claim is not vacuous: the carrier is really in `produces`
+    # and really outside the gate.
     assert "research_reports" in carriers
     assert "research_reports" in SYMBOL_DATASETS["search"].produces
     assert "research_reports" in UNGATED_TABLES
 
 
 def test_asof_dataset_is_still_a_dataset() -> None:
-    """LSP: sembol tarafi runner'i `Dataset` bekliyor; mixin bunu bozmaz."""
+    """LSP: the symbol-side runner expects a `Dataset`; the mixin does not break that."""
     for dataset in _asof_datasets():
         assert isinstance(dataset, Dataset)
         assert isinstance(dataset, AsOfGate)
@@ -212,17 +211,17 @@ def test_domain_side_uses_a_different_gate_without_touching_the_symbol_side() ->
         if not isinstance(dataset, DomainAsOfDataset):
             continue
         assert dataset.asof_gate_table == "domain_asof_state"
-        # IKI HIYERARSI BIRLESTIRILEMEZ: domain dataset'i bir `Dataset`
-        # DEGILDIR ve olmamalidir (fetch/normalize imzalari farkli).
+        # The two hierarchies cannot merge: a domain dataset is not a
+        # `Dataset` and must not be (fetch/normalize signatures differ).
         assert not isinstance(dataset, Dataset)
         assert isinstance(dataset, AsOfGate)
 
 
 def test_content_hash_matches_the_golden_value() -> None:
-    """Hash ALGORITMASI regresyon citi.
+    """Regression guard for the hash algorithm.
 
-    `AsOfGate`in `content_hash` govdesi refaktorde tasindı ama
-    DEGISTIRILMEDI; bu deger onu kalici olarak sabitler.
+    `AsOfGate`'s `content_hash` body was moved during the refactor but not
+    changed; this value pins it permanently.
     """
     dataset = SYMBOL_DATASETS["institutional_holders"]
     assert dataset.content_hash(_golden_result(("Vanguard", "BlackRock"))) == GOLDEN_HASH

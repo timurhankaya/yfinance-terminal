@@ -27,7 +27,7 @@ VERIFY_CHUNK = 500
 # the completed chunks behind.
 #
 # Deliberately not a .env key: persistence imports nothing from
-# yfin.config and should not gain a configuration dependency.
+# yfin.core.config and should not gain a configuration dependency.
 INSERT_CHUNK = 2000
 
 

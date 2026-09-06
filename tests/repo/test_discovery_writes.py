@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from yfin.datasets.discovery.lookup import LookupDataset, LookupPayload
 from yfin.datasets.discovery.search import SearchDataset, SearchPayload
 from yfin.datasets.market.screener import ScreenerDataset, ScreenPayload
-from yfin.persistence import PostgresRowWriter
+from yfin.storage.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo
 

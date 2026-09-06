@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.datasets.base import NormalizedResult, TableWrite, WriteStats
 from yfin.models import PriceHistory, Symbol
-from yfin.persistence import PostgresRowWriter
-from yfin.runner import SymbolPayload, _is_lock_conflict, _persist_with_retry
+from yfin.pipeline.runner import SymbolPayload, _is_lock_conflict, _persist_with_retry
+from yfin.storage.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo
 

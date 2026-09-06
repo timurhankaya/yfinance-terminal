@@ -35,7 +35,7 @@ from yfin.datasets.payloads import (
     FundsPayload,
     RangedFramePayload,
 )
-from yfin.persistence import PostgresRowWriter
+from yfin.storage.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo
 

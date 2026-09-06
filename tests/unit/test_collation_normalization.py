@@ -99,6 +99,6 @@ def test_cli_filter_input_is_normalized(given: str) -> None:
     buyuk harfe cevirdigi icin iki taraf ayni bicimde bulusur ve
     `ix_symbols_exchange` indeksi kullanilabilir kalir (func.upper
     kolonu sarmalasaydi kullanilamazdi)."""
-    from yfin.cli import _normalize_filter_values
+    from yfin.cli.app import _normalize_filter_values
 
     assert _normalize_filter_values([given]) == ["NMS"]

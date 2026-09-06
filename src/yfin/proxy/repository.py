@@ -12,8 +12,8 @@ from datetime import UTC, datetime
 from sqlalchemy import case, select, update
 from sqlalchemy.orm import Session
 
-from yfin.errors import ErrorKind
-from yfin.logging_setup import get_logger, scrub
+from yfin.core.errors import ErrorKind
+from yfin.core.logging_setup import get_logger, scrub
 from yfin.models import Proxy, ProxyHealth
 from yfin.proxy.health import (
     HealthEvent,

@@ -13,10 +13,10 @@ from typing import Any
 
 import pytest
 
-from yfin import config as config_mod
-from yfin import settings_store
-from yfin.config import ENV_ONLY_FIELDS, SETTINGS_SOURCE_VAR, get_settings
-from yfin.settings_store import SettingRejected, filter_overrides, validate_pair
+from yfin.core import config as config_mod
+from yfin.core.config import ENV_ONLY_FIELDS, SETTINGS_SOURCE_VAR, get_settings
+from yfin.storage import settings_store
+from yfin.storage.settings_store import SettingRejected, filter_overrides, validate_pair
 
 
 @pytest.fixture(autouse=True)

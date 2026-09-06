@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from yfin.config import DB_MANAGED_FIELDS
-from yfin.settings_store import SettingRejected, adopt_env_values, plan_seed, serialize
+from yfin.core.config import DB_MANAGED_FIELDS
+from yfin.storage.settings_store import SettingRejected, adopt_env_values, plan_seed, serialize
 
 
 def test_bos_tabloda_JSON_un_tamami_yazilir() -> None:

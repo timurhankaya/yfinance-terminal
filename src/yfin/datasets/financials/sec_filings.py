@@ -11,13 +11,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from yfin import normalize as nz
-from yfin.client import call_optional
+from yfin.core import normalize as nz
+from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
 from yfin.datasets.common import key_value
 from yfin.datasets.payloads import SecFilingsPayload
 from yfin.datasets.registry import register
-from yfin.logging_setup import get_logger
+from yfin.ingest.client import call_optional
 
 log = get_logger(__name__)
 

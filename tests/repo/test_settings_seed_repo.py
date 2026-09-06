@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import Engine, text
 
-from yfin.config import Settings
-from yfin.settings_store import (
+from yfin.core.config import Settings
+from yfin.storage.settings_store import (
     SettingRejected,
     fetch_rows,
     plan_seed,
@@ -108,8 +108,8 @@ def test_adopt_env_satirsiz_anahtarlari_doldurur(
 ) -> None:
     """Migration step: an install with YF_MAX_SHARDS=8 in `.env` would
     silently fall back to the default after migration without this step."""
-    from yfin.config import DB_MANAGED_FIELDS
-    from yfin.settings_store import adopt_env_values
+    from yfin.core.config import DB_MANAGED_FIELDS
+    from yfin.storage.settings_store import adopt_env_values
 
     _seed_once(store_settings, test_engine, adopt_env=adopt_env_values())
     assert set(fetch_rows(store_settings) or {}) == DB_MANAGED_FIELDS

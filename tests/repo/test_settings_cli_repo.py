@@ -14,9 +14,9 @@ import pytest
 from sqlalchemy import Engine, text
 from typer.testing import CliRunner
 
-from yfin import cli_config
-from yfin.cli_config import config_app
-from yfin.config import Settings
+from yfin.cli import settings as cli_config
+from yfin.cli.settings import config_app
+from yfin.core.config import Settings
 
 pytestmark = pytest.mark.repo
 
@@ -119,7 +119,7 @@ def test_export_varsayilan_yalniz_SATIRI_OLANLARI_verir(cli: CliRunner) -> None:
     assert json.loads(result.stdout) == {"yf_max_shards": 9}
 
     all_result = cli.invoke(config_app, ["export", "--all"])
-    from yfin.config import DB_MANAGED_FIELDS
+    from yfin.core.config import DB_MANAGED_FIELDS
 
     assert set(json.loads(all_result.stdout)) == DB_MANAGED_FIELDS
 

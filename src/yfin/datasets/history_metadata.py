@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from yfin import normalize as nz
+from yfin.core import normalize as nz
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
 from yfin.datasets.common import data_columns, snapshot_rows, warn_unmapped
 from yfin.datasets.payloads import MetadataPayload

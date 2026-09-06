@@ -23,17 +23,17 @@ from typing import Any
 import pandas as pd
 from yfinance.exceptions import YFDataException
 
-from yfin import normalize as nz
-from yfin.client import call_optional
+from yfin.core import normalize as nz
+from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite, WriteStats
 from yfin.datasets.common import key_value, to_fact_value
 from yfin.datasets.payloads import FundsPayload
 from yfin.datasets.registry import register
 from yfin.datasets.symbols import fetch_fast_info, fetch_history_metadata
-from yfin.logging_setup import get_logger
+from yfin.ingest.client import call_optional
 from yfin.models.funds import FundSection, WeightCategory
-from yfin.persistence import RowWriter
+from yfin.storage.persistence import RowWriter
 
 log = get_logger(__name__)
 

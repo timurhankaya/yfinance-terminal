@@ -124,7 +124,7 @@ class TestStopConditions:
     def test_stops_at_page_limit(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """`most_shorted_stocks` total=4.022 -> 17 sayfa. Sinir olmasaydi
         tek ekran butcenin yarisini yerdi."""
-        from yfin.config import get_settings
+        from yfin.core.config import get_settings
 
         limit = get_settings().yf_screen_max_pages
         rec = _Recorder([_page(2, 10_000, meta=True)] + [_page(2, 10_000)] * 20)
@@ -157,7 +157,7 @@ class TestVariantContract:
 
     def test_unknown_screen_key_is_rejected(self) -> None:
         """Bilinmeyen ad `screens.py`de yoksa sorgu govdesi uretilemez."""
-        from yfin.config import Settings
+        from yfin.core.config import Settings
 
         cfg = Settings(yf_screen_keys="nosuchscreen")
         with pytest.raises(ValueError, match="bilinmeyen ekran"):
@@ -170,8 +170,8 @@ class TestVariantContract:
         tablo yalnizca kosu sirasinda dolduguna gore bootstrap kilidi HIC
         acilmazdi.
         """
-        from yfin.config import Settings
-        from yfin.screens import ALL_SCREENS
+        from yfin.core.config import Settings
+        from yfin.ingest.screens import ALL_SCREENS
 
         keys = mod.ScreenerDataset().variants(Settings(), None)
         assert keys == [s.key for s in ALL_SCREENS]

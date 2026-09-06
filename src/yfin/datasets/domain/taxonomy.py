@@ -13,6 +13,7 @@ from __future__ import annotations
 from functools import partial
 from typing import Any
 
+from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult, TableWrite
 from yfin.datasets.domain.base import DomainContext, DomainDataset
 from yfin.datasets.domain.common import (
@@ -24,7 +25,6 @@ from yfin.datasets.domain.common import (
 )
 from yfin.datasets.domain.payloads import TaxonomyPayload
 from yfin.datasets.registry import register_domain
-from yfin.logging_setup import get_logger
 
 log = get_logger(__name__)
 

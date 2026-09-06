@@ -19,13 +19,13 @@ from typing import Any
 
 import pandas as pd
 
-from yfin import normalize as nz
-from yfin.client import call_optional
+from yfin.core import normalize as nz
+from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset
 from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite
 from yfin.datasets.common import key_value
 from yfin.datasets.payloads import AsOfFramePayload
-from yfin.logging_setup import get_logger
+from yfin.ingest.client import call_optional
 
 log = get_logger(__name__)
 

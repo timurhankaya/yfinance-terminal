@@ -15,7 +15,7 @@ from helpers import load_fixture
 from yfin.datasets import SYMBOL_DATASETS as REGISTRY
 from yfin.datasets.base import NormalizedResult, TableWrite, WriteStats
 from yfin.datasets.payloads import FastInfoPayload, InfoPayload
-from yfin.persistence import RowWriter, apply_write
+from yfin.storage.persistence import RowWriter, apply_write
 
 
 class FakeWriter:

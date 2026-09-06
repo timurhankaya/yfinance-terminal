@@ -15,14 +15,13 @@ from typing import Any, Protocol
 from sqlalchemy import Engine, and_, case, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from yfin.client import make_ticker
-from yfin.config import Settings, get_settings
+from yfin.core.config import Settings, get_settings
+from yfin.core.errors import PROXY_FAULT_KINDS, DatasetOutOfScope, ErrorKind, classify_error
+from yfin.core.logging_setup import bind_shard_context, get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, WriteStats
 from yfin.datasets.meta import DatasetMeta
 from yfin.datasets.registry import SYMBOL_DATASETS, Registry
-from yfin.db import advisory_lock
-from yfin.errors import PROXY_FAULT_KINDS, DatasetOutOfScope, ErrorKind, classify_error
-from yfin.logging_setup import bind_shard_context, get_logger
+from yfin.ingest.client import make_ticker
 from yfin.models import (
     GAP_FETCH_FAILED,
     Base,
@@ -33,8 +32,9 @@ from yfin.models import (
     SyncRun,
     SyncRunItem,
 )
-from yfin.persistence import PostgresRowWriter
-from yfin.rescale import apply_pending
+from yfin.storage.db import advisory_lock
+from yfin.storage.persistence import PostgresRowWriter
+from yfin.storage.rescale import apply_pending
 
 log = get_logger(__name__)
 
@@ -1085,7 +1085,7 @@ def run_sync(
     called directly (library use, live tests). `acquire_lock` is turned
     off only for a caller that already holds the lock externally.
 
-    For multi-shard runs, see `yfin.shard.run_sharded`.
+    For multi-shard runs, see `yfin.pipeline.shard.run_sharded`.
     """
     cfg = settings or get_settings()
     if acquire_lock:

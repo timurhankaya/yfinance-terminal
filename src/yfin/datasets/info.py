@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from yfin import normalize as nz
-from yfin.client import call_yahoo
+from yfin.core import normalize as nz
 from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite
 from yfin.datasets.common import data_columns, snapshot_rows, warn_unmapped
 from yfin.datasets.payloads import InfoPayload
 from yfin.datasets.registry import register
 from yfin.datasets.snapshot_base import SnapshotDataset
+from yfin.ingest.client import call_yahoo
 from yfin.models.fields import INFO_FIELDS, INFO_NESTED_KEYS
 
 _SNAPSHOT_UPDATE = data_columns(INFO_FIELDS, extra=("raw_json", "content_hash", "fetched_at"))

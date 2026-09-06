@@ -27,14 +27,14 @@ from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
-from yfin.config import (
+from yfin.core.config import (
     DB_MANAGED_FIELDS,
     ENV_ONLY_FIELDS,
     Settings,
     bootstrap_settings,
     settings_from_overrides,
 )
-from yfin.logging_setup import get_logger
+from yfin.core.logging_setup import get_logger
 from yfin.models.settings import SettingRow
 
 log = get_logger(__name__)

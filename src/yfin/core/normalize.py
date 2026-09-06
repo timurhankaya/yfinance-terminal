@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from yfin.logging_setup import get_logger
+from yfin.core.logging_setup import get_logger
 
 log = get_logger(__name__)
 

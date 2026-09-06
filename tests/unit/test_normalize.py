@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from yfin import normalize as nz
+from yfin.core import normalize as nz
 
 
 class TestDecimalConversion:

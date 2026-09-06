@@ -14,7 +14,7 @@ import pytest
 from curl_cffi.requests import exceptions as curl_exc
 from yfinance import exceptions as yf_exc
 
-from yfin.errors import ErrorKind, classify_error, is_retryable
+from yfin.core.errors import ErrorKind, classify_error, is_retryable
 
 
 class _Response:
@@ -144,18 +144,18 @@ class TestRetryPolicy:
 
 class TestRedaction:
     def test_scrub_hides_password_in_dsn(self) -> None:
-        from yfin.logging_setup import scrub
+        from yfin.core.logging_setup import scrub
 
         assert scrub("socks5h://acct:s3cret@10.0.0.1:1080") == "socks5h://acct:***@10.0.0.1:1080"
 
     def test_scrub_leaves_plain_urls_untouched(self) -> None:
-        from yfin.logging_setup import scrub
+        from yfin.core.logging_setup import scrub
 
         url = "https://query2.finance.yahoo.com/v8/finance/chart/AAPL"
         assert scrub(url) == url
 
     def test_processor_scrubs_event_fields(self) -> None:
-        from yfin.logging_setup import redact_credentials
+        from yfin.core.logging_setup import redact_credentials
 
         event: dict[str, Any] = {"proxy": "http://acct:s3cret@10.0.0.1:3128", "n": 1}
         assert redact_credentials(None, "info", event)["proxy"] == "http://acct:***@10.0.0.1:3128"

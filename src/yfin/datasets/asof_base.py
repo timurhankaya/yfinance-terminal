@@ -34,10 +34,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from yfin import normalize as nz
+from yfin.core import normalize as nz
 from yfin.datasets.base import Dataset, NormalizedResult, TableWrite, WriteStats
 from yfin.datasets.hash_gated import UNCHANGED_UPDATE_COLUMNS
-from yfin.persistence import RowWriter, apply_write
+from yfin.storage.persistence import RowWriter, apply_write
 
 GATE_TABLE = "asof_state"
 GATE_KEY_COLUMNS = ("symbol", "dataset")

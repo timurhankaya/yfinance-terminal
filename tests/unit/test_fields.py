@@ -41,7 +41,7 @@ def test_fast_info_has_exactly_20_keys() -> None:
 
 
 def test_epoch_fields_use_epoch_kind() -> None:
-    from yfin import normalize as nz
+    from yfin.core import normalize as nz
 
     for field in INFO_FIELDS:
         if field.source in nz.EPOCH_MS_FIELDS:
@@ -51,7 +51,7 @@ def test_epoch_fields_use_epoch_kind() -> None:
 
 
 def test_not_epoch_fields_are_not_datetime() -> None:
-    from yfin import normalize as nz
+    from yfin.core import normalize as nz
 
     by_source: dict[str, Field] = {f.source: f for f in INFO_FIELDS}
     for source in nz.NOT_EPOCH_FIELDS:

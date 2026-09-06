@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from yfin.config import Settings
-from yfin.errors import ErrorKind
+from yfin.core.config import Settings
+from yfin.core.errors import ErrorKind
 from yfin.models import ProxyHealth, ProxyScheme
 from yfin.proxy import (
     HealthEvent,

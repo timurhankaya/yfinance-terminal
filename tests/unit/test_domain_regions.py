@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from yfin.config import Settings
-from yfin.domain_runner import US, RegionValidationError, domain_regions
+from yfin.core.config import Settings
+from yfin.pipeline.domain_runner import US, RegionValidationError, domain_regions
 
 _US_TOP = [{"symbol": s} for s in ("NVDA", "AAPL", "MSFT", "AVGO")]
 _GB_TOP = [{"symbol": s} for s in ("SGE.L", "AVV.L", "KNOS.L", "SPT.L")]

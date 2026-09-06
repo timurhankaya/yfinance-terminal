@@ -13,10 +13,10 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from yfin.client import make_ticker
 from yfin.datasets.bars import BAR_LIMITS, IntervalBarDataset, plan_windows
 from yfin.datasets.base import SyncContext
-from yfin.persistence import PostgresRowWriter
+from yfin.ingest.client import make_ticker
+from yfin.storage.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.live
 

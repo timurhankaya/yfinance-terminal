@@ -12,17 +12,13 @@ from sqlalchemy import Engine, delete, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from yfin import normalize as nz
 from yfin import proxy as px
-from yfin.cli_bars import bars_app, scope_app
-from yfin.cli_config import config_app
-from yfin.config import SETTINGS_SOURCE_VAR, bootstrap_settings, get_settings
+from yfin.cli.bars import bars_app, scope_app
+from yfin.cli.settings import config_app
+from yfin.core import normalize as nz
+from yfin.core.config import SETTINGS_SOURCE_VAR, bootstrap_settings, get_settings
+from yfin.core.logging_setup import configure_logging, get_logger
 from yfin.datasets import DOMAIN_DATASETS, MARKET_DATASETS, SYMBOL_DATASETS
-from yfin.db import LockNotAcquired, create_db_engine
-from yfin.domain_audit import audit_domains
-from yfin.domain_runner import RegionValidationError, run_domain_sync
-from yfin.logging_setup import configure_logging, get_logger
-from yfin.market_runner import run_market_sync
 from yfin.models import (
     Base,
     Domain,
@@ -38,9 +34,13 @@ from yfin.models import (
     symbol_scoped_tables,
 )
 from yfin.models.discovery import QUERY_TERM_LENGTH
-from yfin.prune import PruneDisabledError, run_prune
-from yfin.runner import EXIT_LOCK_NOT_ACQUIRED, EXIT_NO_PROXY, run_sync
-from yfin.shard import NoEligibleProxy, run_sharded
+from yfin.pipeline.domain_audit import audit_domains
+from yfin.pipeline.domain_runner import RegionValidationError, run_domain_sync
+from yfin.pipeline.market_runner import run_market_sync
+from yfin.pipeline.prune import PruneDisabledError, run_prune
+from yfin.pipeline.runner import EXIT_LOCK_NOT_ACQUIRED, EXIT_NO_PROXY, run_sync
+from yfin.pipeline.shard import NoEligibleProxy, run_sharded
+from yfin.storage.db import LockNotAcquired, create_db_engine
 
 log = get_logger(__name__)
 
@@ -233,8 +233,8 @@ def _warn_missing_settings_rows() -> None:
     This reads `Settings.model_fields` from a command, not a migration, so it
     does not violate the rule against migrations importing application code.
     """
-    from yfin.config import DB_MANAGED_FIELDS, bootstrap_settings, source_is_env
-    from yfin.settings_store import fetch_rows
+    from yfin.core.config import DB_MANAGED_FIELDS, bootstrap_settings, source_is_env
+    from yfin.storage.settings_store import fetch_rows
 
     if source_is_env():
         return

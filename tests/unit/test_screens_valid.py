@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from yfin.screens import (
+from yfin.ingest.screens import (
     ALL_SCREENS,
     CUSTOM_SCREENS,
     PREDEFINED_SCREENS,

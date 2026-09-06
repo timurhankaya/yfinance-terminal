@@ -13,9 +13,9 @@ import typer
 from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from yfin import normalize as nz
+from yfin.core import normalize as nz
 from yfin.models import BAR_INTERVALS, BarGap, IntradayScope
-from yfin.rescale import apply_pending, seed_baseline, unseeded_historic_splits
+from yfin.storage.rescale import apply_pending, seed_baseline, unseeded_historic_splits
 
 scope_app = typer.Typer(help="Intraday scope management (intraday_scope)", no_args_is_help=True)
 bars_app = typer.Typer(help="price_bars maintenance and audit", no_args_is_help=True)
@@ -24,7 +24,7 @@ bars_app = typer.Typer(help="price_bars maintenance and audit", no_args_is_help=
 def _factory() -> sessionmaker[Session]:
     # Lazy import: cli.py imports this module, so a direct top-level import
     # the other way would create a circular import.
-    from yfin.cli import _session_factory
+    from yfin.cli.app import _session_factory
 
     return _session_factory()
 

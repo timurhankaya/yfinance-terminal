@@ -11,8 +11,8 @@ import enum
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
-from yfin.config import Settings, get_settings
-from yfin.errors import PROXY_FAULT_KINDS, ErrorKind
+from yfin.core.config import Settings, get_settings
+from yfin.core.errors import PROXY_FAULT_KINDS, ErrorKind
 from yfin.models import Proxy, ProxyHealth
 
 

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from yfin import normalize as nz
-from yfin.client import call_yahoo
+from yfin.core import normalize as nz
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
 from yfin.datasets.registry import register
+from yfin.ingest.client import call_yahoo
 
 
 class IsinDataset(Dataset[str | None]):

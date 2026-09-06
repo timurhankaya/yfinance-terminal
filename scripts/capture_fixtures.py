@@ -14,8 +14,8 @@ from typing import Any
 
 import yfinance as yf
 
-from yfin import normalize as nz
-from yfin.config import get_settings
+from yfin.core import normalize as nz
+from yfin.core.config import get_settings
 from yfin.datasets.funds import _collect
 
 # MSFT is required: its June fiscal year proves the period end isn't
@@ -390,7 +390,7 @@ def capture_discovery() -> None:
     `researchReports` never comes back -- fixtures would be silently
     incomplete.
     """
-    from yfin.screens import SCREEN_KEY_MAX_LENGTH  # noqa: F401  (import check)
+    from yfin.ingest.screens import SCREEN_KEY_MAX_LENGTH  # noqa: F401  (import check)
 
     target = FIXTURE_ROOT / "_discovery"
     target.mkdir(parents=True, exist_ok=True)
@@ -425,7 +425,7 @@ def capture_screen() -> None:
     Sending `count` together with `offset` would make Yahoo silently
     ignore it and return 25 rows.
     """
-    from yfin.screens import screen_by_key
+    from yfin.ingest.screens import screen_by_key
 
     target = FIXTURE_ROOT / "_screen"
     target.mkdir(parents=True, exist_ok=True)

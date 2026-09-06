@@ -440,7 +440,7 @@ class TestAbsentData:
     into an exception; for a non-company symbol this is `empty`."""
 
     def test_404_is_absent_not_failure(self) -> None:
-        from yfin.client import is_absent_data
+        from yfin.ingest.client import is_absent_data
 
         class _Response:
             status_code = 404
@@ -452,18 +452,18 @@ class TestAbsentData:
 
     def test_trailing_index_error_is_absent(self) -> None:
         """yfinance reads an empty trailing frame with .iloc and blows up."""
-        from yfin.client import is_absent_data
+        from yfin.ingest.client import is_absent_data
 
         assert is_absent_data(IndexError("positional indexers are out-of-bounds"))
 
     def test_other_errors_still_raise(self) -> None:
-        from yfin.client import is_absent_data
+        from yfin.ingest.client import is_absent_data
 
         assert not is_absent_data(ValueError("bozuk veri"))
         assert not is_absent_data(IndexError("list index out of range"))
 
     def test_call_optional_returns_none_on_absent(self) -> None:
-        from yfin.client import call_optional
+        from yfin.ingest.client import call_optional
 
         def _boom() -> None:
             raise IndexError("positional indexers are out-of-bounds")
@@ -471,7 +471,7 @@ class TestAbsentData:
         assert call_optional(_boom, what="test") is None
 
     def test_call_optional_reraises_real_errors(self) -> None:
-        from yfin.client import call_optional
+        from yfin.ingest.client import call_optional
 
         def _boom() -> None:
             raise ValueError("gercek hata")

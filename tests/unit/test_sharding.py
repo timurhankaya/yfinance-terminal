@@ -1,4 +1,4 @@
-"""Shard'li calistirma: cikis kodu, shard formulu, monotonik kolon (P10.1)."""
+"""Sharded runs: exit code, shard formula, monotonic column."""
 
 from __future__ import annotations
 
@@ -6,10 +6,10 @@ from typing import Any
 
 import pytest
 
-from yfin.config import Settings
+from yfin.core.config import Settings
 from yfin.datasets import SYMBOL_DATASETS
 from yfin.models import ItemStatus
-from yfin.runner import (
+from yfin.pipeline.runner import (
     EXIT_ALL_FAILED,
     EXIT_NO_SYMBOL_RESOLVED,
     EXIT_OK,
@@ -17,7 +17,7 @@ from yfin.runner import (
     RunTally,
     list_source,
 )
-from yfin.shard import NoEligibleProxy, ShardSpec, _effective_shards
+from yfin.pipeline.shard import NoEligibleProxy, ShardSpec, _effective_shards
 
 
 def _tally(counts: dict[ItemStatus, int], *, symbols: int = 1, resolved: int = 1) -> RunTally:
@@ -35,7 +35,7 @@ class TestExitCode:
         assert _tally({ItemStatus.OK: 3}).exit_code() == EXIT_OK
 
     def test_empty_and_skipped_are_not_failures(self) -> None:
-        """S8.2: kaynak veri yok != hata."""
+        """No source data != an error."""
         tally = _tally({ItemStatus.EMPTY: 2, ItemStatus.SKIPPED: 1})
         assert tally.exit_code() == EXIT_OK
 
@@ -50,31 +50,31 @@ class TestExitCode:
         assert tally.exit_code() == EXIT_NO_SYMBOL_RESOLVED
 
     def test_not_attempted_forbids_exit_zero(self) -> None:
-        """P4.7/P8.1: aksi halde evrenin yarisi hic cekilmemisken run 'ok'
-        ve exit 0 donerdi - sessiz veri kaybi."""
+        """Otherwise, a run where half the universe was never fetched would
+        return 'ok' and exit 0 -- silent data loss."""
         tally = _tally({ItemStatus.OK: 5, ItemStatus.NOT_ATTEMPTED: 3}, symbols=8, resolved=5)
         assert tally.exit_code() == EXIT_PARTIAL
 
     def test_not_attempted_is_excluded_from_all_failed(self) -> None:
-        """Cekilmemis sembol 'basarisiz hucre' degildir; ALL_FAILED
-        yalnizca gercekten denenmis hucreleri sayar."""
+        """An unfetched symbol is not a "failed cell"; ALL_FAILED only
+        counts cells that were actually attempted."""
         tally = _tally({ItemStatus.FAILED: 2, ItemStatus.NOT_ATTEMPTED: 4}, symbols=6, resolved=2)
         assert tally.cells == 2
         assert tally.exit_code() == EXIT_ALL_FAILED
 
 
 class TestDelistProtection:
-    """Olu bir proxy tum evreni pasiflestirmemeli (P5.2 simetrigi)."""
+    """A dead proxy must not deactivate the whole universe."""
 
     def test_transport_faults_are_recognised(self) -> None:
-        from yfin.errors import PROXY_FAULT_KINDS, ErrorKind
+        from yfin.core.errors import PROXY_FAULT_KINDS, ErrorKind
 
         assert {
             ErrorKind.RATE_LIMITED,
             ErrorKind.BLOCKED,
             ErrorKind.NETWORK,
         } == PROXY_FAULT_KINDS
-        # Sembolun gercekten cozulememesi tasima hatasi DEGILDIR
+        # A symbol genuinely failing to resolve is not a transport fault
         assert ErrorKind.UNKNOWN_SYMBOL not in PROXY_FAULT_KINDS
         assert ErrorKind.DATA not in PROXY_FAULT_KINDS
 
@@ -85,8 +85,8 @@ class TestListSource:
         assert [source(), source(), source(), source()] == ["A", "B", None, None]
 
     def test_is_shared_safely_between_callers(self) -> None:
-        """Kaynak thread'ler arasinda paylasilir; her sembol TAM OLARAK
-        bir kez dagitilir."""
+        """The source is shared across threads; each symbol is handed out
+        exactly once."""
         source = list_source([f"S{i}" for i in range(50)])
         seen = []
         while (symbol := source()) is not None:
@@ -99,7 +99,7 @@ class TestShardSelection:
         settings = Settings(_env_file=None)  # type: ignore[call-arg]
         assert (
             _effective_shards(
-                None,  # type: ignore[arg-type]  # no_proxy yolunda session kullanilmaz
+                None,  # type: ignore[arg-type]  # no session is used on the no_proxy path
                 settings=settings,
                 max_shards=8,
                 no_proxy=True,
@@ -132,9 +132,9 @@ class TestShardSelection:
 
 class TestShardSpec:
     def test_cache_key_follows_proxy_not_shard_index(self) -> None:
-        """P4.11: shard-0 bir sonraki run'da baska bir proxy olabilir;
-        dizin shard_index ile anahtarlansaydi A'nin IP'siyle mintlenmis
-        cookie B'nin cikis IP'siyle kullanilirdi."""
+        """shard-0 may get a different proxy on the next run; if the index
+        were keyed by shard_index, a cookie minted for A's IP would be used
+        with B's egress IP."""
         base = {
             "run_id": 1,
             "dataset_names": ("history",),
@@ -152,7 +152,7 @@ class TestShardSpec:
         assert spec.proxy_key == "direct"
 
     def test_spec_is_picklable(self) -> None:
-        """spawn ile process sinirindan gecer; pickle'lanabilir OLMALIDIR."""
+        """Crosses a process boundary via spawn; must be picklable."""
         import pickle
 
         spec = ShardSpec(
@@ -170,17 +170,17 @@ class TestShardSpec:
 
 class TestRepairColumn:
     def test_is_repaired_is_monotonic(self) -> None:
-        """P6.3: onarim heuristikleri pencere uzunluguna baglidir; ayni
-        satir bir kez 1, ertesi kez 0 gelebilir. Duz upsert bunu geri
-        yazar ve kolonun denetim degeri sifirlanirdi."""
+        """Repair heuristics depend on window length; the same row can come
+        back as 1 once and 0 the next time. A plain upsert would write that
+        back and reset the column's audit value."""
         from yfin.datasets.history import MONOTONIC_COLUMNS, UPDATE_COLUMNS
 
         assert "is_repaired" in UPDATE_COLUMNS
         assert MONOTONIC_COLUMNS == ("is_repaired",)
 
     def test_is_repaired_not_in_column_map(self) -> None:
-        """_COLUMN_MAP'e konsaydi jenerik dongu onu to_decimal ile isler
-        ve BOOLEAN kolona Decimal yazardi."""
+        """If it were in _COLUMN_MAP, the generic loop would run it through
+        to_decimal and write a Decimal into a BOOLEAN column."""
         from yfin.datasets.history import _COLUMN_MAP
 
         assert "Repaired?" not in _COLUMN_MAP
@@ -195,25 +195,25 @@ class TestRepairColumn:
         result = SYMBOL_DATASETS["history"].normalize(frame, "AAPL")
         write = next(w for w in result.writes if w.table == "price_history")
         assert write.monotonic_columns == ("is_repaired",)
-        # Kolon HER SATIRDA bulunur; aksi halde `present` kesisimi onu
-        # ON DUPLICATE KEY UPDATE kapsamindan dusururdu.
+        # The column is present in every row; otherwise the `present`
+        # intersection would drop it from the ON DUPLICATE KEY UPDATE scope.
         assert all("is_repaired" in row for row in write.rows)
 
 
 class TestRepairExtra:
-    """yfinance[repair] ekstrasi olmadan onarim HER sembolde patlar ve
-    price_history hic yazilmaz (canli kosuda dogrulandi)."""
+    """Without the yfinance[repair] extra, repair blows up on every symbol
+    and price_history is never written (verified in a live run)."""
 
     def test_repair_extra_is_installed(self) -> None:
-        """Bagimlilik `yfinance[repair]` olarak beyan edilir; bu test
-        ekstranin sessizce dusmesini yakalar."""
+        """The dependency is declared as `yfinance[repair]`; this test
+        catches the extra silently disappearing."""
         import importlib.util
 
         assert importlib.util.find_spec("scipy.ndimage") is not None
         assert importlib.util.find_spec("sklearn.cluster") is not None
 
     def test_disabled_by_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import yfin.config as config_mod
+        import yfin.core.config as config_mod
         import yfin.datasets.history as history_mod
 
         monkeypatch.setattr(
@@ -225,10 +225,10 @@ class TestRepairExtra:
     def test_missing_extra_degrades_instead_of_failing(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Toplam veri kesintisi yerine onarimsiz ama CALISAN kosu."""
+        """A working run without repair, instead of a total data outage."""
         import builtins
 
-        import yfin.config as config_mod
+        import yfin.core.config as config_mod
         import yfin.datasets.history as history_mod
 
         monkeypatch.setattr(
@@ -248,8 +248,8 @@ class TestRepairExtra:
 
 class TestFrameConsumers:
     def test_all_action_tables_are_consumers(self) -> None:
-        """Paylasilan cercevenin `start`'i TUKETEN tablolarin watermark
-        minimumudur; biri eksik kalirsa dar pencere veri kacirirdi."""
+        """The minimum watermark among tables consuming the shared frame's
+        `start`; if one were missing, a narrow window would miss data."""
         from yfin.datasets.history import FRAME_CONSUMERS
 
         assert set(FRAME_CONSUMERS) == {"history", "dividends", "splits", "capital_gains"}

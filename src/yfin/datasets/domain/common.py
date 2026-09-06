@@ -15,9 +15,9 @@ from datetime import UTC, date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from yfin import normalize as nz
-from yfin.client import call_yahoo
-from yfin.logging_setup import get_logger
+from yfin.core import normalize as nz
+from yfin.core.logging_setup import get_logger
+from yfin.ingest.client import call_yahoo
 
 log = get_logger(__name__)
 

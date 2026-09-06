@@ -12,14 +12,14 @@ from typing import Any
 
 import pandas as pd
 
-from yfin import normalize as nz
-from yfin.client import call_optional, call_yahoo
+from yfin.core import normalize as nz
+from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite
 from yfin.datasets.common import to_fact_value
 from yfin.datasets.hash_gated import HashGatedDataset
 from yfin.datasets.payloads import StatementPayload
 from yfin.datasets.registry import register
-from yfin.logging_setup import get_logger
+from yfin.ingest.client import call_optional, call_yahoo
 from yfin.models.financials import (
     API_FREQ,
     ITEM_KEY_LENGTH,

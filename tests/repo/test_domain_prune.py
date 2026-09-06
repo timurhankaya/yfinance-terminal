@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from domain_support import AS_OF, NOW, run_taxonomy
 from yfin.datasets.registry import DOMAIN_DATASETS, SYMBOL_DATASETS
-from yfin.prune import (
+from yfin.pipeline.prune import (
     asof_table_datasets,
     prune_asof,
     prune_orphan_reports,
@@ -72,7 +72,7 @@ def _seed_two_days(session: Session) -> None:
 
     from helpers import domain_data
     from yfin.datasets.domain.payloads import DomainPayload
-    from yfin.persistence import PostgresRowWriter
+    from yfin.storage.persistence import PostgresRowWriter
 
     run_taxonomy(session)
     for offset, (day, moment) in enumerate(

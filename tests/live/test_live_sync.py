@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.datasets import SYMBOL_DATASETS
 from yfin.models import Base, ItemStatus
-from yfin.runner import EXIT_OK, run_sync
+from yfin.pipeline.runner import EXIT_OK, run_sync
 
 pytestmark = pytest.mark.live
 

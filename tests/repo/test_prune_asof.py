@@ -20,8 +20,8 @@ from sqlalchemy.orm import Session
 
 from yfin.datasets import SYMBOL_DATASETS
 from yfin.datasets.payloads import AsOfFramePayload
-from yfin.persistence import PostgresRowWriter
-from yfin.prune import PruneDisabledError, asof_tables, prune_asof, run_prune
+from yfin.pipeline.prune import PruneDisabledError, asof_tables, prune_asof, run_prune
+from yfin.storage.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo
 

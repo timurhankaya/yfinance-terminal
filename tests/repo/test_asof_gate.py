@@ -22,8 +22,8 @@ from yfin.datasets import SYMBOL_DATASETS
 from yfin.datasets.base import NormalizedResult, TableWrite
 from yfin.datasets.payloads import AsOfFramePayload
 from yfin.models import ItemStatus
-from yfin.persistence import PostgresRowWriter
-from yfin.runner import _record_items
+from yfin.pipeline.runner import _record_items
+from yfin.storage.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo
 
