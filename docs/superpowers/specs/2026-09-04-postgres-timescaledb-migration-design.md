@@ -1312,6 +1312,17 @@ Modellerden tek initial revizyon üretilir.
 eklenti veritabanı düzeyindedir ve `db create`'in ürünüdür; düşürülürse
 upgrade/downgrade döngüsü ikinci turda patlar.
 
+**ENUM tipleri `downgrade()` sonunda ELLE düşürülür (uygulamada ölçüldü).**
+Alembic'in ürettiği `op.create_table(... sa.Enum ...)` tipi kendiliğinden
+yaratır ama `op.drop_table` onu **düşürmez**. Kusur downgrade'de değil,
+**bir sonraki upgrade'de** ortaya çıkar:
+`CREATE TYPE proxy_scheme ... already exists`. Tip listesi
+`Base.metadata`dan türetilir, elle yazılmaz — yeni bir ENUM eklendiğinde
+blok kendiliğinden kapsar.
+
+§15/8'in varlık sebebi tam olarak budur; kriter olmasaydı hata ancak
+gerçek bir rollback denemesinde görülürdü.
+
 `migrations/env.py`:
 - `EXPRESSION_INDEXES` **korunur** — Alembic'in ifade tabanlı indeksleri
   geri okuyamaması PostgreSQL'de de geçerli.
@@ -1418,8 +1429,11 @@ kullanmaz).
    ikisi birden yapılır.)
 7. `docker compose down -v && docker compose up -d && yfin db create && yfin db upgrade head`
    sıfırdan çalışıyor.
-8. `yfin db upgrade head && yfin db downgrade base && yfin db upgrade head`
-   hatasız koşar (§12).
+8. `alembic upgrade head && alembic downgrade base && alembic upgrade head`
+   hatasız koşar (§12). **`yfin db downgrade` diye bir komut YOKTUR** —
+   CLI yalnızca `upgrade` sunar; downgrade doğrudan `alembic` ile
+   çalıştırılır. (Taslak bu komutu varsayıyordu; uygulamada düzeltildi.
+   Yeni bir CLI komutu eklemek kapsam dışıdır.)
 9. `timescaledb_information.chunks` her iki hypertable için >0 ve <100
    chunk gösteriyor (§7.1 kabul ölçütü).
 

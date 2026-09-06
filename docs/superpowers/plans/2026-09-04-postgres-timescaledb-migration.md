@@ -1954,8 +1954,9 @@ Beklenen: `upgrade()` gövdesi **boş** (yalnızca `pass` veya yorum). Boş değ
 
 ```bash
 rm migrations/versions/*probe*.py
-.venv/bin/yfin db downgrade base
-.venv/bin/yfin db upgrade head
+# `yfin db downgrade` YOKTUR; CLI yalnizca upgrade sunar
+.venv/bin/alembic downgrade base
+.venv/bin/alembic upgrade head
 ```
 Beklenen: üçü de hatasız.
 

@@ -50,9 +50,19 @@ class Symbol(Base):
     unknown_streak: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     last_seen_at: Mapped[datetime | None] = mapped_column(TsType())
 
+    # `func.now()`, `func.now(6)` DEGIL: PostgreSQL'de `now()` arguman
+    # ALMAZ ve `now(6)` "function now(integer) does not exist" verir
+    # (olculdu, migration uygulanirken). Hassasiyet KOLON tipinden gelir
+    # (TsType = TIMESTAMP(6) WITH TIME ZONE), fonksiyondan degil.
     created_at: Mapped[datetime] = mapped_column(
-        TsType(), nullable=False, server_default=func.now(6)
+        TsType(), nullable=False, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        TsType(), nullable=False, server_default=func.now(6), server_onupdate=func.now(6)
+        TsType(),
+        nullable=False,
+        server_default=func.now(),
+        # `server_onupdate` PostgreSQL'de DDL uretmez (ON UPDATE kolon
+        # cumlecigi yoktur, PG S2.11); yalnizca SQLAlchemy'ye degerin
+        # sunucu tarafindan degisebilecegini bildirir.
+        server_onupdate=func.now(),
     )

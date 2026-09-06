@@ -30,6 +30,17 @@ EXPRESSION_INDEXES = frozenset(
 
 
 def include_object(obj, name, type_, reflected, compare_to):  # type: ignore[no-untyped-def]
+    """Yalnizca ifade tabanli indeksleri haric tutar.
+
+    BIR `_timescaledb` FILTRESI EKLENMEDI ve bu bilincli. `include_schemas`
+    VARSAYILAN (False) birakildigi icin Alembic yalnizca search_path'in
+    ilk semasina bakar; TimescaleDB'nin ic semalarindaki
+    (`_timescaledb_internal`) chunk tablolari autogenerate ciktisinda HIC
+    GORUNMEZ (olculdu). Boyle bir filtre gereksiz olmakla kalmaz, asil
+    problemi de gizlerdi: `create_hypertable`in VARSAYILAN indeksi
+    `public` semasinda durur ve filtreye takilmaz -- o yuzden
+    `create_default_indexes => FALSE` kullanilir (PG S7.1).
+    """
     return not (type_ == "index" and name in EXPRESSION_INDEXES)
 
 

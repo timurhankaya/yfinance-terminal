@@ -264,17 +264,30 @@ def db_create() -> None:
     from sqlalchemy import create_engine
 
     settings = bootstrap_settings()
-    engine = create_engine(settings.bootstrap_url())
+    # AUTOCOMMIT SART: `CREATE DATABASE` PostgreSQL'de transaction blogu
+    # icinde CALISMAZ.
+    engine = create_engine(settings.bootstrap_url(), isolation_level="AUTOCOMMIT")
     with engine.connect() as conn:
         for name in (settings.db_name, settings.db_test_name):
-            conn.execute(
-                text(
-                    f"CREATE DATABASE IF NOT EXISTS `{name}` "
-                    "DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
-                )
-            )
-        conn.commit()
-    typer.echo(f"sema hazir: {settings.db_name}, {settings.db_test_name}")
+            # `CREATE DATABASE IF NOT EXISTS` PostgreSQL'de YOKTUR;
+            # varlik kontrolu pg_database uzerinden yapilir.
+            exists = conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": name}
+            ).scalar()
+            if not exists:
+                conn.execute(text(f'CREATE DATABASE "{name}"'))
+    engine.dispose()
+
+    # Eklenti HER VERITABANINDA AYRI kurulur: `CREATE EXTENSION`
+    # veritabani duzeyindedir. Migration'a KONMAZ -- `downgrade` ile
+    # simetrisi bozulurdu ve eklenti `db create`in urunudur (PG S12).
+    for name in (settings.db_name, settings.db_test_name):
+        db_engine = create_engine(settings.db_url(name), isolation_level="AUTOCOMMIT")
+        with db_engine.connect() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb"))
+        db_engine.dispose()
+
+    typer.echo(f"veritabani hazir: {settings.db_name}, {settings.db_test_name}")
 
 
 @db_app.command("revision")
