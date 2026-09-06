@@ -1,5 +1,20 @@
 # yfinance Price History Servisi → MySQL — Tasarım Dokümanı
 
+> **⚠️ MOTOR KARARLARI GEÇERSİZDİR — bu doküman tarihsel kayıttır.**
+>
+> Bu doküman MySQL 8 döneminde yazıldı. İçindeki **motora ait** her karar
+> — kolon tipleri (`DATETIME(6)`, `LONGTEXT`, `MEDIUMTEXT`, `BIGINT UNSIGNED`),
+> collation (`utf8mb4_*`, `ascii_bin`), `ON DUPLICATE KEY UPDATE`, `GET_LOCK`,
+> partition tasarımı, `ERROR nnnn` kodları —
+> `2026-09-04-postgres-timescaledb-migration-design.md` tarafından **geçersiz
+> kılınmıştır**.
+>
+> İçindeki **veriye ait** kararlar (ölçülen alan uzunlukları, anahtar
+> semantiği, as-of kapıları, monotonik kolonlar, kapsam kuralları, canlı
+> API gözlemleri) **hâlâ geçerlidir ve tek kanıt kaynağıdır** — doküman bu
+> yüzden silinmedi.
+
+
 **Tarih:** 2026-09-04
 **Durum:** onaylandı, uygulanmayı bekliyor
 **Kapsam:** `price_history.html` referansındaki çoklu interval fiyat serisi;

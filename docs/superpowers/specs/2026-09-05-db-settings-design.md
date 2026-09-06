@@ -1,8 +1,28 @@
 # DB Tabanli Yapilandirma (`settings` tablosu) — Tasarim Dokumani
 
+> **⚠️ MOTOR KARARLARI GEÇERSİZDİR — bu doküman tarihsel kayıttır.**
+>
+> Bu doküman MySQL 8 döneminde yazıldı. İçindeki **motora ait** her karar
+> — kolon tipleri (`DATETIME(6)`, `LONGTEXT`, `MEDIUMTEXT`, `BIGINT UNSIGNED`),
+> collation (`utf8mb4_*`, `ascii_bin`), `ON DUPLICATE KEY UPDATE`, `GET_LOCK`,
+> partition tasarımı, `ERROR nnnn` kodları —
+> `2026-09-04-postgres-timescaledb-migration-design.md` tarafından **geçersiz
+> kılınmıştır**.
+>
+> İçindeki **veriye ait** kararlar (ölçülen alan uzunlukları, anahtar
+> semantiği, as-of kapıları, monotonik kolonlar, kapsam kuralları, canlı
+> API gözlemleri) **hâlâ geçerlidir ve tek kanıt kaynağıdır** — doküman bu
+> yüzden silinmedi.
+
+
 - **Tarih:** 2026-09-05 (v2 — uc bagimsiz incelemeden sonra duzeltildi, bkz. Ek A)
 - **Durum:** Uygulandi (2026-09-06; Plan A + Plan B). Goc notu:
   `docs/superpowers/plans/2026-09-05-db-settings-migration.md`
+- **Uygulamada bir sapma:** `yf_probe_sustainability` alani KALDIRILDI.
+  S3.4'un `opt_in=True` gocunden sonra bayragi okuyan kimse kalmiyordu;
+  etkisiz bir ayar bu katmanda yanlis bilgi demektir (YAGNI). Sayilar
+  47/39 degil **46/38**, `datasets` grubu 6 degil **5**. Gerekce goc
+  notunun 4. bolumunde.
 - **Proje koku:** `~/Projects/learn/yfinance/`
 - **Kisaltma:** Bu dokumanin bolumleri metinde `S<X.Y>`, docstring'lerde `CFG§X.Y`
 - **Onceki dokumanlar:** **T**, **F**, **P**, **AH**, **PB**, **SI**, **SQ**, **PG**

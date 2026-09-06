@@ -208,7 +208,7 @@ class _DomainProfileDataset(DomainAsOfDataset[DomainPayload]):
                 "provider": text_of(report, "provider", 64),
                 "report_type": text_of(report, "reportType", 64),
                 "head_html": text_of(report, "headHtml", 255),
-                # MEDIUMTEXT: olculen max 23 570 karakter
+                # Kolon sinirsiz `text`tir: olculen max 23 570 karakter
                 "report_title": text_of(report, "reportTitle"),
                 # CIPLAK float gelir; 104 raporun 17'sinde ANAHTAR HIC YOK
                 "target_price": dec_of(report, "targetPrice"),
