@@ -68,5 +68,51 @@ services:
       timeout: 3s
       retries: 20
 
+  kafka:
+    # KRaft: no ZooKeeper. Pinned like every other image here.
+    image: apache/kafka:3.9.0
+    container_name: yfin-kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Two listeners on purpose. A single one cannot serve both sides:
+      # Kafka hands clients the ADVERTISED address to reconnect to, so a
+      # broker advertising `kafka:9092` is unreachable from the host, and
+      # one advertising `localhost:9092` is unreachable from other
+      # containers. Either way it starts, passes a health check, and only
+      # fails when something finally tries to produce.
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: >-
+        CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      # Single node: the defaults of 3 would leave every internal topic
+      # under-replicated and the broker unable to create them.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Nothing produces to this broker yet; it does not need a gigabyte
+      # of heap to sit idle next to a data pipeline that does.
+      KAFKA_HEAP_OPTS: -Xmx512m -Xms256m
+      TZ: UTC
+    ports:
+      - "${KAFKA_PORT:-29092}:29092"
+    volumes:
+      - yfin-kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
 volumes:
   yfin-pgdata:
+  yfin-kafka-data:
