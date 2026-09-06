@@ -34,17 +34,32 @@ silinmez; içerdikleri ölçümler hâlâ geçerli kanıttır. Metinde yalnızca
 | PostgreSQL sürümü | **18.6** |
 | TimescaleDB sürümü | **2.29.2** (ölçüm tarihindeki `latest-pg18`) |
 | Yerel 5432 portu boş | `lsof -iTCP:5432 -sTCP:LISTEN` |
-| `Base.metadata` tablo sayısı | **62** |
-| `__tablename__` tanımlayan model dosyası | **14** (+ `snapshots.py` `Table()` ile 5 tablo) |
-| `MYSQL_TABLE_ARGS` kullanan tablo | **62** (tamamı), 15 dosyada |
-| `migrations/versions` revizyon sayısı | **10** |
-| Native ENUM tipi / kolonu | **14 tip, 16 kolon** (§2.9) |
-| Unsigned tamsayı kolonu | **35** (§2.6) |
-| `server_default` taşıyan `Boolean` kolonu | **14** (§2.10) |
-| `MySQLRowWriter` geçen dosya | **16** (§4) |
-| `datetime.now(UTC).replace(tzinfo=None)` | **12 dosya, 17 satır** (§2.3) |
-| Diğer `.replace(tzinfo=None)` | **24 satır** (§2.3) |
-| `TableWrite.key_columns` ↔ PK/UNIQUE | statik çözülebilen 24 çağrının **24'ü** eşleşiyor |
+| `Base.metadata` tablo sayısı | **72** |
+| `__tablename__` tanımlayan model dosyası | **15** (+ `snapshots.py` `Table()` ile 5 tablo) |
+| `MYSQL_TABLE_ARGS` kullanan dosya | **17** |
+| `migrations/versions` revizyon sayısı | **12** |
+| Native ENUM tipi | **16** (§2.9) |
+| Unsigned tamsayı kolonu | **40** (§2.6) |
+| `server_default` taşıyan `Boolean` kolonu | **20** (§2.10) |
+| `MySQLRowWriter` geçen dosya | **17** (§4) |
+| `datetime.now(UTC).replace(tzinfo=None)` | **13 dosya, 18 satır** (§2.3) |
+| Diğer `.replace(tzinfo=None)` | **26 satır** (§2.3) |
+| `tzinfo is None` iddia eden test dosyası | **4** (§2.3) |
+| `TableWrite(...)` çağrısı | **72** (§4.1.1) |
+| MySQL metni geçen dosya | **84** (§13) |
+| `TableWrite.key_columns` ↔ PK/UNIQUE | statik çözülebilen çağrıların tamamı eşleşiyor |
+
+> **BU SAYILAR BİR ANLIK GÖRÜNTÜDÜR, SÖZLEŞME DEĞİL.** Kod tabanı bu
+> tasarım yazılırken de gelişmeye devam etti: Search/Lookup/Screener (SQ)
+> alt sistemi eklendiğinde tablo sayısı 62'den 72'ye, ENUM 14'ten 16'ya,
+> unsigned kolon 35'ten 40'a çıktı. SQ **yeni bir MySQL bağlanma TÜRÜ
+> getirmedi** — aynı `MYSQL_TABLE_ARGS` / `dialects.mysql` / `SMALLINT`
+> desenlerinin daha fazla örneği. Bu yüzden tasarımın yapısı değişmedi.
+>
+> Uygulama sırasında **hiçbir adım bu tablodaki sayıya güvenmez**: her
+> görev kendi otorite listesini canlı bir `grep`/`Base.metadata` sorgusuyla
+> türetir (§14). Buradaki sayılar yalnızca büyüklük duygusu verir ve
+> beklenmedik bir sapmayı fark etmeye yarar.
 
 Son satır `ON CONFLICT`'in ön koşuludur ve §9.2'de çalışma zamanı
 invaryant testiyle kalıcılaştırılır.
@@ -83,7 +98,12 @@ services:
       - -c
       - timescaledb.max_background_workers=8
     ports: ["${DB_PORT:-5432}:5432"]
-    volumes: ["yfin-pgdata:/var/lib/postgresql/data"]
+    # MOUNT `/var/lib/postgresql` -- `/data` ALT DIZINI DEGIL.
+    # PostgreSQL 18 imaji konvansiyonu degistirdi; eski yol konteyneri
+    # Exited(1) yapar ("There appears to be PostgreSQL data in
+    # /var/lib/postgresql/data (unused mount/volume)"). Uygulama
+    # sirasinda olculdu.
+    volumes: ["yfin-pgdata:/var/lib/postgresql"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-yfin} -d ${DB_NAME:-yfinance}"]
       interval: 5s

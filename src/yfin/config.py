@@ -11,10 +11,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     db_host: str = "localhost"
-    db_port: int = 3306
-    db_user: str = "root"
+    db_port: int = 5432
+    db_user: str = "yfin"
     db_password: str = ""
     db_name: str = "yfinance"
+    # AYRI BIR VERITABANI, sema degil: canli veriyle test verisini fiziksel
+    # olarak ayirir. Surece ozel test SEMALARI bunun ICINDE acilir (S9.1).
     db_test_name: str = "yfinance_test"
 
     yf_rate_limit_per_sec: float = Field(default=2.0, gt=0)
@@ -74,15 +76,16 @@ class Settings(BaseSettings):
     yf_domain_reference_sector: str = "technology"
 
     # --- kesif: Search / Lookup / Screener (SQ S13.1) ---------------------
-    # `search` ve `lookup` dataset KAYDINI acar. VARSAYILAN KAPALI cunku
-    # `Registry.resolve(None)` kayitli HER dataset'i dondurur: kosulsuz
-    # kayit ciplak `yfin sync`e sembol basina IKI istek eklerdi (4.500
-    # sembolde +9.000 istek/gun).
-    #
-    # DIKKAT: bayrak alt sistemin TAMAMINI kapatir. Kapaliyken
-    # `--datasets search` de calismaz ve `UnknownDatasetError` verir --
-    # `sustainability` ile ayni kabul edilmis bedel (SQ K11, S13.2).
-    yf_discovery_enabled: bool = False
+    # YF_DISCOVERY_ENABLED ANAHTARI YOKTUR ve bilincli olarak
+    # KALDIRILMISTIR. Ilk tasarimda `search`/`lookup` kaydini bir bayraga
+    # baglamisti (`sustainability` deseni). Uygulamada iki kusuru gorundu:
+    #   1. Bayrak kapaliyken `--datasets search` de calismiyordu -- dataset
+    #      registry'de hic yoktu.
+    #   2. Bayrak acildigi anda CIPLAK `yfin sync` de onlari cekmeye
+    #      basliyordu: +9.000 istek/gun. Yani bayrak tuzagi cozmuyor,
+    #      yalnizca kullanici onu acana kadar erteliyordu.
+    # Cozum registry'ye tasindi: `register(..., opt_in=True)` -- adiyla
+    # istendiginde kosar, `all` genislemesinde HIC gorunmez.
     yf_search_max_results: int = Field(default=10, ge=1)
     yf_search_news_count: int = Field(default=5, ge=0)
     yf_search_lists_count: int = Field(default=10, ge=0)
@@ -137,18 +140,28 @@ class Settings(BaseSettings):
     def db_url(self, database: str | None = None) -> URL:
         """SQLAlchemy URL nesnesi; kimlik bilgileri stringe gomulmez."""
         return URL.create(
-            drivername="mysql+pymysql",
+            drivername="postgresql+psycopg",
             username=self.db_user,
             password=self.db_password,
             host=self.db_host,
             port=self.db_port,
             database=database if database is not None else self.db_name,
-            query={"charset": "utf8mb4"},
         )
 
     def bootstrap_url(self) -> URL:
-        """Veritabani secmeden baglanti (CREATE DATABASE icin)."""
-        return self.db_url(database="")
+        """CREATE DATABASE icin bakim veritabani baglantisi.
+
+        PostgreSQL'de veritabani SECMEDEN baglanilamaz, bu yuzden bakim
+        veritabani `postgres` kullanilir.
+
+        BU URL YALNIZCA `CREATE DATABASE` ICINDIR. `information_schema` ve
+        `pg_namespace` VERITABANINA OZELDIR: buradan acilan bir baglanti
+        `yfinance_test` icindeki semalari GOREMEZ. Sema olusturma, silme
+        ve bayat sema temizligi `db_url(db_test_name)` ile yapilmalidir
+        (S9.1) -- aksi halde temizlik sessizce hicbir sey yapar ve
+        semalar sonsuza kadar birikir.
+        """
+        return self.db_url(database="postgres")
 
 
 _settings: Settings | None = None

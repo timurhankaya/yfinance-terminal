@@ -123,7 +123,9 @@ services:
       - -c
       - timescaledb.max_background_workers=8
     ports: ["${DB_PORT:-5432}:5432"]
-    volumes: ["yfin-pgdata:/var/lib/postgresql/data"]
+    # MOUNT `/var/lib/postgresql` -- `/data` ALT DIZINI DEGIL (PG18
+    # konvansiyon degisikligi; eski yol Exited(1) verir, olculdu)
+    volumes: ["yfin-pgdata:/var/lib/postgresql"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-yfin} -d ${DB_NAME:-yfinance}"]
       interval: 5s

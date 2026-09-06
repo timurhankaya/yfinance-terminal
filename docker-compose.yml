@@ -1,0 +1,45 @@
+services:
+  timescaledb:
+    # Surum SABITLENIR: `latest-pg18` degisken bir tag'dir ve tasarim
+    # dogrulamasi sirasinda beklenen 2.26.3 yerine 2.29.2 getirdi.
+    # "Sifirdan calisiyor" bitis olcutunun zaman icinde farkli bir motora
+    # karsi kosmamasi icin tag sabit tutulur (PG S0, S1).
+    image: timescale/timescaledb:2.29.2-pg18
+    container_name: yfin-timescaledb
+    environment:
+      POSTGRES_USER: ${DB_USER:-yfin}
+      # Parola ZORUNLUDUR: `:?` ile bos parolayla ayaga kalkmak engellenir.
+      # MySQL kurulumunda root/bos parola kullaniliyordu; bu tasinmadi.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD gerekli}
+      POSTGRES_DB: ${DB_NAME:-yfinance}
+      TZ: UTC
+      PGTZ: UTC
+    command:
+      - postgres
+      # db.py havuz formulu process basina 2 x max(5, workers+4) baglanti
+      # tavani koyar; workers=4 ve yf_max_shards=4 ile toplam
+      # (4 x 16) + 2 = 66. 200 rahat bir paydir (PG S1).
+      - -c
+      - max_connections=200
+      - -c
+      - timescaledb.max_background_workers=8
+    # Port .env uzerinden: ileride bir cakisma olursa tek yerden degisir.
+    # config.py ayni DB_PORT anahtarini okur.
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      # MOUNT NOKTASI `/var/lib/postgresql`, `/var/lib/postgresql/data`
+      # DEGIL. PostgreSQL 18 imaji konvansiyonu degistirdi: veri artik
+      # mount'un ALT DIZININE konur, boylece `pg_upgrade --link` mount
+      # sinirina takilmaz. Eski (PG<=17) yolu kullanmak konteyneri
+      # "There appears to be PostgreSQL data in /var/lib/postgresql/data
+      # (unused mount/volume)" hatasiyla Exited(1) yapar -- olculdu.
+      - yfin-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-yfin} -d ${DB_NAME:-yfinance}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  yfin-pgdata:
