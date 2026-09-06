@@ -22,10 +22,11 @@ import pandas as pd
 from yfin.core import normalize as nz
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset
-from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.base import NormalizedResult, SyncContext
 from yfin.datasets.common import key_value
 from yfin.datasets.payloads import AsOfFramePayload
 from yfin.ingest.client import call_optional
+from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
 

@@ -1,4 +1,4 @@
-"""SQ S7.1: search normalizasyonu -- GERCEK fixture'larla, agsiz."""
+"""Search normalization -- against real fixtures, no network."""
 
 from __future__ import annotations
 
@@ -45,24 +45,25 @@ def aapl() -> Any:
 
 class TestCrunchbaseFilter:
     def test_symbolless_rows_are_dropped(self, aapl: Any) -> None:
-        """REGRESYON (SQ K14).
+        """Regression guard.
 
-        `include_cb=True` varsayilani Crunchbase ozel-sirket kayitlari
-        donduruyor: `{index, name, permalink, isYahooFinance}` -- `symbol`
-        YOK. `yfinance`in `.quotes` ozelligi bunlari suzuyor ama biz
-        `.response` ham govdesini kullaniyoruz. Kor bir `q["symbol"]`
-        KeyError verirdi; `.get()` ile yazilsaydi PK'ya NULL denenirdi.
+        The `include_cb=True` default returns Crunchbase private-company
+        records: `{index, name, permalink, isYahooFinance}` -- no `symbol`.
+        yfinance's `.quotes` property filters these out, but this code uses
+        the raw `.response` body. A blind `q["symbol"]` would raise
+        KeyError; writing it with `.get()` would try to insert NULL into
+        the PK.
         """
         payload = _payload("search_AAPL", "AAPL")
         symbolless = [q for q in payload.quotes if "symbol" not in q]
-        assert symbolless, "fixture sembolsuz satir icermeli"
+        assert symbolless, "fixture must include a row without a symbol"
         assert len(_rows(aapl, "search_quotes")) == len(payload.quotes) - len(symbolless)
 
     def test_rank_stays_dense_after_filtering(self, aapl: Any) -> None:
-        """Elenen satir `rank_index`i ATLATMAZ.
+        """A dropped row does not leave a gap in `rank_index`.
 
-        Kaynak indeksi kullanilsaydi dizide delik olurdu ve "kacinci
-        siradaydi" sorgusu yaniltirdi.
+        Using the source index would leave a hole in the sequence and
+        mislead a "what rank was it" query.
         """
         ranks = [r["rank_index"] for r in _rows(aapl, "search_quotes")]
         assert ranks == list(range(len(ranks)))
@@ -75,8 +76,8 @@ class TestQuoteProjection:
         assert row["industry"]
 
     def test_non_equity_leaves_sector_null(self) -> None:
-        """SQ S4.1/2: sektor/endustri ailesi YALNIZ EQUITY'de gelir.
-        Eksiklik hata degil, NULL."""
+        """The sector/industry family is present only for equity.
+        Its absence is not an error, it's NULL."""
         rows = _rows(_result("search_BTC-USD", "BTC-USD"), "search_quotes")
         crypto = [r for r in rows if r["quote_type"] == "CRYPTOCURRENCY"]
         assert crypto
@@ -89,8 +90,8 @@ class TestQuoteProjection:
 
 class TestListsTwoShapes:
     def test_both_shapes_land_in_one_table(self) -> None:
-        """SQ S4.1/6: `ALGO_WATCHLIST` (12 anahtar) ve
-        `PREDEFINED_SCREENER` (9 anahtar). `list_type` AYIRICIDIR."""
+        """`ALGO_WATCHLIST` (12 keys) and `PREDEFINED_SCREENER` (9 keys).
+        `list_type` is the discriminator."""
         rows = _rows(_result("search_lists_two_shapes", "gold"), "search_lists")
         types = {r["list_type"] for r in rows}
         assert types == {"ALGO_WATCHLIST", "PREDEFINED_SCREENER"}
@@ -100,13 +101,13 @@ class TestListsTwoShapes:
         row = next(r for r in rows if r["list_type"] == "ALGO_WATCHLIST")
         assert row["symbol_count"] is not None
         assert row["pf_id"] is not None
-        # Diger seklin alanlari NULL
+        # The other shape's fields are NULL
         assert row["total"] is None
 
     def test_screener_shape_uses_canonical_name_as_key(self) -> None:
-        """`PREDEFINED_SCREENER` satirinda `slug` YOK; anahtar
-        `canonicalName`dir ve bu ayni zamanda `yf.screen`e verilebilecek
-        bir EKRAN ADIDIR (SQ S8.3 kesif sinyali)."""
+        """`PREDEFINED_SCREENER` rows have no `slug`; the key is
+        `canonicalName`, which also happens to be a screen name that can be
+        passed to `yf.screen`."""
         rows = _rows(_result("search_lists_two_shapes", "gold"), "search_lists")
         row = next(r for r in rows if r["list_type"] == "PREDEFINED_SCREENER")
         assert row["list_key"]
@@ -116,11 +117,11 @@ class TestListsTwoShapes:
 
 class TestNews:
     def test_update_scope_is_narrow(self) -> None:
-        """REGRESYON (SQ S8.5).
+        """Regression guard.
 
-        Search haberi `Ticker.news` ile AYNI PK'yi paylasir ama govdesi
-        DAR: 8 anahtara karsi 17. Kor upsert `summary`/`description`i
-        NULL'lardi.
+        Search news shares the same PK as `Ticker.news` but has a narrower
+        body: 8 keys versus 17. A blind upsert would null out
+        `summary`/`description`.
         """
         from yfin.datasets.discovery.search import NEWS_UPDATE
         from yfin.datasets.news import _NEWS_UPDATE
@@ -151,17 +152,17 @@ class TestNews:
             assert rows[0]["thumbnail_width"]
 
     def test_epoch_seconds_become_pub_date(self, aapl: Any) -> None:
-        """`providerPublishTime` epoch SANIYEDIR; `Ticker.news`in
-        `pubDate`i ISO metindir (SQ S4.2/6)."""
+        """`providerPublishTime` is epoch seconds; `Ticker.news`'s `pubDate`
+        is ISO text."""
         assert all(hasattr(r["pub_date"], "year") for r in _rows(aapl, "news"))
 
 
 class TestFreeTextQuery:
     def test_no_quotes_but_news_and_reports(self) -> None:
-        """SQ S4.1/5 -- "Turkish Airlines": 0 quote, 5 haber, 3 rapor.
+        """"Turkish Airlines": 0 quotes, 5 news, 3 reports.
 
-        `search_quotes` bos kalirken hucre `failed` DEGILDIR; durum TABLO
-        BAZINDA turetilir (SQ S9.2).
+        `search_quotes` stays empty, but the cell is not `failed`; status
+        is derived per table.
         """
         result = _result("search_Turkish-Airlines", "Turkish Airlines")
         assert _rows(result, "search_quotes") == []
@@ -176,19 +177,19 @@ class TestFreeTextQuery:
 
 class TestGateScope:
     def test_ungated_tables_are_declared(self) -> None:
-        """REGRESYON (SQ S6.2.1).
+        """Regression guard.
 
-        Dort tablo `query_term` TASIMAZ; kapili tarafa girselerdi
-        `_first_row` yanlis satiri dondurur ve kapi yazimi KeyError
-        verirdi. `research_reports` bu listeye DENETIMDE eklendi -- ilk
-        tasarim yalniz ucunu sayiyordu.
+        Four tables do not carry `query_term`; if they were on the gated
+        side, `_first_row` would return the wrong row and the gate write
+        would raise a KeyError. `research_reports` was added to this list
+        during an audit -- the original design counted only three.
         """
         assert {"symbols", "news", "news_symbols", "research_reports"} == UNGATED_TABLES
 
     def test_gated_tables_all_carry_gate_columns(self, aapl: Any) -> None:
-        """Kapili her satir `query_term` + `as_of_date` + `fetched_at`
-        tasimalidir; `_first_row` hangi write dolu olursa olsun dogru
-        satiri bulsun diye."""
+        """Every gated row must carry `query_term` + `as_of_date` +
+        `fetched_at`, so `_first_row` finds the right row regardless of
+        which write is populated."""
         for write in aapl.writes:
             if write.table in UNGATED_TABLES:
                 continue
@@ -196,7 +197,7 @@ class TestGateScope:
                 assert {"query_term", "as_of_date", "fetched_at"} <= set(row), write.table
 
     def test_ungated_tables_lack_gate_columns(self, aapl: Any) -> None:
-        """Listenin gerekcesini surer: bu tablolarda `query_term` YOK."""
+        """Proves the reason for the list: these tables have no `query_term`."""
         for write in aapl.writes:
             if write.table not in UNGATED_TABLES:
                 continue

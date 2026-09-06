@@ -21,9 +21,9 @@ from typing import Any, Literal
 from sqlalchemy.orm import Session
 
 from yfin.core.config import Settings
-from yfin.datasets.base import NormalizedResult, WriteStats
+from yfin.datasets.base import NormalizedResult
 from yfin.datasets.snapshot_base import snapshot_upsert
-from yfin.storage.persistence import RowWriter, apply_write
+from yfin.storage.contracts import RowWriter, WriteStats, apply_write
 
 # A third value: the screen loop also runs OUTSIDE the dataset -- the same
 # reasoning as the region loop above applies word for word:

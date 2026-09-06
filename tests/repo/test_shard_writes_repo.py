@@ -10,9 +10,10 @@ import pytest
 from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from yfin.datasets.base import NormalizedResult, TableWrite, WriteStats
+from yfin.datasets.base import NormalizedResult
 from yfin.models import PriceHistory, Symbol
 from yfin.pipeline.runner import SymbolPayload, _is_lock_conflict, _persist_with_retry
+from yfin.storage.contracts import TableWrite, WriteStats
 from yfin.storage.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo

@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from yfin.core import normalize as nz
 from yfin.core.config import Settings, get_settings
 from yfin.core.logging_setup import get_logger
-from yfin.datasets.base import NormalizedResult, TableWrite
+from yfin.datasets.base import NormalizedResult
 from yfin.datasets.common import (
     dict_items,
     discovered_symbol_row,
@@ -42,6 +42,7 @@ from yfin.ingest.client import call_yahoo
 from yfin.ingest.screens import ALL_SCREENS, ScreenDef, screen_by_key
 from yfin.models.discovery import Screen
 from yfin.models.fields import SCREENER_NON_COLUMN_SOURCES, SCREENER_QUOTE_FIELDS
+from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
 

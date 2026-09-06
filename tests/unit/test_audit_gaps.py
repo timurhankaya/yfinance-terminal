@@ -11,16 +11,11 @@ from typing import Any
 
 import pytest
 
-from yfin.datasets.base import (
-    Dataset,
-    NormalizedResult,
-    SyncContext,
-    TableWrite,
-    WriteStats,
-)
+from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.registry import Registry
 from yfin.models import ItemStatus
 from yfin.pipeline.runner import SymbolPayload, _failed_records, _record_items, _worker
+from yfin.storage.contracts import TableWrite, WriteStats
 
 FETCHED_AT = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 

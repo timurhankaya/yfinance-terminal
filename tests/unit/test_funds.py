@@ -15,9 +15,10 @@ import pandas as pd
 from yfinance.exceptions import YFDataException
 
 from yfin.datasets import SYMBOL_DATASETS
-from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.base import NormalizedResult, SyncContext
 from yfin.datasets.payloads import FundsPayload
 from yfin.datasets.symbols import CACHE_FAST_INFO, CACHE_HISTORY_METADATA
+from yfin.storage.contracts import TableWrite
 
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 AS_OF = date(2026, 9, 4)

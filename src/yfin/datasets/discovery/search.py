@@ -34,7 +34,7 @@ from yfin.core import normalize as nz
 from yfin.core.config import get_settings
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import asof_produces
-from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.base import NormalizedResult, SyncContext
 from yfin.datasets.common import (
     dict_items,
     discovered_symbol_row,
@@ -46,6 +46,7 @@ from yfin.datasets.discovery.base import DISCOVERY_GATE_TABLE, DiscoveryDataset
 from yfin.datasets.news import _thumbnail
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_yahoo
+from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
 

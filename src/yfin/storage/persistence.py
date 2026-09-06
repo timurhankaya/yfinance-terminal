@@ -8,14 +8,14 @@ RowWriter protocol, not on SQLAlchemy.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Any
 
 from sqlalchemy import Table, and_, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from yfin.datasets.base import TableWrite, WriteStats
 from yfin.models.base import Base
+from yfin.storage.contracts import TableWrite
 
 # The IN list for multi-column verification can get very long.
 VERIFY_CHUNK = 500
@@ -29,58 +29,6 @@ VERIFY_CHUNK = 500
 # Deliberately not a .env key: persistence imports nothing from
 # yfin.core.config and should not gain a configuration dependency.
 INSERT_CHUNK = 2000
-
-
-class RowSink(Protocol):
-    """Write-only capability.
-
-    apply_write and plain upsert datasets need nothing more; code that
-    reads no hashes and looks up no symbols depends on this narrow view.
-    """
-
-    def write(self, write: TableWrite) -> int:
-        """Writes the rows and returns the count of *verified* rows."""
-        ...
-
-
-class HashReader(Protocol):
-    """Read capability for the snapshot/hash gate."""
-
-    def current_hash(self, table: str, key: Mapping[str, Any]) -> str | None:
-        """Current content_hash at that key, or None.
-
-        The key can span several columns: market_summary is
-        (region, board_code), financial_periods is
-        (symbol, statement, freq, period_end).
-        """
-        ...
-
-
-class SymbolLookup(Protocol):
-    """Lookup capability, used to flag out-of-universe symbols."""
-
-    def known_symbols(self, candidates: set[str]) -> set[str]:
-        """Those of the candidates that exist in `symbols`."""
-        ...
-
-
-class SnapshotWriter(RowSink, HashReader, Protocol):
-    """What snapshot and hash-gated datasets see."""
-
-
-class RowWriter(RowSink, HashReader, SymbolLookup, Protocol):
-    """The full interface the dataset contract sees.
-
-    Concrete PostgreSQL details (ON CONFLICT, the key-existence query)
-    stay behind this protocol. Dataset.upsert takes the full interface;
-    internal helpers depend on the narrowest one they need.
-    """
-
-
-def apply_write(writer: RowSink, write: TableWrite, stats: WriteStats) -> None:
-    """Applies one TableWrite and updates the stats."""
-    stats.attempted[write.table] = stats.attempted.get(write.table, 0) + len(write.rows)
-    stats.verified[write.table] = stats.verified.get(write.table, 0) + writer.write(write)
 
 
 def align_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

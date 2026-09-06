@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from yfin.datasets import MARKET_DATASETS, SYMBOL_DATASETS
-from yfin.datasets.base import WriteStats
 from yfin.models import ItemStatus
 from yfin.pipeline.runner import ItemRecord, _failed_records, _record_items, _skipped_records
+from yfin.storage.contracts import WriteStats
 
 
 def _stats() -> WriteStats:

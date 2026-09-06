@@ -16,7 +16,7 @@ from typing import Any
 from yfin.core import normalize as nz
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import DOMAIN_GATE_TABLE, asof_produces
-from yfin.datasets.base import NormalizedResult, TableWrite
+from yfin.datasets.base import NormalizedResult
 from yfin.datasets.domain.base import DomainAsOfDataset, DomainContext
 from yfin.datasets.domain.common import (
     DOMAINS_TABLE,
@@ -34,6 +34,7 @@ from yfin.datasets.domain.common import (
 )
 from yfin.datasets.domain.payloads import DomainPayload
 from yfin.datasets.registry import register_domain
+from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
 

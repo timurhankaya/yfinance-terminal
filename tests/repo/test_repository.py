@@ -14,9 +14,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from yfin.core import normalize as nz
-from yfin.datasets.base import TableWrite, WriteStats
 from yfin.models import Base, PriceHistory, Symbol
-from yfin.storage.persistence import PostgresRowWriter, apply_write
+from yfin.storage.contracts import TableWrite, WriteStats, apply_write
+from yfin.storage.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo
 

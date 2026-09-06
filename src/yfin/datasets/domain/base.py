@@ -26,8 +26,8 @@ from yfin.datasets.asof_base import (
     AsOfGate,
     _first_row,
 )
-from yfin.datasets.base import NormalizedResult, WriteStats
-from yfin.storage.persistence import RowWriter, apply_write
+from yfin.datasets.base import NormalizedResult
+from yfin.storage.contracts import RowWriter, WriteStats, apply_write
 
 DomainType = Literal["sector", "industry"]
 

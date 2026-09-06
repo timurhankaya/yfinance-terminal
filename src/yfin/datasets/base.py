@@ -11,10 +11,14 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import Any, Literal, Protocol
 
-if TYPE_CHECKING:
-    from yfin.storage.persistence import RowWriter
+from yfin.storage.contracts import (
+    RowWriter,
+    TableWrite,
+    WriteStats,
+    apply_write,
+)
 
 
 class WatermarkProvider(Protocol):
@@ -48,8 +52,6 @@ class GapProvider(Protocol):
     def __call__(self, symbol: str, interval: str) -> list[tuple[datetime, datetime]]: ...
 
 
-WriteMode = Literal["upsert", "replace_scope"]
-
 # How a dataset responds to a --start/--end range.
 #   "api"    : range passes through to the yfinance call -> a real backfill
 #   "filter" : source returns a fixed window; normalize filters rows
@@ -63,27 +65,6 @@ DateRange = Literal["api", "filter", "none"]
 
 
 @dataclass(frozen=True)
-class TableWrite:
-    table: str
-    rows: list[dict[str, Any]]
-    key_columns: tuple[str, ...]  # used by the verification query
-    update_columns: tuple[str, ...]  # columns updated on conflict
-    mode: WriteMode = "upsert"
-    # Columns that define replace_scope's delete scope. Default ("symbol",)
-    # leaves existing call sites unchanged.
-    scope_columns: tuple[str, ...] = ("symbol",)
-    # Explicit scope values, for when they cannot be derived from rows (e.g.
-    # rows is empty because every line item for the period came back NaN).
-    # If omitted, derived from rows.
-    scope_values: tuple[Mapping[str, Any], ...] | None = None
-    # Columns where ON DUPLICATE KEY UPDATE applies GREATEST(current, new).
-    # If the source can report 1 for the same row one run and 0 the next
-    # (price_history.is_repaired), a plain upsert would write the
-    # information backward; a monotonic column only moves forward.
-    monotonic_columns: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
 class NormalizedResult:
     writes: list[TableWrite] = field(default_factory=list)
     # Not written because the hash was unchanged (table -> count)
@@ -92,20 +73,6 @@ class NormalizedResult:
     @property
     def is_empty(self) -> bool:
         return not any(w.rows for w in self.writes) and not self.skipped
-
-
-@dataclass
-class WriteStats:
-    attempted: dict[str, int] = field(default_factory=dict)
-    verified: dict[str, int] = field(default_factory=dict)
-    skipped: dict[str, int] = field(default_factory=dict)
-
-    def tables(self) -> list[str]:
-        seen: dict[str, None] = {}
-        for src in (self.attempted, self.verified, self.skipped):
-            for name in src:
-                seen[name] = None
-        return list(seen)
 
 
 def _sum_counters(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
@@ -261,8 +228,6 @@ class Dataset[RawT](ABC):
     def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
         """Default implementation: idempotent upsert plus key-existence
         verification for each TableWrite."""
-        from yfin.storage.persistence import apply_write
-
         stats = WriteStats(skipped=dict(result.skipped))
         for write in result.writes:
             apply_write(writer, write, stats)

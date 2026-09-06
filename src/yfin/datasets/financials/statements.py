@@ -14,7 +14,7 @@ import pandas as pd
 
 from yfin.core import normalize as nz
 from yfin.core.logging_setup import get_logger
-from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.base import NormalizedResult, SyncContext
 from yfin.datasets.common import to_fact_value
 from yfin.datasets.hash_gated import HashGatedDataset
 from yfin.datasets.payloads import StatementPayload
@@ -26,6 +26,7 @@ from yfin.models.financials import (
     StatementFreq,
     StatementKind,
 )
+from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
 

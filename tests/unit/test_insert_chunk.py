@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from yfin.datasets.base import TableWrite
+from yfin.storage.contracts import TableWrite
 from yfin.storage.persistence import INSERT_CHUNK, PostgresRowWriter, dedupe_rows
 
 

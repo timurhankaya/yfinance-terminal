@@ -8,7 +8,8 @@ from decimal import Decimal
 from typing import Any
 
 from yfin.datasets.asof_base import GATE_TABLE, AsOfDataset
-from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.base import NormalizedResult, SyncContext
+from yfin.storage.contracts import TableWrite
 
 AS_OF = date(2026, 9, 4)
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)

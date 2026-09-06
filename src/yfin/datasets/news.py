@@ -6,18 +6,12 @@ from typing import Any
 
 from yfin.core import normalize as nz
 from yfin.core.config import get_settings
-from yfin.datasets.base import (
-    Dataset,
-    NormalizedResult,
-    SyncContext,
-    TableWrite,
-    WriteStats,
-)
+from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.common import key_value
 from yfin.datasets.payloads import NewsPayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_yahoo, make_ticker
-from yfin.storage.persistence import RowWriter, apply_write
+from yfin.storage.contracts import RowWriter, TableWrite, WriteStats, apply_write
 
 _NEWS_UPDATE = (
     "title",

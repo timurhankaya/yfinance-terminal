@@ -11,11 +11,12 @@ import pandas as pd
 from yfin.core import normalize as nz
 from yfin.core.config import get_settings
 from yfin.core.logging_setup import get_logger
-from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.common import date_range_kwargs
 from yfin.datasets.payloads import FramePayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_yahoo
+from yfin.storage.contracts import TableWrite
 
 CACHE_HISTORY = "history_df"
 

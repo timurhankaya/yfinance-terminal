@@ -9,11 +9,12 @@ import pandas as pd
 
 from yfin.core import normalize as nz
 from yfin.core.config import get_settings
-from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.common import EPOCH_START, date_range_kwargs
 from yfin.datasets.payloads import SeriesPayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_yahoo
+from yfin.storage.contracts import TableWrite
 
 
 class SharesFullDataset(Dataset[SeriesPayload]):

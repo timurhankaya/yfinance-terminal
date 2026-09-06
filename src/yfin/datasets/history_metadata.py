@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from yfin.core import normalize as nz
-from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.common import data_columns, snapshot_rows, warn_unmapped
 from yfin.datasets.payloads import MetadataPayload
 from yfin.datasets.registry import register
 from yfin.datasets.symbols import fetch_history_metadata
 from yfin.models.fields import HISTORY_METADATA_FIELDS
+from yfin.storage.contracts import TableWrite
 
 # Sadece raw_json'da tutulan, tabloya tasinmayan anahtarlar
 _RAW_ONLY = frozenset(

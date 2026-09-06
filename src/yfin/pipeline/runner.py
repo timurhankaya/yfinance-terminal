@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from yfin.core.config import Settings, get_settings
 from yfin.core.errors import PROXY_FAULT_KINDS, DatasetOutOfScope, ErrorKind, classify_error
 from yfin.core.logging_setup import bind_shard_context, get_logger
-from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, WriteStats
+from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.meta import DatasetMeta
 from yfin.datasets.registry import SYMBOL_DATASETS, Registry
 from yfin.ingest.client import make_ticker
@@ -32,6 +32,7 @@ from yfin.models import (
     SyncRun,
     SyncRunItem,
 )
+from yfin.storage.contracts import WriteStats
 from yfin.storage.db import advisory_lock
 from yfin.storage.persistence import PostgresRowWriter
 from yfin.storage.rescale import apply_pending

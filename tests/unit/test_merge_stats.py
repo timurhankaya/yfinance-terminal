@@ -7,7 +7,8 @@ bu yardimcinin karsiligi YOKTU.
 
 from __future__ import annotations
 
-from yfin.datasets.base import WriteStats, merge_stats
+from yfin.datasets.base import merge_stats
+from yfin.storage.contracts import WriteStats
 
 
 def _stats(

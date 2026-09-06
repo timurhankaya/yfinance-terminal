@@ -16,7 +16,7 @@ from yfin.core import normalize as nz
 from yfin.core.config import get_settings
 from yfin.core.errors import DatasetOutOfScope
 from yfin.core.logging_setup import get_logger
-from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_yahoo
 from yfin.models.bars import (
@@ -26,6 +26,7 @@ from yfin.models.bars import (
     INTRADAY_INTERVALS,
     bars_table_for,
 )
+from yfin.storage.contracts import TableWrite
 
 # (max days per request, max lookback depth in days) - measured values.
 #

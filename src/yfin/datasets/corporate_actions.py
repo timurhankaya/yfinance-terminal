@@ -24,10 +24,11 @@ from typing import Any
 import pandas as pd
 
 from yfin.core import normalize as nz
-from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.history import fetch_history_frame
 from yfin.datasets.payloads import FramePayload
 from yfin.datasets.registry import register
+from yfin.storage.contracts import TableWrite
 
 
 class _SeriesDataset(Dataset[FramePayload]):

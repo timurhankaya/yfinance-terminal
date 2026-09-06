@@ -21,13 +21,14 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from yfin.datasets import SYMBOL_DATASETS
-from yfin.datasets.base import Dataset, WriteStats
+from yfin.datasets.base import Dataset
 from yfin.datasets.payloads import (
     AsOfFramePayload,
     AsOfMappingPayload,
     FundsPayload,
     RangedFramePayload,
 )
+from yfin.storage.contracts import WriteStats
 from yfin.storage.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo

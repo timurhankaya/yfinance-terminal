@@ -22,13 +22,7 @@ from yfin.datasets import (  # noqa: F401
     symbols,
 )
 from yfin.datasets.asof_base import AsOfDataset, AsOfGate
-from yfin.datasets.base import (
-    Dataset,
-    NormalizedResult,
-    SyncContext,
-    TableWrite,
-    WriteStats,
-)
+from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.domain.base import (
     DomainAsOfDataset,
     DomainContext,
@@ -45,6 +39,7 @@ from yfin.datasets.registry import (
     register_domain,
     register_market,
 )
+from yfin.storage.contracts import TableWrite, WriteStats
 
 __all__ = [
     "AsOfDataset",

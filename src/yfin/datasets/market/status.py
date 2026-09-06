@@ -16,12 +16,12 @@ from typing import Any
 
 from yfin.core import normalize as nz
 from yfin.core.logging_setup import get_logger
-from yfin.datasets.base import NormalizedResult, TableWrite, WriteStats
+from yfin.datasets.base import NormalizedResult
 from yfin.datasets.market.base import MarketContext, SnapshotGlobalDataset
 from yfin.datasets.payloads import MarketStatusPayload, MarketSummaryPayload
 from yfin.datasets.registry import register_market
 from yfin.ingest.client import call_yahoo
-from yfin.storage.persistence import RowWriter
+from yfin.storage.contracts import RowWriter, TableWrite, WriteStats
 
 log = get_logger(__name__)
 

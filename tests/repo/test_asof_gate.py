@@ -19,10 +19,11 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from yfin.datasets import SYMBOL_DATASETS
-from yfin.datasets.base import NormalizedResult, TableWrite
+from yfin.datasets.base import NormalizedResult
 from yfin.datasets.payloads import AsOfFramePayload
 from yfin.models import ItemStatus
 from yfin.pipeline.runner import _record_items
+from yfin.storage.contracts import TableWrite
 from yfin.storage.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo

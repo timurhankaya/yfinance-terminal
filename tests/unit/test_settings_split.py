@@ -82,10 +82,10 @@ def test_sir_adi_citi(key: str) -> None:
 
 @pytest.mark.parametrize("key", sorted(DB_MANAGED_FIELDS))
 def test_skaler_citi(key: str) -> None:
-    """CIT 4 -- skalerlik.
+    """Guard 4 -- scalar-ness.
 
-    `value` sutunu METINDIR ve serilestirme kurali (CFG S4.4) yalnizca
-    skalerler icin tanimlidir. Bir alan listeye/sozluge donerse bu test
-    patlar ve kurali guncellemeyi ZORUNLU kilar.
+    The `value` column is text, and the serialization rule is defined only
+    for scalars. If a field ever becomes a list/dict, this test breaks and
+    forces the rule to be updated.
     """
     assert Settings.model_fields[key].annotation in (bool, int, float, str)

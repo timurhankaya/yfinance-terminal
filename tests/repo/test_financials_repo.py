@@ -11,10 +11,11 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from yfin.datasets.base import NormalizedResult, TableWrite, WriteStats
+from yfin.datasets.base import NormalizedResult
 from yfin.datasets.hash_gated import HashGatedDataset
 from yfin.models import Base
-from yfin.storage.persistence import PostgresRowWriter, apply_write
+from yfin.storage.contracts import TableWrite, WriteStats, apply_write
+from yfin.storage.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo
 

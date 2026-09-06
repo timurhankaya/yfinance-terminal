@@ -10,7 +10,7 @@ import pytest
 
 from helpers import as_calendar_frame, load_fixture
 from yfin.datasets import MARKET_DATASETS
-from yfin.datasets.base import NormalizedResult, TableWrite
+from yfin.datasets.base import NormalizedResult
 from yfin.datasets.hash_gated import HashGatedDataset
 from yfin.datasets.market.base import MarketContext
 from yfin.datasets.payloads import (
@@ -18,6 +18,7 @@ from yfin.datasets.payloads import (
     MarketStatusPayload,
     MarketSummaryPayload,
 )
+from yfin.storage.contracts import TableWrite
 
 FETCHED_AT = datetime(2026, 9, 4, 10, 0, 0, 500000)
 GATE_KEY = ("symbol", "statement", "freq", "period_end")

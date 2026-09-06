@@ -17,11 +17,12 @@ import pandas as pd
 
 from yfin.core import normalize as nz
 from yfin.core.logging_setup import get_logger
-from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, TableWrite
+from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.common import blank_to_none, in_range, key_value
 from yfin.datasets.payloads import RangedFramePayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_optional
+from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
 

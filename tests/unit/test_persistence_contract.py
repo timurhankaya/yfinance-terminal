@@ -13,9 +13,9 @@ from typing import Any
 
 from helpers import load_fixture
 from yfin.datasets import SYMBOL_DATASETS as REGISTRY
-from yfin.datasets.base import NormalizedResult, TableWrite, WriteStats
+from yfin.datasets.base import NormalizedResult
 from yfin.datasets.payloads import FastInfoPayload, InfoPayload
-from yfin.storage.persistence import RowWriter, apply_write
+from yfin.storage.contracts import RowWriter, TableWrite, WriteStats, apply_write
 
 
 class FakeWriter:

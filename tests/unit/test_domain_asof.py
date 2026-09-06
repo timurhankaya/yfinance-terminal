@@ -9,9 +9,10 @@ from typing import Any
 
 from helpers import domain_data
 from yfin.datasets.asof_base import DOMAIN_GATE_TABLE, GLOBAL_REGION_MARKER
-from yfin.datasets.base import NormalizedResult, TableWrite
+from yfin.datasets.base import NormalizedResult
 from yfin.datasets.domain.payloads import DomainPayload
 from yfin.datasets.registry import DOMAIN_DATASETS
+from yfin.storage.contracts import TableWrite
 
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 LATER = NOW + timedelta(hours=6)

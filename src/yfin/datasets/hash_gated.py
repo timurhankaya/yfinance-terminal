@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from yfin.datasets.base import Dataset, NormalizedResult, TableWrite, WriteStats
-from yfin.storage.persistence import RowWriter, apply_write
+from yfin.datasets.base import Dataset, NormalizedResult
+from yfin.storage.contracts import RowWriter, TableWrite, WriteStats, apply_write
 
 # When the hash is unchanged, only this column is updated on the header row.
 UNCHANGED_UPDATE_COLUMNS = ("fetched_at",)

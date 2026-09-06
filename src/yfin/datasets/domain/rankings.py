@@ -13,7 +13,7 @@ from typing import Any
 
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import DOMAIN_GATE_TABLE, asof_produces
-from yfin.datasets.base import NormalizedResult, TableWrite, WriteStats
+from yfin.datasets.base import NormalizedResult
 from yfin.datasets.domain.base import DomainAsOfDataset, DomainContext
 from yfin.datasets.domain.common import (
     MAPPED_KEYS,
@@ -28,7 +28,7 @@ from yfin.datasets.domain.common import (
 )
 from yfin.datasets.domain.payloads import DomainPayload
 from yfin.datasets.registry import register_domain
-from yfin.storage.persistence import RowWriter
+from yfin.storage.contracts import RowWriter, TableWrite, WriteStats
 
 log = get_logger(__name__)
 
