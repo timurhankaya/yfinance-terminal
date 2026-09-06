@@ -14,7 +14,6 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from yfin import normalize as nz
-from yfin.maintenance import add_partitions, missing_partitions
 from yfin.models import BAR_INTERVALS, BarGap, IntradayScope
 from yfin.rescale import apply_pending, seed_baseline, unseeded_historic_splits
 
@@ -167,38 +166,23 @@ def bars_gaps(
 
 @bars_app.command("maintain")
 def bars_maintain(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -> None:
-    """Aylik bakim (PB S7.5). SILME YAPMAZ."""
+    """Aylik bakim (PB S7.5). SILME YAPMAZ.
+
+    IKI ADIM KALDIRILDI ve ikisi de motor degisiminin dogrudan
+    sonucudur (PG S3.2, S7.2):
+
+      * PARTITION ILERLETME. price_bars artik bir TimescaleDB
+        hypertable'idir ve chunk'lari YAZMA ANINDA kendisi olusturur.
+        "Aralik disi insert" kavrami yoktur, dolayisiyla bakimi atlamanin
+        bir bedeli de yoktur. `maintenance.py` modulunun tamami silindi.
+
+      * OKSUZ SATIR DENETIMI. FK'yi partition ugruna feda etmistik
+        (MySQL ERROR 1506); hypertable referencing taraf olabildigi icin
+        price_bars artik symbols'a FK TASIYOR ve butunluk DB seviyesinde
+        garanti. Sorgu olu koda donusmustu.
+    """
     with _factory()() as session:
-        # 1) Partition ilerletme. MAXVALUE bolumu OLMADIGI icin ADD
-        #    PARTITION metadata-only ve anliktir; atlanirsa yeni satirlar
-        #    ERROR 1526 ile GURULTULU reddedilir (PB S5.3).
-        missing = missing_partitions(session)
-        if missing:
-            typer.echo(f"eksik partition: {len(missing)} ay ({missing[0]} ... {missing[-1]})")
-            if not dry_run:
-                add_partitions(session, missing)
-                typer.echo("  eklendi")
-        else:
-            typer.echo("partition: 12 ay ileri kapsanmis")
-
-        # 2) Oksuz satir denetimi. FK'yi partition icin feda ettik; bu
-        #    sorgu onun yerini tutar. RAPORLANIR, SILINMEZ - silme karari
-        #    insana aittir.
-        orphans = session.execute(
-            text(
-                "SELECT b.symbol, COUNT(*) FROM price_bars b "
-                "LEFT JOIN symbols s ON s.symbol = b.symbol "
-                "WHERE s.symbol IS NULL GROUP BY b.symbol"
-            )
-        ).all()
-        if orphans:
-            typer.echo(f"OKSUZ SATIR: {len(orphans)} sembol (silinmedi)")
-            for sym, count in orphans:
-                typer.echo(f"      {sym}: {count} satir")
-        else:
-            typer.echo("oksuz satir yok")
-
-        # 3) Tohum denetimi (PB S10/9a)
+        # 1) Tohum denetimi (PB S10/9a)
         unseeded = unseeded_historic_splits(session)
         if unseeded:
             typer.echo(
@@ -206,10 +190,15 @@ def bars_maintain(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -
                 "calistirilmadan `yfin sync --datasets bars` kosarsa ARSIV BOZULUR."
             )
 
-        # 4) Bosluk ozeti
+        # 2) Bosluk ozeti
         for why, total, still_open in session.execute(
             text(
-                "SELECT reason, COUNT(*), SUM(resolved_at IS NULL) FROM bar_gaps GROUP BY reason"
+                # MySQL'de `SUM(x IS NULL)` boolean'i ortuk olarak int'e
+                # ceviriyordu. PostgreSQL'de SUM(boolean) YOKTUR (42883);
+                # FILTER hem dogru hem daha okunakli karsiliktir.
+                "SELECT reason, COUNT(*), "
+                "       COUNT(*) FILTER (WHERE resolved_at IS NULL) "
+                "  FROM bar_gaps GROUP BY reason"
             )
         ).all():
             typer.echo(f"bosluk {why:18s} toplam {total}, acik {still_open}")
