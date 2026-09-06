@@ -42,7 +42,7 @@ def test_manual_activation_is_not_overwritten(db_session: Session) -> None:
         text("SELECT symbol FROM domains WHERE domain_key = 'technology'")
     ).scalar_one()
     db_session.execute(
-        text("UPDATE symbols SET is_active = 1, unknown_streak = 3 WHERE symbol = :s"),
+        text("UPDATE symbols SET is_active = true, unknown_streak = 3 WHERE symbol = :s"),
         {"s": symbol},
     )
 

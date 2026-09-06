@@ -6,53 +6,59 @@ live kosusu yanlislikla ust uste baslatilmisti; belirti modul
 fixture'larinda 18 ERROR ve tutarsiz satir sayilariydi, yani KOD HATASI
 gibi gorunuyordu. Kilidi KIMIN tuttugunu soyleyen bir mesaj bunu tek
 adimda cozerdi.
+
+PostgreSQL'de mesaj MySQL'dekinden DAHA zengindir: `IS_USED_LOCK`
+yalnizca bir connection id donduruyordu, `pg_locks JOIN
+pg_stat_activity` ise pid, application_name ve calisan sorguyu verir
+(PG S5.3).
 """
 
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine
 
-from yfin.db import SYNC_LOCK_NAME, LockNotAcquired, advisory_lock
+from yfin.db import SYNC_LOCK_NAME, LockNotAcquired, advisory_lock, lock_holder
 
 pytestmark = pytest.mark.repo
 
+TEST_LOCK = "yfin_test_lock"
+
 
 def test_lock_is_acquired_and_released(test_engine: Engine) -> None:
-    with advisory_lock(test_engine, name="yfin_test_lock"):
-        with test_engine.connect() as conn:
-            free = conn.execute(text("SELECT IS_FREE_LOCK('yfin_test_lock')")).scalar()
-        assert free == 0, "kilit alinmamis"
+    with advisory_lock(test_engine, name=TEST_LOCK), test_engine.connect() as conn:
+        assert lock_holder(conn, TEST_LOCK) is not None, "kilit alinmamis"
 
     with test_engine.connect() as conn:
-        assert conn.execute(text("SELECT IS_FREE_LOCK('yfin_test_lock')")).scalar() == 1
+        assert lock_holder(conn, TEST_LOCK) is None
 
 
 def test_second_holder_gets_a_message_naming_the_first(test_engine: Engine) -> None:
-    """Mesaj kilidi tutan connection'i ADIYLA soylemeli."""
+    """Mesaj kilidi tutan oturumu TARIF ETMELI."""
     with (
-        advisory_lock(test_engine, name="yfin_test_lock"),
+        advisory_lock(test_engine, name=TEST_LOCK),
         pytest.raises(LockNotAcquired) as excinfo,
-        advisory_lock(test_engine, name="yfin_test_lock"),
+        advisory_lock(test_engine, name=TEST_LOCK),
     ):
         pass
 
     message = str(excinfo.value)
-    assert "yfin_test_lock" in message
-    assert "connection" in message, "kilidi kimin tuttugu soylenmiyor"
-    # Connection id sayisal olmali (IS_USED_LOCK sonucu)
-    assert any(part.isdigit() for part in message.replace("(", " ").split())
-    assert "PROCESSLIST" in message, "kullaniciya sonraki adim soylenmiyor"
+    assert TEST_LOCK in message
+    assert "pid=" in message, "kilidi kimin tuttugu soylenmiyor"
+    # pid sayisal olmali
+    assert any(part.isdigit() for part in message.replace("pid=", " ").split())
+    # application_name teshisin ikinci yarisidir: hangi shard/surec
+    assert "application_name=" in message
 
 
 def test_lock_is_released_even_when_the_body_raises(test_engine: Engine) -> None:
-    """Govde patlasa da RELEASE_LOCK cagrilmali; aksi halde kilit
-    surecin sonuna kadar sizar ve sonraki kosu sebepsiz duser."""
-    with pytest.raises(RuntimeError), advisory_lock(test_engine, name="yfin_test_lock"):
+    """Govde patlasa da pg_advisory_unlock cagrilmali; aksi halde kilit
+    OTURUM sonuna kadar sizar ve sonraki kosu sebepsiz duser."""
+    with pytest.raises(RuntimeError), advisory_lock(test_engine, name=TEST_LOCK):
         raise RuntimeError("patlama")
 
     with test_engine.connect() as conn:
-        assert conn.execute(text("SELECT IS_FREE_LOCK('yfin_test_lock')")).scalar() == 1
+        assert lock_holder(conn, TEST_LOCK) is None
 
 
 def test_sync_lock_name_is_the_documented_one() -> None:

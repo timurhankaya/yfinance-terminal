@@ -47,7 +47,7 @@ def test_adding_the_symbol_reopens_the_gate_and_flips_the_flag(
     db_session.execute(
         text(
             "INSERT INTO symbols (symbol, is_active, unknown_streak, created_at, updated_at) "
-            "VALUES (:s, 1, 0, :t, :t)"
+            "VALUES (:s, true, 0, :t, :t)"
         ),
         {"s": target, "t": NOW},
     )

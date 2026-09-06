@@ -59,14 +59,18 @@ def test_audit_uses_the_latest_row_not_an_exact_day_match(db_session: Session) -
 
 def test_audit_reports_failed_cells_of_a_run(db_session: Session) -> None:
     _seed(db_session)
-    db_session.execute(
-        text(
-            "INSERT INTO sync_runs (started_at, scope, status, symbol_count, dataset_count) "
-            "VALUES (:t, 'domain', 'running', 0, 5)"
-        ),
-        {"t": "2026-09-04 12:00:00"},
+    # `LAST_INSERT_ID()` PostgreSQL'de YOKTUR; uretilen anahtar
+    # `RETURNING` ile ayni ifadeden alinir -- ustelik yarissiz.
+    run_id = int(
+        db_session.execute(
+            text(
+                "INSERT INTO sync_runs "
+                "(started_at, scope, status, symbol_count, dataset_count) "
+                "VALUES (:t, 'domain', 'running', 0, 5) RETURNING id"
+            ),
+            {"t": "2026-09-04 12:00:00"},
+        ).scalar_one()
     )
-    run_id = int(db_session.execute(text("SELECT LAST_INSERT_ID()")).scalar_one())
     db_session.execute(
         text(
             "INSERT INTO sync_run_items "

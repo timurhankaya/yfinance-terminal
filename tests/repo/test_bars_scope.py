@@ -125,7 +125,7 @@ def test_gap_reader_returns_only_unresolved_fetch_failures(
 
     # Cozulmus olan ve retention_expired olan DISLANIR: ilki artik gorev
     # degil, ikincisi zaten cekilemez.
-    assert [g[0] for g in gaps] == [datetime(2026, 8, 1)]
+    assert [g[0] for g in gaps] == [datetime(2026, 8, 1, tzinfo=UTC)]
 
 
 def test_out_of_scope_exception_is_not_a_value_error() -> None:

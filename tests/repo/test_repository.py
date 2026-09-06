@@ -5,7 +5,7 @@ Her test kendi transaction'inda calisir ve sonunda rollback edilir.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
@@ -25,8 +25,8 @@ def _seed_symbol(session: Session, symbol: str = "AAPL") -> None:
     session.execute(
         text(
             "INSERT INTO symbols (symbol, is_active, unknown_streak, created_at, updated_at) "
-            "VALUES (:s, 1, 0, NOW(6), NOW(6)) "
-            "ON DUPLICATE KEY UPDATE symbol = symbol"
+            "VALUES (:s, true, 0, now(), now()) "
+            "ON CONFLICT (symbol) DO NOTHING"
         ),
         {"s": symbol},
     )
@@ -168,7 +168,7 @@ class TestSnapshotTimestamps:
     def test_fractional_second_not_rounded(self, db_session: Session) -> None:
         _seed_symbol(db_session)
         table = Base.metadata.tables["ticker_fast_info_history"]
-        stamp = datetime(2026, 1, 1, 10, 0, 0, 750000)
+        stamp = datetime(2026, 1, 1, 10, 0, 0, 750000, tzinfo=UTC)
         db_session.execute(
             table.insert().values(
                 symbol="AAPL", fetched_at=stamp, raw_json="{}", content_hash="b" * 64
@@ -177,7 +177,7 @@ class TestSnapshotTimestamps:
         stored = db_session.execute(
             select(table.c.fetched_at).where(table.c.symbol == "AAPL")
         ).scalar_one()
-        assert stored == stamp  # DATETIME(0) 10:00:01'e yuvarlardi
+        assert stored == stamp  # timestamptz(0) 10:00:01'e YUVARLARDI
 
 
 class TestCollation:
@@ -292,7 +292,10 @@ class TestRawJson:
         )
         matches = db_session.execute(
             text(
-                "SELECT SHA2(raw_json, 256) = content_hash FROM ticker_fast_info "
+                # MySQL SHA2(x, 256) -> PG encode(sha256(x::bytea), 'hex').
+                # `::bytea` cast SART: sha256 bytea alir, text degil.
+                "SELECT encode(sha256(raw_json::bytea), 'hex') = content_hash "
+                "FROM ticker_fast_info "
                 "WHERE symbol = 'AAPL'"
             )
         ).scalar_one()

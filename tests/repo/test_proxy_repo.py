@@ -137,7 +137,10 @@ class TestUniqueness:
         committed_session.add(_proxy("a", host="10.0.0.9", port=1080))
         committed_session.commit()
         committed_session.add(_proxy("b", host="10.0.0.9", port=1080))
-        with pytest.raises(Exception, match="Duplicate|1062"):
+        # PG: "duplicate key value violates unique constraint" + kisit adi.
+        # Kisit ADI arandi: mesajin dilinden bagimsiz ve hangi
+        # tekilligin ihlal edildigini de kanitlar.
+        with pytest.raises(Exception, match="uq_proxies_endpoint"):
             committed_session.commit()
         committed_session.rollback()
 

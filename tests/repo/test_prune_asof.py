@@ -35,7 +35,7 @@ def symbol(db_session: Session) -> Iterator[str]:
     db_session.execute(
         text(
             "INSERT INTO symbols (symbol, is_active, unknown_streak, created_at, updated_at) "
-            "VALUES (:s, 1, 0, :t, :t)"
+            "VALUES (:s, true, 0, :t, :t)"
         ),
         {"s": SYMBOL, "t": NOW},
     )

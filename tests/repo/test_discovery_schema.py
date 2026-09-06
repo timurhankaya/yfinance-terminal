@@ -150,19 +150,21 @@ def test_symbols_discovery_columns(db_session: Session) -> None:
 def test_ascii_key_columns_use_binary_collation(db_session: Session) -> None:
     """Anahtar kolonlar case-SENSITIVE olmalidir.
 
-    utf8mb4_0900_ai_ci'de 'AAPL' = 'aapl' -> iki farkli sembol ayni satira
-    duser (S S5.1).
+    Duyarsiz bir collation'da 'AAPL' = 'aapl' -> iki farkli sembol ayni
+    satira duser (S S5.1). MySQL'de bu `ascii_bin` ile saglaniyordu;
+    PostgreSQL'de karsiligi COLLATE "C"dir (PG S2.5) ve tum string
+    kolonlarina tekduze uygulanir.
     """
     rows = db_session.execute(
         __import__("sqlalchemy").text(
-            "SELECT TABLE_NAME, COLUMN_NAME, COLLATION_NAME "
-            "FROM information_schema.COLUMNS "
-            "WHERE TABLE_SCHEMA = DATABASE() "
-            "AND TABLE_NAME IN ('discovery_asof_state','search_quotes','lookup_results',"
+            "SELECT table_name, column_name, collation_name "
+            "FROM information_schema.columns "
+            "WHERE table_schema = current_schema() "
+            "AND table_name IN ('discovery_asof_state','search_quotes','lookup_results',"
             "'screen_members','screens','screen_runs','search_lists') "
-            "AND COLUMN_NAME IN ('query_term','symbol','screen_key','list_key','dataset')"
+            "AND column_name IN ('query_term','symbol','screen_key','list_key','dataset')"
         )
     ).all()
     assert rows
     for table, column, collation in rows:
-        assert collation == "ascii_bin", f"{table}.{column} = {collation}"
+        assert collation == "C", f"{table}.{column} = {collation}"

@@ -93,19 +93,46 @@ class TestMonotonicRepairColumn:
             assert row.is_repaired is True
 
 
+class _FakeDbapiError(Exception):
+    """`DBAPIError.orig` seklini taklit eder.
+
+    SQLAlchemy surucu istisnasini `.orig` altinda sunar ve psycopg3
+    istisnalari `.sqlstate` tasir; siniflandirma artik METNE degil buna
+    bakar (PG S6).
+    """
+
+    def __init__(self, sqlstate: str) -> None:
+        super().__init__(f"fake error {sqlstate}")
+        self.orig = type("_Orig", (), {"sqlstate": sqlstate})()
+
+
 class TestLockConflictClassification:
     @pytest.mark.parametrize(
-        "message",
+        "sqlstate",
         [
-            "(1213, 'Deadlock found when trying to get lock')",
-            "(1205, 'Lock wait timeout exceeded; try restarting transaction')",
+            "40001",  # serialization_failure
+            "40P01",  # deadlock_detected
         ],
     )
-    def test_innodb_lock_errors_are_retryable(self, message: str) -> None:
-        assert _is_lock_conflict(RuntimeError(message))
+    def test_lock_sqlstates_are_retryable(self, sqlstate: str) -> None:
+        assert _is_lock_conflict(_FakeDbapiError(sqlstate))
 
-    def test_other_errors_are_not_retried(self) -> None:
-        assert not _is_lock_conflict(RuntimeError("(1054, \"Unknown column 'x'\")"))
+    def test_other_sqlstates_are_not_retried(self) -> None:
+        # 42703 undefined_column -- programlama hatasi, yeniden denemek
+        # sonsuza kadar ayni sonucu verirdi.
+        assert not _is_lock_conflict(_FakeDbapiError("42703"))
+
+    def test_55p03_is_deliberately_excluded(self) -> None:
+        """lock_not_available BILEREK listede degil: bu kod yolunda
+        NOWAIT / SKIP LOCKED kullanilmiyor, yani hic olusmaz. Gerekcesiz
+        bir SQLSTATE'i yeniden denemek ileride NOWAIT eklenirse yanlis
+        davranisi sessizce mesrulastirirdi (PG S6)."""
+        assert not _is_lock_conflict(_FakeDbapiError("55P03"))
+
+    def test_exception_without_orig_is_not_retried(self) -> None:
+        """`orig` tasimayan istisna programlama hatasidir; getattr
+        zinciri None dondurur ve YENIDEN DENENMEZ."""
+        assert not _is_lock_conflict(RuntimeError("duz hata"))
 
 
 class _FlakyDataset:
@@ -124,7 +151,7 @@ class _FlakyDataset:
     def upsert(self, writer: Any, result: NormalizedResult) -> WriteStats:
         self.calls += 1
         if self.calls == 1:
-            raise RuntimeError("(1213, 'Deadlock found when trying to get lock')")
+            raise _FakeDbapiError("40P01")
         stats = WriteStats()
         for write in result.writes:
             stats.attempted[write.table] = len(write.rows)

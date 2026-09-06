@@ -72,7 +72,7 @@ class TestPruneScreens:
                 "INSERT INTO screen_runs (screen_key, as_of_date, total, fetched_rows, "
                 "row_count, page_count, content_hash, fetched_at) "
                 "VALUES ('day_gainers', :d, 1, 1, 1, 1, 'h', :t) "
-                "ON DUPLICATE KEY UPDATE total = total"
+                "ON CONFLICT DO NOTHING"
             ),
             {"d": day, "t": NOW},
         )
@@ -80,14 +80,14 @@ class TestPruneScreens:
             db_session.execute(
                 text(
                     "INSERT INTO screen_members (screen_key, as_of_date, symbol, rank_index, "
-                    "is_known, fetched_at) VALUES ('day_gainers', :d, :s, 0, 0, :t)"
+                    "is_known, fetched_at) VALUES ('day_gainers', :d, :s, 0, false, :t)"
                 ),
                 {"d": day, "s": symbol, "t": NOW},
             )
             db_session.execute(
                 text(
                     "INSERT INTO screen_quotes (symbol, as_of_date, is_known, fetched_at, "
-                    "raw_json) VALUES (:s, :d, 0, :t, '{}')"
+                    "raw_json) VALUES (:s, :d, false, :t, '{}')"
                 ),
                 {"d": day, "s": symbol, "t": NOW},
             )

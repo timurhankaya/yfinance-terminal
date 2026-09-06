@@ -33,8 +33,8 @@ def live_financials(test_engine: Engine):  # type: ignore[no-untyped-def]
             session.execute(
                 text(
                     "INSERT INTO symbols (symbol, is_active, unknown_streak, "
-                    "created_at, updated_at) VALUES (:s, 1, 0, NOW(6), NOW(6)) "
-                    "ON DUPLICATE KEY UPDATE symbol = symbol"
+                    "created_at, updated_at) VALUES (:s, true, 0, now(), now()) "
+                    "ON CONFLICT (symbol) DO NOTHING"
                 ),
                 {"s": symbol},
             )

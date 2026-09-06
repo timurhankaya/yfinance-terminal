@@ -158,8 +158,8 @@ def test_domain_metrics_have_no_region_column(db_session: Session) -> None:
     columns = set(
         db_session.execute(
             text(
-                "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
-                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'domain_metrics'"
+                "SELECT COLUMN_NAME FROM information_schema.columns "
+                "WHERE table_schema = current_schema() AND table_name = 'domain_metrics'"
             )
         ).scalars()
     )

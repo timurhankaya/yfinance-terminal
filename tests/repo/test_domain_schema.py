@@ -16,7 +16,7 @@ def _seed_symbol(session: Session, symbol: str) -> None:
     session.execute(
         text(
             "INSERT INTO symbols (symbol, is_active, unknown_streak, created_at, updated_at) "
-            "VALUES (:s, 0, 0, :t, :t)"
+            "VALUES (:s, false, 0, :t, :t)"
         ),
         {"s": symbol, "t": NOW},
     )
@@ -125,25 +125,44 @@ def test_report_links_cascade_when_the_report_is_deleted(db_session: Session) ->
     assert remaining == 0
 
 
-def test_report_title_is_mediumtext(db_session: Session) -> None:
-    """`TEXT` 65 535 BAYT'tir; olculen max 23 570 KARAKTER utf8mb4'te tasabilir."""
-    row = db_session.execute(
+def test_report_title_is_unbounded_text(db_session: Session) -> None:
+    """Olculen max 23 570 KARAKTER; uzunluk siniri OLMAMALI.
+
+    MySQL'de `TEXT` 65 535 BAYT'ti ve utf8mb4'te 23 570 karakter bunu
+    asabiliyordu, bu yuzden `MEDIUMTEXT` gerekiyordu. PostgreSQL'de
+    `text` SINIRSIZDIR; ayrim ortadan kalkti. Testin AMACI ayni:
+    kolonun bir uzunluk siniri tasimadigini kanitlamak (PG S2.2).
+    """
+    data_type, max_len = db_session.execute(
         text(
-            "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
-            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'research_reports' "
-            "AND COLUMN_NAME = 'report_title'"
+            "SELECT data_type, character_maximum_length "
+            "  FROM information_schema.columns "
+            " WHERE table_schema = current_schema() "
+            "   AND table_name = 'research_reports' "
+            "   AND column_name = 'report_title'"
         )
-    ).scalar_one()
-    assert row == "mediumtext"
+    ).one()
+    assert data_type == "text"
+    assert max_len is None, "report_title uzunluk siniri TASIMAMALI"
 
 
 def test_domain_asof_state_key_includes_region(db_session: Session) -> None:
     keys = list(
         db_session.execute(
             text(
-                "SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE "
-                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'domain_asof_state' "
-                "AND CONSTRAINT_NAME = 'PRIMARY' ORDER BY ORDINAL_POSITION"
+                # PostgreSQL'de PK kisitinin adi 'PRIMARY' DEGILDIR;
+                # naming_convention `pk_<tablo>` uretir (PG S2.6).
+                # constraint_type uzerinden gitmek ada bagimliligi da
+                # ortadan kaldirir.
+                "SELECT k.column_name "
+                "  FROM information_schema.key_column_usage k "
+                "  JOIN information_schema.table_constraints c "
+                "    ON c.constraint_name = k.constraint_name "
+                "   AND c.table_schema = k.table_schema "
+                " WHERE k.table_schema = current_schema() "
+                "   AND k.table_name = 'domain_asof_state' "
+                "   AND c.constraint_type = 'PRIMARY KEY' "
+                " ORDER BY k.ordinal_position"
             )
         ).scalars()
     )

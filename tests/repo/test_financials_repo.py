@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -20,7 +20,7 @@ pytestmark = pytest.mark.repo
 
 GATE_KEY = ("symbol", "statement", "freq", "period_end")
 PERIOD_END = date(2025, 9, 30)
-FETCHED_AT = datetime(2026, 9, 4, 10, 0, 0, 500000)
+FETCHED_AT = datetime(2026, 9, 4, 10, 0, 0, 500000, tzinfo=UTC)
 # Gercek accession numarasi ayristirmasi unit testte dogrulanir; burada
 # yalnizca anahtar davranisi onemli oldugu icin sade bir deger kullanilir
 FILING_ID = "acc-test-a1"
@@ -32,7 +32,7 @@ def _seed_symbol(session: Session, symbol: str = "AAPL") -> None:
     session.execute(
         text(
             "INSERT INTO symbols (symbol, is_active, unknown_streak, created_at, updated_at) "
-            "VALUES (:s, 1, 0, NOW(6), NOW(6)) ON DUPLICATE KEY UPDATE symbol = symbol"
+            "VALUES (:s, true, 0, now(), now()) ON CONFLICT (symbol) DO NOTHING"
         ),
         {"s": symbol},
     )
@@ -237,7 +237,7 @@ class TestHashGateAgainstMySQL:
         dataset.upsert(writer, _gated_result("h1", FETCHED_AT))
         assert _count(db_session, "financial_facts") == 2
 
-        later = datetime(2026, 9, 5, 10, 0, 0, 500000)
+        later = datetime(2026, 9, 5, 10, 0, 0, 500000, tzinfo=UTC)
         stats = dataset.upsert(writer, _gated_result("h1", later))
         assert stats.skipped["financial_facts"] == 2
         assert _count(db_session, "financial_facts") == 2
@@ -283,8 +283,8 @@ class TestSchemaInvariants:
         yanlis satira baglanir; MySQL ne CREATE ne INSERT'te uyarir."""
         rows = db_session.execute(
             text(
-                "SELECT COLUMN_NAME, COUNT(DISTINCT COLUMN_TYPE) FROM information_schema.COLUMNS "
-                "WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME IN ('statement','freq') "
+                "SELECT column_name, COUNT(DISTINCT data_type) FROM information_schema.columns "
+                "WHERE table_schema = current_schema() AND column_name IN ('statement','freq') "
                 "GROUP BY COLUMN_NAME"
             )
         ).all()
@@ -401,7 +401,7 @@ class TestSchemaInvariants:
         db_session.execute(
             text(
                 "INSERT INTO sync_runs (started_at, status, symbol_count, dataset_count) "
-                "VALUES (NOW(6), 'running', 1, 1)"
+                "VALUES (now(), 'running', 1, 1)"
             )
         )
         scope = db_session.execute(
@@ -410,18 +410,28 @@ class TestSchemaInvariants:
         assert scope == "symbols"
 
     def test_period_end_index_is_used(self, db_session: Session) -> None:
-        """financial_facts (period_end, item_key) olmadan full scan olurdu."""
-        plan = (
+        """financial_facts (period_end, item_key) olmadan full scan olurdu.
+
+        MySQL EXPLAIN'i satir bicimindeydi ve `key` kolonu okunuyordu;
+        PostgreSQL EXPLAIN metin satirlari dondurur.
+
+        `enable_seqscan = off` gerekir: bos bir tabloda planlayici HER
+        ZAMAN Seq Scan secer (dogru karardir, indeks aramak daha
+        pahalidir). Test indeksin VAR ve KULLANILABILIR oldugunu
+        dogrular, planlayicinin bos tablodaki tercihini degil.
+        """
+        db_session.execute(text("SET LOCAL enable_seqscan = off"))
+        plan = "\n".join(
             db_session.execute(
                 text(
                     "EXPLAIN SELECT symbol, item_key, value FROM financial_facts "
                     "WHERE period_end = '2025-09-30'"
                 )
             )
-            .mappings()
-            .one()
+            .scalars()
+            .all()
         )
-        assert plan["key"] is not None
+        assert "Index" in plan, f"indeks kullanilmadi:\n{plan}"
 
 
 class TestPrune:
@@ -479,7 +489,10 @@ class TestPrune:
     def test_enabled_deletes_only_rows_before_cutoff(self, db_session: Session) -> None:
         from yfin.prune import run_prune
 
-        old, new = datetime(2020, 1, 1, 4, 0), datetime(2026, 9, 1, 4, 0)
+        old, new = (
+            datetime(2020, 1, 1, 4, 0, tzinfo=UTC),
+            datetime(2026, 9, 1, 4, 0, tzinfo=UTC),
+        )
         self._seed_calendar(db_session, old, new)
         report = run_prune(
             db_session, enabled=True, orphan_news=False, calendars_before=datetime(2024, 1, 1)
@@ -595,46 +608,36 @@ class TestValuationStatementKind:
             )
             db_session.flush()
 
-    def test_migration_widens_enum_under_foreign_key(self, db_session: Session) -> None:
-        """MySQL FK'li kolonun tipini degistirmeyi reddeder; migration bunu
-        FOREIGN_KEY_CHECKS=0 arasinda yapar. Once daraltip sonra genisletmek
-        iki yonu de ayni testte kanitlar.
+    def test_enum_carries_every_statement_kind(self, db_session: Session) -> None:
+        """ENUM tipi StatementKind'in TUM uyelerini tasimali.
 
-        DDL MySQL'de implicit commit yapar: test transaction'i bu degisikligi
-        geri almaz, bu yuzden upgrade() SON adimdir ve sema testin
-        basindaki haline doner.
+        Bu test bir MIGRATION testinin yerine gecti. MySQL'de 'valuation'
+        degerini ekleyen ayri bir revizyon vardi ve test onu yukleyip
+        downgrade/upgrade ediyordu; migration gecmisi PostgreSQL gecisinde
+        TEK bir initial revizyona indirildigi icin (PG S12) o dosya artik
+        yok.
+
+        Korunan invaryant ayni: sema, kodun bildigi her degeri kabul
+        etmeli. Kaybolan sey MySQL'e ozgu ZORLUKTU -- orada FK'li bir
+        kolonun ENUM tipini degistirmek reddediliyordu ve migration bunu
+        FOREIGN_KEY_CHECKS=0 arasinda, once daraltip sonra genisleterek
+        yapiyordu. PostgreSQL'de ENUM ayri bir TIP nesnesidir; deger
+        eklemek FK'ye HIC dokunmaz (olculdu: ALTER TYPE ... ADD VALUE
+        sonrasi bilesik FK'li satir saglam kaldi).
         """
-        import importlib.util
-        from pathlib import Path
+        from yfin.models import StatementKind
 
-        from alembic.migration import MigrationContext
-        from alembic.operations import Operations
-
-        path = next(Path("migrations/versions").glob("*_valuation_statement_kind.py"))
-        spec = importlib.util.spec_from_file_location("mig_valuation", path)
-        assert spec and spec.loader
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-
-        connection = db_session.connection()
-        migration_context = MigrationContext.configure(connection)
-
-        def enum_definition() -> str:
-            return str(
-                connection.execute(
-                    text(
-                        "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
-                        "WHERE TABLE_SCHEMA = DATABASE() "
-                        "AND TABLE_NAME = 'financial_facts' AND COLUMN_NAME = 'statement'"
-                    )
-                ).scalar_one()
-            )
-
-        with Operations.context(migration_context):
-            module.downgrade()
-            assert "valuation" not in enum_definition()
-            module.upgrade()
-        assert "valuation" in enum_definition()
+        labels = set(
+            db_session.execute(
+                text(
+                    "SELECT e.enumlabel FROM pg_enum e "
+                    "  JOIN pg_type t ON t.oid = e.enumtypid "
+                    " WHERE t.typname = 'statement_kind'"
+                )
+            ).scalars()
+        )
+        assert labels == {member.value for member in StatementKind}
+        assert "valuation" in labels
 
 
 class TestSchemaIsolation:
@@ -649,24 +652,30 @@ class TestSchemaIsolation:
         from helpers import drop_stale_schemas
 
         base = settings.db_test_name
-        bootstrap = create_engine(settings.bootstrap_url())
+        # TEST VERITABANINA baglanilir, bootstrap'a (postgres) DEGIL:
+        # information_schema VERITABANINA OZELDIR ve bootstrap
+        # baglantisi bu semalari GOREMEZ (PG S9.1).
+        engine = create_engine(settings.db_url(base), isolation_level="AUTOCOMMIT")
         stale = f"{base}_999999"
         live = f"{base}_{os.getpid()}"
-        with bootstrap.connect() as conn:
-            conn.execute(text(f"CREATE DATABASE IF NOT EXISTS `{stale}`"))
-            conn.commit()
+        with engine.connect() as conn:
+            conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{stale}"'))
+            # Taban ad (sayisal son eki YOK) korunmali: temizlik yalnizca
+            # `<base>_<pid>` bicimini hedefler. MySQL'de bu bir VERITABANI
+            # idi ve kendiliginden vardi; sema modelinde acikca kurulur.
+            conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{base}"'))
 
-        dropped = drop_stale_schemas(bootstrap, base)
+        dropped = drop_stale_schemas(engine, base)
 
-        with bootstrap.connect() as conn:
+        with engine.connect() as conn:
             names = {
                 n
                 for n in conn.execute(
-                    text("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA")
+                    text("SELECT schema_name FROM information_schema.schemata")
                 ).scalars()
                 if n.startswith(base)
             }
-        bootstrap.dispose()
+        engine.dispose()
         assert stale in dropped
         assert stale not in names
         assert live in names  # bu kosunun kendi semasi durur

@@ -196,7 +196,10 @@ class TestSymbolPromotion:
         _write(db_session, SearchDataset(), payload, symbol="AAPL")
 
         db_session.execute(
-            text("UPDATE symbols SET is_active = 1, discovered_by = 'manual' WHERE symbol = 'AAPL'")
+            text(
+                "UPDATE symbols SET is_active = true, discovered_by = 'manual' "
+                "WHERE symbol = 'AAPL'"
+            )
         )
         db_session.flush()
 
