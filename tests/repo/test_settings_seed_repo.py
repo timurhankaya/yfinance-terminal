@@ -30,7 +30,7 @@ def _seed_once(settings: Settings, engine: Engine, **kwargs: object) -> dict[str
     return plan
 
 
-def test_temiz_tabloda_JSON_kadar_satir_yazilir(
+def test_a_clean_table_gets_one_row_per_JSON_key(
     test_engine: Engine, store_settings: Settings, clean_settings_table: None
 ) -> None:
     plan = _seed_once(store_settings, test_engine)
@@ -42,7 +42,7 @@ def test_temiz_tabloda_JSON_kadar_satir_yazilir(
     }
 
 
-def test_ikinci_kosu_SIFIR_satir_yazar(
+def test_the_second_run_writes_ZERO_rows(
     test_engine: Engine, store_settings: Settings, clean_settings_table: None
 ) -> None:
     """Idempotent: `seed` never touches an existing row."""
@@ -50,7 +50,7 @@ def test_ikinci_kosu_SIFIR_satir_yazar(
     assert _seed_once(store_settings, test_engine) == {}
 
 
-def test_force_yalniz_JSON_anahtarlarini_ezer(
+def test_force_overwrites_ONLY_the_JSON_keys(
     test_engine: Engine, store_settings: Settings, clean_settings_table: None
 ) -> None:
     _seed_once(store_settings, test_engine)
@@ -62,7 +62,7 @@ def test_force_yalniz_JSON_anahtarlarini_ezer(
     assert rows["yf_news_tab"] == "news", "a row outside JSON should not be touched"
 
 
-def test_gecersiz_JSON_da_HICBIR_SEY_yazilmaz(
+def test_invalid_JSON_writes_NOTHING(
     test_engine: Engine, store_settings: Settings, clean_settings_table: None
 ) -> None:
     """All or nothing: the whole JSON is validated first, then written in
@@ -73,7 +73,7 @@ def test_gecersiz_JSON_da_HICBIR_SEY_yazilmaz(
     assert _rows(test_engine) == {}
 
 
-def test_unset_JSON_DISI_anahtarda_KALICIDIR(
+def test_unset_is_PERMANENT_for_a_key_OUTSIDE_the_JSON(
     test_engine: Engine, store_settings: Settings, clean_settings_table: None
 ) -> None:
     """In v1, `seed` meant "fill every missing row" and silently undid
@@ -85,7 +85,7 @@ def test_unset_JSON_DISI_anahtarda_KALICIDIR(
     assert "yf_news_tab" not in _rows(test_engine)
 
 
-def test_unset_JSON_ICI_anahtarda_seed_ile_GERI_GELIR(
+def test_unset_COMES_BACK_with_seed_for_a_key_INSIDE_the_JSON(
     test_engine: Engine, store_settings: Settings, clean_settings_table: None
 ) -> None:
     """And this is the correct behavior: JSON is "this install's config".
@@ -96,14 +96,14 @@ def test_unset_JSON_ICI_anahtarda_seed_ile_GERI_GELIR(
     assert _rows(test_engine)["yf_max_shards"] == "8"
 
 
-def test_unset_var_olmayan_satirda_False_doner(
+def test_unset_returns_False_when_the_row_does_not_exist(
     store_settings: Settings, clean_settings_table: None
 ) -> None:
     """Idempotent; the CLI turns this into an exit-code-0 notice."""
     assert unset_setting("yf_news_tab", settings=store_settings) is False
 
 
-def test_adopt_env_satirsiz_anahtarlari_doldurur(
+def test_adopt_env_fills_in_keys_with_no_row(
     test_engine: Engine, store_settings: Settings, clean_settings_table: None
 ) -> None:
     """Migration step: an install with YF_MAX_SHARDS=8 in `.env` would

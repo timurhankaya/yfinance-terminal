@@ -1,9 +1,8 @@
-"""Tip katmani invaryantlari (PG S2). Veritabanina DOKUNMAZ.
+"""Type-layer invariants. Does not touch a database.
 
-Bu testler tek tek tablolara degil, tip fabrikalarina ve
-`Base.metadata`'nin TAMAMINA bakar. Gerekce: bir politikanin tek bir
-yardimcida tanimli olmasi onu KORUMAZ -- yeni bir tablo yardimciyi
-kullanmadan da yazilabilir ve sessizce sapabilir.
+These tests look at the type factories and the ENTIRE `Base.metadata`, not
+individual tables. Defining a policy in one helper does not protect it -- a
+new table can be written without using the helper and silently drift.
 """
 
 from __future__ import annotations
@@ -18,10 +17,10 @@ from yfin.models.base import NAMING_CONVENTION, RawJsonType, TsType
 def test_timestamps_are_timestamptz_with_microseconds() -> None:
     """DATETIME(6) -> TIMESTAMP(6) WITH TIME ZONE.
 
-    Generic `sqlalchemy.TIMESTAMP` `precision` KABUL ETMEZ (TypeError);
-    dialect tipi zorunludur. Alti hane sarttir: saniye hassasiyeti
-    ticker_info_history PK'sinda (symbol, fetched_at) cakisma uretirdi ve
-    PostgreSQL kesirleri YUVARLAR, kesmez.
+    The generic `sqlalchemy.TIMESTAMP` rejects `precision` (TypeError); the
+    dialect type is required. Six digits are mandatory: second precision
+    would collide on the (symbol, fetched_at) PK of ticker_info_history,
+    and PostgreSQL rounds the fraction rather than truncating it.
     """
     ts = TsType()
     assert isinstance(ts, TIMESTAMP)
@@ -30,35 +29,34 @@ def test_timestamps_are_timestamptz_with_microseconds() -> None:
 
 
 def test_raw_json_is_plain_text() -> None:
-    """JSONB DEGIL: anahtar sirasini degistirir, NaN'i reddeder,
-    sayilari normalize eder -- ucu de content_hash'i bozar."""
+    """Not JSONB: it reorders keys, rejects NaN, and normalizes numbers --
+    all three would break content_hash."""
     assert isinstance(RawJsonType(), Text)
 
 
 def test_metadata_has_naming_convention() -> None:
-    """Adsiz kisitlarda Alembic KARARSIZ ad uretir ve `yfin db revision`
-    her cagrildiginda sahte fark raporlar -- yani "bos diff" kapisi HIC
-    acilmaz (PG S2.6)."""
+    """Without a naming convention, Alembic generates unstable names for
+    unnamed constraints and `yfin db revision` reports a fake diff on every
+    call -- the "empty diff" gate never opens."""
     assert Base.metadata.naming_convention == NAMING_CONVENTION
     assert "ck" in NAMING_CONVENTION
 
 
 def test_no_string_column_lacks_c_collation() -> None:
-    """Her uzunluklu String/VARCHAR kolonu COLLATE "C" tasimali.
+    """Every length-bound String/VARCHAR column must carry COLLATE "C".
 
-    Duz `String(n)` kolonlari MySQL'de TABLO varsayilanini
-    (utf8mb4_0900_ai_ci) aliyordu; PostgreSQL'de VERITABANI varsayilani
-    (en_US.utf8) uygulanir -- yani ne "C" ne de eski davranis.
+    Plain `String(n)` columns took the TABLE default (utf8mb4_0900_ai_ci)
+    in MySQL; in PostgreSQL the DATABASE default (en_US.utf8) applies
+    instead -- neither "C" nor the old behavior.
 
-    UC KAYNAK vardir ve UCU DE kapsanmalidir:
-      1. models/base.py fabrikalari (SymbolType, AsciiKeyType, ...)
-      2. models/kinds.py `strN` kind'lari (_c_string)
-      3. model dosyalarinda DOGRUDAN yazilmis `String(n)` cagrilari
-    Ucuncusu ilk taramada gozden kacmisti; bu testin varlik sebebi tam
-    olarak budur (PG S2.5).
+    There are three sources and all three must be covered:
+      1. models/base.py factories (SymbolType, AsciiKeyType, ...)
+      2. models/kinds.py `strN` kinds (_c_string)
+      3. `String(n)` calls written directly in model files
+    The third was missed in the first pass; this test exists because of it.
 
-    `Enum` HARIC TUTULUR: SQLAlchemy'de `Enum` `String`den turer ama
-    PostgreSQL'de ayri bir tiptir (CREATE TYPE) ve collation almaz.
+    `Enum` is excluded: in SQLAlchemy, `Enum` derives from `String`, but in
+    PostgreSQL it is a separate type (CREATE TYPE) and takes no collation.
     """
     offenders = [
         f"{table.name}.{col.name}"
@@ -69,12 +67,12 @@ def test_no_string_column_lacks_c_collation() -> None:
         and col.type.length is not None
         and getattr(col.type, "collation", None) != "C"
     ]
-    assert not offenders, f"collation'siz VARCHAR ({len(offenders)}): {offenders}"
+    assert not offenders, f"VARCHAR without collation ({len(offenders)}): {offenders}"
 
 
 def test_row_size_budget_helpers_are_gone() -> None:
-    """PostgreSQL'de 65 535 baytlik satir siniri YOKTUR: genis degerler
-    TOAST'a tasinir. Pratik sinir kolon sayisidir (1 600)."""
+    """PostgreSQL has no 65,535-byte row size limit: large values move to
+    TOAST. The practical limit is the column count (1,600)."""
     import yfin.models.columns as columns
 
     assert not hasattr(columns, "MYSQL_ROW_SIZE_LIMIT")

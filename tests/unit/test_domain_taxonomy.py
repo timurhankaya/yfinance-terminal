@@ -1,4 +1,4 @@
-"""domain_taxonomy normalizasyonu (SI S9.2, S7.2)."""
+"""domain_taxonomy normalization."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def _rows(payload: TaxonomyPayload) -> tuple[list[dict], list[dict]]:
 
 
 def test_all_industries_row_is_dropped_by_the_absence_of_key() -> None:
-    """13 satirin 12'sinde `key` var; o satirda `key` de `symbol` de yok."""
+    """12 of 13 rows have a `key`; that one row has neither `key` nor `symbol`."""
     data = domain_data("sector", "technology")
     assert len(data["industries"]) == 13
     _, domains = _rows(_payload("technology"))
@@ -39,11 +39,11 @@ def test_all_industries_row_is_dropped_by_the_absence_of_key() -> None:
 
 
 def test_renaming_all_industries_still_drops_it() -> None:
-    """ADA BAKILMADIGININ KANITI.
+    """Proof the code does not look at the name.
 
-    yfinance `i.get('name') != 'All Industries'` ile eliyor; bu DILE BAGLI
-    bir kural. Yahoo etiketi degistirdiginde ada bakan bir eslesme 13.
-    satiri `key=NULL` ile PK'ya sokmaya CALISIRDI.
+    yfinance filters via `i.get('name') != 'All Industries'`, a
+    language-dependent rule. If Yahoo changes the label, matching on the
+    name would try to insert row 13 into the PK with `key=NULL`.
     """
     data = copy.deepcopy(domain_data("sector", "technology"))
     row = next(r for r in data["industries"] if "key" not in r)
@@ -56,17 +56,17 @@ def test_renaming_all_industries_still_drops_it() -> None:
 
 
 def test_sector_row_precedes_its_industries() -> None:
-    """SATIR SIRASI BAGLAYICIDIR: `parent_key` bir SELF-FK'dir."""
+    """Row order is binding: `parent_key` is a self-FK."""
     _, domains = _rows(_payload("technology", "utilities"))
     seen: set[str] = set()
     for row in domains:
         if row["domain_type"] == "industry":
-            assert row["parent_key"] in seen, f"{row['domain_key']} ebeveyninden once geldi"
+            assert row["parent_key"] in seen, f"{row['domain_key']} came before its parent"
         seen.add(row["domain_key"])
 
 
 def test_symbols_write_comes_before_domains_write() -> None:
-    """TABLO SIRASI da baglayicidir: `domains.symbol` -> `symbols.symbol` FK."""
+    """Table order is also binding: `domains.symbol` -> `symbols.symbol` FK."""
     result = DATASET.normalize(_payload("technology"), "*")
     assert [w.table for w in result.writes] == ["symbols", "domains"]
 
@@ -83,7 +83,7 @@ def test_symbol_rows_are_inactive_and_typed() -> None:
 
 
 def test_is_active_and_unknown_streak_are_outside_update_columns() -> None:
-    """Kullanici `^YH311`i elle etkinlestirmisse sync onu GERI KAPATMAZ."""
+    """If the user manually activated `^YH311`, sync must not turn it back off."""
     result = DATASET.normalize(_payload("technology"), "*")
     symbols = next(w for w in result.writes if w.table == "symbols")
     assert "is_active" not in symbols.update_columns
@@ -91,13 +91,13 @@ def test_is_active_and_unknown_streak_are_outside_update_columns() -> None:
 
 
 def test_domains_update_columns_are_disjoint_from_industry_profile() -> None:
-    """Iki yazici AYRIK kolon kumeleri gunceller, birbirini EZMEZ (SI S5.11)."""
+    """The two writers update disjoint column sets and never overwrite each other."""
     result = DATASET.normalize(_payload("technology"), "*")
     bootstrap = next(w for w in result.writes if w.table == "domains")
     profile = DOMAIN_DATASETS["industry_profile"]
     overlap = set(bootstrap.update_columns) & set(
-        # `fetched_at` her ikisinde de vardir ve olmalidir: her iki yazici
-        # da "son dogrulama zamani"ni tazeler.
+        # `fetched_at` is present in both and must be: each writer refreshes
+        # its own "time of last verification".
         {"description", "message_board_id"}
     )
     assert overlap == set()
@@ -106,7 +106,7 @@ def test_domains_update_columns_are_disjoint_from_industry_profile() -> None:
 
 
 def test_industry_rows_carry_no_description_from_the_industries_block() -> None:
-    """`industries[]` blogunda bu iki alan YOKTUR; `industry_profile` yazar."""
+    """The `industries[]` block has neither field; `industry_profile` writes them."""
     _, domains = _rows(_payload("technology"))
     for row in domains:
         if row["domain_type"] != "industry":
@@ -130,7 +130,7 @@ def test_bootstrap_is_prepended_to_every_resolution() -> None:
 
 
 def test_sector_keys_are_the_only_universe_source() -> None:
-    """Bootstrap yalniz `SECTOR_KEYS`i dolasir; anahtar sayisi 11."""
+    """Bootstrap only iterates `SECTOR_KEYS`; the key count is 11."""
     assert len(SECTOR_KEYS) == 11
     assert len(set(SECTOR_KEYS)) == 11
     assert AS_OF.isoformat() == "2026-09-04"

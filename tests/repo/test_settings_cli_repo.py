@@ -39,7 +39,7 @@ def _rows(engine: Engine) -> dict[str, str]:
         return dict(conn.execute(text("SELECT setting_key, value FROM settings")).all())
 
 
-def test_set_get_gidis_donusu(cli: CliRunner, test_engine: Engine) -> None:
+def test_set_get_round_trip(cli: CliRunner, test_engine: Engine) -> None:
     assert cli.invoke(config_app, ["set", "yf_max_shards", "9"]).exit_code == 0
     result = cli.invoke(config_app, ["get", "yf_max_shards"])
     assert result.exit_code == 0
@@ -47,14 +47,14 @@ def test_set_get_gidis_donusu(cli: CliRunner, test_engine: Engine) -> None:
     assert "[db]" in result.stdout
 
 
-def test_anahtar_env_bicimiyle_de_kabul_edilir(cli: CliRunner, test_engine: Engine) -> None:
+def test_a_key_is_also_accepted_in_env_form(cli: CliRunner, test_engine: Engine) -> None:
     """An operator used to `.env` will write `YF_MAX_SHARDS`; rejecting that
     is needless friction. The row is opened under the canonical name."""
     assert cli.invoke(config_app, ["set", " YF_MAX_SHARDS ", "9"]).exit_code == 0
     assert _rows(test_engine) == {"yf_max_shards": "9"}
 
 
-def test_gecersiz_deger_cikis_2_ve_SATIR_YAZILMAZ(
+def test_an_invalid_value_exits_2_and_WRITES_NO_ROW(
     cli: CliRunner, test_engine: Engine
 ) -> None:
     """Feedback happens at write time; the error does not surface in
@@ -64,34 +64,34 @@ def test_gecersiz_deger_cikis_2_ve_SATIR_YAZILMAZ(
     assert _rows(test_engine) == {}
 
 
-def test_env_only_anahtar_cikis_2(cli: CliRunner, test_engine: Engine) -> None:
+def test_an_env_only_key_exits_2(cli: CliRunner, test_engine: Engine) -> None:
     assert cli.invoke(config_app, ["set", "db_host", "evil"]).exit_code == 2
     assert _rows(test_engine) == {}
 
 
-def test_bilinmeyen_anahtar_cikis_2(cli: CliRunner, test_engine: Engine) -> None:
+def test_an_unknown_key_exits_2(cli: CliRunner, test_engine: Engine) -> None:
     assert cli.invoke(config_app, ["set", "hicboyle_yok", "1"]).exit_code == 2
     assert _rows(test_engine) == {}
 
 
-def test_unset_var_olmayan_satirda_cikis_0(cli: CliRunner) -> None:
+def test_unset_exits_0_when_the_row_does_not_exist(cli: CliRunner) -> None:
     """Idempotent: deleting a row that does not exist is not an error."""
     result = cli.invoke(config_app, ["unset", "yf_max_shards"])
     assert result.exit_code == 0
-    assert "zaten satir yoktu" in result.stdout
+    assert "there was no row" in result.stdout
 
 
-def test_unset_sonrasi_gecerli_olacak_deger_BASILIR(
+def test_unset_PRINTS_the_value_that_will_take_effect(
     cli: CliRunner, test_engine: Engine
 ) -> None:
     cli.invoke(config_app, ["set", "yf_max_shards", "9"])
     result = cli.invoke(config_app, ["unset", "yf_max_shards"])
     assert result.exit_code == 0
-    assert "artik gecerli olacak deger: 4" in result.stdout
+    assert "value now in effect: 4" in result.stdout
     assert _rows(test_engine) == {}
 
 
-def test_list_changed_ETKIN_DEGERI_sorar(cli: CliRunner) -> None:
+def test_list_changed_asks_about_the_EFFECTIVE_VALUE(cli: CliRunner) -> None:
     """`--changed` means "the effective value differs from the model default",
     not "the row exists". A row that writes the same value as the default is
     invisible under `--changed` but shows up under `--source db`."""
@@ -102,14 +102,14 @@ def test_list_changed_ETKIN_DEGERI_sorar(cli: CliRunner) -> None:
     assert "yf_max_shards" in from_db.stdout
 
 
-def test_list_satirsiz_anahtarlari_ISARETLER(cli: CliRunner) -> None:
+def test_list_MARKS_keys_with_no_row(cli: CliRunner) -> None:
     """After migration the `.env` layer is effectively empty; a rowless key
     falls straight through to the model default."""
     result = cli.invoke(config_app, ["list", "--group", "shard"])
     assert "* yf_max_shards" in result.stdout
 
 
-def test_export_varsayilan_yalniz_SATIRI_OLANLARI_verir(cli: CliRunner) -> None:
+def test_export_by_default_returns_ONLY_KEYS_WITH_A_ROW(cli: CliRunner) -> None:
     """The natural inverse of the seed file. `--all` also includes model
     defaults and must not be checked into the repo."""
     import json
@@ -134,7 +134,7 @@ def test_schema_DB_YE_BAKMAZ(cli: CliRunner, monkeypatch: pytest.MonkeyPatch) ->
     assert "yf_max_shards" in result.stdout
 
 
-def test_source_env_iken_list_UYARIR_ve_ETKIN_degeri_gosterir(
+def test_with_source_env_list_WARNS_and_shows_the_EFFECTIVE_value(
     cli: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """While the DB layer is off, the row in the table is not effective;
@@ -147,7 +147,7 @@ def test_source_env_iken_list_UYARIR_ve_ETKIN_degeri_gosterir(
 
     result = cli.invoke(config_app, ["list", "--group", "shard"])
     assert result.exit_code == 0
-    assert "DB katmani KAPALI" in result.stderr
+    assert "DB layer OFF" in result.stderr
     assert "* yf_max_shards" in result.stdout
     assert "default" in result.stdout
 

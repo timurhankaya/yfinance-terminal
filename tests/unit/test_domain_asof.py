@@ -1,4 +1,4 @@
-"""Domain as-of kapisi: hash govdesi ve kapi kimligi (SI S9.2, S6.2)."""
+"""Domain as-of gate: hash body and gate identity."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def _payload(
 
 
 def test_row_order_does_not_change_the_hash() -> None:
-    """`topCompanies` sirasi 15 dakikada 11 sektorun 8'inde degisti."""
+    """`topCompanies` order changed in 8 of 11 sectors within 15 minutes."""
     payload = _payload("sector", "technology")
     baseline = RANKINGS.normalize(payload, "technology")
 
@@ -84,11 +84,11 @@ def test_fetched_at_and_as_of_date_are_volatile() -> None:
 
 
 def test_first_seen_at_is_volatile_too() -> None:
-    """SI S6.2/3: aksi halde kapi ASLA esitlenmezdi.
+    """Otherwise the gate would never match.
 
-    `research_reports.first_seen_at` her kosuda degisir; hash
-    govdesine girseydi profil dataset'i her gun her satiri yeniden yazar
-    ve as-of mekanizmasi sessizce hic calismazdi.
+    `research_reports.first_seen_at` changes on every run; if it entered
+    the hash body, the profile dataset would rewrite every row every day,
+    and the as-of mechanism would silently stop working entirely.
     """
     first = PROFILE.normalize(_payload("sector", "technology"), "technology")
     second = PROFILE.normalize(
@@ -100,7 +100,7 @@ def test_first_seen_at_is_volatile_too() -> None:
 
 
 def test_is_known_stays_in_the_hash_body() -> None:
-    """Bayrak hash'te KALIR: evren degisince kapi acilir (SI S7.4)."""
+    """The flag stays in the hash: the gate opens when the universe changes."""
     result = RANKINGS.normalize(_payload("sector", "technology"), "technology")
     plain = FakeWriter()
     RANKINGS.upsert(plain, result)
@@ -142,7 +142,7 @@ def test_gate_identity_is_domain_key_dataset_region() -> None:
 
 
 def test_regionless_dataset_writes_the_global_marker() -> None:
-    """`domain_metrics` satirlarinda `region` kolonu YOK -> '*'."""
+    """`domain_metrics` rows have no `region` column -> '*'."""
     result = PROFILE.normalize(_payload("sector", "technology"), "technology")
     assert "region" not in result.writes[0].rows[0]
     assert PROFILE.gate_identity(result)["region"] == GLOBAL_REGION_MARKER
@@ -170,7 +170,7 @@ def test_unchanged_hash_skips_data_tables_but_still_writes_the_gate() -> None:
 
 
 def test_empty_result_writes_no_gate_row() -> None:
-    """`infrastructure-operations`: uc blogun hicbirinde satir yok."""
+    """`infrastructure-operations`: none of the three blocks has a row."""
     result = INDUSTRY_RANKINGS.normalize(
         _payload("industry", "infrastructure-operations"), "infrastructure-operations"
     )
@@ -182,7 +182,7 @@ def test_empty_result_writes_no_gate_row() -> None:
 
 
 def test_profile_writes_start_with_a_table_that_has_as_of_date() -> None:
-    """`domains` EN SONDA: `as_of_date` kolonu yok, basta olsaydi KeyError."""
+    """`domains` comes last: it has no `as_of_date` column, so first would raise KeyError."""
     industry_profile = DOMAIN_DATASETS["industry_profile"]
     result = industry_profile.normalize(_payload("industry", "semiconductors"), "semiconductors")
     tables = [w.table for w in result.writes]

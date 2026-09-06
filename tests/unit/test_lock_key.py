@@ -1,4 +1,4 @@
-"""Advisory kilit anahtari (PG S5.1). Veritabanina DOKUNMAZ."""
+"""Advisory lock key. Does not touch a database."""
 
 from __future__ import annotations
 
@@ -11,27 +11,27 @@ def test_key_is_deterministic() -> None:
 
 
 def test_key_fits_signed_bigint() -> None:
-    """pg_try_advisory_lock imzali bigint alir."""
+    """pg_try_advisory_lock takes a signed bigint."""
     key = _lock_key(SYNC_LOCK_NAME)
     assert -(2**63) <= key < 2**63
 
 
 def test_parts_are_valid_oids() -> None:
-    """classid/objid `oid`dir: ISARETSIZ 32-bit.
+    """classid/objid are `oid`: unsigned 32-bit.
 
-    Gercek anahtar NEGATIFTIR ve classid 2^31'in USTUNDEDIR. Ayristirma
-    SQL'de `(:key >> 32)::int` ile yapilsaydi iki ayri hata cikardi:
-    negatif anahtarda `>>` isareti uzatir ve yanlis classid uretir; alt
-    32 bit 2^31'i astiginda `::int` ERROR 22003 verir. Bu testin
-    `key < 0` ve `classid >= 2**31` iddialari, hatanin TEORIK OLMADIGINI
-    kayit altina alir.
+    The real key is NEGATIVE and classid is above 2^31. If the split were
+    done in SQL via `(:key >> 32)::int`, two separate bugs would appear:
+    on a negative key, `>>` sign-extends and produces the wrong classid;
+    and when the low 32 bits exceed 2^31, `::int` raises ERROR 22003. This
+    test's `key < 0` and `classid >= 2**31` assertions record that the
+    failure is not theoretical.
     """
     key = _lock_key(SYNC_LOCK_NAME)
-    assert key < 0, "bu testin anlamli olmasi icin anahtar negatif olmali"
+    assert key < 0, "the key must be negative for this test to be meaningful"
     classid, objid = _lock_key_parts(key)
     assert 0 <= classid < 2**32
     assert 0 <= objid < 2**32
-    assert classid >= 2**31, "gercek anahtarda classid 2^31 ustunde"
+    assert classid >= 2**31, "classid is above 2^31 for the real key"
 
 
 def test_parts_roundtrip() -> None:

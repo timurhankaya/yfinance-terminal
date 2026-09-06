@@ -1,10 +1,10 @@
-"""SQ K4: `screen_runs.content_hash` YALNIZ KADROYU kapsar.
+"""`screen_runs.content_hash` covers only the roster, not the quotes.
 
-Bu dosyanin tek isi bir REGRESYONU onlemektir. Kotasyon metrikleri hash
-govdesine girseydi `regularMarketPrice` her kosuda oynadigi icin hash
-HICBIR ZAMAN esitlenmez, `skipped` durumu hic uretilmez ve kapi mekanizmasi
-SESSIZCE olurdu -- kimse fark etmezdi, cunku gozlenen sonuc "her gun her
-satir yeniden yazildi" olurdu ve bu da dogru gorunurdu.
+This file exists solely to prevent a regression. If quote metrics entered
+the hash body, `regularMarketPrice` moving on every run would mean the
+hash never matches, `skipped` would never be produced, and the gate
+mechanism would silently die -- unnoticed, because the observed result
+would be "every row rewritten every day", which looks correct.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def _hash(quotes: list[dict[str, Any]], **kw: Any) -> str:
 
 
 def test_price_change_does_not_change_hash() -> None:
-    """REGRESYON: fiyat oynamasi kadroyu DEGISTIRMEZ."""
+    """Regression guard: a price move does not change the roster."""
     a = [{"symbol": "AAPL", "regularMarketPrice": 100.0, "marketCap": 1}]
     b = [{"symbol": "AAPL", "regularMarketPrice": 271.5, "marketCap": 9}]
     assert _hash(a) == _hash(b)
@@ -56,19 +56,19 @@ def test_added_member_changes_hash() -> None:
 
 
 def test_rank_change_changes_hash() -> None:
-    """`rank_index` govdededir ve OLMALIDIR: kadro ayni kalip sira degistiginde
-    bu GERCEK bir degisimdir. Disarida biraksaydik "AAPL bugun 1. sirada"
-    bilgisi hic yazilmazdi."""
+    """`rank_index` is in the hash body and must be: when the roster stays
+    the same but the order changes, that is a real change. Leaving it out
+    would mean "AAPL is #1 today" never gets written."""
     first = _hash([{"symbol": "AAPL"}, {"symbol": "MSFT"}])
     second = _hash([{"symbol": "MSFT"}, {"symbol": "AAPL"}])
     assert first != second
 
 
 def test_quotes_are_still_written_when_hash_matches() -> None:
-    """Hash esit olsa bile `screen_quotes` yazimi URETILIR.
+    """`screen_quotes` is still written even when the hash matches.
 
-    Kapi yalnizca `screen_members`i atlar; kotasyon EKRANDAN BAGIMSIZDIR
-    (SQ K5) ve fiyatlar degismistir.
+    The gate only skips `screen_members`; a quote is independent of the
+    screen, and the prices have changed.
     """
     result = ScreenerDataset().normalize(_payload([{"symbol": "AAPL", "regularMarketPrice": 1.0}]))
     tables = {w.table for w in result.writes if w.rows}

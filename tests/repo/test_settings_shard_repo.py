@@ -34,7 +34,7 @@ def _spec(**kwargs: object) -> ShardSpec:
     )
 
 
-def test_parent_in_cozdugu_deger_spec_ile_tasinir(
+def test_the_value_the_parent_resolved_travels_in_the_spec(
     test_engine: Engine,
     store_settings: Settings,
     clean_settings_table: None,
@@ -56,7 +56,7 @@ def test_spec_PICKLE_lanabilir(store_settings: Settings) -> None:
     assert pickle.loads(pickle.dumps(spec)).settings_overrides == {"yf_max_shards": "9"}
 
 
-def test_child_SELECT_ATMAZ_ve_dogru_degeri_kullanir(
+def test_the_child_ISSUES_NO_SELECT_and_uses_the_right_value(
     test_engine: Engine,
     store_settings: Settings,
     clean_settings_table: None,
@@ -82,7 +82,7 @@ def test_child_SELECT_ATMAZ_ve_dogru_degeri_kullanir(
     assert get_settings() is child_settings, "install_settings must set the singleton"
 
 
-def test_spec_database_db_name_den_FARKLIYKEN_de_dogru_deger(
+def test_the_value_is_right_even_when_spec_database_DIFFERS_from_db_name(
     test_engine: Engine,
     store_settings: Settings,
     clean_settings_table: None,

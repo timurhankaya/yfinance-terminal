@@ -1,8 +1,8 @@
-"""`settings_schema()` SAF olmalidir (CFG S6.4). Ag ve DB YOK.
+"""`settings_schema()` must be pure. No network, no DB.
 
-Sema ile durum bilincli olarak ayrildi: sema surec omru boyunca
-sabittir, `value` her okumada degisebilir. Birlesik olsalardi bu dosya
-bir DB baglantisi olmadan kosamazdi.
+Schema and state are deliberately split: the schema is fixed for the
+process's lifetime, while `value` can change on every read. Merged
+together, this file could not run without a DB connection.
 """
 
 from __future__ import annotations
@@ -10,29 +10,30 @@ from __future__ import annotations
 from yfin.core.config import DB_MANAGED_FIELDS, SETTING_GROUPS, Settings, settings_schema
 
 
-def test_kayit_sayisi_ve_siralama() -> None:
+def test_record_count_and_ordering() -> None:
     items = settings_schema()
     assert len(items) == len(DB_MANAGED_FIELDS)
     assert [i.key for i in items] == sorted(DB_MANAGED_FIELDS)
 
 
 def test_env_only_alanlar_semada_YOK() -> None:
-    """8 env-only alan panelden yonetilemez; semada gorunselerdi panel
-    onlar icin bir form alani cizer ve yazma denemesi reddedilirdi."""
+    """The 8 env-only fields cannot be managed from the panel; if they
+    appeared in the schema, the panel would render a form field for them
+    and a write attempt would be rejected."""
     keys = {i.key for i in settings_schema()}
     assert not keys & {"db_host", "db_password", "yf_proxy_secret_key", "log_level"}
 
 
 def test_min_max_Field_kisitlarindan_TURETILIR() -> None:
-    """Elle yazilsaydi `ge=1` bir gun `ge=2` olur ve panel bayat bir
-    araligi dogrulardi."""
+    """If written by hand, `ge=1` could become `ge=2` one day and the panel
+    would validate against a stale range."""
     by_key = {i.key: i for i in settings_schema()}
     assert (by_key["yf_max_shards"].min, by_key["yf_max_shards"].max) == (1.0, None)
     assert (by_key["yf_calendar_page_limit"].min, by_key["yf_calendar_page_limit"].max) == (
         1.0,
         100.0,
     )
-    # `gt=0` de min sayilir: panel icin bilgi degeri aynidir.
+    # `gt=0` also counts as min: same informational value for the panel.
     assert by_key["yf_rate_limit_per_sec"].min == 0.0
     assert by_key["yf_news_tab"].min is None
 
@@ -45,6 +46,6 @@ def test_tip_default_ve_grup_modelden_gelir() -> None:
         assert item.type in {"bool", "int", "float", "str"}
 
 
-def test_ayni_cagri_ayni_sonucu_verir() -> None:
-    """Saflik: DB'ye bakmadigi icin iki cagri arasinda degisemez."""
+def test_the_same_call_returns_the_same_result() -> None:
+    """Purity: since it never looks at the DB, it cannot differ between calls."""
     assert settings_schema() == settings_schema()

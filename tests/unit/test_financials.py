@@ -474,7 +474,7 @@ class TestAbsentData:
         from yfin.ingest.client import call_optional
 
         def _boom() -> None:
-            raise ValueError("gercek hata")
+            raise ValueError("a real failure")
 
-        with pytest.raises(ValueError, match="gercek hata"):
+        with pytest.raises(ValueError, match="a real failure"):
             call_optional(_boom, what="test")

@@ -1,11 +1,11 @@
-"""SyncContext.watermark'in `where` parametresi (PB S6.3).
+"""SyncContext.watermark's `where` parameter.
 
-price_bars'ta tek bir MAX(ts_utc) YANLIS CEVAP VERIR: 1m guncelken 60m
-iki yil geride olabilir. Interval basina ayrilmazsa bars_60m "guncel"
-sanilir ve ilk dolumu hic yapilmaz.
+A single MAX(ts_utc) on price_bars gives the wrong answer: 1m can be
+up-to-date while 60m is two years behind. Without splitting per interval,
+bars_60m would be assumed "current" and its first fill would never run.
 
-Mevcut cagrilar (history, shares_full) `where` VERMEZ ve davranislari
-degismemelidir; bu dosya ikisini birden dogrular.
+Existing calls (history, shares_full) pass no `where` and their behavior
+must not change; this file verifies both.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from yfin.datasets.base import SyncContext
 
 
 class RecordingProvider:
-    """Watermark cagrilarini kaydeden sahte saglayici."""
+    """Fake provider that records watermark calls."""
 
     def __init__(self, answers: dict[tuple[str, str, str, str], date | datetime] | None = None):
         self.calls: list[tuple[str, str, str, Mapping[str, Any] | None]] = []
@@ -56,7 +56,7 @@ def test_where_reaches_the_provider() -> None:
 
 
 def test_existing_calls_pass_no_where() -> None:
-    """history/shares_full deseni: `where` verilmez, None olarak gecer."""
+    """The history/shares_full pattern: no `where` is given, it passes as None."""
     provider = RecordingProvider()
     ctx = _ctx(provider)
 
@@ -66,12 +66,12 @@ def test_existing_calls_pass_no_where() -> None:
 
 
 def test_intervals_are_isolated_from_each_other() -> None:
-    """Bu testin varlik sebebi: interval boyutu olmadan 60m'nin
-    watermark'i 1m'ninkiyle karisir ve ilk dolum hic yapilmaz."""
+    """Why this test exists: without the interval dimension, 60m's
+    watermark gets confused with 1m's and the first fill never runs."""
     provider = RecordingProvider(
         {
             ("price_bars", "ts_utc", "AAPL", "{'bar_interval': '1m'}"): datetime(2026, 9, 3),
-            # 60m icin kayit YOK -> None -> ilk dolum
+            # No record for 60m -> None -> first fill
         }
     )
     ctx = _ctx(provider)
@@ -83,7 +83,7 @@ def test_intervals_are_isolated_from_each_other() -> None:
 
 
 def test_full_refresh_still_short_circuits_with_where() -> None:
-    """--full-refresh watermark'lari atlar; `where` bunu degistirmemeli."""
+    """--full-refresh skips watermarks; `where` must not change that."""
     provider = RecordingProvider()
     ctx = SyncContext(
         "AAPL",

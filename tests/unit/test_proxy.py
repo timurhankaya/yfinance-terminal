@@ -58,7 +58,7 @@ class TestDsn:
         assert parse_dsn(endpoint.dsn()) == endpoint
 
     def test_rejects_unknown_scheme_and_missing_port(self) -> None:
-        with pytest.raises(ValueError, match="desteklenmeyen sema"):
+        with pytest.raises(ValueError, match="unsupported scheme"):
             parse_dsn("ftp://10.0.0.1:21")
         with pytest.raises(ValueError, match="port"):
             parse_dsn("http://10.0.0.1")

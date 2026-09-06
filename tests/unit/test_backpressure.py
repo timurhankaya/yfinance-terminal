@@ -1,9 +1,9 @@
-"""Kuyruk sinirinin gercekten baglayici oldugunu dogrular (S7.1).
+"""Verifies the queue limit is actually binding.
 
-Sonuclari ana thread'de future.result() ile toplamak bu garantiyi vermez:
-pool.submit() tum sembolleri aninda kabul eder ve tamamlanan payload'lar
-Future nesnelerinde birikir. Asagidaki testler kuyrugun worker'i bloke
-ettigini gosterir.
+Collecting results on the main thread via future.result() gives no such
+guarantee: pool.submit() accepts every symbol immediately, and completed
+payloads pile up inside Future objects. The tests below show the queue
+actually blocks the worker.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 def _run(strategy: str, symbols: int, maxsize: int, workers: int) -> int:
-    """Tuketici hic tuketmezken kac sembolun islendigini olcer."""
+    """Measures how many symbols get processed while the consumer never consumes."""
     results: queue.Queue[str] = queue.Queue(maxsize=maxsize)
     processed = 0
     lock = threading.Lock()
@@ -29,7 +29,7 @@ def _run(strategy: str, symbols: int, maxsize: int, workers: int) -> int:
 
     def produce_bounded() -> None:
         def run_one(symbol: str) -> None:
-            results.put(work(symbol))  # kuyruk doluysa BURADA bloke olur
+            results.put(work(symbol))  # blocks here if the queue is full
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
             list(pool.map(run_one, [f"S{i}" for i in range(symbols)]))
@@ -46,12 +46,12 @@ def _run(strategy: str, symbols: int, maxsize: int, workers: int) -> int:
     thread = threading.Thread(target=target, daemon=True)
     thread.start()
 
-    # Tuketici kasitli olarak beklemede; worker'lar kuyruk dolunca durmali
+    # The consumer is deliberately idle; workers must stall once the queue fills
     time.sleep(0.4)
     with lock:
         measured = processed
 
-    # Bloke worker'lari serbest birak, aksi halde pool kapanmaz
+    # Release blocked workers, otherwise the pool never shuts down
     while not done.is_set():
         try:
             results.get(timeout=0.05)
@@ -63,8 +63,8 @@ def _run(strategy: str, symbols: int, maxsize: int, workers: int) -> int:
 
 
 def test_bounded_strategy_stops_at_queue_limit() -> None:
-    """Worker kuyruga kendisi koyunca uretim maxsize + worker sayisi
-    kadarinda durur."""
+    """When workers enqueue themselves, production stalls at
+    maxsize + worker count."""
     maxsize, workers, symbols = 8, 4, 200
     processed = _run("bounded", symbols, maxsize, workers)
     assert processed <= maxsize + workers + 1, processed
@@ -72,8 +72,8 @@ def test_bounded_strategy_stops_at_queue_limit() -> None:
 
 
 def test_unbounded_strategy_processes_everything() -> None:
-    """Eski yaklasim: kuyruk dolu olsa da tum semboller islenir ve
-    normalize edilmis veri bellekte birikir."""
+    """The old approach: every symbol gets processed even with a full
+    queue, and normalized data piles up in memory."""
     maxsize, workers, symbols = 8, 4, 200
     processed = _run("unbounded", symbols, maxsize, workers)
     assert processed > maxsize + workers + 1, processed

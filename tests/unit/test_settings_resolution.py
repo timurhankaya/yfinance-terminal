@@ -49,7 +49,7 @@ def _rows(monkeypatch: pytest.MonkeyPatch, rows: dict[str, str] | None) -> list[
     return calls
 
 
-def test_db_ezmesi_varsayilani_ezer(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_db_override_beats_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
     _rows(monkeypatch, {KEY: "9"})
     assert get_settings().yf_max_shards == 9
 
@@ -62,13 +62,13 @@ def test_db_ezmesi_env_i_ezer(monkeypatch: pytest.MonkeyPatch) -> None:
     assert get_settings().yf_max_shards == 9
 
 
-def test_satir_yoksa_env_gecerlidir(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_env_applies_when_there_is_no_row(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("YF_MAX_SHARDS", "7")
     _rows(monkeypatch, {})
     assert get_settings().yf_max_shards == 7
 
 
-def test_tablo_yoksa_env_only_devam(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_without_the_table_the_run_continues_env_only(monkeypatch: pytest.MonkeyPatch) -> None:
     """`yfin db upgrade` itself calls get_settings() before the table
     exists yet. This is not an error."""
     _rows(monkeypatch, None)
@@ -89,7 +89,7 @@ def test_source_env_bosluk_ve_buyuk_harf_toleransli(monkeypatch: pytest.MonkeyPa
     assert calls == []
 
 
-def test_source_yazim_hatasi_UYARI_uretir(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_typo_in_source_produces_a_WARNING(monkeypatch: pytest.MonkeyPatch) -> None:
     """A recovery-purpose key silently becoming inert due to a typo is
     unacceptable: the operator would think the layer is off while it
     stays open."""
@@ -103,7 +103,7 @@ def test_source_yazim_hatasi_UYARI_uretir(monkeypatch: pytest.MonkeyPatch) -> No
     assert warnings and "YF_SETTINGS_SOURCE" in warnings[0][0]
 
 
-def test_bilinmeyen_anahtar_uyari_ile_yok_sayilir(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_unknown_key_is_ignored_with_a_warning(monkeypatch: pytest.MonkeyPatch) -> None:
     """`Settings` carries extra="ignore", so an unknown kwarg is silently
     swallowed; without a filter, no test would ever turn red for it."""
     warnings: list[tuple[str, dict[str, Any]]] = []
@@ -116,7 +116,7 @@ def test_bilinmeyen_anahtar_uyari_ile_yok_sayilir(monkeypatch: pytest.MonkeyPatc
     assert reported == {"YF_MAX_SHARDS", "hicboyle_yok"}
 
 
-def test_gecersiz_deger_kosuyu_HIC_BASLATMAZ(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_invalid_value_NEVER_STARTS_the_run(monkeypatch: pytest.MonkeyPatch) -> None:
     """A silent fallback would ignore the operator's intent, and only
     someone reading the log would notice."""
     from pydantic import ValidationError
@@ -139,7 +139,7 @@ def test_load_overrides_get_settings_CAGIRMAZ(monkeypatch: pytest.MonkeyPatch) -
     settings_store.load_overrides(config_mod.bootstrap_settings())
 
 
-def test_applied_overrides_shard_a_tasinacak_degeri_verir(
+def test_applied_overrides_yields_the_value_to_carry_to_the_shard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Parent resolves, `ShardSpec` carries it, child never re-reads it."""

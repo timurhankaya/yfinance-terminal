@@ -59,7 +59,7 @@ def test_export_seed_dongusu_durumu_DEGISTIRMEZ(
     assert {k: v.value for k, v in after.items()} == {k: v.value for k, v in before.items()}
 
 
-def test_export_all_39_anahtari_verir_ve_geri_tohumlanabilir(
+def test_export_all_returns_39_keys_and_can_be_seeded_back(
     test_engine: Engine, store_settings: Settings, clean_settings_table: None
 ) -> None:
     """`--all` is a backup dump kept outside the repo; it must still be
@@ -74,7 +74,7 @@ def test_export_all_39_anahtari_verir_ve_geri_tohumlanabilir(
 
 
 @pytest.mark.parametrize(("key", "value"), sorted(SAMPLE.items()))
-def test_tek_deger_kayipsiz_gider_gelir(
+def test_a_single_value_round_trips_losslessly(
     key: str, value: str, store_settings: Settings, clean_settings_table: None
 ) -> None:
     write_all({key: value}, settings=store_settings)

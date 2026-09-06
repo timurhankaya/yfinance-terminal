@@ -56,7 +56,7 @@ def test_xx_alone_is_still_probed_against_us() -> None:
     dogrular ve US verisi XX etiketiyle yazilirdi.
     """
     fetch = Recorder({US: _US_TOP, "XX": _US_TOP})
-    with pytest.raises(RegionValidationError, match="desteklenmiyor"):
+    with pytest.raises(RegionValidationError, match="is not supported by Yahoo"):
         domain_regions(_settings("XX"), fetch=fetch)
     # Ilk istek TABANDIR ve tabanin bolgesi US'tir, yapilandirmadaki deger
     # ne olursa olsun.
@@ -89,7 +89,7 @@ def test_partial_overlap_below_the_threshold_passes() -> None:
 def test_overlap_at_the_threshold_is_rejected() -> None:
     half = [{"symbol": s} for s in ("NVDA", "AAPL", "SGE.L", "AVV.L")]
     fetch = Recorder({US: _US_TOP, "GB": half})
-    with pytest.raises(RegionValidationError, match="%50"):
+    with pytest.raises(RegionValidationError, match="overlaps US by 50%"):
         domain_regions(_settings("US,GB"), fetch=fetch)
 
 

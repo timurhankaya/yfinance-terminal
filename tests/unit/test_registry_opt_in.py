@@ -1,17 +1,18 @@
-"""SQ K11: `opt_in` -- kayitli ama `all` genislemesine GIRMEYEN dataset.
+"""`opt_in` -- a dataset that is registered but excluded from `all`.
 
-Bu kavram, ilk tasarimin bir tuzagini kapatmak icin eklendi. Orada
-`search`/`lookup` kaydi bir ayara baglanmisti (`sustainability` deseni) ve
-iki kusuru vardi:
+This concept closes a trap in the original design. There, `search`/`lookup`
+registration was gated behind a setting (the `sustainability` pattern),
+which had two flaws:
 
-  1. Ayar kapaliyken `--datasets search` de calismiyordu; dataset registry'de
-     HIC yoktu ve kullanici "bilinmeyen dataset" goruyordu.
-  2. Ayar acildigi anda CIPLAK `yfin sync` de onlari cekmeye basliyordu --
-     4.500 sembolde +9.000 istek/gun. Yani bayrak tuzagi COZMUYOR, yalnizca
-     kullanici onu acana kadar erteliyordu.
+  1. With the setting off, `--datasets search` also failed: the dataset
+     didn't exist in the registry at all, and the user saw "unknown dataset".
+  2. The moment the setting was turned on, a bare `yfin sync` started
+     fetching them too -- +9,000 requests/day across 4,500 symbols. So the
+     flag didn't solve the trap, it only postponed it until the user
+     flipped it on.
 
-`opt_in` ikisini birden cozer ve `bootstrap`in tam tersidir: `bootstrap` her
-cozumlemeye EKLENIR, `opt_in` `all`dan CIKARILIR.
+`opt_in` solves both and is the exact inverse of `bootstrap`: `bootstrap`
+is added to every resolution, `opt_in` is excluded from `all`.
 """
 
 from __future__ import annotations
@@ -61,15 +62,16 @@ class TestAllExpansion:
 
 class TestExplicitRequest:
     def test_named_opt_in_runs(self, registry: Registry[Any]) -> None:
-        """Tuzagin ikinci yarisi: ADIYLA istendiginde CALISMALIDIR.
+        """The second half of the trap: it must run when requested by name.
 
-        Kayit bir ayara baglansaydi burada `UnknownDatasetError` alinirdi.
+        If registration were gated by a setting, this would raise
+        `UnknownDatasetError`.
         """
         assert _names(registry.resolve(["search"])) == ["symbols", "search"]
 
     def test_opt_in_stays_user_visible(self, registry: Registry[Any]) -> None:
-        """`yfin datasets` ciktisinda GORUNUR: kullanici adini bilmeden
-        isteyemez."""
+        """Visible in `yfin datasets` output: the user cannot request it
+        without knowing its name."""
         assert "search" in registry.user_visible_names()
 
     def test_is_opt_in_reports_the_flag(self, registry: Registry[Any]) -> None:
@@ -79,10 +81,10 @@ class TestExplicitRequest:
 
 class TestRegistrationHygiene:
     def test_reregistering_without_flag_clears_it(self, registry: Registry[Any]) -> None:
-        """Ayni adi opt_in'siz yeniden kaydetmek bayragi TEMIZLER.
+        """Re-registering the same name without opt_in clears the flag.
 
-        Aksi halde bir kez opt_in yazilan ad, sonraki kayitta sessizce
-        opt_in kalirdi ve `all` genislemesi beklenenden dar olurdu.
+        Otherwise a name once marked opt_in would silently stay opt_in on
+        the next registration, and `all` would expand narrower than expected.
         """
         registry.register(_Ds("search"))
         assert registry.is_opt_in("search") is False
@@ -94,14 +96,14 @@ class TestRegistrationHygiene:
         assert registry.is_opt_in("search") is False
 
     def test_bootstrap_is_still_prepended(self, registry: Registry[Any]) -> None:
-        """`opt_in` `bootstrap`i ETKILEMEZ: biri ekler, digeri cikarir."""
+        """`opt_in` does not affect `bootstrap`: one adds, the other excludes."""
         assert _names(registry.resolve(["search"]))[0] == "symbols"
 
 
 class TestRealRegistries:
     def test_bare_sync_excludes_discovery(self) -> None:
-        """OLCULEN TUZAK: bu iki dataset `all`a girseydi 4.500 sembolde
-        gunde +9.000 istek eklerdi."""
+        """Measured trap: if these two datasets were in `all`, that would
+        add +9,000 requests/day across 4,500 symbols."""
         from yfin.datasets.registry import SYMBOL_DATASETS
 
         names = _names(SYMBOL_DATASETS.resolve(None))
@@ -118,8 +120,8 @@ class TestRealRegistries:
         }
 
     def test_bare_market_sync_excludes_screener(self) -> None:
-        """`yfin market sync`in maliyeti DEGISMEDI: screener'i cekseydi
-        komut ~20 istekten ~50'ye cikardi."""
+        """`yfin market sync`'s cost is unchanged: fetching screener would
+        push the command from ~20 requests to ~50."""
         from yfin.datasets.registry import MARKET_DATASETS
 
         assert "screener" not in _names(MARKET_DATASETS.resolve(None))

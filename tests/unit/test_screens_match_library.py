@@ -1,9 +1,8 @@
-"""SQ S6.5: predefined ekran kumesi KUTUPHANEDEN turetilir, elle yazilmaz.
+"""The predefined screen set is derived from the library, not hand-written.
 
-Bu testin varlik sebebi SI S6.5'in `domain_key` kumesi icin koydugu kuralla
-aynidir: kutuphane bir ekran ekledigi ya da kaldirdigi gun sessizce
-sapmayalim. Elle yazilmis bir liste bunu ancak birileri fark edince
-gosterirdi.
+Same reasoning as the rule for the `domain_key` set: don't silently drift
+the day the library adds or removes a screen. A hand-written list would
+only reveal that once someone noticed.
 """
 
 from __future__ import annotations
@@ -18,11 +17,11 @@ def test_predefined_keys_match_library() -> None:
 
 
 def test_predefined_sort_matches_library() -> None:
-    """`sort_field` / `sort_asc` kutuphanedeki tanimla BIREBIR ayni.
+    """`sort_field` / `sort_asc` exactly match the library's definition.
 
-    SQ K15: sira acikca verilir. Kutuphanenin sirasindan sapilsaydi bizim
-    yazdigimiz kadro Yahoo'nun kendi ekraninkinden farkli olurdu ve
-    `screen_members.rank` baska bir seyi olcerdi.
+    Sort order is given explicitly. Deviating from the library's order
+    would make our roster differ from Yahoo's own screen, and
+    `screen_members.rank` would measure something else.
     """
     for screen in PREDEFINED_SCREENS:
         spec = PREDEFINED_SCREENER_QUERIES[screen.key]
@@ -31,7 +30,7 @@ def test_predefined_sort_matches_library() -> None:
 
 
 def test_predefined_quote_type_matches_query_class() -> None:
-    """quote_type, kutuphanedeki sorgu SINIFINDAN turetilir."""
+    """quote_type is derived from the library's query class."""
     expected = {
         "EquityQuery": "EQUITY",
         "FundQuery": "MUTUALFUND",
@@ -43,9 +42,9 @@ def test_predefined_quote_type_matches_query_class() -> None:
 
 
 def test_predefined_carries_no_query_object() -> None:
-    """Predefined'da `query` None'dir: ad yeterlidir ve ILK sayfa GET yolundan
-    metadata getirir (SQ S4.1/13). Sorgu nesnesi tutulsaydi POST yoluna
-    dusulur ve `title`/`rawCriteria` hic alinamazdi."""
+    """For predefined, `query` is None: the name is enough, and the first
+    page fetches metadata via GET. Keeping a query object would fall to
+    the POST path and `title`/`rawCriteria` would never be obtained."""
     for screen in PREDEFINED_SCREENS:
         assert screen.query is None
         assert screen.kind == "predefined"
@@ -58,4 +57,4 @@ def test_screendef_is_frozen() -> None:
         screen.key = "x"  # type: ignore[misc]
     except AttributeError:
         return
-    raise AssertionError("ScreenDef frozen olmali")
+    raise AssertionError("ScreenDef must be frozen")

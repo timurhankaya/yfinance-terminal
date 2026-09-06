@@ -193,7 +193,7 @@ def test_up_to_date_watermark_still_asks_for_the_overlap() -> None:
 
 
 def test_unknown_interval_is_rejected() -> None:
-    with pytest.raises(ValueError, match="bilinmeyen interval"):
+    with pytest.raises(ValueError, match="unknown interval"):
         plan_windows("3mo", None, NOW)
 
 

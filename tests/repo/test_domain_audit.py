@@ -27,8 +27,8 @@ def test_audit_passes_on_a_consistent_taxonomy(db_session: Session) -> None:
     # The fixture universe is not all 11 sectors; the sector-count check
     # correctly flags this as a problem.
     assert report.sector_count == len(FIXTURE_SECTORS)
-    assert any("sektor sayisi" in p for p in report.problems)
-    assert not any("endustri sayisi" in p for p in report.problems)
+    assert any("sector count" in p for p in report.problems)
+    assert not any("industry count" in p for p in report.problems)
 
 
 def test_deleting_one_industry_makes_the_audit_fail(db_session: Session) -> None:
@@ -43,7 +43,7 @@ def test_deleting_one_industry_makes_the_audit_fail(db_session: Session) -> None
 
     report = audit_domains(db_session, as_of=AS_OF)
     assert report.exit_code() == 1
-    assert any("endustri sayisi" in p for p in report.problems)
+    assert any("industry count" in p for p in report.problems)
 
 
 def test_audit_uses_the_latest_row_not_an_exact_day_match(db_session: Session) -> None:

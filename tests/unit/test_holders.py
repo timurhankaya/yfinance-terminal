@@ -1,4 +1,4 @@
-"""Sahiplik/insider dataset'lerinin normalizasyonu (AH S9.1). Agsiz, DB'siz."""
+"""Normalization of ownership/insider datasets. No network, no database."""
 
 from __future__ import annotations
 
@@ -29,8 +29,8 @@ def _write(result: NormalizedResult, table: str) -> TableWrite:
 
 
 def test_major_holders_maps_four_keys_from_index() -> None:
-    """Kaynak sozlugu tek kolonlu ('Value') bir cerceveye ceviriyor; index
-    ANAHTAR adlaridir. `institutionsCount` float geliyor (7750.0)."""
+    """The source dict becomes a single-column ('Value') frame; the index
+    holds the key names. `institutionsCount` arrives as a float (7750.0)."""
     dataset = SYMBOL_DATASETS["major_holders"]
     frame = pd.DataFrame(
         {"Value": [0.0007, 0.62, 0.62, 7750.0]},
@@ -74,13 +74,13 @@ def test_holder_datasets_share_one_table_and_split_by_holder_type() -> None:
 
     assert {row["holder_type"] for row in _rows(inst, "institutional_holders")} == {"institution"}
     assert {row["holder_type"] for row in _rows(fund, "institutional_holders")} == {"mutualfund"}
-    # ENUM degeri DAIMA kucuk harf; DB'nin ai_ci sessiz donusumune guvenilmez
+    # ENUM value is always lowercase; do not rely on the DB's silent ai_ci conversion
     assert all(row["holder_type"].islower() for row in _rows(inst, "institutional_holders"))
 
 
 def test_holder_scope_values_are_explicit_so_deletion_survives_empty_source() -> None:
-    """`scope_values` verilmeseydi `_delete_scope` kapsami SATIRLARDAN
-    turetir ve kaynak bosaldiginda silme HIC yapilmazdi (AH S7.2)."""
+    """Without `scope_values`, `_delete_scope` would derive its scope from
+    the rows, and once the source went empty, deletion would never happen."""
     dataset = SYMBOL_DATASETS["institutional_holders"]
     write = _write(
         dataset.normalize(AsOfFramePayload(_holder_frame(), NOW), "AAPL"),
@@ -94,8 +94,8 @@ def test_holder_scope_values_are_explicit_so_deletion_survives_empty_source() ->
 
 
 def test_holder_date_reported_varies_per_row() -> None:
-    """AAPL mutualfund'da TEK listede dort farkli tarih olculdu; tarih tablo
-    basligina tasinamaz."""
+    """Four different dates were measured in AAPL's mutualfund list; the
+    date cannot be hoisted to the table header."""
     dataset = SYMBOL_DATASETS["mutualfund_holders"]
     rows = _rows(
         dataset.normalize(AsOfFramePayload(_holder_frame(), NOW), "AAPL"), "institutional_holders"
@@ -104,7 +104,7 @@ def test_holder_date_reported_varies_per_row() -> None:
 
 
 def test_holder_large_values_survive_decimal_38_0() -> None:
-    """Olculen max: shares 1.94e9, value 1.76e13 (JPM)."""
+    """Measured max: shares 1.94e9, value 1.76e13 (JPM)."""
     dataset = SYMBOL_DATASETS["institutional_holders"]
     rows = _rows(
         dataset.normalize(AsOfFramePayload(_holder_frame(), NOW), "JPM"), "institutional_holders"
@@ -116,7 +116,7 @@ def test_holder_large_values_survive_decimal_38_0() -> None:
 
 
 def _purchases_frame(period: str = "6m") -> pd.DataFrame:
-    """0. kolonun ADI dinamiktir; satir etiketleri o kolonun DEGERLERIDIR."""
+    """Column 0's name is dynamic; the row labels are that column's values."""
     return pd.DataFrame(
         {
             f"Insider Purchases Last {period}": [
@@ -146,7 +146,7 @@ def test_insider_purchases_pivots_seven_rows_into_one() -> None:
 
 
 def test_insider_purchases_allows_negative_net_shares() -> None:
-    """KO'da net -547_806 olculdu -> isaretli DECIMAL(38,0) ve SIGNED INT."""
+    """KO measured net -547,806 -> a signed DECIMAL(38,0) and a signed INT."""
     dataset = SYMBOL_DATASETS["insider_purchases"]
     row = _rows(
         dataset.normalize(AsOfFramePayload(_purchases_frame(), NOW), "KO"), "insider_activity"
@@ -165,7 +165,7 @@ def test_insider_purchases_reads_period_from_dynamic_header() -> None:
 
 
 def test_insider_purchases_without_matching_header_writes_nothing() -> None:
-    """`period_label` NOT NULL: desen tutmazsa satir YAZILAMAZ."""
+    """`period_label` is NOT NULL: if the pattern doesn't match, the row cannot be written."""
     dataset = SYMBOL_DATASETS["insider_purchases"]
     frame = _purchases_frame()
     frame.columns = ["Something Else", "Shares", "Trans"]
@@ -191,9 +191,10 @@ def _transactions_frame(rows: int = 2) -> pd.DataFrame:
 
 
 def test_insider_transactions_deduplicates_identical_rows() -> None:
-    """PFE'de DOKUZ KOLONUN TAMAMINDA ozdes iki satir olculdu ve `fact_hash`
-    onlari AYIRAMAZ. Tekillestirme olmasaydi 2 satir okunup 1 yazilir,
-    `rows_verified != rows_attempted` yanlis `failed` uretirdi (S8.5)."""
+    """Two identical rows were measured for PFE across all nine columns,
+    indistinguishable by `fact_hash`. Without deduplication, 2 rows would
+    be read but 1 written, and `rows_verified != rows_attempted` would
+    produce a false `failed`."""
     dataset = SYMBOL_DATASETS["insider_transactions"]
     rows = _rows(
         dataset.normalize(RangedFramePayload(_transactions_frame(2), NOW), "PFE"),
@@ -203,7 +204,7 @@ def test_insider_transactions_deduplicates_identical_rows() -> None:
 
 
 def test_insider_transactions_sentinels_become_null() -> None:
-    """`Transaction` ve `URL` 16 sembol / 1464 satirin HEPSINDE ''."""
+    """`Transaction` and `URL` are '' across all 1,464 rows in 16 symbols."""
     dataset = SYMBOL_DATASETS["insider_transactions"]
     row = _rows(
         dataset.normalize(RangedFramePayload(_transactions_frame(1), NOW), "PFE"),
@@ -214,7 +215,7 @@ def test_insider_transactions_sentinels_become_null() -> None:
 
 
 def test_insider_transactions_keeps_three_character_ownership() -> None:
-    """XOM'da `D/I` olculdu; VARCHAR(2) bunu KIRPARDI."""
+    """`D/I` was measured for XOM; VARCHAR(2) would truncate it."""
     dataset = SYMBOL_DATASETS["insider_transactions"]
     frame = _transactions_frame(1)
     frame.loc[0, "Ownership"] = "D/I"
@@ -225,7 +226,7 @@ def test_insider_transactions_keeps_three_character_ownership() -> None:
 
 
 def test_insider_transactions_null_value_survives() -> None:
-    """DIS ve BP.L'de `Value` TUM satirlarda NaN."""
+    """`Value` is NaN in every row for DIS and BP.L."""
     dataset = SYMBOL_DATASETS["insider_transactions"]
     frame = _transactions_frame(1)
     frame["Value"] = [float("nan")]
@@ -245,7 +246,8 @@ def test_insider_transactions_filters_by_range() -> None:
 
 
 def _roster_frame(columns: int) -> pd.DataFrame:
-    """Kaynak kolon seti sembole gore 7 / 9 / 11'dir, SIRASI DA SABIT DEGIL."""
+    """The source column set is 7 / 9 / 11 depending on symbol, and its
+    order is not fixed either."""
     data: dict[str, Any] = {
         "URL": [""],
         "Position": ["Chief Executive Officer"],
@@ -256,7 +258,7 @@ def _roster_frame(columns: int) -> pd.DataFrame:
         "Position Direct Date": [pd.Timestamp("2026-04-01")],
     }
     if columns >= 9:
-        # Ham epoch float64 gelebiliyor (6 sembolde dolu olculdu)
+        # Can arrive as a raw epoch float64 (measured populated for 6 symbols)
         data["Position Indirect Date"] = [1_774_000_000.0]
         data["Shares Owned Indirectly"] = [1_000]
     if columns >= 11:
@@ -277,8 +279,8 @@ def test_insider_roster_handles_seven_nine_and_eleven_columns() -> None:
 
 
 def test_insider_roster_position_summary_is_typed_column() -> None:
-    """NVDA'da YALNIZ bu kolon doluydu; alinmasaydi o satirin TUM hisse
-    alanlari NULL kalirdi."""
+    """For NVDA only this column was populated; without capturing it, all
+    of that row's share fields would stay NULL."""
     dataset = SYMBOL_DATASETS["insider_roster_holders"]
     row = _rows(
         dataset.normalize(AsOfFramePayload(_roster_frame(11), NOW), "NVDA"), "insider_roster"
@@ -305,7 +307,7 @@ def test_insider_roster_replaces_scope_with_explicit_values() -> None:
     assert write.scope_values == ({"symbol": "AAPL", "as_of_date": AS_OF},)
 
 
-# --- sozlesme --------------------------------------------------------------
+# --- contract ---------------------------------------------------------------
 
 
 def test_holders_alias_covers_six_datasets() -> None:
@@ -313,8 +315,9 @@ def test_holders_alias_covers_six_datasets() -> None:
 
 
 def test_asof_datasets_declare_gate_table_in_produces() -> None:
-    """`produces` KAPI TABLOSUNU DA icerir; bildirilmeseydi `_failed_records`
-    hata yolunda kapi satirini denetimden dusururdu (AH S6.1)."""
+    """`produces` also includes the gate table; without declaring it,
+    `_failed_records` would drop the gate row from the audit on the
+    failure path."""
     for name in (
         "major_holders",
         "institutional_holders",
@@ -329,6 +332,6 @@ def test_asof_datasets_declare_gate_table_in_produces() -> None:
 
 
 def test_pure_upsert_datasets_do_not_declare_gate_table() -> None:
-    """Kaynagin kendi tarihini tasidigi uc dataset AS-OF DEGILDIR."""
+    """The three datasets that carry the source's own date are not as-of."""
     for name in ("upgrades_downgrades", "earnings_history", "insider_transactions"):
         assert "asof_state" not in SYMBOL_DATASETS[name].produces, name

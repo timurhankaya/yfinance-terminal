@@ -1,6 +1,6 @@
-"""SI S10 tablosunun her satiri (SI S9.2).
+"""Every edge case in the domain dataset.
 
-Her kenar durum bir FIXTURE ile baglanir; hicbiri tahmin degildir.
+Every edge case ties to a fixture; none of it is guesswork.
 """
 
 from __future__ import annotations
@@ -37,12 +37,12 @@ def _rows(dataset, kind: str, key: str, table: str, region: str = "US") -> list[
 
 
 def test_infrastructure_operations_produces_an_empty_result() -> None:
-    """companiesCount=1; UC liste blogunun hicbirinde satir yok -> `empty`."""
+    """companiesCount=1; none of the three list blocks has a row -> `empty`."""
     result = INDUSTRY_RANKINGS.normalize(
         _payload("industry", "infrastructure-operations"), "infrastructure-operations"
     )
     assert result.is_empty
-    # Profil tarafi NORMAL calisir: `overview` doludur.
+    # The profile side works normally: `overview` is populated.
     profile = INDUSTRY_PROFILE.normalize(
         _payload("industry", "infrastructure-operations"), "infrastructure-operations"
     )
@@ -55,12 +55,12 @@ def test_gb_region_has_no_etfs() -> None:
     rows = _rows(SECTOR_RANKINGS, "sector", "technology", "domain_top_funds", "GB")
     assert rows == []
     companies = _rows(SECTOR_RANKINGS, "sector", "technology", "domain_top_companies", "GB")
-    assert companies, "GB'de topCompanies dolu olmali"
+    assert companies, "topCompanies should be populated for GB"
     assert all(row["region"] == "GB" for row in companies)
 
 
 def test_gb_companies_do_not_overlap_us() -> None:
-    """Prob esiginin (%50) neden guvenli oldugunun veri tabanli kaniti."""
+    """Data-backed proof of why the 50% probe threshold is safe."""
     us = {
         r["symbol"]
         for r in _rows(SECTOR_RANKINGS, "sector", "technology", "domain_top_companies")
@@ -77,9 +77,9 @@ def test_missing_rating_becomes_null() -> None:
     rows = _rows(SECTOR_RANKINGS, "sector", "technology", "domain_top_companies")
     assert any(row["rating"] is None for row in rows) or all(
         row["rating"] for row in rows
-    ), "kolon nullable olmali"
-    # Kolonun NULL kabul ettigi, en azindan bir kaynakta eksigin
-    # dusurulmedigi ile baglanir:
+    ), "the column must be nullable"
+    # Ties the column's NULL-acceptance to at least one source where the
+    # missing value was not dropped:
     raw = domain_data("sector", "technology")["topCompanies"]
     for entry in raw:
         if "rating" not in entry:
@@ -90,20 +90,20 @@ def test_missing_rating_becomes_null() -> None:
 def test_fund_without_a_name_is_kept_with_null_name() -> None:
     rows = _rows(SECTOR_RANKINGS, "sector", "healthcare", "domain_top_funds")
     nameless = [r for r in rows if r["name"] is None]
-    assert nameless, "adsiz fon satiri bekleniyordu (220 fonun 7'sinde)"
+    assert nameless, "expected a nameless fund row (7 of 220 funds)"
     assert all(r["fund_type"] == "mutual_fund" for r in nameless)
 
 
 def test_non_ticker_fund_symbol_is_written_as_is() -> None:
-    """`0P0001WO1I` Morningstar kimligi; FK YOK, `is_known` isaretler."""
+    """`0P0001WO1I` is a Morningstar id; no FK, `is_known` flags it instead."""
     rows = _rows(SECTOR_RANKINGS, "sector", "healthcare", "domain_top_funds")
     symbols = {r["symbol"] for r in rows}
     assert any(s.startswith("0P") for s in symbols)
-    assert all(r["is_known"] is False for r in rows), "is_known upsert'te doldurulur"
+    assert all(r["is_known"] is False for r in rows), "is_known is filled in at upsert"
 
 
 def test_extreme_ytd_return_is_not_a_sentinel() -> None:
-    """9999.0 OLDUGU GIBI yazilir (`currentPriceTarget = 0.0` ilkesi)."""
+    """9999.0 is written as-is (same principle as `currentPriceTarget = 0.0`)."""
     raw = domain_data("industry", "biotechnology")
     extremes = [
         r
@@ -118,12 +118,12 @@ def test_extreme_ytd_return_is_not_a_sentinel() -> None:
 
 
 def test_same_symbol_in_both_mover_lists_yields_two_rows() -> None:
-    """`rank_type` PK'da: iki satir da yazilir, veri KAYBOLMAZ."""
+    """`rank_type` is in the PK: both rows get written, no data is lost."""
     raw = domain_data("industry", "pharmaceutical-retailers")
     shared = {r["symbol"] for r in raw["topPerformingCompanies"]} & {
         r["symbol"] for r in raw["topGrowthCompanies"]
     }
-    assert shared, "iki listede birden gorunen sembol bekleniyordu"
+    assert shared, "expected a symbol appearing in both lists"
     rows = _rows(
         INDUSTRY_RANKINGS, "industry", "pharmaceutical-retailers", "domain_top_movers"
     )
@@ -135,7 +135,7 @@ def test_same_symbol_in_both_mover_lists_yields_two_rows() -> None:
 def test_mover_without_a_name_is_kept() -> None:
     raw = domain_data("industry", "gold")
     nameless = [r for r in raw["topPerformingCompanies"] if "name" not in r]
-    assert nameless, "adsiz mover satiri bekleniyordu"
+    assert nameless, "expected a nameless mover row"
     rows = _rows(INDUSTRY_RANKINGS, "industry", "gold", "domain_top_movers")
     for entry in nameless:
         match = next(
@@ -174,7 +174,7 @@ def test_sector_metrics_carry_industries_count() -> None:
 
 
 def test_raw_json_excludes_list_blocks() -> None:
-    """Tam zarf saklansaydi kapi HER KOSUDA acilirdi (SI S2)."""
+    """If the full envelope were stored, the gate would open on every run."""
     import json
 
     metrics = _rows(SECTOR_PROFILE, "sector", "technology", "domain_metrics")
@@ -194,7 +194,7 @@ def test_raw_json_excludes_list_blocks() -> None:
 
 
 def test_performance_and_benchmark_blocks_are_promoted_to_columns() -> None:
-    """yfinance'in HICBIR property ile acmadigi 11 alan (SI S4.3)."""
+    """11 fields yfinance exposes through no property at all."""
     metrics = _rows(SECTOR_PROFILE, "sector", "technology", "domain_metrics")[0]
     for column in (
         "ytd_change_pct",
@@ -222,7 +222,7 @@ def test_reports_are_four_per_domain_with_positions() -> None:
 
 
 def test_report_links_carry_no_region() -> None:
-    """Rapor kimlikleri 5 bolgede BIREBIR ayni sirayla dondu."""
+    """Report ids came back in exactly the same order across 5 regions."""
     result = SECTOR_PROFILE.normalize(_payload("sector", "technology"), "technology")
     links = next(w for w in result.writes if w.table == "domain_report_links")
     assert "region" not in links.rows[0]
@@ -237,7 +237,7 @@ def test_industry_profile_writes_description_into_domains() -> None:
 
 
 def test_industry_rankings_scope_includes_domain_key() -> None:
-    """Kapsam `domain_key` icermeseydi SEKTOR satirlari silinirdi (SI S5.11)."""
+    """If the scope did not include `domain_key`, sector rows would get deleted."""
     result = INDUSTRY_RANKINGS.normalize(_payload("industry", "semiconductors"), "semiconductors")
     companies = next(w for w in result.writes if w.table == "domain_top_companies")
     assert companies.mode == "replace_scope"
@@ -245,7 +245,7 @@ def test_industry_rankings_scope_includes_domain_key() -> None:
 
 
 def test_mover_scope_excludes_rank_type() -> None:
-    """Iki liste tek fetch'ten gelir ve BIRLIKTE yazilir."""
+    """Both lists come from a single fetch and are written together."""
     result = INDUSTRY_RANKINGS.normalize(_payload("industry", "semiconductors"), "semiconductors")
     movers = next(w for w in result.writes if w.table == "domain_top_movers")
     assert "rank_type" not in movers.scope_columns

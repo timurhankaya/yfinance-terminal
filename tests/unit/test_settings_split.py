@@ -29,7 +29,7 @@ SNAPSHOT_DB_MANAGED = 38
 SECRET_NAME_RE = re.compile(r"secret|password|token|credential")
 
 
-def test_kumeler_tuketicidir_ve_kesismez() -> None:
+def test_the_sets_are_exhaustive_and_disjoint() -> None:
     """Guard 1 -- exhaustiveness.
 
     Every new `Settings` field always falls into one of the two sets; a

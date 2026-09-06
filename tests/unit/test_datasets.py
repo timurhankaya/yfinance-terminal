@@ -1,4 +1,4 @@
-"""Dataset normalize testleri: fixture tabanli, agsiz (S9.1)."""
+"""Dataset normalize tests: fixture-based, no network."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def _write(result: NormalizedResult, table: str):  # type: ignore[no-untyped-def
     for write in result.writes:
         if write.table == table:
             return write
-    raise AssertionError(f"{table} yazimi yok: {[w.table for w in result.writes]}")
+    raise AssertionError(f"no write to {table}: {[w.table for w in result.writes]}")
 
 
 # --- history --------------------------------------------------------------
@@ -42,7 +42,7 @@ class TestHistory:
         assert write.key_columns == ("symbol", "session_date")
 
     def test_positive_offset_session_date_not_shifted(self) -> None:
-        """THYAO 00:00+03:00 -> session_date yerel, ts_utc bir gun geri."""
+        """THYAO 00:00+03:00 -> session_date is local, ts_utc one day behind."""
         frame = as_frame(load_fixture("THYAO.IS", "history"))
         rows = _write(REGISTRY["history"].normalize(frame, "THYAO.IS"), "price_history").rows
         first = rows[0]
@@ -50,14 +50,14 @@ class TestHistory:
         assert first["ts_utc"] == datetime(2024, 9, 3, 21, 0, tzinfo=UTC)
 
     def test_etf_capital_gains_column_handled(self) -> None:
-        """Fon/ETF'te 9. kolon olarak 'Capital Gains' eklenir."""
+        """For funds/ETFs, 'Capital Gains' is added as the 9th column."""
         frame = as_frame(load_fixture("SPY", "history"))
         assert "Capital Gains" in frame.columns
         rows = _write(REGISTRY["history"].normalize(frame, "SPY"), "price_history").rows
         assert all("capital_gain" in row for row in rows)
 
     def test_missing_column_does_not_break(self) -> None:
-        """Kolon seti sembole gore degisir; sabit varliga guvenilmez."""
+        """The column set varies by symbol; its presence cannot be assumed fixed."""
         frame = as_frame(load_fixture("AAPL", "history"))
         assert "Capital Gains" not in frame.columns
         rows = _write(REGISTRY["history"].normalize(frame, "AAPL"), "price_history").rows
@@ -79,8 +79,8 @@ class TestHistory:
 
 
 def _actions_frame(series: Any, column: str) -> Any:
-    """corporate_actions dataset'leri history CERCEVESINDEN okur (ayri bir ag
-    cagrisi yoktur); girdi Series degil, o kolonu tasiyan DataFrame'dir."""
+    """corporate_actions datasets read from the history frame (no separate
+    network call); the input is a DataFrame carrying that column, not a Series."""
     import pandas as pd
 
     return pd.DataFrame({column: series})
@@ -102,14 +102,14 @@ class TestCorporateActions:
         assert len(write.rows) == len([v for v in series if v])
 
     def test_capital_gains_empty_is_not_failure(self) -> None:
-        """Yahoo hicbir sembolde dolu dondurmuyor; empty != failed (S8.2)."""
+        """Yahoo never returns this populated for any symbol; empty != failed."""
         for symbol in SYMBOLS:
             series = as_series(load_fixture(symbol, "capital_gains"))
             frame = _actions_frame(series, "Capital Gains")
             assert REGISTRY["capital_gains"].normalize(frame, symbol).is_empty
 
     def test_capital_gains_synthetic_fixture(self) -> None:
-        """Sentetik fixture: canli yakalanamayan dolu durum (S9.1)."""
+        """Synthetic fixture: a populated case that cannot be captured live."""
         series = as_series(load_fixture("SYNTHETIC", "capital_gains"))
         frame = _actions_frame(series, "Capital Gains")
         write = _write(REGISTRY["capital_gains"].normalize(frame, "SYNTH"), "capital_gains")
@@ -126,16 +126,16 @@ class TestCorporateActions:
 
 class TestSharesFull:
     def test_none_return_is_empty_not_attribute_error(self) -> None:
-        """BTC-USD None doner; raw.empty AttributeError verirdi (S8.3)."""
+        """BTC-USD returns None; raw.empty would raise AttributeError."""
         assert load_fixture("BTC-USD", "shares_full") is None
         assert REGISTRY["shares_full"].normalize(None, "BTC-USD").is_empty
 
     def test_same_date_different_values_both_kept(self) -> None:
-        """PK'ya shares dahildir: ayni tarihte farkli degerler var (S5.2)."""
+        """shares is part of the PK: the same date has different values."""
         series = as_series(load_fixture("AAPL", "shares_full"))
         write = _write(REGISTRY["shares_full"].normalize(series, "AAPL"), "shares_full")
         dates = [r["as_of_date"] for r in write.rows]
-        assert len(set(dates)) < len(dates), "duplike tarih beklenir"
+        assert len(set(dates)) < len(dates), "expected a duplicate date"
         keys = {(r["as_of_date"], r["shares"]) for r in write.rows}
         assert len(keys) == len(write.rows)
         assert write.key_columns == ("symbol", "as_of_date", "shares")
@@ -202,7 +202,7 @@ class TestFastInfo:
         assert {w.table for w in result.writes} == {"ticker_fast_info", "ticker_fast_info_history"}
 
     def test_market_cap_none_for_non_equity(self) -> None:
-        """marketCap/shares ETF, kripto, FX ve endekste None (S5.2)."""
+        """marketCap/shares are None for ETF, crypto, FX, and index."""
         data = load_fixture("BTC-USD", "fast_info")
         payload = FastInfoPayload(dict(data), datetime(2026, 9, 4))
         row = _write(REGISTRY["fast_info"].normalize(payload, "BTC-USD"), "ticker_fast_info").rows[
@@ -223,8 +223,8 @@ class TestHistoryMetadata:
         assert write.rows[0]["raw_json"]
 
     def test_odd_keys_only_in_raw_json(self) -> None:
-        """'YF repair?' gibi bosluk/soru isareti iceren anahtarlar yalnizca
-        raw_json'da tutulur (S5.2)."""
+        """Keys like 'YF repair?' with a space or question mark are kept
+        only in raw_json."""
         raw = load_fixture("AAPL", "history_metadata")
         assert "YF repair?" in raw
         payload = MetadataPayload(raw, datetime(2026, 9, 4))
@@ -242,12 +242,12 @@ class TestIsin:
     def test_real_isin_written(self) -> None:
         write = _write(REGISTRY["isin"].normalize(load_fixture("AAPL", "isin"), "AAPL"), "symbols")
         assert write.rows[0]["isin"] == "US0378331005"
-        # symbols tablosunun SADECE isin kolonuna dokunur (S6.1/3)
+        # touches only the isin column on the symbols table
         assert write.update_columns == ("isin",)
 
     @pytest.mark.parametrize("symbol", ["THYAO.IS", "BTC-USD"])
     def test_sentinel_produces_no_write(self, symbol: str) -> None:
-        """'-' sentineli NULL'dir; NULL yazmak yerine hic yazilmaz."""
+        """The '-' sentinel means NULL; instead of writing NULL, nothing is written."""
         assert load_fixture(symbol, "isin") == "-"
         assert REGISTRY["isin"].normalize(load_fixture(symbol, "isin"), symbol).is_empty
 
@@ -264,7 +264,7 @@ class TestNews:
     def test_thumbnail_uses_original_tag(self) -> None:
         rows = _write(REGISTRY["news"].normalize(load_fixture("AAPL", "news"), "AAPL"), "news").rows
         with_thumb = [r for r in rows if r["thumbnail_url"]]
-        assert with_thumb, "en az bir haberde thumbnail beklenir"
+        assert with_thumb, "expected at least one news item with a thumbnail"
         assert all(r["thumbnail_width"] for r in with_thumb)
 
     def test_thumbnail_may_be_none(self) -> None:
@@ -278,13 +278,13 @@ class TestNews:
         )
 
     def test_out_of_universe_symbols_recorded(self) -> None:
-        """Kaynakta evren disi semboller geliyor; ham etiket olarak saklanir."""
+        """The source includes symbols outside the universe; stored as a raw label."""
         links = _write(
             REGISTRY["news"].normalize(load_fixture("AAPL", "news"), "AAPL"), "news_symbols"
         ).rows
         symbols = {r["symbol"] for r in links}
         assert "AAPL" in symbols
-        assert len(symbols) > 1, "cok sembollu haberler beklenir"
+        assert len(symbols) > 1, "expected multi-symbol news items"
 
     def test_news_ids_are_36_chars(self) -> None:
         rows = _write(REGISTRY["news"].normalize(load_fixture("SPY", "news"), "SPY"), "news").rows
@@ -301,13 +301,13 @@ class TestNews:
 
 
 class TestSourceMappingContract:
-    """Kaynak nesnelerin dict'e cevrilmesi (S8.3)."""
+    """Converting source objects to a dict."""
 
     def test_history_metadata_violating_mapping_contract(self) -> None:
-        """yfinance'in HistoryMetadata'si keys() ile __getitem__ arasinda
-        tutarsizdir: 'tradingPeriods' listelenir ama okunamaz
-        (history.py:55). Duz dict(raw) cagrisi VFIAX gibi fonlarda tum
-        sembolu unknown_symbol yapiyordu.
+        """yfinance's HistoryMetadata is inconsistent between keys() and
+        __getitem__: 'tradingPeriods' is listed but cannot be read
+        (history.py:55). A plain dict(raw) call was marking the entire
+        symbol unknown_symbol for funds like VFIAX.
         """
         from collections.abc import Mapping
 
@@ -336,7 +336,7 @@ class TestSourceMappingContract:
         assert result == {"currency": "USD", "shortName": "Fon"}
 
     def test_history_metadata_dataset_survives_broken_source(self) -> None:
-        """Dataset seviyesinde de sembol dusmemeli."""
+        """A symbol must not drop at the dataset level either."""
         from collections.abc import Mapping
 
         class BrokenMetadata(Mapping):  # type: ignore[type-arg]

@@ -1,8 +1,8 @@
-"""SQ S6.2.1: `merge_stats` -- iki `WriteStats`i anahtar bazinda toplar.
+"""`merge_stats` -- sums two `WriteStats` per key.
 
-`DiscoveryDataset.upsert` yazimlari IKIYE bolup (kapi disi + kapili) iki ayri
-istatistik uretir; `_record_items` tek bir `WriteStats` bekler. Kod tabaninda
-bu yardimcinin karsiligi YOKTU.
+`DiscoveryDataset.upsert` splits writes in two (ungated + gated) and
+produces two separate stats objects; `_record_items` expects a single
+`WriteStats`. No helper for this existed in the codebase.
 """
 
 from __future__ import annotations
@@ -34,22 +34,24 @@ def test_disjoint_tables_are_unioned() -> None:
 
 
 def test_shared_table_counts_are_summed() -> None:
-    """Ayni tablo iki tarafta da gorunurse sayilar TOPLANIR.
+    """If the same table appears on both sides, the counts are summed.
 
-    Bugun `DiscoveryDataset`te olmaz (kumeler ayriktir) ama sozlesme bunu
-    yasaklamiyor; sessizce birini dusurmek denetimi bozardi.
+    This doesn't happen today in `DiscoveryDataset` (the sets are
+    disjoint), but the contract doesn't forbid it; silently dropping one
+    side would corrupt the audit.
     """
     merged = merge_stats(_stats(attempted={"symbols": 2}), _stats(attempted={"symbols": 3}))
     assert merged.attempted == {"symbols": 5}
 
 
 def test_zero_entries_are_preserved() -> None:
-    """Sifir degerli giris DUSURULMEZ.
+    """A zero-valued entry is not dropped.
 
-    `AsOfGate.upsert` hash esitken satir TASIMAYAN hedefe
-    `attempted.setdefault(table, 0)` yaziyor (asof_base.py). O giris
-    kaybolursa tablo `stats.tables()` disinda kalir, `_record_items` onu HIC
-    gormez ve o kosuda denetimden duser.
+    When the hash matches, `AsOfGate.upsert` writes
+    `attempted.setdefault(table, 0)` for a target that carries no row
+    (asof_base.py). If that entry were lost, the table would fall outside
+    `stats.tables()`, `_record_items` would never see it, and it would
+    drop out of that run's audit.
     """
     merged = merge_stats(_stats(attempted={"fund_top_holdings": 0}), _stats())
     assert "fund_top_holdings" in merged.attempted
@@ -58,14 +60,14 @@ def test_zero_entries_are_preserved() -> None:
 
 
 def test_skipped_is_not_double_counted() -> None:
-    """SQ S6.2.1: `gated_result` `skipped={}` ile kurulur.
+    """`gated_result` is constructed with `skipped={}`.
 
-    Cagiran taraf `result.skipped`i YALNIZ dis `stats`e tohumlar. Iki tarafa
-    da verilseydi bu test kirmizi olurdu ve `rows_skipped` denetimi ikiye
-    katlanirdi.
+    The caller seeds `result.skipped` only into the outer `stats`. Seeding
+    both sides would turn this test red and double-count the `rows_skipped`
+    audit.
     """
     outer = _stats(skipped={"search_quotes": 7})
-    inner = _stats()  # kapili tarafa skipped GECIRILMEZ
+    inner = _stats()  # skipped is not passed to the gated side
 
     assert merge_stats(outer, inner).skipped == {"search_quotes": 7}
 

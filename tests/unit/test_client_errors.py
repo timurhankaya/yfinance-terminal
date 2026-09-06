@@ -1,9 +1,9 @@
-"""classify_error vaka tablosu (P5.2).
+"""classify_error case table.
 
-En kritik kural SIRADIR: curl_cffi'nin RequestException'i OSError
-TUREVIDIR (HTTPError -> RequestException -> CurlError -> OSError), bu
-yuzden bir "OSError -> NETWORK" kurali 403'leri de NETWORK sanar ve
-proxy'yi HAKSIZ cezalandirirdi.
+The most critical rule is ORDER: curl_cffi's RequestException derives from
+OSError (HTTPError -> RequestException -> CurlError -> OSError), so an
+"OSError -> NETWORK" rule would also treat 403s as NETWORK and unfairly
+punish the proxy.
 """
 
 from __future__ import annotations
@@ -42,14 +42,17 @@ class TestStatusCodes:
         ],
     )
     def test_http_status_wins_over_oserror(self, status: int, expected: ErrorKind) -> None:
-        assert issubclass(curl_exc.HTTPError, OSError), "on kosul: HTTPError OSError turevi"
+        assert issubclass(curl_exc.HTTPError, OSError), (
+            "precondition: HTTPError derives from OSError"
+        )
         assert classify_error(_http_error(status)) is expected
 
 
 class TestNonHttpResponse:
-    """curl_cffi BAGLANTI hatalarina da bir Response ilistirir ve
-    status_code'u 0'dir. Esik olmadan 0 'gecerli yanit' sayilir, DATA'ya
-    duser ve OLU BIR PROXY HIC CEZALANDIRILMAZ (canli kosuda gorulen bug).
+    """curl_cffi attaches a Response to connection errors too, with
+    status_code 0. Without a guard, 0 counts as a "valid response", falls
+    through to DATA, and a dead proxy is never punished (a bug seen in a
+    live run).
     """
 
     def test_zero_status_is_not_a_real_status(self) -> None:
@@ -72,9 +75,9 @@ class TestTypedExceptions:
         assert classify_error(yf_exc.YFTzMissingError("XXX")) is ErrorKind.UNKNOWN_SYMBOL
 
     def test_prices_missing_is_data_not_unknown_symbol(self) -> None:
-        """'Bu aralikta fiyat yok' (tatil, yeni IPO) sembolun gecersiz
-        oldugu anlamina GELMEZ; aksi halde her tatil gunu unknown_symbol
-        olurdu (P6.2)."""
+        """"No prices in this range" (a holiday, a new IPO) does not mean
+        the symbol is invalid; otherwise every holiday would count as
+        unknown_symbol."""
         exc = yf_exc.YFPricesMissingError("AAPL", "no data")
         assert classify_error(exc) is ErrorKind.DATA
 
@@ -99,8 +102,8 @@ class TestDeterministicErrors:
         [
             KeyError("missing"),
             TypeError("bad type"),
-            # "connection" kelimesi metin markerina takilirdi; bu yuzden
-            # deterministik hatalar metin eslesmesinden ONCE elenir.
+            # The word "connection" would trip the text marker; that's why
+            # deterministic errors are filtered out before text matching.
             ValueError("invalid connection string: timeout"),
         ],
     )
@@ -122,14 +125,14 @@ class TestTextFallback:
         assert classify_error(RuntimeError(message)) is expected
 
     def test_bare_number_is_not_a_status_code(self) -> None:
-        """'Symbol 500 not found' bir 5xx yaniti DEGILDIR."""
+        """'Symbol 500 not found' is not a 5xx response."""
         assert classify_error(RuntimeError("Symbol 500 not found")) is ErrorKind.DATA
 
 
 class TestRetryPolicy:
     def test_blocked_is_not_retried(self) -> None:
-        """Banlanmis proxy'de 5 deneme ~30 sn ve token-bucket bosa gider;
-        saglik durum makinesi zaten cooldown'a alacaktir (P5.2)."""
+        """On a banned proxy, 5 retries burn ~30s and the token bucket for
+        nothing; the health state machine will cool it down anyway."""
         exc = _http_error(403)
         assert classify_error(exc) is ErrorKind.BLOCKED
         assert not is_retryable(exc)

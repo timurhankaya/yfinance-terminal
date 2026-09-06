@@ -1,12 +1,11 @@
-"""MySQL'in utf8mb4_0900_ai_ci varsayilaninin kaldirilmasiyla ortaya
-cikan davranis farklari (PG S2.5). Veritabanina DOKUNMAZ.
+"""Behavior differences from removing MySQL's utf8mb4_0900_ai_ci default.
+Does not touch a database.
 
-MySQL'de tablo varsayilani BUYUK/KUCUK HARF DUYARSIZDI ve iki yerde
-gercek semantik tasiyordu. PostgreSQL'de kolonlar COLLATE "C"dir
-(duyarli); duyarsizlik YAZMA ve SORGU yollarina tasindi. Bu testler o
-tasimanin yerinde durdugunu sabitler -- aksi halde belirti sessizdir:
-`--exchange nms` bir gun bos sonuc doner, ya da ayni proxy iki kez
-eklenir.
+MySQL's table default was case-insensitive and carried real semantics in
+two places. PostgreSQL columns are COLLATE "C" (case-sensitive); the
+insensitivity moved into the write and query paths. These tests pin that
+move in place -- otherwise the symptom is silent: `--exchange nms` returns
+an empty result one day, or the same proxy gets inserted twice.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load_seed_proxies() -> Any:
-    """`scripts/` bir paket DEGILDIR; dosyadan yuklenir."""
+    """`scripts/` is not a package; loaded from the file directly."""
     path = _ROOT / "scripts" / "seed_proxies.py"
     spec = importlib.util.spec_from_file_location("_seed_proxies", path)
     assert spec is not None and spec.loader is not None
@@ -33,11 +32,12 @@ def _load_seed_proxies() -> Any:
 
 
 class TestSymbolFieldsAreUppercased:
-    """`--exchange nms` ile `--exchange NMS` ayni sonucu vermeli.
+    """`--exchange nms` and `--exchange NMS` must give the same result.
 
-    MySQL'de kolonlar ai_ci oldugu icin karsilastirma zaten duyarsizdi ve
-    `_filtered_symbols` bunu ACIKCA gerekce gostererek `func.upper`
-    KULLANMIYORDU. PostgreSQL'de o gerekce cokuyor.
+    In MySQL the columns were ai_ci, so the comparison was already
+    case-insensitive, and `_filtered_symbols` explicitly cited that as the
+    reason it didn't use `func.upper`. In PostgreSQL that reason no longer
+    holds.
     """
 
     def test_normalize_upper_cases_exchange_and_quote_type(self) -> None:
@@ -54,8 +54,8 @@ class TestSymbolFieldsAreUppercased:
         assert row["exchange"] == "NMS"
 
     def test_none_stays_none(self) -> None:
-        """`yfin symbols add` ile eklenen sembolde bu alanlar ILK SYNC'E
-        KADAR NULL'dur; .upper() None'i patlatmamali."""
+        """For a symbol added via `yfin symbols add`, these fields are NULL
+        until the first sync; .upper() must not blow up on None."""
         from yfin.datasets.symbols import SymbolsDataset, SymbolsPayload
 
         payload = SymbolsPayload(fast_info={}, metadata={}, fetched_at=None)
@@ -65,12 +65,12 @@ class TestSymbolFieldsAreUppercased:
 
 
 class TestProxyHostIsLowercased:
-    """Hostname'ler buyuk/kucuk harf duyarsizdir (RFC 4343).
+    """Hostnames are case-insensitive (RFC 4343).
 
-    MySQL bunu `ascii_general_ci` ile SEMADA sagliyordu ve
-    `uq_proxies_endpoint (scheme, host, port, username)` buna dayaniyordu.
-    PostgreSQL'de duyarsizlik yazma yolunda saglanir; aksi halde ayni
-    proxy farkli harf bicimleriyle IKI KEZ eklenirdi.
+    MySQL guaranteed this in the schema via `ascii_general_ci`, and
+    `uq_proxies_endpoint (scheme, host, port, username)` relied on it. In
+    PostgreSQL, insensitivity is enforced on the write path instead;
+    otherwise the same proxy would get inserted twice with different casing.
     """
 
     def test_seed_line_lowercases_host(self) -> None:
@@ -84,9 +84,9 @@ class TestProxyHostIsLowercased:
         assert left.host == right.host
 
     def test_dsn_path_already_lowercases(self) -> None:
-        """`urlsplit(...).hostname` hostname'i ZATEN kucuk harfe indirir;
-        burada yapacak is yoktur ama regresyon olarak sabitlenir --
-        ileride elle ayristirmaya gecilirse bu test duser."""
+        """`urlsplit(...).hostname` already lowercases the hostname; there
+        is nothing to do here, but it's pinned as a regression guard -- if
+        this ever moves to manual parsing, this test will fail."""
         from yfin.proxy.dsn import parse_dsn
 
         dsn = "http://u:pw" + "@" + "HOST.Example.COM:8080"
@@ -95,10 +95,10 @@ class TestProxyHostIsLowercased:
 
 @pytest.mark.parametrize("given", ["nms", "NMS", "Nms"])
 def test_cli_filter_input_is_normalized(given: str) -> None:
-    """Filtre girdisi de `.upper()` ile normalize edilir; yazma yolu
-    buyuk harfe cevirdigi icin iki taraf ayni bicimde bulusur ve
-    `ix_symbols_exchange` indeksi kullanilabilir kalir (func.upper
-    kolonu sarmalasaydi kullanilamazdi)."""
+    """Filter input is also normalized via `.upper()`; since the write path
+    uppercases, both sides meet in the same form and the
+    `ix_symbols_exchange` index stays usable (wrapping the column in
+    func.upper would make it unusable)."""
     from yfin.cli.app import _normalize_filter_values
 
     assert _normalize_filter_values([given]) == ["NMS"]

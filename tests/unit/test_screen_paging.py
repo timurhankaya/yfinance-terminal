@@ -1,10 +1,10 @@
-"""SQ K12 + K15 + S7.3: `screener.fetch` cagri parametreleri ve durma dallari.
+"""`screener.fetch`'s call parameters and stop conditions.
 
-Bu dosyadaki testler AGSIZDIR ve `yf.screen`i yerine sahte bir cagri
-koyarak GONDERILEN PARAMETRELERI dogrular. Sebep olculmus bir tuzaktir:
-`offset` verildiginde `yf.screen` `count`u SESSIZCE yok sayar ve 250 yerine
-25 satir dondurur -- HATA VERMEZ. Yalnizca sonuca bakan bir test bunu
-goremezdi.
+These tests are network-free and verify the parameters actually sent, by
+substituting a fake for `yf.screen`. The reason is a measured trap: when
+`offset` is given, `yf.screen` silently ignores `count` and returns 25 rows
+instead of 250 -- with no error. A test that only checks the result would
+miss this.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ FETCHED_AT = datetime(2026, 9, 5, 12, 0, 0)
 
 
 class _Recorder:
-    """`yf.screen` yerine gecer; cagri parametrelerini kaydeder."""
+    """Stands in for `yf.screen`; records the call parameters."""
 
     def __init__(self, pages: list[dict[str, Any]]) -> None:
         self.pages = pages
@@ -64,11 +64,11 @@ class TestPagingParameters:
         assert "offset" not in rec.calls[0]
 
     def test_later_pages_use_size_and_offset(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """REGRESYON (SQ K12).
+        """Regression guard.
 
-        `size` yerine `count` gonderen bir duzenleme sayfa basina 250 yerine
-        25 satir ceker ve HATA VERMEZ. Bu iddia yalnizca gonderilen
-        parametreye bakarak surulebilir.
+        An edit that sends `count` instead of `size` fetches 25 rows per
+        page instead of 250, with no error. This can only be proved by
+        looking at the parameter actually sent.
         """
         rec = _Recorder([_page(2, 6, meta=True), _page(2, 6, start=2), _page(2, 6, start=4)])
         _run(monkeypatch, rec)
@@ -79,11 +79,11 @@ class TestPagingParameters:
         assert [c["offset"] for c in rec.calls[1:]] == [2, 4]
 
     def test_sort_is_explicit_on_every_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """REGRESYON (SQ K15).
+        """Regression guard.
 
-        `sortAsc` varsayilani None -> AZALAN. Sayfalar arasi sira kararli
-        olmazsa sayfalar ortusur ya da sembol ATLANIR; bu, sessizce eksik
-        kadro demektir.
+        `sortAsc`'s default is None -> descending. If the order is not
+        stable across pages, pages overlap or a symbol gets skipped --
+        which means a silently incomplete roster.
         """
         rec = _Recorder([_page(2, 6, meta=True), _page(2, 6, start=2), _page(2, 6, start=4)])
         _run(monkeypatch, rec, key="tr_equity")
@@ -94,8 +94,8 @@ class TestPagingParameters:
     def test_predefined_sends_key_custom_sends_query(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Predefined'da AD gonderilir: GET yoluna girip metadata alinir.
-        Custom'da sorgu NESNESI gonderilir -- adi yoktur."""
+        """For predefined, the name is sent: it takes the GET path and
+        fetches metadata. For custom, a query object is sent -- it has no name."""
         rec = _Recorder([_page(1, 1, meta=True)])
         _run(monkeypatch, rec, key="day_gainers")
         assert rec.calls[0]["query"] == "day_gainers"
@@ -114,16 +114,16 @@ class TestStopConditions:
         assert len(payload.quotes) == 6
 
     def test_stops_on_empty_page(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """`offset > total` durumunda Yahoo HATA VERMEDEN 0 satir donduruyor
-        (olculdu: offset=9000 -> 0). Bos-sayfa dali bunu yakalar."""
+        """When `offset > total`, Yahoo returns 0 rows with no error
+        (measured: offset=9000 -> 0). The empty-page branch catches this."""
         rec = _Recorder([_page(2, 99, meta=True), _page(0, 99, start=2)])
         payload = _run(monkeypatch, rec)
         assert len(rec.calls) == 2
         assert len(payload.quotes) == 2
 
     def test_stops_at_page_limit(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """`most_shorted_stocks` total=4.022 -> 17 sayfa. Sinir olmasaydi
-        tek ekran butcenin yarisini yerdi."""
+        """`most_shorted_stocks` total=4,022 -> 17 pages. Without a limit, a
+        single screen would eat half the request budget."""
         from yfin.core.config import get_settings
 
         limit = get_settings().yf_screen_max_pages
@@ -135,11 +135,11 @@ class TestStopConditions:
     def test_total_survives_pages_without_metadata(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`total` ILK sayfadan alinir ve korunur.
+        """`total` is taken from the first page and preserved.
 
-        POST yaniti da `total` tasir ama metadata tasimaz; `total`i her
-        sayfadan yeniden okumak zararsizdir, ILK sayfanin metadata'sini
-        ezmek ise `screens.title`i kaybettirirdi.
+        A POST response also carries `total` but no metadata; re-reading
+        `total` from every page is harmless, but overwriting the first
+        page's metadata would lose `screens.title`.
         """
         rec = _Recorder([_page(2, 4, meta=True), _page(2, 4, start=2)])
         payload = _run(monkeypatch, rec)
@@ -156,19 +156,19 @@ class TestVariantContract:
             mod.ScreenerDataset().fetch(ctx)
 
     def test_unknown_screen_key_is_rejected(self) -> None:
-        """Bilinmeyen ad `screens.py`de yoksa sorgu govdesi uretilemez."""
+        """No query body can be built for a name not in `screens.py`."""
         from yfin.core.config import Settings
 
         cfg = Settings(yf_screen_keys="nosuchscreen")
-        with pytest.raises(ValueError, match="bilinmeyen ekran"):
+        with pytest.raises(ValueError, match="unknown screen"):
             mod.ScreenerDataset().variants(cfg, None)
 
     def test_variants_come_from_code_not_db(self) -> None:
-        """SQ S6.5: kume KODDAN gelir, DB yalnizca ELER.
+        """The set comes from code; the DB only filters.
 
-        Tersi olsaydi bos `screens` tablosuyla hicbir ekran hic kosmazdi ve
-        tablo yalnizca kosu sirasinda dolduguna gore bootstrap kilidi HIC
-        acilmazdi.
+        Were it the reverse, an empty `screens` table would mean no screen
+        ever runs, and since the table only fills during a run, the
+        bootstrap lock would never open.
         """
         from yfin.core.config import Settings
         from yfin.ingest.screens import ALL_SCREENS

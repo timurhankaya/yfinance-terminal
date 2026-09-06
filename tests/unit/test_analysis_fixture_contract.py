@@ -152,7 +152,8 @@ def test_ko_insider_purchases_has_a_negative_net_value() -> None:
 
 
 def test_wmt_position_exceeds_the_originally_measured_length() -> None:
-    """Ilk olcum 23 karakter demisti; gercek 56. KeyTextType(64) yeterli."""
+    """The original measurement said 23 characters; the real value is 56.
+    KeyTextType(64) is enough."""
     records = load_fixture("WMT", "insider_transactions")
     longest = max((len(str(r.get("Position") or "")) for r in records), default=0)
     assert longest > 23
@@ -160,8 +161,7 @@ def test_wmt_position_exceeds_the_originally_measured_length() -> None:
 
 
 def test_gspc_returns_nothing_for_every_analysis_dataset() -> None:
-    """Endekste 16 dataset'in tamami bostur; bunlar `empty`tir, `failed`
-    degil (AH S8.2)."""
+    """All 16 datasets are empty for the index; that is `empty`, not `failed`."""
     for dataset in (
         "recommendations",
         "upgrades_downgrades",

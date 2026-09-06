@@ -1,11 +1,11 @@
-"""SQ S6.1: `scope="variant"` -- ucuncu dis dongu.
+"""`scope="variant"` -- a third outer loop.
 
-Bu dosyanin iki isi var:
-1. Yeni `variant` dalinin calistigini gostermek.
-2. MEVCUT `region` / `global` dallarinin BIREBIR ayni kaldigini surmek.
+This file does two things:
+1. Show the new `variant` branch works.
+2. Prove the existing `region` / `global` branches stay exactly the same.
 
-Ikincisi birincisinden onemlidir: alti piyasa dataset'i uretimde kosuyor ve
-bu degisiklik onlarin davranisina dokunmamalidir.
+The second matters more than the first: six market datasets run in
+production, and this change must not touch their behavior.
 """
 
 from __future__ import annotations
@@ -27,21 +27,23 @@ def _ctx() -> MarketContext:
 
 class TestClone:
     def test_for_variant_sets_variant_and_leaves_region_none(self) -> None:
-        """SQ S6.1: ekran bir BOLGE DEGILDIR.
+        """A screen is not a region.
 
-        `region`a yazilsaydi `sync_run_items.region` bolge semantigini
-        kaybeder ve "hangi bolgede kostu" sorgusu ekran adlari dondururdu.
+        If it were written into `region`, `sync_run_items.region` would
+        lose its regional meaning, and a "which region did this run in"
+        query would return screen names instead.
         """
         clone = _ctx().for_variant("day_gainers")
         assert clone.variant == "day_gainers"
         assert clone.region is None
 
     def test_for_region_does_not_drop_variant(self) -> None:
-        """REGRESYON: `for_region` eskiden alanlari ELLE sayiyordu.
+        """Regression guard: `for_region` used to enumerate fields by hand.
 
-        `variant` eklenip orada da sayilmasaydi bolge dalinda SESSIZCE
-        duserdi. `_clone` tek klonlama noktasi oldugu icin bu artik
-        yapisal olarak imkansiz -- test o yapiyi kilitler.
+        Had `variant` been added without adding it there too, it would
+        silently drop on the region branch. `_clone` is now the single
+        cloning point, making this structurally impossible -- this test
+        locks that structure in.
         """
         base = _ctx().for_variant("tr_equity")
         assert base.for_region("US").variant == "tr_equity"
@@ -51,13 +53,13 @@ class TestClone:
         assert base.for_variant("day_gainers").region == "EUROPE"
 
     def test_clone_preserves_window(self) -> None:
-        """`start`/`end` ZORUNLU alanlardir (varsayilani yok); klonlama
-        onlari tasimasaydi TypeError verirdi."""
+        """`start`/`end` are required fields (no default); if cloning
+        dropped them, it would raise TypeError."""
         clone = _ctx().for_variant("x")
         assert (clone.start, clone.end, clone.fetched_at) == (START, END, FETCHED_AT)
 
     def test_clones_share_one_cache(self) -> None:
-        """Ayni (anahtar, tur) icin ham yanit BIR KEZ cekilir."""
+        """The raw response is fetched once for the same (key, kind)."""
         base = _ctx()
         calls: list[int] = []
 
@@ -72,7 +74,7 @@ class TestClone:
 
 
 class _RecordingDataset(GlobalDataset[None]):
-    """Hangi kapsam etiketiyle kac kez cagrildigini kaydeder."""
+    """Records how many times it was called with each scope label."""
 
     produces = ()
 
@@ -94,8 +96,9 @@ class _RecordingDataset(GlobalDataset[None]):
 
 class TestVariantsContract:
     def test_default_variants_is_empty(self) -> None:
-        """Mevcut alti dataset `variants()` TANIMLAMAZ; varsayilan bos
-        olmasaydi hepsi `scope="variant"` gibi davranmaya calisirdi."""
+        """None of the six existing datasets define `variants()`; if the
+        default weren't empty, all of them would start acting like
+        `scope="variant"`."""
         dataset = _RecordingDataset("market_status", "region")
         assert dataset.variants(None, None) == ()
 
@@ -107,8 +110,8 @@ class TestVariantsContract:
         assert dataset.seen == [(None, "day_gainers"), (None, "tr_equity")]
 
     def test_region_dataset_is_untouched(self) -> None:
-        """MEVCUT davranis: bolge dalinda `variant` NULL kalir ve
-        `sync_run_items.region` eskisi gibi bolgeyi tasir."""
+        """Existing behavior: `variant` stays NULL on the region branch,
+        and `sync_run_items.region` carries the region as before."""
         dataset = _RecordingDataset("market_summary", "region")
         base = _ctx()
         for region in ("US", "EUROPE"):

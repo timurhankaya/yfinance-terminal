@@ -1,7 +1,7 @@
-"""`yfin sync` sembol secimi ve tarih araligi (AH S6.4, S7.3).
+"""`yfin sync` symbol selection and date range.
 
-CLI'nin DOGRULAMA yollari veritabanina dokunmaz: SQLAlchemy engine tembeldir ve
-bu kontroller ilk sorgudan once caliisir.
+The CLI's validation paths never touch a database: the SQLAlchemy engine
+is lazy, and these checks run before the first query.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from yfin.datasets import SYMBOL_DATASETS
 runner = CliRunner()
 
 
-# --- saf yardimcilar -------------------------------------------------------
+# --- pure helpers ------------------------------------------------------------
 
 
 def test_csv_upper_trims_and_uppercases() -> None:
@@ -25,8 +25,8 @@ def test_csv_upper_trims_and_uppercases() -> None:
 
 
 def test_selector_records_universe_and_range() -> None:
-    """`scope` yalnizca symbols/market ayrimini tasiyor; hangi run'in hangi
-    evreni kapsadigi aksi halde geriye donuk BILINEMEZ (AH S5.6)."""
+    """`scope` only carries the symbols/market distinction; otherwise which
+    universe a given run covered could never be known retroactively."""
     selector = _selector(
         exchange=["IST"],
         quote_type=["EQUITY"],
@@ -38,7 +38,7 @@ def test_selector_records_universe_and_range() -> None:
 
 
 def test_selector_is_none_when_unfiltered() -> None:
-    """Filtresiz run'da NULL kalir; anlami "filtresiz"tir."""
+    """Stays NULL for an unfiltered run; that means "no filter"."""
     assert _selector(exchange=[], quote_type=[], suffix=None, start=None, end=None) is None
 
 
@@ -54,50 +54,49 @@ def test_selector_fits_varchar_255() -> None:
     assert len(selector) <= 255
 
 
-# --- dogrulama kurallari ---------------------------------------------------
+# --- validation rules ---------------------------------------------------
 
 
 def test_symbols_and_filters_cannot_be_combined() -> None:
-    """Ikisi birden verilseydi hangisinin kazandigi SESSIZ bir varsayim
-    olurdu."""
+    """If both were given, which one wins would be a silent assumption."""
     result = runner.invoke(app, ["sync", "--symbols", "AAPL", "--exchange", "IST"])
     assert result.exit_code == 1
-    assert "birlikte kullanilamaz" in result.output
+    assert "cannot be combined with" in result.output
 
 
 def test_start_after_end_is_rejected() -> None:
     result = runner.invoke(app, ["sync", "--start", "2026-01-01", "--end", "2025-01-01"])
     assert result.exit_code == 1
-    assert "--start --end'den sonra olamaz" in result.output
+    assert "--start cannot be later than --end" in result.output
 
 
 def test_invalid_date_is_rejected_instead_of_silently_ignored() -> None:
-    """Sessizce None'a dusseydi kullanici "aralik uygulandi" sanirdi."""
+    """Silently falling back to None would make the user think a range was applied."""
     result = runner.invoke(app, ["sync", "--start", "01/01/2020"])
     assert result.exit_code == 1
-    assert "gecersiz tarih" in result.output
+    assert "invalid date for --start" in result.output
 
 
 def test_range_with_only_none_datasets_is_rejected() -> None:
-    """Secilen dataset'lerin TAMAMI `date_range="none"` ise aralik hicbir
-    seye etki etmezdi; sessiz no-op yerine hata verilir (AH S7.3)."""
+    """If every selected dataset has `date_range="none"`, the range would
+    affect nothing; this raises an error instead of a silent no-op."""
     result = runner.invoke(app, ["sync", "--datasets", "info,fast_info", "--start", "2020-01-01"])
     assert result.exit_code == 1
-    assert "tarih araligi desteklemiyor" in result.output
+    assert "supports a date range" in result.output
 
 
-# --- date_range sozlesmesi -------------------------------------------------
+# --- date_range contract ---------------------------------------------------
 
 
 def test_shared_history_frame_datasets_are_api_ranged() -> None:
-    """Ucu de PAYLASILAN onarilmis cerceveden beslenir; aralik o CAGRIYA
-    gecer, satir elemesi degildir."""
+    """All five feed from the shared repaired frame; the range goes into
+    that call, not a row filter."""
     for name in ("history", "dividends", "splits", "capital_gains", "shares_full"):
         assert SYMBOL_DATASETS[name].date_range == "api", name
 
 
 def test_analysis_datasets_are_not_api_ranged() -> None:
-    """Yahoo bu uclarda tarih parametresi SUNMUYOR: 17 metodun imzasi
-    `as_dict` disinda parametre almiyor (base.py:210-372)."""
+    """Yahoo offers no date parameter for these endpoints: 17 methods'
+    signatures take no parameter beyond `as_dict` (base.py:210-372)."""
     for name in ("recommendations", "eps_trend", "major_holders", "funds_data"):
         assert SYMBOL_DATASETS[name].date_range != "api", name

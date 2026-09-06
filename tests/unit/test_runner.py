@@ -1,4 +1,4 @@
-"""Cikis kodu ve durum mantigi testleri (S8.1)."""
+"""Exit code and status logic tests."""
 
 from __future__ import annotations
 
@@ -21,13 +21,13 @@ def _summary(statuses: list[tuple[str, ItemStatus]], symbol_count: int = 1) -> R
 
 
 def test_empty_and_skipped_do_not_fail_the_run() -> None:
-    """failed yok -> 0; ok U empty U skipped normaldir (S8.1)."""
+    """No failed -> 0; ok U empty U skipped is normal."""
     summary = _summary([("A", ItemStatus.OK), ("A", ItemStatus.EMPTY), ("A", ItemStatus.SKIPPED)])
     assert summary.exit_code() == EXIT_OK
 
 
 def test_all_empty_is_still_zero() -> None:
-    """capital_gains hicbir sembolde dolu gelmiyor; bu hata degildir (S8.2)."""
+    """capital_gains never comes back populated for any symbol; this is not an error."""
     assert _summary([("A", ItemStatus.EMPTY)]).exit_code() == EXIT_OK
 
 
@@ -66,7 +66,7 @@ def test_totals_sum_all_items() -> None:
 
 
 class TestItemStatusMapping:
-    """_record_items durum tablosu (S8.1)."""
+    """_record_items status table."""
 
     @pytest.mark.parametrize(
         ("attempted", "verified", "skipped", "expected"),
@@ -102,7 +102,7 @@ class TestItemStatusMapping:
         assert records[0].status is expected
 
     def test_multi_table_dataset_writes_one_row_per_table(self) -> None:
-        """Cok tabloya yazan dataset'ler icin tablo basina bir satir (S8.1)."""
+        """For datasets writing to multiple tables, one row per table."""
         from yfin.datasets import SYMBOL_DATASETS as REGISTRY
         from yfin.datasets.base import WriteStats
         from yfin.pipeline.runner import _record_items

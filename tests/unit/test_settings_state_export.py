@@ -29,21 +29,21 @@ def test_rows_None_DB_YE_BAKILMADI_demektir() -> None:
     assert all(s.source is not Source.DB for s in states.values())
 
 
-def test_satir_kaynagi_db_yapar() -> None:
+def test_a_row_makes_the_source_db() -> None:
     states = settings_state(rows={"yf_max_shards": "9"})
     assert states["yf_max_shards"].value == "9"
     assert states["yf_max_shards"].source is Source.DB
     assert states["yf_max_shards"].has_row is True
 
 
-def test_has_row_ile_source_AYNI_SEY_DEGILDIR() -> None:
+def test_has_row_and_source_are_NOT_THE_SAME_THING() -> None:
     """An env-only row can exist in the table but is not applied. A single
     flag could not represent that distinction."""
     states = settings_state(rows={"yf_max_shards": "9"})
     assert "db_host" not in states, "an env-only field has no row in the state table"
 
 
-def test_env_de_kurulu_alan_kaynagi_ENV() -> None:
+def test_a_field_set_in_env_has_source_ENV() -> None:
     """The distinction is made via `model_fields_set`, not by comparing
     "is the value different from the default": a `.env` setting that
     happens to equal the default would otherwise show up as `default`."""
@@ -56,12 +56,12 @@ def test_env_de_kurulu_alan_kaynagi_ENV() -> None:
     assert all(states[key].source is Source.ENV for key in env_set)
 
 
-def test_export_varsayilan_yalniz_satiri_olanlari_verir() -> None:
+def test_export_by_default_returns_only_keys_with_a_row() -> None:
     states = settings_state(rows={"yf_max_shards": "9"})
     assert export_values(states) == {"yf_max_shards": 9}
 
 
-def test_export_all_39_anahtari_NATIVE_tiple_verir() -> None:
+def test_export_all_returns_39_keys_with_their_NATIVE_type() -> None:
     """If this returned strings, `seed(export(state))` would re-serialize
     `"8"` on the next round and the seed file would drift into untyped text."""
     out = export_values(settings_state(rows={}), all_keys=True)
@@ -87,14 +87,14 @@ def test_classify_env_only_alanlar(key: str) -> None:
 
 
 @pytest.mark.parametrize("key", ["hicboyle_yok", "YF_MAX_SHARDS", ""])
-def test_classify_bilinmeyen_anahtarlar(key: str) -> None:
+def test_classify_unknown_keys(key: str) -> None:
     """A non-canonical form (`YF_MAX_SHARDS`) is also UNKNOWN: keeping such
     a row visible if it were inserted via raw SQL is why the collation
     decision matters."""
     assert classify_key(key) is KeyVerdict.UNKNOWN
 
 
-def test_okuma_ve_yazma_yollari_AYNI_karari_verir() -> None:
+def test_the_read_and_write_paths_make_the_SAME_decision() -> None:
     """Proof that the policy comes from a single source.
 
     If it were coded in two places, a category missed on the read path

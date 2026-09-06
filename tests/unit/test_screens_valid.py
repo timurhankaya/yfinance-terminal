@@ -1,9 +1,8 @@
-"""SQ S9.4: ekran tanimlari AGSIZ dogrulanir.
+"""Screen definitions validated with no network.
 
-`EquityQuery`/`FundQuery`/`ETFQuery` gecersiz alan ya da deger icin AGA
-CIKMADAN ValueError firlatir (SQ S4.1/14). Bu yuzden hatali bir tanim
-kosu ortasinda degil, modul yuklenirken ortaya cikar -- ve bu test onu
-CI'da yakalar, uretimde degil.
+`EquityQuery`/`FundQuery`/`ETFQuery` raise ValueError for an invalid field
+or value with no network call. So a broken definition surfaces at module
+load time, not mid-run -- and this test catches it in CI, not production.
 """
 
 from __future__ import annotations
@@ -29,9 +28,9 @@ def test_keys_are_unique() -> None:
 
 
 def test_keys_fit_sync_run_items_symbol_column() -> None:
-    """SQ S5.8: sinir `sync_run_items.symbol` = VARCHAR(32) COLLATE "C"den gelir.
+    """The limit comes from `sync_run_items.symbol` = VARCHAR(32) COLLATE "C".
 
-    Olculen en uzun predefined ad `conservative_foreign_funds` = 26.
+    The longest measured predefined name is `conservative_foreign_funds` = 26.
     """
     for screen in ALL_SCREENS:
         assert len(screen.key) <= SCREEN_KEY_MAX_LENGTH, screen.key
@@ -39,16 +38,15 @@ def test_keys_fit_sync_run_items_symbol_column() -> None:
 
 
 def test_custom_screens_carry_a_query() -> None:
-    """Custom'da sorgu nesnesi ZORUNLU: ad yoktur, POST govdesi ondan uretilir."""
+    """A query object is required for custom: there's no name, so the POST body is built from it."""
     for screen in CUSTOM_SCREENS:
         assert screen.kind == "custom"
         assert screen.query is not None
 
 
 def test_custom_queries_are_constructible() -> None:
-    """Kurulabilmis olmalari zaten dogrulandiklari anlamina gelir (istemci
-    tarafi dogrulama, SQ S4.1/14). Burada `to_dict()` ile POST govdesinin de
-    uretilebildigi surulur."""
+    """Being constructible already means they were validated client-side.
+    This also proves the POST body can be built via `to_dict()`."""
     for screen in CUSTOM_SCREENS:
         assert screen.query is not None
         body = screen.query.to_dict()
@@ -57,8 +55,8 @@ def test_custom_queries_are_constructible() -> None:
 
 
 def test_every_screen_declares_sort() -> None:
-    """SQ K15: `sortAsc` varsayilani azalan; sayfalar arasi sira kararli
-    olmazsa sayfalar ORTUSUR ya da sembol ATLANIR."""
+    """`sortAsc`'s default is descending; if order is not stable across
+    pages, pages overlap or a symbol gets skipped."""
     for screen in ALL_SCREENS:
         assert screen.sort_field
         assert isinstance(screen.sort_asc, bool)
@@ -70,8 +68,8 @@ def test_quote_type_is_known() -> None:
 
 
 def test_titles_are_present() -> None:
-    """`screens.title` NOT NULL yazilir; predefined'da ILK GET sayfasindan
-    tazelenir ama seed degeri bos olamaz (SQ S5.8)."""
+    """`screens.title` is written NOT NULL; for predefined it's refreshed
+    from the first GET page, but the seed value cannot be empty."""
     for screen in ALL_SCREENS:
         assert screen.title.strip()
 
@@ -87,8 +85,7 @@ def test_screen_by_key_rejects_unknown() -> None:
 
 
 def test_tr_equity_custom_screen_exists() -> None:
-    """SQ S4.1/15: `region=tr` olculdu, total=628. BIST kesfinin tek custom
-    girisidir."""
+    """Measured `region=tr`, total=628. The only custom entry for BIST discovery."""
     screen = screen_by_key("tr_equity")
     assert screen.kind == "custom"
     assert screen.quote_type == "EQUITY"

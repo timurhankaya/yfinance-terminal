@@ -1,7 +1,7 @@
-"""Denetim kaydi bosluklari ve aralik elemesi (AH S6.5).
+"""Audit-record gaps and range-based skipping.
 
-Bu dosyadaki her test, `sync_run_items`'a satir YAZILMAMASI riskini
-kapatir: yazilmayan satir sessiz veri kaybi demektir.
+Every test in this file closes off the risk of a row NOT being written to
+`sync_run_items`: an unwritten row means silent data loss.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ FETCHED_AT = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 
 
 class _Watchonly(Dataset[None]):
-    """`sustainability` gibi izleme dataset'i: hicbir tabloya yazmaz."""
+    """A watch dataset like `sustainability`: writes to no table."""
 
     name = "_watchonly"
     produces = ()
@@ -41,8 +41,9 @@ class _Boom(_Watchonly):
 
 
 class _Bootstrap(Dataset[None]):
-    """Sembolu cozer. BOS sonuc donerse worker sembolu bastan atlar
-    (unknown_symbol), bu yuzden dolu bir TableWrite dondurmelidir."""
+    """Resolves the symbol. If it returns empty, the worker skips the
+    symbol entirely (unknown_symbol), so it must return a populated
+    TableWrite."""
 
     name = "symbols"
     produces = ("symbols",)
@@ -69,7 +70,7 @@ class _Ranged(_Watchonly):
 
 
 def test_watchonly_dataset_still_records_an_item() -> None:
-    """produces=() olan dataset denetimden KAYBOLMAZ (AH S6.5/1)."""
+    """A dataset with produces=() does not vanish from the audit."""
     records = _record_items(_Watchonly(), "AAPL", WriteStats(), fetched=0, duration_ms=1)
     assert len(records) == 1
     assert records[0].table_name is None
@@ -77,7 +78,7 @@ def test_watchonly_dataset_still_records_an_item() -> None:
 
 
 def test_watchonly_failure_still_records_an_item() -> None:
-    """Ayni bosluk HATA yolunda da vardi (AH S6.5/2)."""
+    """The same gap existed on the failure path too."""
     registry: Registry[Dataset[Any]] = Registry()
     registry.register(_Watchonly())
     records = _failed_records("AAPL", "_watchonly", "boom", registry=registry)
@@ -87,7 +88,7 @@ def test_watchonly_failure_still_records_an_item() -> None:
 
 
 def test_unknown_dataset_name_still_records_an_item() -> None:
-    """Registry'de olmayan ad icin de tek NULL satir yazilir."""
+    """A single NULL row is written even for a name absent from the registry."""
     registry: Registry[Dataset[Any]] = Registry()
     records = _failed_records("AAPL", "_yok", "boom", registry=registry)
     assert len(records) == 1
@@ -107,25 +108,26 @@ def _run_worker(datasets: list[Dataset[Any]], **ctx_kwargs: Any) -> SymbolPayloa
 
 
 def test_range_skips_date_range_none_datasets() -> None:
-    """--start verildiginde 'none' dataset'i KOSTURULMAZ ve kayda gecer."""
+    """When --start is given, a 'none' dataset is not run and gets recorded."""
     payload = _run_worker([_Watchonly(), _Ranged()], start=date(2020, 1, 1))
     assert [name for name, _ in payload.skipped] == ["_watchonly"]
     assert payload.skipped[0][1] == "date_range=none"
     ran = [ds.name for ds, *_ in payload.results]
-    # Bootstrap ELENMEZ: date_range="none" olsa da sembol cozulmeden hicbir
-    # dataset kosamaz; eleme yalnizca dongudeki dataset'lere uygulanir.
+    # Bootstrap is never skipped: no dataset can run before the symbol is
+    # resolved, even with date_range="none"; skipping applies only to
+    # datasets in the loop.
     assert ran == ["symbols", "_ranged"]
 
 
 def test_no_range_runs_everything() -> None:
-    """Aralik verilmediginde hicbir dataset elenmez."""
+    """When no range is given, no dataset is skipped."""
     payload = _run_worker([_Watchonly(), _Ranged()])
     assert payload.skipped == []
     assert {ds.name for ds, *_ in payload.results} == {"symbols", "_watchonly", "_ranged"}
 
 
 def test_skipped_datasets_become_item_records() -> None:
-    """Elenen dataset sessizce kaybolmaz; SKIPPED olarak yazilir."""
+    """A skipped dataset does not vanish silently; it is written as SKIPPED."""
     from yfin.pipeline.runner import _skipped_records
 
     registry: Registry[Dataset[Any]] = Registry()
@@ -138,7 +140,7 @@ def test_skipped_datasets_become_item_records() -> None:
 
 
 def test_worker_range_filter_reaches_context() -> None:
-    """'filter' dataset'i araligi ctx uzerinden gorur."""
+    """A 'filter' dataset sees the range via ctx."""
     seen: dict[str, Any] = {}
 
     class _Peek(_Ranged):
@@ -155,9 +157,9 @@ def test_worker_range_filter_reaches_context() -> None:
 
 @pytest.mark.parametrize("field_name", ["start", "end"])
 def test_shard_spec_carries_range(field_name: str) -> None:
-    """ShardSpec araligi process sinirindan gecirmeli (AH S6.5/7).
+    """ShardSpec must carry the range across the process boundary.
 
-    Gecmezse proxy havuzu doluyken --start SESSIZCE yok sayilir.
+    Without it, --start is silently ignored whenever the proxy pool is full.
     """
     import pickle
 

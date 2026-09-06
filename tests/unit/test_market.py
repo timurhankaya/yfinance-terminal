@@ -1,4 +1,4 @@
-"""Piyasa dataset'leri ve hash kapisi testleri (S9.1)."""
+"""Market dataset and hash-gate tests."""
 
 from __future__ import annotations
 
@@ -45,12 +45,12 @@ class TestMarketStatus:
         assert row["gmt_offset"] is not None
 
     def test_none_status_is_empty_not_failure(self) -> None:
-        """US disindaki 7 bolgede status None doner (deterministik)."""
+        """Status returns None (deterministically) in the 7 regions outside the US."""
         raw = MarketStatusPayload(region="EUROPE", status=None, fetched_at=FETCHED_AT)
         assert MARKET_DATASETS["market_status"].normalize(raw).is_empty
 
     def test_datetime_fields_serialize(self) -> None:
-        """open/close birer datetime nesnesidir; duz json.dumps TypeError verir."""
+        """open/close are datetime objects; a plain json.dumps raises TypeError."""
         raw = MarketStatusPayload(
             region="US", status=_market_fixture("market_status"), fetched_at=FETCHED_AT
         )
@@ -73,17 +73,18 @@ class TestMarketSummary:
     def test_symbol_carried_without_fk(self) -> None:
         rows = _rows(self._result(), "market_summary")
         assert any(r["symbol"] for r in rows)
-        assert all(r["is_known"] is False for r in rows)  # upsert asamasinda isaretlenir
+        assert all(r["is_known"] is False for r in rows)  # flagged during the upsert step
 
     def test_envelope_shape_raises_instead_of_writing_garbage(self) -> None:
-        """Parse hatasinda yfinance ham zarf dict'i dondurebilir; sekil
-        dogrulanmazsa (region, board_code) PK'sina cop yazilirdi."""
+        """On a parse failure, yfinance can return the raw envelope dict;
+        without validating the shape, garbage would be written into the
+        (region, board_code) PK."""
         raw = MarketSummaryPayload(
             region="US",
             summary={"marketSummaryResponse": {"result": []}},
             fetched_at=FETCHED_AT,
         )
-        with pytest.raises(ValueError, match="beklenmedik"):
+        with pytest.raises(ValueError, match="unexpected market summary shape"):
             MARKET_DATASETS["market_summary"].normalize(raw)
 
 
@@ -101,13 +102,13 @@ class TestCalendars:
         assert all(r["event_start_ts_utc"].tzinfo is UTC for r in rows)
 
     def test_economic_calendar_triple_key_is_unique(self) -> None:
-        """Index (Event) tekil DEGIL (100 satirda 29 tekrar); uclu anahtar
-        100/100 tekil olculdu."""
+        """Index (Event) is not unique (29 repeats in 100 rows); the
+        three-column key was measured unique for 100/100."""
         raw = _market_fixture("economic_calendar")
         rows = _rows(self._result("economic_calendar", "economic_calendar"), "calendar_economic")
         keys = {(r["region"], r["event_time_utc"], r["event_name"]) for r in rows}
         assert len(keys) == len(rows)
-        assert len(rows) == len(raw)  # hicbir satir tekillestirmede kaybolmadi
+        assert len(rows) == len(raw)  # no row was lost during deduplication
 
     def test_economic_calendar_uses_last_reported_not_reserved_word(self) -> None:
         rows = _rows(self._result("economic_calendar", "economic_calendar"), "calendar_economic")
@@ -115,7 +116,7 @@ class TestCalendars:
         assert "last_value" not in rows[0]
 
     def test_ipo_calendar_handles_nat(self) -> None:
-        """Filing/Amended Date olcumde 3/3 satirda NaT."""
+        """Filing/Amended Date was measured NaT in 3 of 3 rows."""
         rows = _rows(self._result("ipo_calendar", "ipo_calendar"), "calendar_ipo")
         assert rows
         assert all(r["filing_date"] is None or isinstance(r["filing_date"], date) for r in rows)
@@ -168,7 +169,7 @@ class _GatedDataset(HashGatedDataset[None]):
     child_table = "financial_facts"
     gate_key_columns = GATE_KEY
 
-    def fetch(self, ctx: Any) -> None:  # pragma: no cover - test tabani
+    def fetch(self, ctx: Any) -> None:  # pragma: no cover - test base
         return None
 
     def normalize(self, raw: None, symbol: str) -> NormalizedResult:  # pragma: no cover
@@ -214,8 +215,8 @@ class TestHashGate:
         assert stats.attempted["financial_facts"] == 1
 
     def test_unchanged_hash_skips_facts_but_writes_period(self) -> None:
-        """Hash esitse cocuk satirlari yazilmaz; baslik satiri YAZILIR ve
-        yalnizca fetched_at guncellenir (S6.3/b)."""
+        """If the hash matches, child rows are not written; the header row
+        is still written, and only fetched_at is updated."""
         key = ("financial_periods", "AAPL", "income", "annual", date(2025, 9, 30))
         writer = _FakeWriter({key: "h1"})
         stats = _GatedDataset().upsert(writer, _gated_result("h1"))

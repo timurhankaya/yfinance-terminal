@@ -1,4 +1,4 @@
-"""S8.3'teki her kural icin ayri test (S9.1)."""
+"""A dedicated test for each normalization rule."""
 
 from __future__ import annotations
 
@@ -15,13 +15,13 @@ from yfin.core import normalize as nz
 
 class TestDecimalConversion:
     def test_numpy_float_does_not_raise(self) -> None:
-        """Ciplak Decimal(repr(x)) numpy 2.x'te InvalidOperation firlatir:
+        """A bare Decimal(repr(x)) raises InvalidOperation on numpy 2.x:
         repr(np.float64(0.00187)) == 'np.float64(0.00187)'."""
         assert repr(np.float64(0.00187)).startswith("np.float64")
         assert nz.to_decimal(np.float64(0.00187)) == Decimal("0.00187")
 
     def test_no_binary_residue(self) -> None:
-        """Decimal(float) ikili artik uretir; repr(float(x)) uretmez."""
+        """Decimal(float) produces binary residue; repr(float(x)) does not."""
         assert nz.to_decimal(np.float64(0.128348)) == Decimal("0.128348")
         assert str(nz.to_decimal(0.001870)) == "0.00187"
 
@@ -45,7 +45,7 @@ class TestSentinels:
 
 class TestEmptyResult:
     def test_none_is_empty_not_attribute_error(self) -> None:
-        """get_shares_full None donebilir; None.empty AttributeError verir."""
+        """get_shares_full can return None; None.empty raises AttributeError."""
         assert nz.is_empty_result(None) is True
 
     def test_empty_series_object_dtype(self) -> None:
@@ -57,8 +57,8 @@ class TestEmptyResult:
 
 class TestTimezone:
     def test_positive_offset_date_does_not_shift_back(self) -> None:
-        """THYAO 2000-05-10 00:00+03:00 UTC'de 2000-05-09 21:00'dir;
-        session_date yerel tarihi korumalidir."""
+        """THYAO 2000-05-10 00:00+03:00 is 2000-05-09 21:00 in UTC;
+        session_date must preserve the local date."""
         ts = pd.Timestamp("2000-05-10 00:00:00+03:00")
         assert nz.to_local_date(ts) == date(2000, 5, 10)
         assert nz.to_datetime_utc(ts) == datetime(2000, 5, 9, 21, 0, tzinfo=UTC)
@@ -103,8 +103,8 @@ class TestEpochMap:
 
 class TestCanonicalJson:
     def test_nan_never_reaches_mysql(self) -> None:
-        """allow_nan=True ile NaN sizarsa content_hash her kosuda ayrisir ve tum
-        sembolun transaction'i geri alinir."""
+        """If NaN leaked through with allow_nan=True, content_hash would
+        diverge on every run and roll back the whole symbol's transaction."""
         out = nz.canonical_json({"x": float("nan"), "y": np.float64("inf")})
         assert "NaN" not in out and "Infinity" not in out
         assert json.loads(out) == {"x": None, "y": None}
@@ -128,7 +128,7 @@ class TestCanonicalJson:
 
 class TestHistoryMetadataEncoder:
     def test_dataframe_and_timestamps_serialize(self) -> None:
-        """tradingPeriods bir DataFrame; duz json.dumps TypeError verir."""
+        """tradingPeriods is a DataFrame; a plain json.dumps raises TypeError."""
         frame = pd.DataFrame(
             {
                 "start": [pd.Timestamp("2026-09-03 09:30:00-04:00")],
@@ -171,23 +171,23 @@ class TestNames:
         assert nz.normalize_symbol("  thyao.is ") == "THYAO.IS"
 
     def test_double_space_in_officer_name(self) -> None:
-        """Kaynakta cift bosluk var; normalize edilmezse duplike satir olusur."""
+        """The source has a double space; without normalization, a duplicate row results."""
         assert nz.normalize_person_name("Mr. Kevan  Parekh") == "Mr. Kevan Parekh"
 
 
 class TestNumericBoundaries:
-    """Kolon kapasitesi ile Python'un Decimal context'i arasindaki sinir.
+    """The boundary between column capacity and Python's Decimal context.
 
-    Bu iki kural olmadan hata SESSIZ ya da TUM HUCREYI dusuren cinstendi;
-    ikisi de denetimde `ok` gorunurdu.
+    Without these two rules, the failure would be silent or drop an entire
+    cell -- and either way an audit would still show `ok`.
     """
 
     def test_numpy_int_epoch_is_not_silently_null(self) -> None:
-        """`np.int64` int'in alt sinifi DEGILDIR (np.float64 float'in ALT
-        SINIFIDIR). Duz `isinstance(v, int | float)` ile epoch degeri
-        `to_datetime_utc`'ye duser ve None doner: SESSIZ NULL. Bir sembolun
-        insider tarihlerinin TAMAMI doluysa pandas kolonu int64 yapar ve
-        uc tarih kolonu birden NULL olurdu.
+        """`np.int64` is not a subclass of int (np.float64 IS a subclass of
+        float). With a plain `isinstance(v, int | float)`, an epoch value
+        would fall through to `to_datetime_utc` and return None: a silent
+        NULL. If a symbol's insider dates are all populated, pandas makes
+        the column int64, and all three date columns would go NULL at once.
         """
         from yfin.models.kinds import KINDS
 
@@ -198,25 +198,25 @@ class TestNumericBoundaries:
         assert convert(1700000000) == expected
 
     def test_bool_is_not_an_epoch(self) -> None:
-        """`bool` Integral'dir ama tarih degildir."""
+        """`bool` is Integral but not a date."""
         from yfin.models.kinds import KINDS
 
         assert KINDS["dt"].convert(True) is None
 
     def test_fact_value_limit_matches_the_column(self) -> None:
-        """DECIMAL(38,10) = 28 tam hane. Python'un VARSAYILAN context'i 28
-        ANLAMLI hane tasidigi icin duz `quantize` 1e18'de InvalidOperation
-        firlatirdi -- ve istisna `normalize`dan cikip o (sembol x dataset)
-        hucresinin TUM satirlarini dusururdu.
+        """DECIMAL(38,10) = 28 integer digits. Python's default context
+        carries 28 significant digits, so a plain `quantize` would raise
+        InvalidOperation at 1e18 -- and the exception, escaping `normalize`,
+        would drop every row of that (symbol x dataset) cell.
         """
         from yfin.datasets.common import to_fact_value
 
         assert to_fact_value(Decimal("1e18")) is not None
-        assert to_fact_value(Decimal("1e27")) is not None  # kolonun sinirinda
-        assert to_fact_value(Decimal("1e28")) is None  # gercekten tasar -> satir duser
+        assert to_fact_value(Decimal("1e27")) is not None  # at the column's limit
+        assert to_fact_value(Decimal("1e28")) is None  # genuinely overflows -> row dropped
 
     def test_big_value_limit_matches_the_column(self) -> None:
-        """DECIMAL(38,0) = 38 tam hane."""
+        """DECIMAL(38,0) = 38 integer digits."""
         from yfin.models.kinds import KINDS
 
         convert = KINDS["big"].convert

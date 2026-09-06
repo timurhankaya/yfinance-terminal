@@ -26,14 +26,14 @@ def _insert(engine: Engine, key: str, value: str) -> None:
         conn.commit()
 
 
-def test_gercek_satir_okunur(
+def test_a_real_row_is_read(
     test_engine: Engine, store_settings: Settings, clean_settings_table: None
 ) -> None:
     _insert(test_engine, "yf_max_shards", "9")
     assert load_overrides(store_settings) == {"yf_max_shards": "9"}
 
 
-def test_bilinmeyen_ve_env_only_satirlar_DUSURULUR(
+def test_unknown_and_env_only_rows_are_DROPPED(
     test_engine: Engine, store_settings: Settings, clean_settings_table: None
 ) -> None:
     _insert(test_engine, "YF_MAX_SHARDS", "9")  # non-canonical form
@@ -42,7 +42,7 @@ def test_bilinmeyen_ve_env_only_satirlar_DUSURULUR(
     assert load_overrides(store_settings) == {"yf_news_tab": "news"}
 
 
-def test_ham_SQL_ile_sokulan_bozuk_deger_kosuyu_COKTURUR(
+def test_a_broken_value_inserted_by_raw_SQL_FAILS_the_run(
     test_engine: Engine,
     store_settings: Settings,
     clean_settings_table: None,

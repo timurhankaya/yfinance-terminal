@@ -229,7 +229,7 @@ def test_empty_frame_yields_empty_result() -> None:
 def test_unknown_interval_is_rejected() -> None:
     payload = _payload("AAPL")
 
-    with pytest.raises(ValueError, match="bilinmeyen interval"):
+    with pytest.raises(ValueError, match="unknown interval"):
         normalize_bars(
             BarPayload(frame=payload.frame, trading_periods=None, interval="3mo"), "AAPL"
         )

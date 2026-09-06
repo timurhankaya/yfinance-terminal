@@ -1,4 +1,4 @@
-"""SQ S7.3: screener normalizasyonu -- GERCEK fixture'larla, agsiz."""
+"""Screener normalization -- against real fixtures, no network."""
 
 from __future__ import annotations
 
@@ -40,20 +40,20 @@ def gainers() -> Any:
 
 class TestWrites:
     def test_all_declared_tables_are_written(self, gainers: Any) -> None:
-        """`produces` ile fiili cikti AYRISAMAZ."""
+        """`produces` and actual output must not diverge."""
         assert {w.table for w in gainers.writes} == set(ScreenerDataset.produces)
 
     def test_member_count_matches_quotes(self, gainers: Any) -> None:
         assert len(_rows(gainers, "screen_members")) == len(_rows(gainers, "screen_quotes"))
 
     def test_ranks_are_zero_based_and_dense(self, gainers: Any) -> None:
-        """SQ S5.14: ilk sembolun `rank_index`i 0'dir."""
+        """The first symbol's `rank_index` is 0."""
         ranks = [r["rank_index"] for r in _rows(gainers, "screen_members")]
         assert ranks == list(range(len(ranks)))
 
     def test_run_row_records_total_and_fetched(self, gainers: Any) -> None:
-        """SQ S9.6/1: `total` != `fetched_rows` sayfa sinirina takilmayi
-        SESSIZ DEGIL KAYITLA gosterir."""
+        """`total` != `fetched_rows` records hitting the page limit,
+        rather than staying silent about it."""
         run = _rows(gainers, "screen_runs")[0]
         assert run["total"] > run["fetched_rows"]
         assert run["fetched_rows"] == len(_rows(gainers, "screen_members"))
@@ -62,24 +62,24 @@ class TestWrites:
 
 class TestScreenMetadata:
     def test_predefined_title_comes_from_get_page(self, gainers: Any) -> None:
-        """SQ S4.1/13: `title` yalniz predefined GET yanitinda var."""
+        """`title` exists only in the predefined GET response."""
         screen = _rows(gainers, "screens")[0]
         assert screen["title"] == "Day Gainers"
         assert screen["definition_json"]
 
     def test_custom_screen_falls_back_to_screendef(self) -> None:
-        """Custom ekranin ILK sayfasi da POST'tur ve metadata GELMEZ
-        (olculdu: 5 anahtar). O zaman `ScreenDef` konusur."""
+        """A custom screen's first page is also a POST and carries no
+        metadata (measured: 5 keys). `ScreenDef` speaks instead."""
         result = ScreenerDataset().normalize(_payload("tr_equity_p0", key="tr_equity"))
         screen = _rows(result, "screens")[0]
         assert screen["title"] == "BIST Equities"
         assert screen["kind"] == "custom"
         assert screen["quote_type"] == "EQUITY"
-        # definition_json sorgu NESNESINDEN uretilir, rawCriteria'dan degil
+        # definition_json is built from the query object, not rawCriteria
         assert "operator" in str(screen["definition_json"])
 
     def test_is_enabled_is_not_in_update_scope(self) -> None:
-        """Operator DB'de kapattiginda her kosu onu geri acmamali."""
+        """Once the operator disables it in the DB, no run should re-enable it."""
         from yfin.datasets.market.screener import _SCREEN_UPDATE
 
         assert "is_enabled" not in _SCREEN_UPDATE
@@ -88,7 +88,7 @@ class TestScreenMetadata:
 
 class TestQuoteProjection:
     def test_shared_columns_use_ticker_info_names(self, gainers: Any) -> None:
-        """SQ S4.5: 75 ortak alan kolon adini `ticker_info`dan devralir."""
+        """75 shared fields inherit their column name from `ticker_info`."""
         row = _rows(gainers, "screen_quotes")[0]
         assert "regular_market_price" in row
         assert "fifty_two_week_high" in row
@@ -99,27 +99,27 @@ class TestQuoteProjection:
             assert column in row
 
     def test_corporate_actions_stays_in_raw_json(self, gainers: Any) -> None:
-        """Liste bir kolona sigmaz; VERI KAYBI YOKTUR."""
+        """A list does not fit in a column; there is no data loss."""
         row = _rows(gainers, "screen_quotes")[0]
         assert "corporate_actions" not in row
         assert "corporateActions" in row["raw_json"]
 
     def test_iso_date_strings_become_datetimes(self) -> None:
-        """SQ S9.5/1: `ipoExpectedDate` / `nameChangeDate` ISO METINDIR.
+        """`ipoExpectedDate` / `nameChangeDate` are ISO text.
 
-        `epoch_s` kind'i verilseydi ikisi de SESSIZCE NULL olurdu.
+        If they were given the `epoch_s` kind, both would silently be NULL.
         """
         result = ScreenerDataset().normalize(_payload("bond_etfs_p0", key="bond_etfs"))
         values = [
             r["ipo_expected_date"] for r in _rows(result, "screen_quotes") if r["ipo_expected_date"]
         ]
-        if values:  # alan %6 doluluk; ornekte yoksa test anlamsizdir
+        if values:  # field is ~6% populated; test is moot if absent here
             assert all(hasattr(v, "year") for v in values)
 
 
 class TestSymbolPromotion:
     def test_new_symbols_are_written_inactive(self, gainers: Any) -> None:
-        """SQ K10 + S8.3: kesif PASIF yazar; aktiflestirme ELLEDIR."""
+        """Discovery writes inactive; activation is manual."""
         rows = _rows(gainers, "symbols")
         assert rows
         assert all(r["is_active"] is False for r in rows)
@@ -127,15 +127,15 @@ class TestSymbolPromotion:
         assert all(r["discovered_at"] == FETCHED_AT for r in rows)
 
     def test_symbol_update_scope_excludes_activation_columns(self) -> None:
-        """REGRESYON (SQ K10): kapsama girselerdi operatorun elle
-        aktiflestirdigi sembol ertesi gun SESSIZCE pasife donerdi."""
+        """Regression guard: if these were in scope, a symbol the operator
+        manually activated would silently go inactive again the next day."""
         from yfin.datasets.market.screener import SYMBOL_UPDATE
 
         for column in ("is_active", "unknown_streak", "discovered_by", "discovered_at"):
             assert column not in SYMBOL_UPDATE
 
     def test_symbol_update_scope_only_covers_filled_columns(self) -> None:
-        """SQ S5.12: her yol YALNIZ doldurdugu kolonu gunceller."""
+        """Each path updates only the column it actually fills."""
         from yfin.datasets.market.screener import SYMBOL_UPDATE, _symbol_row
 
         filled = set(
@@ -155,7 +155,7 @@ class TestSymbolPromotion:
 
 class TestMixedQuoteTypes:
     def test_bond_etfs_carries_two_quote_types(self) -> None:
-        """Tek ekran karisik `quoteType` dondurebiliyor (EQUITY + ETF)."""
+        """A single screen can return a mixed `quoteType` (EQUITY + ETF)."""
         result = ScreenerDataset().normalize(_payload("bond_etfs_p0", key="bond_etfs"))
         types = {r["quote_type"] for r in _rows(result, "screen_quotes")}
         assert len(types) >= 1
@@ -164,7 +164,7 @@ class TestMixedQuoteTypes:
 
 class TestEmptyScreen:
     def test_zero_quotes_still_writes_the_header(self) -> None:
-        """SQ S9.2: `total=0` ekraninda `screen_runs` `ok`, cocuklar `empty`."""
+        """For a `total=0` screen, `screen_runs` is `ok`, children are `empty`."""
         payload = ScreenPayload(
             screen_key="day_gainers",
             as_of_date=AS_OF,
@@ -180,7 +180,7 @@ class TestEmptyScreen:
         assert _rows(result, "screen_quotes") == []
 
     def test_quote_without_symbol_is_dropped(self) -> None:
-        """PK'ya NULL yazmaktansa satiri elemek dogru."""
+        """Dropping the row is correct, rather than writing NULL into the PK."""
         payload = ScreenPayload(
             screen_key="day_gainers",
             as_of_date=AS_OF,

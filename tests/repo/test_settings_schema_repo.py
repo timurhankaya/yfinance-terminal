@@ -38,7 +38,9 @@ def test_value_NOT_NULL(test_engine: Engine, clean_settings_table: None) -> None
         conn.execute(text("INSERT INTO settings (setting_key, value) VALUES ('yf_news_tab', NULL)"))
 
 
-def test_bos_dize_MESRU_bir_degerdir(test_engine: Engine, clean_settings_table: None) -> None:
+def test_an_empty_string_is_a_LEGITIMATE_value(
+    test_engine: Engine, clean_settings_table: None
+) -> None:
     with test_engine.connect() as conn:
         conn.execute(
             text("INSERT INTO settings (setting_key, value) VALUES ('yf_screen_keys', '')")

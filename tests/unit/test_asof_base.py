@@ -1,4 +1,4 @@
-"""AsOfDataset hash kapisi (AH S6.1). VERITABANINA HIC dokunmaz."""
+"""AsOfDataset hash gate. Never touches a database."""
 
 from __future__ import annotations
 
@@ -85,12 +85,12 @@ def _hash(rows: list[dict[str, Any]]) -> str:
     return Holders().content_hash(_result(rows))
 
 
-# --- hash tanimi ----------------------------------------------------------
+# --- hash definition ---------------------------------------------------
 
 
 def test_hash_ignores_fetched_at() -> None:
-    """VOLATILE_COLUMNS daralirsa mekanizma SESSIZCE hic calismaz: her gun
-    her satir yeniden yazilir ve kimse fark etmez (AH S6.1)."""
+    """If VOLATILE_COLUMNS narrows, the mechanism silently stops working
+    entirely: every row gets rewritten every day and nobody notices."""
     assert _hash(_rows("Vanguard", fetched_at=NOW)) == _hash(
         _rows("Vanguard", fetched_at=LATER)
     )
@@ -103,9 +103,9 @@ def test_hash_ignores_as_of_date() -> None:
 
 
 def test_hash_ignores_row_order() -> None:
-    """canonical_json yalnizca SOZLUK anahtarlarini siralar; liste sirasi
-    korunur. Yahoo 'ilk 10' listesinin sirasini degistirdiginde icerik ayniyken
-    hash degisirdi -- mekanizmanin varlik nedeninin tam tersi."""
+    """canonical_json sorts only dict keys; list order is preserved. If
+    Yahoo reorders its 'top 10' list, the hash would change with identical
+    content -- the exact opposite of why this mechanism exists."""
     assert _hash(_rows("Vanguard", "BlackRock")) == _hash(_rows("BlackRock", "Vanguard"))
 
 
@@ -117,13 +117,13 @@ def test_hash_is_stable_across_calls() -> None:
     assert _hash(_rows("Vanguard")) == _hash(_rows("Vanguard"))
 
 
-# --- kapi davranisi -------------------------------------------------------
+# --- gate behavior -------------------------------------------------------
 
 
 def test_empty_result_writes_nothing_at_all() -> None:
-    """Bos sonucta kapi satiri YAZILMAZ; aksi halde her fon-olmayan sembol
-    icin olu satir birikir ve first_seen_at 'ilk kez bos donuldu' anlamina
-    kayardi (AH S6.1/3)."""
+    """No gate row is written for an empty result; otherwise a dead row
+    would accumulate for every non-fund symbol, and first_seen_at would
+    drift to mean "first time it came back empty"."""
     writer = FakeWriter()
     stats = Holders().upsert(writer, NormalizedResult())
     assert writer.written == []
@@ -144,17 +144,17 @@ def test_first_run_writes_data_and_gate() -> None:
 
 
 def test_gate_update_columns_exclude_first_seen_at() -> None:
-    """Guncelleme kapsami first_seen_at'i icerseydi 'ilk INSERT'te
-    yazilir' kurali bozulurdu (AH S5.4)."""
+    """If the update scope included first_seen_at, the "written only on
+    the first INSERT" rule would break."""
     writer = FakeWriter()
     Holders().upsert(writer, _result(_rows("Vanguard")))
     assert "first_seen_at" not in writer.write_for(GATE_TABLE).update_columns
 
 
 def test_unchanged_hash_skips_data_but_touches_gate() -> None:
-    """Kapi satiri HER DURUMDA yazilir; hash esitse yalnizca fetched_at
-    guncellenir -- boylece fetched_at 'son DOGRULAMA zamani'dir
-    (hash_gated.py'nin kurdugu ilke)."""
+    """The gate row is always written; if the hash matches, only fetched_at
+    is updated -- so fetched_at means "time of last verification" (the
+    principle hash_gated.py establishes)."""
     rows = _rows("Vanguard")
     writer = FakeWriter({(GATE_TABLE, "AAPL|institutional_holders"): _hash(rows)})
     stats = Holders().upsert(writer, _result(rows))
@@ -177,9 +177,9 @@ def test_changed_hash_rewrites_everything() -> None:
 
 
 def test_empty_child_table_stays_empty_not_skipped() -> None:
-    """Cok tablolu dataset'te bos TableWrite tasiyan hedef EMPTY kalir;
-    skipped yalnizca satir tasiyan tablolara yazilir (AH S7.2). BND'de
-    fund_top_holdings 0 satirdir, kardes tablolar skipped olur."""
+    """In a multi-table dataset, a target with an empty TableWrite stays
+    EMPTY; skipped is written only for tables that carry rows. For BND,
+    fund_top_holdings has 0 rows while its sibling tables get skipped."""
     rows = _rows("Vanguard")
     result = NormalizedResult(
         writes=[
@@ -201,14 +201,15 @@ def test_empty_child_table_stays_empty_not_skipped() -> None:
 
 
 def test_gate_table_is_declared_in_produces() -> None:
-    """produces sozlesmesi 'yazdigi tablo adlari'dir ve test_registry her
-    elemanin metadata'da bulunmasini zorunlu kilar (AH S6.1)."""
+    """produces's contract is 'the table names it writes to', and
+    test_registry requires every entry to exist in the metadata."""
     assert GATE_TABLE in Holders.produces
 
 
 def test_gate_row_is_counted_in_stats() -> None:
-    """Kapi satiri sayaclara girer; aksi halde basari yolunda asof_state
-    denetim satiri olusmaz ama HATA yolunda olusurdu (asimetri)."""
+    """The gate row is counted in the stats; otherwise the success path
+    would produce no asof_state audit row while the failure path would
+    (an asymmetry)."""
     writer = FakeWriter()
     stats = Holders().upsert(writer, _result(_rows("Vanguard")))
     assert stats.attempted[GATE_TABLE] == 1
@@ -217,7 +218,8 @@ def test_gate_row_is_counted_in_stats() -> None:
 
 
 def test_gate_row_is_counted_even_when_data_is_skipped() -> None:
-    """Hash esitken bile kapi dogrulanir: 'bu sembol bugun kontrol edildi'."""
+    """Even when the hash matches, the gate is verified: "this symbol was
+    checked today"."""
     rows = _rows("Vanguard")
     writer = FakeWriter({(GATE_TABLE, "AAPL|institutional_holders"): _hash(rows)})
     stats = Holders().upsert(writer, _result(rows))

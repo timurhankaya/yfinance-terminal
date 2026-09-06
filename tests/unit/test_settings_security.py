@@ -1,9 +1,9 @@
-"""Guvenlik siniri: `ENV_ONLY_FIELDS` DB'den EZILEMEZ (CFG S3.2/S7).
+"""Security boundary: `ENV_ONLY_FIELDS` cannot be overridden from the DB.
 
-Bu filtre bir "iyi olur" degildir. Uygulanabilseydi `settings` tablosuna
-yazma yetkisi olan biri `db_host`u degistirip TUM baglantiyi baska bir
-sunucuya cevirebilir ya da `yf_proxy_secret_key`i ezip proxy
-parolalarinin cozumunu ele gecirebilirdi.
+This filter is not a nice-to-have. If it could be bypassed, anyone with
+write access to the `settings` table could change `db_host` and redirect
+the entire connection to another server, or overwrite
+`yf_proxy_secret_key` and take over proxy credential decryption.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ def _clean(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     config_mod.reset_settings()
 
 
-def test_db_host_satiri_UYGULANMAZ(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_db_host_row_is_NOT_APPLIED(monkeypatch: pytest.MonkeyPatch) -> None:
     warnings: list[dict[str, Any]] = []
     monkeypatch.setattr(
         settings_store.log, "warning", lambda msg, **kw: warnings.append(kw)
@@ -39,7 +39,7 @@ def test_db_host_satiri_UYGULANMAZ(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     settings = get_settings()
     assert settings.db_host != "evil.example.com"
-    assert settings.yf_max_shards == 9, "mesru ezme de birlikte dusmemeli"
+    assert settings.yf_max_shards == 9, "a legitimate override must not be dropped along with it"
     assert {kw["setting_key"] for kw in warnings} == {"db_host"}
 
 
@@ -49,9 +49,9 @@ def test_her_env_only_alan_filtrelenir(key: str) -> None:
 
 
 @pytest.mark.parametrize("key", sorted(ENV_ONLY_FIELDS))
-def test_yazma_yolu_da_reddeder(key: str) -> None:
-    """Okuma filtresi TEK basina yetmez: reddedilen satir yine de
-    tabloda durur ve `config list` onu gorunur kilmaz. Yazim aninda
-    reddetmek satirin HIC olusmamasini saglar."""
+def test_the_write_path_rejects_it_too(key: str) -> None:
+    """The read filter alone is not enough: a rejected row would still sit
+    in the table, and `config list` would not surface it. Rejecting at
+    write time ensures the row never exists at all."""
     with pytest.raises(SettingRejected):
         validate_pair(key, "x", overrides={})
