@@ -22,9 +22,15 @@ def schema_name(base: str) -> str:
 
     Sabit tek sema kullanildiginda iki pytest kosusu (ornegin iki editor
     oturumu) birbirinin tablolarini `drop_all` ile dusuruyordu; belirti
-    ERROR 1684 ("table was skipped since its definition is being modified
-    by concurrent DDL statement") ve tekrarlanmayan satir-sayisi
-    hatalariydi. Sema adini surece baglamak bu sinifi imkansiz kilar.
+    es zamanli DDL hatalari ve tekrarlanmayan satir-sayisi
+    uyusmazliklariydi. Sema adini surece baglamak bu sinifi imkansiz
+    kilar.
+
+    PostgreSQL'de SEMA kullanilir, VERITABANI DEGIL: `CREATE DATABASE`
+    transaction disinda calismak zorundadir, sablon veritabanini kopyalar
+    ve her yeni veritabaninda `CREATE EXTENSION timescaledb` gerektirir;
+    `CREATE SCHEMA` siradan bir DDL'dir ve `DROP SCHEMA ... CASCADE`
+    chunk'lari da temizler (PG S9.1).
     """
     return f"{base}_{os.getpid()}"
 
@@ -39,25 +45,31 @@ def pid_is_alive(pid: int) -> bool:
     return True
 
 
-def drop_stale_schemas(bootstrap: Engine, base: str) -> list[str]:
+def drop_stale_schemas(engine: Engine, base: str) -> list[str]:
     """Kesilen kosulardan kalan `<base>_<pid>` semalarini dusurur.
 
     Ctrl-C ve cokmeler teardown'i atlar; temizlik olmasaydi semalar
     sinirsiz birikirdi. YALNIZCA PID'i artik yasamayan semalar silinir,
-    boylece ES ZAMANLI bir kosunun semasina dokunulmaz. Taban sema
+    boylece ES ZAMANLI bir kosunun semasina dokunulmaz. Taban ad
     (`<base>`, sayisal son eki yok) da korunur.
+
+    `engine` TEST VERITABANINA bagli olmalidir, bootstrap (`postgres`)
+    baglantisina DEGIL: PostgreSQL'de `information_schema.schemata`
+    VERITABANINA OZELDIR ve bootstrap baglantisi test veritabanindaki
+    semalari GOREMEZ. Yanlis engine ile temizlik SESSIZCE hicbir sey
+    yapar ve semalar sonsuza kadar birikir (PG S9.1).
     """
     prefix = f"{base}_"
     dropped: list[str] = []
-    with bootstrap.connect() as conn:
+    with engine.connect() as conn:
         names = list(
-            conn.execute(text("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA")).scalars()
+            conn.execute(text("SELECT schema_name FROM information_schema.schemata")).scalars()
         )
         for name in names:
             suffix = name[len(prefix) :] if name.startswith(prefix) else ""
             if not suffix.isdigit() or pid_is_alive(int(suffix)):
                 continue
-            conn.execute(text(f"DROP DATABASE IF EXISTS `{name}`"))
+            conn.execute(text(f'DROP SCHEMA IF EXISTS "{name}" CASCADE'))
             conn.commit()
             dropped.append(name)
     return dropped

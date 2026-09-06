@@ -125,7 +125,9 @@ def test_asof_state_first_seen_is_not_nullable() -> None:
 
 
 def _insert(session: Session, table: str, **values: object) -> None:
-    cols = ", ".join(f"`{k}`" for k in values)
+    # PostgreSQL tanimlayicilari CIFT TIRNAKLA tirnaklanir; backtick
+    # sozdizimi hatasidir.
+    cols = ", ".join(f'"{k}"' for k in values)
     binds = ", ".join(f":{k}" for k in values)
     session.execute(text(f"INSERT INTO {table} ({cols}) VALUES ({binds})"), values)
 
@@ -272,7 +274,10 @@ def test_as_of_pk_upserts_within_the_same_day(db_session: Session, symbol: str) 
             "INSERT INTO analyst_recommendations "
             "(symbol, as_of_date, period, strong_buy, buy, hold, sell, strong_sell, fetched_at) "
             "VALUES (:s, :d, '0m', 9, 9, 9, 9, 9, :t) "
-            "ON DUPLICATE KEY UPDATE strong_buy = VALUES(strong_buy)"
+            # PG karsiligi: catisma hedefi ACIKCA verilir ve yeni deger
+            # `excluded` uzerinden okunur (MySQL'de VALUES(...) idi).
+            "ON CONFLICT (symbol, as_of_date, period) "
+            "DO UPDATE SET strong_buy = excluded.strong_buy"
         ),
         {"s": symbol, "d": AS_OF, "t": NOW},
     )

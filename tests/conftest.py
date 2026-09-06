@@ -51,41 +51,87 @@ def test_schema(settings: Settings) -> str:
 
 
 @pytest.fixture(scope="session")
-def test_engine(settings: Settings, test_schema: str) -> Iterator[Engine]:
-    """Surece ozel test semasi; kosu sonunda TAMAMEN dusurulur."""
-    bootstrap = create_engine(settings.bootstrap_url())
-    try:
-        drop_stale_schemas(bootstrap, settings.db_test_name)
-        with bootstrap.connect() as conn:
-            conn.execute(text(f"DROP DATABASE IF EXISTS `{test_schema}`"))
-            conn.execute(
-                text(
-                    f"CREATE DATABASE `{test_schema}` "
-                    "DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
-                )
-            )
-            conn.commit()
-    except Exception as exc:  # pragma: no cover
-        pytest.skip(f"MySQL erisilemiyor: {exc}")
+def bootstrap_engine(settings: Settings) -> Iterator[Engine]:
+    """`postgres` bakim veritabani. YALNIZCA `CREATE DATABASE` icin.
 
-    engine = create_db_engine(settings, test_schema)
+    Sema islemleri BU ENGINE ILE YAPILAMAZ: `information_schema`
+    VERITABANINA OZELDIR, yani buradan acilan bir baglanti
+    `yfinance_test` icindeki semalari GOREMEZ (PG S9.1).
+
+    AUTOCOMMIT sart: `CREATE DATABASE` transaction blogunda calismaz.
+    """
+    engine = create_engine(settings.bootstrap_url(), isolation_level="AUTOCOMMIT")
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def test_db_engine(settings: Settings, bootstrap_engine: Engine) -> Iterator[Engine]:
+    """Test VERITABANINA bagli engine (sema secmeden).
+
+    Sema olusturma/silme ve bayat sema temizligi bunu kullanir.
+    Eklenti burada kurulur cunku `CREATE EXTENSION` VERITABANI
+    duzeyindedir; atlanirsa `create_hypertable` "function
+    by_range(unknown, interval) does not exist" ile duser.
+    """
+    try:
+        with bootstrap_engine.connect() as conn:
+            exists = conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :n"),
+                {"n": settings.db_test_name},
+            ).scalar()
+            if not exists:
+                conn.execute(text(f'CREATE DATABASE "{settings.db_test_name}"'))
+    except Exception as exc:  # pragma: no cover
+        pytest.skip(f"PostgreSQL erisilemiyor: {exc}")
+
+    engine = create_engine(
+        settings.db_url(settings.db_test_name), isolation_level="AUTOCOMMIT"
+    )
+    with engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb"))
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def test_engine(
+    settings: Settings, test_schema: str, test_db_engine: Engine
+) -> Iterator[Engine]:
+    """Surece ozel test SEMASI; kosu sonunda TAMAMEN dusurulur."""
+    drop_stale_schemas(test_db_engine, settings.db_test_name)
+    with test_db_engine.connect() as conn:
+        conn.execute(text(f'DROP SCHEMA IF EXISTS "{test_schema}" CASCADE'))
+        conn.execute(text(f'CREATE SCHEMA "{test_schema}"'))
+
+    # search_path'te `public` ZORUNLUDUR: timescaledb eklentisi oraya
+    # kurulur ve `create_hypertable` / `timescaledb_information.*` aksi
+    # halde cozulemez. Unutulursa testler SESSIZCE duz tabloya duser
+    # (PG S9.1).
+    engine = create_db_engine(
+        settings,
+        settings.db_test_name,
+        schema=test_schema,
+        application_name=f"yfin-pytest-{os.getpid()}",
+    )
     Base.metadata.create_all(engine)
     with engine.connect() as conn:
         conn.execute(text(V_ACTIONS_CREATE))
         conn.execute(text(V_PRICE_BARS_REGULAR_CREATE))
-        # create_all() partition'lari BILMEZ (Alembic de autogenerate
-        # edemez). Migration ile ayni sabit burada da uygulanmazsa
-        # price_bars testlerde PARTITION'SIZ olusur ve ne pruning ne de
-        # ERROR 1526 davranisi dogrulanabilir (PB S9.2).
+        # create_all() hypertable'lari BILMEZ (Alembic de autogenerate
+        # edemez). Migration ile AYNI sabit burada da uygulanmazsa
+        # price_bars duz bir tablo olarak olusur ve chunk davranisi hic
+        # dogrulanamaz (PB S9.2, PG S7.6).
         for stmt in timescale_ddl():
             conn.execute(text(stmt))
         conn.commit()
     yield engine
     engine.dispose()
-    with bootstrap.connect() as conn:
-        conn.execute(text(f"DROP DATABASE IF EXISTS `{test_schema}`"))
-        conn.commit()
-    bootstrap.dispose()
+
+    # `DROP SCHEMA ... CASCADE` chunk'lari da temizler (olculdu:
+    # "drop cascades to table _timescaledb_internal._hyper_1_1_chunk").
+    with test_db_engine.connect() as conn:
+        conn.execute(text(f'DROP SCHEMA IF EXISTS "{test_schema}" CASCADE'))
 
 
 @pytest.fixture
@@ -127,7 +173,7 @@ def cleanup_tables(test_engine: Engine) -> Iterator[list[str]]:
     finally:
         with test_engine.connect() as conn:
             for name in tables:
-                conn.execute(text(f"DELETE FROM `{name}`"))
+                conn.execute(text(f'DELETE FROM "{name}"'))
             conn.commit()
 
 
@@ -149,24 +195,28 @@ def _guard_concurrent_live_runs(request: pytest.FixtureRequest) -> None:
     """
     if not any(item.get_closest_marker("live") for item in request.session.items):
         return
-    from sqlalchemy import create_engine, text
+    from sqlalchemy import create_engine
 
     from yfin.config import get_settings
-    from yfin.db import SYNC_LOCK_NAME
+    from yfin.db import SYNC_LOCK_NAME, lock_holder
 
+    # CANLI veritabanina baglanir, test veritabanina DEGIL. PostgreSQL
+    # advisory kilitleri VERITABANI KAPSAMLIDIR (MySQL GET_LOCK sunucu
+    # genelindeydi): `run_sync` kilidi canli veritabaninda alir, bu yuzden
+    # guard da orada bakmalidir. Test veritabanina bakilsaydi kilit HIC
+    # gorunmez ve guard SESSIZCE islevsiz kalirdi (PG S5.2.1).
     engine = create_engine(get_settings().db_url())
     try:
         with engine.connect() as conn:
-            free = conn.execute(text("SELECT IS_FREE_LOCK(:n)"), {"n": SYNC_LOCK_NAME}).scalar()
-            holder = conn.execute(text("SELECT IS_USED_LOCK(:n)"), {"n": SYNC_LOCK_NAME}).scalar()
-    except Exception:  # noqa: BLE001 - MySQL yoksa asil fixture zaten skip eder
+            holder = lock_holder(conn, SYNC_LOCK_NAME)
+    except Exception:  # noqa: BLE001 - sunucu yoksa asil fixture zaten skip eder
         return
     finally:
         engine.dispose()
 
-    if free == 0:
+    if holder is not None:
         pytest.exit(
-            f"'{SYNC_LOCK_NAME}' advisory kilidi MESGUL (connection {holder}). "
+            f"'{SYNC_LOCK_NAME}' advisory kilidi MESGUL ({holder}). "
             "Baska bir sync ya da live test kosusu devam ediyor; live testler "
             "es zamanli KOSTURULAMAZ. Once o kosunun bitmesini bekleyin.",
             returncode=1,
