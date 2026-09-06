@@ -1,7 +1,7 @@
 """Canli entegrasyon testi (S9.3).
 
 Varsayilan olarak ATLANIR. Elle calistirmak icin:  pytest -m live
-Gercek Yahoo API + gercek MySQL; CI'da calistirilmaz.
+Gercek Yahoo API + gercek PostgreSQL; CI'da calistirilmaz.
 """
 
 from __future__ import annotations
@@ -172,7 +172,10 @@ def test_raw_json_hash_verifiable_from_db(test_engine: Engine) -> None:
     with Session(test_engine) as session:
         for table in ("ticker_info", "ticker_fast_info", "history_metadata"):
             mismatches = session.execute(
-                text(f"SELECT COUNT(*) FROM {table} WHERE SHA2(raw_json,256) <> content_hash")
+                text(
+                    f"SELECT COUNT(*) FROM {table} "
+                    "WHERE encode(sha256(raw_json::bytea), 'hex') <> content_hash"
+                )
             ).scalar_one()
             assert mismatches == 0, table
 

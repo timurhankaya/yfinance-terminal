@@ -214,7 +214,7 @@ class EconomicCalendarDataset(CalendarDatasetBase):
             "period_for": nz.to_str(record.get("For"), max_len=16),
             "actual": nz.to_decimal(record.get("Actual")),
             "expected": nz.to_decimal(record.get("Expected")),
-            # 'last_value' MySQL rezerve kelimesi
+            # 'last_value' pencere fonksiyonu adidir (PG'de de)
             "last_reported": nz.to_decimal(record.get("Last")),
             "revised": nz.to_decimal(record.get("Revised")),
             "fetched_at": fetched_at,

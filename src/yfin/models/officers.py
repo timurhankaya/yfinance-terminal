@@ -17,12 +17,12 @@ from yfin.models.base import (
 
 class CompanyOfficer(Base):
     """Surrogate id YOKTUR: dogal anahtar yeterlidir ve her upsert'te
-    AUTO_INCREMENT yakilmasini onler (S5.2)."""
+    yapay anahtar tuketilmesini onler (S5.2)."""
 
     __tablename__ = "company_officers"
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
-    # 'Tim Cook' != 'TIM COOK' olmali -> utf8mb4_0900_as_cs (S5.1)
+    # 'Tim Cook' != 'TIM COOK' olmali -> COLLATE "C" (S5.1)
     name: Mapped[str] = mapped_column(PersonNameType(), primary_key=True)
 
     title: Mapped[str | None] = mapped_column(String(255, collation="C"))

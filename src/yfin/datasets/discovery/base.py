@@ -5,7 +5,7 @@ Iki sey yapar:
 1. KAPI TABLOSUNU degistirir. `asof_state` KULLANILAMAZ (SQ K3a): o
    tablonun `symbol` kolonu `symbol_fk_column` ile tanimlidir, yani
    `symbols.symbol`a `ON DELETE RESTRICT` FK tasir. Serbest arama terimi
-   (`"Turkish Airlines"`) `symbols`ta YOKTUR ve kapi satiri `ERROR 1452`
+   (`"Turkish Airlines"`) `symbols`ta YOKTUR ve kapi satiri FK ihlali (23503)
    alirdi. Uzunluk siniri bu sorunu COZMEZ. SI ayni duvara carpip
    `domain_asof_state`i acmisti; burada `discovery_asof_state` acilir ve
    `AsOfGate`in `asof_gate_table` / `asof_gate_key_columns` /

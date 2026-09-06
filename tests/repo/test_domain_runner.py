@@ -2,7 +2,7 @@
 
 AG YOKTUR: `fetch_domain` fixture'lardan besleyen bir sahte ile degistirilir.
 Geri kalan her sey URETIM YOLUDUR -- gercek dataset'ler, gercek runner,
-gercek MySQL, gercek `sync_run_items`.
+gercek PostgreSQL, gercek `sync_run_items`.
 """
 
 from __future__ import annotations

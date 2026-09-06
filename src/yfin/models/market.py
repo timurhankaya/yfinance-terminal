@@ -97,7 +97,7 @@ def _region_table(
         cols.append(Column("fetched_at", TsType(), nullable=False))
     args: list[object] = list(cols)
     if with_board:
-        # symbol PK'da degil ve FK yok -> InnoDB kendiliginden indeks acmaz
+        # symbol PK'da degil ve FK yok -> kendiliginden indeks olusmaz
         args.append(Index(f"ix_{name}_symbol", "symbol"))
     return Table(name, Base.metadata, *args)  # type: ignore[arg-type]
 

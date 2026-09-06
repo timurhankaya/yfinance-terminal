@@ -97,7 +97,7 @@ class FundMetric(Base):
 
     `section` PK'DADIR. Disarida birakilsaydi ayni `metric` adi iki bolumde
     geldiginde ikinci satir yazilamazdi:
-      ERROR 1062: Duplicate entry 'SPY-2026-09-04-price_to_earnings'
+      tekillik ihlali: 'SPY-2026-09-04-price_to_earnings'
     (gercek MySQL 8.3'te dogrulandi). Bugunku 9 ad cakismiyor ama bunu
     garanti eden sey yalnizca Yahoo'nun ad secimidir; kardes tablo
     fund_weightings zaten `category`'yi PK'ya koyuyor.
@@ -143,7 +143,8 @@ class FundTopHolding(Base):
     BISXX). FK olsaydi sembol basina tek transaction geregi FONUN TUM VERISI
     rollback olurdu -- news_symbols ile birebir ayni gerekce. `is_known`
     bagi isaretler; (holding_symbol) uzerinde ACIK indeks vardir cunku
-    InnoDB FK'siz indeks acmaz VE kolon PK'nin SON bileseni oldugu icin tek
+    FK olmadigi icin kendiliginden indeks olusmaz VE kolon PK'nin SON
+    bileseni oldugu icin tek
     basina aranamaz.
     """
 
@@ -161,7 +162,7 @@ class FundTopHolding(Base):
     holding_name: Mapped[str | None] = mapped_column(KeyTextType(128))
     holding_percent: Mapped[Decimal | None] = mapped_column(PriceType())
     # Ad `rank` OLAMAZ: MySQL 8'de window fonksiyonu olarak rezerve
-    # (CREATE TABLE ... rank ... -> ERROR 1064). Kaynak sirasi verinin
+    # (`rank` PostgreSQL'de de pencere fonksiyonudur). Kaynak sirasi verinin
     # kendisidir ("ilk 10" siralamasi).
     holding_rank: Mapped[int] = mapped_column(
         SmallInteger,

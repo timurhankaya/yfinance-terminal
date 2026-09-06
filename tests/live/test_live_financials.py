@@ -1,7 +1,7 @@
 """Financials + market canli entegrasyon testi (S9.3).
 
 Varsayilan olarak ATLANIR. Elle calistirmak icin:  pytest -m live
-Gercek Yahoo API + gercek MySQL; CI'da calistirilmaz.
+Gercek Yahoo API + gercek PostgreSQL; CI'da calistirilmaz.
 
 DIKKAT: `run_sync` 'yfin_sync' advisory kilidini alir. Baska bir sync
 calisiyorken bu modul `LockNotAcquired` ile duser -- bu, es zamanlilik

@@ -1,4 +1,4 @@
-"""GERCEK API verisi -> GERCEK MySQL (AH S9.1 + S9.2 birlestirilmis).
+"""GERCEK API verisi -> GERCEK PostgreSQL (AH S9.1 + S9.2 birlestirilmis).
 
 Bu dosya hattaki en guclu kaniti verir ve AGSIZ kosar: fixture'lar canli
 Yahoo'dan bir kez yakalandi (`scripts/capture_fixtures.py`), buradaki her

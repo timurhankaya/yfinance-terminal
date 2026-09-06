@@ -1,4 +1,4 @@
-"""Proxy havuzu ve shard'li yazim: gercek MySQL, ag yok (P10.2)."""
+"""Proxy havuzu ve shard'li yazim: gercek PostgreSQL, ag yok (P10.2)."""
 
 from __future__ import annotations
 

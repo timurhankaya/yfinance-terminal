@@ -29,7 +29,7 @@ def test_keys_are_unique() -> None:
 
 
 def test_keys_fit_sync_run_items_symbol_column() -> None:
-    """SQ S5.8: sinir `sync_run_items.symbol` = VARCHAR(32) ascii_bin'den gelir.
+    """SQ S5.8: sinir `sync_run_items.symbol` = VARCHAR(32) COLLATE "C"den gelir.
 
     Olculen en uzun predefined ad `conservative_foreign_funds` = 26.
     """

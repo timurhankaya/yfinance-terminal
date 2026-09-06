@@ -1,9 +1,9 @@
-"""Kesif yazimlarinin GERCEK MySQL davranisi (SQ S10.3).
+"""Kesif yazimlarinin GERCEK PostgreSQL davranisi (SQ S10.3).
 
 Unit testler `normalize`in urettigi satiri dogrular; burada o satirin
 gercekten yazilabildigi VE mevcut veriyi bozmadigi dogrulanir. Bu iki sey
 farkli hata siniflari yakalar: FK ihlali, NOT NULL, kolon kapsami ve
-`ON DUPLICATE KEY UPDATE` semantigi yalnizca gercek bir INSERT'te gorunur.
+`ON CONFLICT` semantigi yalnizca gercek bir INSERT'te gorunur.
 """
 
 from __future__ import annotations

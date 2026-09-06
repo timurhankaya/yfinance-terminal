@@ -1420,13 +1420,34 @@ kullanmaz).
 3. `pytest` (unit) yeşil.
 4. `pytest -m repo` gerçek TimescaleDB'ye karşı yeşil.
 5. `yfin db revision -m probe` **boş** migration üretiyor (dosya silinir).
-6. Son tarama boş döner:
+6. **Canlı MySQL kodu sıfır.** Tarama boş döner:
    ```
-   grep -rniE 'mysql|innodb|utf8|charset|ai_ci|_bin|collate |pymysql|on_duplicate|get_lock|release_lock|is_used_lock|is_free_lock|longtext|mediumtext|tinyint|varbinary|sql_mode|auto_increment|max_allowed_packet|client_found_rows|last_insert_id|sha2\(|column_type|database\(\)|information_schema\.partitions' \
-     --exclude-dir='*.egg-info' src tests migrations scripts pyproject.toml alembic.ini
+   grep -rniE 'pymysql|mysql\+|dialects\.mysql|on_duplicate|get_lock|release_lock|is_used_lock|is_free_lock|longtext|mediumtext|tinyint\(|varbinary\(|sql_mode|auto_increment|max_allowed_packet|client_found_rows|last_insert_id|sha2\(|database\(\)|information_schema\.partitions|innodb|utf8mb4_|ascii_bin|ascii_general_ci|now\(6\)' \
+     --exclude-dir='*.egg-info' --exclude-dir='__pycache__' \
+     src tests migrations scripts pyproject.toml alembic.ini
    ```
-   (`--exclude-dir` yerine adım 11'deki yeniden kurulum da yeterlidir;
-   ikisi birden yapılır.)
+   Kalan tek eşleşme sınıfı **yorum ve docstring metnidir** ve bu
+   BİLİNÇLİDİR — aşağıya bakın.
+
+   > **§15/6 ile §13 arasındaki çelişki ve çözümü (uygulamada ortaya
+   > çıktı).** Taslak "tarama tamamen boş dönmeli" diyordu; §13(c) ise
+   > "MySQL'de böyleydi, PostgreSQL'de böyle" biçiminde tarihsel gerekçe
+   > yazılmasını *istiyordu*. İkisi aynı anda sağlanamaz.
+   >
+   > Karar: kullanıcının şartı **"MySQL'e ait referans KOD, legacy bir
+   > şey bırakma"** idi. Sıfır olması gereken şey canlı MySQL kodudur —
+   > tip, fonksiyon, hata kodu, davranış bağımlılığı, bağımlılık. Bir
+   > kararın **niçin** öyle olduğunu açıklayan tarihsel yorum legacy
+   > değil **bilgidir**: `price_bars`'ın neden FK taşımadığını bilmeyen
+   > biri onu yeniden kaldırabilir.
+   >
+   > Ayrım şudur: bir yorum **bugünkü davranışı** MySQL terimleriyle
+   > anlatıyorsa yanlıştır ve düzeltilir (örn. *"Kolon DATETIME(6);
+   > MySQL tz taşımaz"*). **Geçmişi** anlatıp bugünkü kararı
+   > gerekçelendiriyorsa kalır (örn. *"MySQL 8'de partition'lı InnoDB
+   > tablosu FK desteklemiyordu; TimescaleDB hypertable'ı referencing
+   > taraf olabilir, bu yüzden FK geri geldi"*).
+
 7. `docker compose down -v && docker compose up -d && yfin db create && yfin db upgrade head`
    sıfırdan çalışıyor.
 8. `alembic upgrade head && alembic downgrade base && alembic upgrade head`

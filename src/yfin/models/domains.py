@@ -90,8 +90,9 @@ RANK_TYPE_ENUM = Enum(
 def domain_key_column(**kwargs: object) -> Mapped[str]:
     """`domains.domain_key`'e FK tasiyan anahtar kolonu.
 
-    `ascii_bin`: `TECHNOLOGY` canlida 404 verdi, anahtarlar buyuk/kucuk harf
-    DUYARLIDIR; `ascii_general_ci` iki anahtari tek satira indirirdi.
+    COLLATE "C": `TECHNOLOGY` canlida 404 verdi, anahtarlar buyuk/kucuk
+    harf DUYARLIDIR; duyarsiz bir collation iki anahtari tek satira
+    indirirdi.
     """
     return mapped_column(
         AsciiKeyType(DOMAIN_KEY_LENGTH),
@@ -109,9 +110,10 @@ class Domain(Base):
 
     __tablename__ = "domains"
     __table_args__ = (
-        # Kod tabanindaki ILK CheckConstraint (MySQL 8.0.16+ destekliyor,
-        # 8.3.0'da dogrulandi). Endustrinin ebeveyni olmak ZORUNDADIR;
-        # sektorde NULL'dir.
+        # Endustrinin ebeveyni olmak ZORUNDADIR; sektorde NULL'dir.
+        # (Bu vaktiyle kod tabanindaki TEK CheckConstraint idi; PostgreSQL
+        # gecisinde unsigned kolonlarin yerine gecen kisitlarla birlikte
+        # artik onlarca CHECK var, hepsi acikca adlandirilmis.)
         CheckConstraint(
             "domain_type = 'sector' OR parent_key IS NOT NULL",
             name="ck_domains_parent",
@@ -127,21 +129,18 @@ class Domain(Base):
     # Self-FK. ON DELETE RESTRICT burada da gecerlidir: bir sektoru silmek
     # 145 endustriyi oksuz birakamaz.
     #
-    # ON UPDATE **RESTRICT**, CASCADE DEGIL -- ve bu, projenin
-    # `symbol_fk_column` deseninden BILINCLI bir sapmadir. MySQL 8, CHECK
-    # constraint'te gecen bir kolonda referential ACTION'a izin vermez:
+    # ON UPDATE **RESTRICT**, CASCADE DEGIL -- projenin
+    # `symbol_fk_column` deseninden BILINCLI bir sapma.
     #
-    #   ERROR 3823: Column 'parent_key' cannot be used in a check
-    #   constraint 'ck_domains_parent': needed in a foreign key
-    #   constraint 'domains_ibfk_2' referential action.
-    #
-    # Olculdu (MySQL 8.3): CASCADE -> hata; RESTRICT, NO ACTION ve
-    # action'siz tanim -> gecerli. Yani secim "CHECK mi, CASCADE mi"
-    # ikilisidir. CHECK korunur cunku endustrinin ebeveynsiz olamayacagini
-    # DB SEVIYESINDE garanti eder; `domain_key` ise Yahoo'nun sabit
+    # Gerekce MOTOR KISITI DEGILDIR (MySQL'de oyleydi: CHECK'te gecen bir
+    # kolonda referential action yasakti; PostgreSQL boyle bir kisit
+    # koymaz). Karar VERIYE dayanir: `domain_key` Yahoo'nun sabit
     # slug'idir ('technology', 'software-infrastructure') ve yeniden
     # adlandirilmasi beklenmez. Beklenmedik bir sekilde denenirse RESTRICT
     # GORUNUR bir hata verir, sessiz bir bozulma degil.
+    #
+    # ON DELETE RESTRICT ayrica bir sektoru silmenin 145 endustriyi oksuz
+    # birakmasini engeller.
     parent_key: Mapped[str | None] = mapped_column(
         AsciiKeyType(DOMAIN_KEY_LENGTH),
         ForeignKey("domains.domain_key", onupdate="RESTRICT", ondelete="RESTRICT"),
@@ -320,7 +319,7 @@ class ResearchReport(Base):
 
     Gunde 624 rapor satiri uretiliyor ama yalniz 516'si TEKIL; 37 tekil
     sektor raporunun HEPSI bir endustride de goruluyor (%100 ortusme). Tek
-    tabloda `ERROR 1062` verirdi, bu yuzden rapor + bag tablosu.
+    tabloda tekillik ihlali verirdi, bu yuzden rapor + bag tablosu.
 
     ADI `domain_research_reports` DEGILDIR (SQ S5.4): `Search.research` ayni
     raporlari AYNI kimlik uzayindan dondurur -- bicim
@@ -351,9 +350,9 @@ class ResearchReport(Base):
     report_type: Mapped[str | None] = mapped_column(String(64, collation="C"))
     # Olculen max 59
     head_html: Mapped[str | None] = mapped_column(String(255, collation="C"))
-    # MEDIUMTEXT OLMAK ZORUNDA: olculen max 23 570 karakter (104 rapor,
-    # medyan 281). `TEXT` 65 535 BAYT'tir ve utf8mb4'te 4 baytlik
-    # karakterlerle tasabilir.
+    # UZUNLUK SINIRI OLMAMALI: olculen max 23 570 karakter (104 rapor,
+    # medyan 281). MySQL'de `TEXT` 65 535 BAYT'ti ve utf8mb4'te tasabildigi
+    # icin `MEDIUMTEXT` gerekiyordu; PostgreSQL `text` SINIRSIZDIR.
     report_title: Mapped[str | None] = mapped_column(Text)
     # 104 raporun 17'sinde HIC YOK. Ayrica CIPLAK float gelir (oysa
     # topCompanies[].targetPrice SARMALI) -- SI S4.4.

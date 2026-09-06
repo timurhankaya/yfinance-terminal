@@ -1,4 +1,4 @@
-"""As-of budamasi (AH S5.4 uzantisi). Gercek MySQL.
+"""As-of budamasi (AH S5.4 uzantisi). Gercek PostgreSQL.
 
 Budamanin buradaki tek ozel kurali "son gunu koru"dur ve gerekcesi
 MEKANIKTIR: veri satiri silinse bile `asof_state` kapisi yerinde kalir,

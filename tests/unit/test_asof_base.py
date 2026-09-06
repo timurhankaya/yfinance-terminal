@@ -1,4 +1,4 @@
-"""AsOfDataset hash kapisi (AH S6.1). MySQL'e HIC dokunmaz."""
+"""AsOfDataset hash kapisi (AH S6.1). VERITABANINA HIC dokunmaz."""
 
 from __future__ import annotations
 
@@ -143,7 +143,7 @@ def test_first_run_writes_data_and_gate() -> None:
 
 
 def test_gate_update_columns_exclude_first_seen_at() -> None:
-    """ON DUPLICATE KEY UPDATE first_seen_at'i kapsasaydi 'ilk INSERT'te
+    """Guncelleme kapsami first_seen_at'i icerseydi 'ilk INSERT'te
     yazilir' kurali bozulurdu (AH S5.4)."""
     writer = FakeWriter()
     Holders().upsert(writer, _result(_rows("Vanguard")))

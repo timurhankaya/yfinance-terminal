@@ -1,13 +1,13 @@
 """INSERT_CHUNK: buyuk TableWrite'larin dilimlenmesi (PB S6.7).
 
-MySQL'e DOKUNMAZ: Session yerine cagrilari kaydeden bir sahte kullanilir,
+VERITABANINA DOKUNMAZ: Session yerine cagrilari kaydeden bir sahte kullanilir,
 boylece "kac INSERT uretildi" ve "her dilim ayni kolon setini tasiyor mu"
 sorulari agsiz ve DB'siz cevaplanir.
 
 Dilimlemenin tek gercek tuzagi align_rows SIRASIDIR: kolon seti satirdan
 satira degisebilir (fon olmayan sembolde 'Capital Gains' yok) ve
 align_rows dilimlemeden SONRA uygulanirsa her dilim FARKLI bir kolon
-setiyle ve farkli bir ON DUPLICATE KEY UPDATE haritasiyla yazilir.
+setiyle ve farkli bir guncelleme haritasiyla yazilir.
 """
 
 from __future__ import annotations
@@ -93,8 +93,8 @@ def test_every_chunk_carries_the_same_column_set() -> None:
 
     Ilk yarida `volume` var, ikinci yarida yok. align_rows once
     uygulanirsa her iki dilim de `volume` tasir (ikincide None); sonra
-    uygulanirsa ikinci dilim onu hic gormez ve ON DUPLICATE KEY UPDATE
-    kapsamindan sessizce duser.
+    uygulanirsa ikinci dilim onu hic gormez ve guncelleme kapsamindan
+    sessizce duser.
     """
     session = RecordingSession()
     writer = PostgresRowWriter(session)  # type: ignore[arg-type]

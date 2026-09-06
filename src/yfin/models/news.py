@@ -51,7 +51,7 @@ class NewsSymbol(Base):
 
     __tablename__ = "news_symbols"
     __table_args__ = (
-        # InnoDB FK'siz oldugu icin bu index ACIKCA tanimlanir (S5.6)
+        # FK olmadigi icin bu index ACIKCA tanimlanir (S5.6)
         Index("ix_news_symbols_symbol", "symbol"),
     )
 

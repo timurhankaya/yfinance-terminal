@@ -71,7 +71,7 @@ class TestStatements:
         assert biggest > Decimal("1e11")
 
     def test_values_are_quantized_in_python(self) -> None:
-        """MySQL 11. basamagi SESSIZCE yuvarlar (Note 1265); yuvarlama
+        """PostgreSQL 11. basamagi SESSIZCE yuvarlar (olculdu); yuvarlama
         bilincli olarak Python'da yapilir."""
         facts = _rows(_statement_result("AAPL", "income_stmt"), "financial_facts")
         assert all(-value.as_tuple().exponent == 10 for value in (f["value"] for f in facts))

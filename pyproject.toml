@@ -1,7 +1,7 @@
 [project]
 name = "yfin"
 version = "0.1.0"
-description = "yfinance Ticker API -> MySQL 8 veri hatti"
+description = "yfinance Ticker API -> PostgreSQL 18 + TimescaleDB veri hatti"
 requires-python = ">=3.13"
 dependencies = [
     # [repair] ekstrasi ZORUNLUDUR: history(repair=True) onarim
@@ -39,8 +39,8 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "repo: gercek MySQL gerektirir (ag yok)",
-    "live: gercek Yahoo API + gercek MySQL gerektirir",
+    "repo: gercek PostgreSQL + TimescaleDB gerektirir (ag yok)",
+    "live: gercek Yahoo API + gercek PostgreSQL gerektirir",
 ]
 addopts = "-m 'not repo and not live'"
 pythonpath = ["tests"]

@@ -1,4 +1,4 @@
-"""Analist dataset'lerinin normalizasyonu (AH S9.1). Ag ve MySQL YOKTUR.
+"""Analist dataset'lerinin normalizasyonu (AH S9.1). Ag ve VERITABANI YOKTUR.
 
 Fixture yerine ELLE KURULMUS cerceveler kullanilir: her cerceve S4.1'de
 canli olculmus bir kenar durumu kodlar ve o olcumun kaynagi test adinda

@@ -91,7 +91,7 @@ class _HolderListDataset(AsOfDataset[AsOfFramePayload]):
             rows[holder] = {
                 "symbol": symbol,
                 "as_of_date": as_of,
-                # ENUM degeri DAIMA kucuk harf uretilir; DB'nin ai_ci
+                # ENUM degeri DAIMA kucuk harf uretilir; kolonun
                 # sessiz donusumune ('INSTITUTION' -> 'institution')
                 # guvenilmez (AH S5).
                 "holder_type": self.holder_type.value,

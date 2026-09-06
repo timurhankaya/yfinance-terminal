@@ -45,7 +45,8 @@ class SettingRow(Base):
 
     # `func.now()`, `func.now(6)` DEGIL.
     #
-    # `symbols` deseni `now(6)` yaziyor ve bu bir MySQL KALINTISIDIR:
+    # Bu bir MySQL KALINTISI tuzagiydi (`symbols` bir sure `now(6)`
+    # tasidi ve migration uygulanirken patladi):
     # PostgreSQL'de `now(integer)` diye bir fonksiyon YOKTUR ve tablo
     # olusturulamaz ("function now(integer) does not exist" -- olculdu).
     # Argumansiz `now()` PG'de zaten mikrosaniye hassasiyetinde

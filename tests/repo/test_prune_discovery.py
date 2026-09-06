@@ -1,4 +1,4 @@
-"""SQ S12.2: kesif ve ekran tablolarinin budanmasi (gercek MySQL)."""
+"""SQ S12.2: kesif ve ekran tablolarinin budanmasi (gercek PostgreSQL)."""
 
 from __future__ import annotations
 

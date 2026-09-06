@@ -43,7 +43,7 @@ def _insert_domain(
 def test_domain_key_is_case_sensitive(db_session: Session) -> None:
     """`TECHNOLOGY` canlida 404 verdi; anahtarlar buyuk/kucuk harf DUYARLI.
 
-    `ascii_general_ci` olsaydi iki ayri anahtar tek satira inerdi.
+    Duyarsiz bir collation olsaydi iki ayri anahtar tek satira inerdi.
     """
     _seed_symbol(db_session, "^YHZ1")
     _seed_symbol(db_session, "^YHZ2")

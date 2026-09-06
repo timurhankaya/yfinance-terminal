@@ -1,4 +1,4 @@
-"""Financials/market repository testleri: gercek MySQL 8.3, agsiz (S9.2)."""
+"""Financials/market repository testleri: gercek PostgreSQL + TimescaleDB, agsiz (S9.2)."""
 
 from __future__ import annotations
 
@@ -292,7 +292,7 @@ class TestSchemaInvariants:
         assert all(r[1] == 1 for r in rows)
 
     def test_key_text_columns_are_case_and_accent_sensitive(self, db_session: Session) -> None:
-        """Varsayilan utf8mb4_0900_ai_ci 'Enflasyon' = 'ENFLASYON' sayar."""
+        """Duyarsiz bir collation 'Enflasyon' = 'ENFLASYON' sayardi."""
         rows = [
             {
                 "region": "TR",
@@ -566,7 +566,7 @@ class TestPrune:
 
 
 class TestValuationStatementKind:
-    """'valuation' ENUM degeri ve onu ekleyen migration (gercek MySQL)."""
+    """'valuation' ENUM degeri ve onu ekleyen migration (gercek PostgreSQL)."""
 
     def test_valuation_period_and_facts_are_accepted(self, db_session: Session) -> None:
         """Ayni (sembol, freq, donem) hem income hem valuation tasiyabilir;

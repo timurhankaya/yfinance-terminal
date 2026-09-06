@@ -1,4 +1,4 @@
-"""ONYEDI dataset'in GERCEK MySQL'e yazimi (AH S8.5).
+"""ONYEDI dataset'in GERCEK PostgreSQL'e yazimi (AH S8.5).
 
 Unit testler `normalize`in URETTIGI satiri dogrular; burada o satirin
 MySQL'e GERCEKTEN yazilabildigi dogrulanir. Ikisi ayri sinif hata yakalar:

@@ -1,6 +1,6 @@
 """18 yeni tablonun sema kararlari (AH S5).
 
-Her test, bagimsiz incelemelerin GERCEK MySQL uzerinde dogruladigi bir
+Her test, bagimsiz incelemelerin GERCEK PostgreSQL uzerinde dogruladigi bir
 karari koda baglar. Iddia yerine kanit: hepsi yfinance_test semasina karsi
 kosar ve sonunda rollback edilir.
 """
@@ -120,7 +120,7 @@ def test_asof_state_first_seen_is_not_nullable() -> None:
 
 
 # --------------------------------------------------------------------------
-# Gercek MySQL
+# Gercek PostgreSQL
 # --------------------------------------------------------------------------
 
 

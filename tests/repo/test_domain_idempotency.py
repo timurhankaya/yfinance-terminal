@@ -1,4 +1,4 @@
-"""Ayni fixture iki kez: kapinin GERCEK MySQL uzerindeki davranisi (SI S9.3)."""
+"""Ayni fixture iki kez: kapinin GERCEK PostgreSQL uzerindeki davranisi (SI S9.3)."""
 
 from __future__ import annotations
 

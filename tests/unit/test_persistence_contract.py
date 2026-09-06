@@ -1,6 +1,6 @@
 """Dataset yazma mantiginin veritabanindan bagimsiz oldugunu dogrular.
 
-Bu dosyadaki testler MySQL'e HIC dokunmaz. Mumkun olmasinin sebebi
+Bu dosyadaki testler VERITABANINA HIC dokunmaz. Mumkun olmasinin sebebi
 `Dataset.upsert`'in artik SQLAlchemy Session'a degil `RowWriter`
 protokoluene bagli olmasidir (SRP/DIP ayrimi).
 """

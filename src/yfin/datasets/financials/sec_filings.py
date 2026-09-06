@@ -79,7 +79,7 @@ class SecFilingsDataset(Dataset[SecFilingsPayload]):
             filing_type = nz.to_str(entry.get("type"), max_len=32)
             if filing_date is None or filed_ts is None or filing_type is None:
                 # Zorunlu alani eksik dosyalama ATLANIR; yazilsaydi
-                # ERROR 1048 sembolun TUM transaction'ini dusururdu
+                # NOT NULL ihlali (23502) sembolun TUM transaction'ini dusururdu
                 log.warning(
                     "sec filing missing required field", symbol=symbol, entry=str(entry)[:120]
                 )
@@ -102,7 +102,7 @@ class SecFilingsDataset(Dataset[SecFilingsPayload]):
                     "symbol": symbol,
                     "filing_id": filing_id,
                     "exhibit_type": type_key,
-                    # url TEXT oldugu icin PK'ya giremez (ERROR 1170);
+                    # url TEXT oldugu icin PK'ya giremez (btree tuple siniri);
                     # ayni dosyalamada iki farkli URL'li EX-99.1 olur
                     "url_hash": url_hash,
                     "url": url_text,

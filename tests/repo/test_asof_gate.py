@@ -1,4 +1,4 @@
-"""AsOfDataset'in GERCEK MySQL uzerindeki davranisi (AH S9.2).
+"""AsOfDataset'in GERCEK PostgreSQL uzerindeki davranisi (AH S9.2).
 
 `tests/unit/test_asof_base.py` kapinin karar mantigini sahte bir writer ile
 baglar; burada ayni akis `PostgresRowWriter` ile kosar. Ikisi ayri sorulari
@@ -126,7 +126,7 @@ def test_unchanged_content_skips_data_but_refreshes_verification_time(
 
 def test_first_seen_at_is_never_overwritten(db_session: Session, symbol: str) -> None:
     """`first_seen_at` `update_columns` KAPSAMI DISINDADIR; girseydi
-    ON DUPLICATE KEY UPDATE "ilk INSERT'te yazilir" kuralini bozardi."""
+    guncelleme kapsami "ilk INSERT'te yazilir" kuralini bozardi."""
     _run(db_session, symbol, ["Vanguard"], fetched_at=NOW)
     # Icerik degisir -> kapi TAM yazilir; first_seen_at yine de korunmali
     _run(db_session, symbol, ["Vanguard", "Blackrock"], fetched_at=LATER)

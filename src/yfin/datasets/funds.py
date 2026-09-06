@@ -296,7 +296,7 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
                         "symbol": symbol,
                         "as_of_date": as_of,
                         # `section` PK'DADIR: disarida birakilsaydi ayni
-                        # metric adi iki bolumde geldiginde ERROR 1062.
+                        # metric adi iki bolumde geldiginde tekillik ihlali (23505).
                         "section": section.value,
                         "metric": metric,
                         "value": to_fact_value(own.iloc[position]),
@@ -377,7 +377,7 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
             for rank, (index, record) in enumerate(frame.iterrows()):
                 if rank > MAX_HOLDING_RANK:
                     # `holding_rank` TINYINT UNSIGNED (models/funds.py).
-                    # STRICT sql_mode'da 256. satir ERROR 1264 verir ve
+                    # CHECK kisiti 256. satirda ihlal edilir (23514) ve
                     # `_persist_with_retry` DataError'da yeniden denemez:
                     # SEMBOLUN TUM dataset'leri rollback olurdu. Kolonu
                     # genisletmek migration ister; o gune kadar fazla satir

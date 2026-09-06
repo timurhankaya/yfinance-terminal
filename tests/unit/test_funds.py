@@ -256,7 +256,7 @@ def test_profile_carries_raw_json() -> None:
 def test_top_holdings_are_ranked_and_scoped() -> None:
     result = DATASET.normalize(FundsPayload(_collect(_equity_fund()), NOW), "SPY")
     write = _write(result, "fund_top_holdings")
-    # Ad `rank` OLAMAZ: MySQL 8'de ayrilmis sozcuk
+    # Ad `rank` OLAMAZ: pencere fonksiyonu olarak ayrilmis
     assert [row["holding_rank"] for row in write.rows] == list(range(10))
     assert write.scope_values == ({"symbol": "SPY", "as_of_date": AS_OF},)
 

@@ -1,4 +1,4 @@
-"""SQ S5: kesif tablolarinin fiili semasi (gercek MySQL, agsiz)."""
+"""SQ S5: kesif tablolarinin fiili semasi (gercek PostgreSQL, agsiz)."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def test_symbol_columns_have_no_foreign_key(db_session: Session) -> None:
 def test_symbol_columns_are_indexed(db_session: Session) -> None:
     """FK olmadigi icin index ACIKCA tanimlanir (S S5.6).
 
-    InnoDB FK'li kolona index'i kendisi kurar; FK yoksa kurmaz ve
+    FK'li kolona index kendiliginden olusabilir; FK yoksa olusmaz ve
     `WHERE symbol = ...` sorgusu tam tarama olurdu.
     """
     insp = _inspector(db_session)

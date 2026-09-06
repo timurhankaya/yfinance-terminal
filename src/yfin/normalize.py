@@ -70,7 +70,7 @@ _EPOCH_HIGH = 4_102_444_800
 
 
 def normalize_symbol(symbol: str) -> str:
-    """Tek kanonik bicim (S8.3). ascii_bin collation ile birlikte
+    """Tek kanonik bicim (S8.3). COLLATE "C" ile birlikte
     'aapl'/'AAPL' karisikligini imkansiz kilar."""
     return symbol.strip().upper()
 

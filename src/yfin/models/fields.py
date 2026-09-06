@@ -30,7 +30,7 @@ Kind = Literal[
 @dataclass(frozen=True, slots=True)
 class Field:
     source: str  # yfinance sozlugundeki anahtar
-    column: str  # MySQL kolon adi
+    column: str  # SQL kolon adi
     kind: Kind
 
 

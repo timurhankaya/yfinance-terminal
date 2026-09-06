@@ -211,7 +211,7 @@ def _apply_one(
     CALISMADIGINI gosterdi: var olmayan bir PK uzerindeki FOR UPDATE
     yalnizca bir GAP LOCK alir, gap lock'lar birbiriyle uyumludur, iki
     oturum da "satir yok, uygulayacagim" der ve cakisma INSERT aninda
-    ERROR 1213 (deadlock) olarak patlar.
+    tekillik ihlali (23505) olarak patlar.
 
     rowcount 1 ise slot bizimdir; 0 ise baska bir oturum onceden
     almistir ve UPDATE calistirilmaz.

@@ -128,7 +128,7 @@ class FinancialFact(Base):
 
     symbols'a DOGRUDAN FK yoktur: kisit ebeveyn uzerinden gecer ve
     ON DELETE RESTRICT orada zorlanir. Bilesik FK kolonlari PK'nin on eki
-    oldugu icin InnoDB ek indeks acmaz.
+    oldugu icin ek indeks gerekmez.
     """
 
     __tablename__ = "financial_facts"
@@ -198,7 +198,7 @@ def _calendar_table(name: str, *, historical: bool) -> Table:
     if not historical:
         cols.append(Column("fetched_at", TsType(), nullable=False))
     # (symbol, fetched_at DESC) indeksi ACILMAZ: PK'nin ta kendisidir ve
-    # InnoDB kumelenmis indeksi geriye dogru da tarar.
+    # PostgreSQL btree indeksi her iki yonde de taranabilir.
     return Table(name, Base.metadata, *cols)
 
 
@@ -270,8 +270,8 @@ class SecFilingExhibit(Base):
 
     url_hash PK'ya girer: ayni dosyalamada iki farkli URL'li EX-99.1
     gercekte olur ve (symbol, filing_id, exhibit_type) PK'si ikincisini
-    ERROR 1062 ile dusururdu. url TEXT oldugu icin dogrudan PK'ya giremez
-    (ERROR 1170).
+    tekillik ihlaliyle dusururdu. url TEXT oldugu icin dogrudan PK'ya
+    giremez (btree tuple siniri).
     """
 
     __tablename__ = "sec_filing_exhibits"

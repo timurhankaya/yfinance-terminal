@@ -112,7 +112,7 @@ class InsiderActivity(Base):
     net_shares: Mapped[Decimal | None] = mapped_column(BigNumType())
     total_insider_shares: Mapped[Decimal | None] = mapped_column(BigNumType())
     # SIGNED Integer: net islem sayisi mantiken negatif olabilir ve bu
-    # olculmedi; UNSIGNED olsaydi ERROR 1264 tum sembolu dusururdu.
+    # olculmedi; negatif olmama kisiti olsaydi tum sembolu dusururdu.
     purchases_trans: Mapped[int | None] = mapped_column(Integer)
     sales_trans: Mapped[int | None] = mapped_column(Integer)
     net_trans: Mapped[int | None] = mapped_column(Integer)

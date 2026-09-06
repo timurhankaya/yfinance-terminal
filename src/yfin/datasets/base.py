@@ -1,6 +1,6 @@
 """Dataset sozlesmesi (S6.1).
 
-Bu modul SQLAlchemy'ye ve MySQL'e bagimli DEGILDIR: hangi verinin hangi
+Bu modul SQLAlchemy'ye ve VERITABANINA bagimli DEGILDIR: hangi verinin hangi
 tabloya, hangi anahtarlarla ve hangi kolon kapsamiyla yazilacagini tanimlar.
 Yazmanin nasil yapildigi `yfin.persistence` icindedir.
 """
@@ -67,7 +67,7 @@ class TableWrite:
     table: str
     rows: list[dict[str, Any]]
     key_columns: tuple[str, ...]  # dogrulama sorgusu bunlari kullanir
-    update_columns: tuple[str, ...]  # ON DUPLICATE KEY UPDATE kapsami
+    update_columns: tuple[str, ...]  # catisma halinde guncellenecek kolonlar
     mode: WriteMode = "upsert"
     # replace_scope silme kapsamini belirleyen kolonlar (S6.2). Varsayilan
     # ("symbol",) mevcut cagirilari degistirmeden birakir.

@@ -1,7 +1,8 @@
 # DB Tabanli Yapilandirma (`settings` tablosu) — Tasarim Dokumani
 
 - **Tarih:** 2026-09-05 (v2 — uc bagimsiz incelemeden sonra duzeltildi, bkz. Ek A)
-- **Durum:** Uygulanmayi bekliyor
+- **Durum:** Uygulandi (2026-09-06; Plan A + Plan B). Goc notu:
+  `docs/superpowers/plans/2026-09-05-db-settings-migration.md`
 - **Proje koku:** `~/Projects/learn/yfinance/`
 - **Kisaltma:** Bu dokumanin bolumleri metinde `S<X.Y>`, docstring'lerde `CFG§X.Y`
 - **Onceki dokumanlar:** **T**, **F**, **P**, **AH**, **PB**, **SI**, **SQ**, **PG**

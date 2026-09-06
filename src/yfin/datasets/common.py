@@ -75,7 +75,7 @@ def data_columns(fields: tuple[Field, ...], *, extra: tuple[str, ...] = ()) -> t
 
 # --- AH S8.3 ortak normalizasyon kurallari --------------------------------
 
-# DECIMAL(38,10): MySQL 11. basamagi SESSIZCE yuvarlar (yalnizca Note 1265),
+# NUMERIC(38,10): PostgreSQL 11. basamagi SESSIZCE yuvarlar (olculdu),
 # bu yuzden yuvarlama Python tarafinda bilincli yapilir (S5.7).
 FACT_QUANTUM = Decimal("1E-10")
 
@@ -168,8 +168,8 @@ def in_range(value: date | None, start: date | None, end: date | None) -> bool:
 def to_big_value(value: Any) -> Any:
     """BigNumType() = DECIMAL(38,0); kesirli deger Python tarafinda yuvarlanir.
 
-    MySQL kesirli kismi round-half-up ile SESSIZCE yuvarlar (yalnizca
-    Note 1265); yuvarlamayi burada yapmak `kinds.py`'nin `big` kuralini
+    PostgreSQL kesirli kismi SESSIZCE yuvarlar (olculdu:
+    olculdu); yuvarlamayi burada yapmak `kinds.py`'nin `big` kuralini
     tek dogruluk kaynagi olarak korur.
     """
     return KINDS["big"].convert(value)
@@ -210,7 +210,7 @@ def date_range_kwargs(start: date | None, end: date | None) -> dict[str, str]:
 def symbol_is_writable(symbol: str) -> bool:
     """Sembol `symbols` tablosuna yazilabilir mi (SQ S8.3).
 
-    Kisit `SymbolType()` = VARCHAR(SYMBOL_LENGTH) ascii_bin'den TURETILIR;
+    Kisit `SymbolType()` = VARCHAR(SYMBOL_LENGTH) COLLATE "C"den TURETILIR;
     uzunluk burada sabit olarak yazilmaz.
 
     `^` KAPSAM ICINDEDIR: olculen 9.243 sembolun 93'u onunla basliyor

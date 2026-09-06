@@ -1,7 +1,7 @@
 """Analiz + sahiplik + fon canli entegrasyon testi (AH S9.3).
 
 Varsayilan olarak ATLANIR. Elle calistirmak icin:  pytest -m live
-Gercek Yahoo API + gercek MySQL; CI'da calistirilmaz.
+Gercek Yahoo API + gercek PostgreSQL; CI'da calistirilmaz.
 
 Iki iddia BURADA baglanir; ikisi de yalnizca canli kaynakla gorulebilir:
 

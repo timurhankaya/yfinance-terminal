@@ -1,4 +1,4 @@
-"""Repository testleri: gercek MySQL 8.3, agsiz (S9.2).
+"""Repository testleri: gercek PostgreSQL + TimescaleDB, agsiz (S9.2).
 
 Her test kendi transaction'inda calisir ve sonunda rollback edilir.
 """
@@ -181,8 +181,9 @@ class TestSnapshotTimestamps:
 
 
 class TestCollation:
-    def test_ascii_bin_distinguishes_case(self, db_session: Session) -> None:
-        """utf8mb4_0900_ai_ci 'AAPL' = 'aapl' derdi (S5.1)."""
+    def test_symbol_collation_distinguishes_case(self, db_session: Session) -> None:
+        """Duyarsiz bir collation 'AAPL' = 'aapl' derdi (S5.1);
+        COLLATE "C" ikisini ayri tutar."""
         _seed_symbol(db_session, "AAPL")
         _seed_symbol(db_session, "aapl")
         count = db_session.execute(
@@ -253,7 +254,7 @@ class TestForeignKeys:
 
 
 class TestRawJson:
-    def test_longtext_is_byte_for_byte_faithful(self, db_session: Session) -> None:
+    def test_raw_json_is_byte_for_byte_faithful(self, db_session: Session) -> None:
         """JSON tipi anahtar sirasini bozar, NaN'i reddeder, float'i kirpar."""
         _seed_symbol(db_session)
         payload = {"z": 1, "a": 0.001870, "t": "Türkçe", "n": float("nan")}

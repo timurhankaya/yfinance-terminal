@@ -5,7 +5,7 @@ On tablo. Uc grup:
 1. KAPI -- `discovery_asof_state`. `asof_state` KULLANILAMAZ (SQ K3a):
    onun `symbol` kolonu `symbol_fk_column` ile tanimlidir, yani
    `symbols.symbol`'a `ON DELETE RESTRICT` FK tasir. Serbest terim
-   (`"Turkish Airlines"`) `symbols`ta YOKTUR ve kapi satiri `ERROR 1452`
+   (`"Turkish Airlines"`) `symbols`ta YOKTUR ve kapi satiri FK ihlali (23503)
    alirdi. SI ayni duvara carpip `domain_asof_state`i acmisti.
 
 2. SEARCH / LOOKUP -- terim kapsamli, as-of. Anahtarlari `query_term`dir,
@@ -60,7 +60,7 @@ from yfin.models.fields import SCREENER_QUOTE_FIELDS
 # Serbest arama terimi. UZUNLUK `SYMBOL_LENGTH` ILE AYNIDIR ve bu bir
 # tercih degil ZORUNLULUKTUR: terim, denetim kaydinda
 # `sync_run_items.symbol` (= `SymbolType()`) kolonuna da yazilir. Daha
-# genis bir sinir olculdu ve `ERROR 1406` verdi -- ustelik VERI
+# genis bir sinir olculdu ve deger tasmasi (22001) verdi -- ustelik VERI
 # YAZILDIKTAN SONRA, `write_items` asamasinda, yani kosunun en gec aninda.
 #
 # Ilk tasarim 64 secip "denetim kaydinda kirpilir" demisti; kirpma hicbir

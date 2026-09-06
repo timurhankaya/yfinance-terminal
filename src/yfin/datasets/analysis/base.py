@@ -34,7 +34,7 @@ PERIOD_LENGTH = 8
 
 @dataclass(frozen=True, slots=True)
 class Column:
-    """Kaynak anahtari -> MySQL kolonu -> tipli donusum.
+    """Kaynak anahtari -> SQL kolonu -> tipli donusum.
 
     Donusturucu alanin YANINDA durur; `models/kinds.py`'nin `Field` tablosu
     burada kullanilamaz cunku bu kolonlar SQLAlchemy'de elle tanimli ve

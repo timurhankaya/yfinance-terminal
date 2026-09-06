@@ -103,7 +103,7 @@ class TestEpochMap:
 
 class TestCanonicalJson:
     def test_nan_never_reaches_mysql(self) -> None:
-        """allow_nan=True ile NaN sizarsa MySQL ERROR 3140 verir ve tum
+        """allow_nan=True ile NaN sizarsa content_hash her kosuda ayrisir ve tum
         sembolun transaction'i geri alinir."""
         out = nz.canonical_json({"x": float("nan"), "y": np.float64("inf")})
         assert "NaN" not in out and "Infinity" not in out

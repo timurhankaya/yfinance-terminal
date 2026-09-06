@@ -84,7 +84,7 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
             sector_name = text_of(data, "name", 64)
             if sector_symbol is None or sector_name is None:
                 # `symbol` UNIQUE NOT NULL, `name` NOT NULL: eksikse satir
-                # ERROR 1048 verir ve TURUN tamamini dusururdu.
+                # NOT NULL ihlali (23502) verir ve TURUN tamamini dusururdu.
                 log.warning("sektor kimlik alani eksik", domain_key=sector_key)
                 continue
 

@@ -115,7 +115,7 @@ class SyncRunItem(Base):
         BigInteger, ForeignKey("sync_runs.id", ondelete="CASCADE"), nullable=False
     )
     # FK YOKTUR (S5.5): cozulemeyen sembol icin unknown_symbol kaydi
-    # yazilamazdi (ERROR 1452). Denetim kaydi sembol silinse de kalmalidir.
+    # yazilamazdi (FK ihlali). Denetim kaydi sembol silinse de kalmalidir.
     symbol: Mapped[str] = mapped_column(SymbolType(), nullable=False)
     dataset: Mapped[str] = mapped_column(String(64, collation="C"), nullable=False)
     status: Mapped[ItemStatus] = mapped_column(
@@ -139,7 +139,7 @@ class SyncRunItem(Base):
 
     shard_index: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
     # FK YOKTUR (P3.5) - `symbol` ile ayni gerekce ve bir tanesi daha:
-    # InnoDB her INSERT icin ebeveyn proxies satirina shared lock alir;
+    # Her INSERT ebeveyn proxies satirina paylasimli kilit alir;
     # shard binlerce item yazarken kendi proxy satirini S-kilitler ve
     # komsu shard'in saglik flush'i (X-lock) beklerdi. FK, tam da
     # engellemek istedigimiz deadlock'u uretirdi.

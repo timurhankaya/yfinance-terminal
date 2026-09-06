@@ -44,7 +44,9 @@ from yfin.shard import NoEligibleProxy, run_sharded
 
 log = get_logger(__name__)
 
-app = typer.Typer(help="yfinance -> MySQL veri hatti", no_args_is_help=True)
+app = typer.Typer(
+    help="yfinance -> PostgreSQL 18 + TimescaleDB veri hatti", no_args_is_help=True
+)
 db_app = typer.Typer(help="Veritabani islemleri", no_args_is_help=True)
 symbols_app = typer.Typer(help="Sembol evreni yonetimi", no_args_is_help=True)
 proxy_app = typer.Typer(help="Proxy havuzu yonetimi", no_args_is_help=True)
@@ -458,7 +460,7 @@ def sync(
         str | None, typer.Option("--suffix", help="Sembol soneki (.IS) -- borsa cozulmeden calisir")
     ] = None,
 ) -> None:
-    """Veri cekip MySQL'e yazar.
+    """Veri cekip PostgreSQL'e yazar.
 
     Proxy havuzunda uygun proxy varsa calistirma SHARD'LARA bolunur:
     proxy basina bir OS process. Onarim (history repair) gecmisi geriye

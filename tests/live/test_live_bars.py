@@ -1,6 +1,6 @@
 """price_bars canli entegrasyon testleri (PB S9.3).
 
-`-m live`: gercek Yahoo API + gercek MySQL. Fixture testleri kaynagin
+`-m live`: gercek Yahoo API + gercek PostgreSQL. Fixture testleri kaynagin
 DUNKU seklini dogrular; bunlar BUGUNKU seklini dogrular ve
 BAR_LIMITS'in sapmasini erken yakalar.
 """

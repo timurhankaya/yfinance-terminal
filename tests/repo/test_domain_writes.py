@@ -1,4 +1,4 @@
-"""Fixture'lar GERCEK MySQL'e yazilir; satir sayilari ve tip round-trip'i (SI S9.3)."""
+"""Fixture'lar GERCEK PostgreSQL'e yazilir; satir sayilari ve tip round-trip'i (SI S9.3)."""
 
 from __future__ import annotations
 

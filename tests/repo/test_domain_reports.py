@@ -57,7 +57,7 @@ def test_reports_upsert_across_domains_without_duplicate_key_errors(
     assert _count(db_session, "domain_report_links") == 8
 
 
-def test_report_title_round_trips_at_mediumtext_length(db_session: Session) -> None:
+def test_report_title_round_trips_at_measured_length(db_session: Session) -> None:
     """Olculen max 23 570 karakter; `TEXT` utf8mb4'te tasabilirdi."""
     run_taxonomy(db_session)
     title = "ş" * 24000

@@ -1,6 +1,6 @@
 """`yfin sync` sembol secimi ve tarih araligi (AH S6.4, S7.3).
 
-CLI'nin DOGRULAMA yollari MySQL'e dokunmaz: SQLAlchemy engine tembeldir ve
+CLI'nin DOGRULAMA yollari veritabanina dokunmaz: SQLAlchemy engine tembeldir ve
 bu kontroller ilk sorgudan once caliisir.
 """
 

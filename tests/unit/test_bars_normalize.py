@@ -139,7 +139,7 @@ def test_local_date_is_the_local_calendar_day_not_the_utc_day() -> None:
 
 
 def test_ts_utc_is_naive_utc() -> None:
-    """Kolon DATETIME(6); MySQL tz tasimaz, cevrim normalize'da yapilir."""
+    """Kolon timestamptz(6); cevrim normalize'da yapilir ve UTC-aware doner."""
     rows = _rows("AAPL")
 
     assert all(r["ts_utc"].tzinfo is UTC for r in rows)

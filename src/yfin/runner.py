@@ -590,7 +590,7 @@ def open_run(
     """sync_runs satirini acar ve COMMIT EDER.
 
     Commit sarttir: child'lar ayri bir baglanti kullanir ve commit
-    edilmemis bir run_id'ye item yazmak ERROR 1452 verirdi.
+    edilmemis bir run_id'ye item yazmak FK ihlali (23503) verirdi.
     """
     with factory() as session:
         run = SyncRun(

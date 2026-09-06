@@ -172,16 +172,21 @@ def test_child_tables_inherit_their_parent_timestamp() -> None:
         )
 
 
-# MySQL 8.0'da GERCEKTEN AYRILMIS sozcukler (tam liste degil; kolon adi
-# olarak cazip gelen alt kume). `status` BU LISTEDE DEGILDIR -- MySQL'de
-# anahtar sozcuktur ama ayrilmis degildir ve tirnaksiz kullanilabilir.
+# Kolon adi olarak cazip gelen AYRILMIS/TEHLIKELI sozcukler.
+#
+# Liste MySQL doneminde kuruldu ve PostgreSQL'e gecerken KORUNDU: buyuk
+# kismi (pencere fonksiyonlari, `interval`, `order`, `group`, `key`,
+# `rows`) PostgreSQL'de de ayrilmistir ya da tip/fonksiyon adidir.
+# Birkaci yalnizca MySQL'de ayrilmis olabilir -- liste DARALTILMADI
+# cunku amaci tasinabilirlik: bir kolon adi iki motorda da tirnaksiz
+# calisiyorsa hicbir ham SQL onu bozamaz. `status` BU LISTEDE DEGILDIR.
 #
 # `rank` SQ sirasinda eklendi: pencere fonksiyonu olarak ayrilmistir ve
-# tirnaksiz her ham SQL'i `ERROR 1064` ile dusurur. SQLAlchemy kendi
+# tirnaksiz her ham SQL'i sozdizimi hatasiyla dusurur. SQLAlchemy kendi
 # urettigi SQL'i tirnakladigi icin ORM yolu CALISIR -- hata yalnizca elle
 # yazilan sorguda ve migration betiklerinde patlar, yani en gec fark
 # edilen yerde. Bu testin varlik sebebi o gecikmeyi ortadan kaldirmaktir.
-MYSQL_RESERVED = frozenset(
+RESERVED_WORDS = frozenset(
     {
         "rank",
         "range",
@@ -220,7 +225,7 @@ RESERVED_GRANDFATHERED = frozenset({"history_metadata.range"})
 
 
 def test_no_column_uses_a_reserved_word() -> None:
-    """Kolon adlari MySQL ayrilmis sozcuklerinden secilmez.
+    """Kolon adlari ayrilmis sozcuklerden secilmez.
 
     `economic_calendar.last_reported` bu kuralin ilk uygulamasiydi;
     `screen_members.rank_index` ikincisi. Ikisi de "dogal" adin
@@ -230,7 +235,7 @@ def test_no_column_uses_a_reserved_word() -> None:
         name
         for table in Base.metadata.tables.values()
         for column in table.columns
-        if column.name.lower() in MYSQL_RESERVED
+        if column.name.lower() in RESERVED_WORDS
         and (name := f"{table.name}.{column.name}") not in RESERVED_GRANDFATHERED
     ]
     assert offenders == [], offenders
