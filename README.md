@@ -3,9 +3,9 @@
 A production-grade ingestion pipeline that pulls the full Yahoo Finance
 surface into PostgreSQL 18 + TimescaleDB, and keeps it correct.
 
-Open source under [the licence below](#licence). A hosted version with
-the same schema is available if you would rather not run it yourself —
-see [Hosted service](#hosted-service).
+Open source under **AGPL-3.0**. A hosted version with the same schema is
+available if you would rather not run it yourself — see
+[Hosted service](#hosted-service).
 
 ---
 
@@ -173,15 +173,32 @@ schema per process, so parallel runs cannot collide.
 
 The pipeline is free to self-host and always will be. If you want the
 data without operating it, a hosted service offers the same schema with
-managed ingestion, backfilled history and API/streaming access on paid
-plans.
+managed ingestion, backfilled history and API access on paid plans.
 
 Self-hosting is not a degraded tier: it is the same code, the same
 schema, and the same migrations. The hosted product sells operation, not
-capability.
+capability — running this well means a database you maintain, a proxy
+pool you keep healthy, and a scheduler that does not miss the 29-day
+window on 1-minute bars.
 
 ---
 
 ## Licence
 
-See `LICENSE`.
+**GNU Affero General Public License v3.0** — see [`LICENSE`](LICENSE).
+
+AGPL was chosen deliberately for a project that also funds a hosted
+service. In practice:
+
+- **Self-hosting, internally**: use it however you like. Running it for
+  your own analysis, inside your company, triggers nothing.
+- **Modifying it**: your changes are AGPL too, and you must offer the
+  source to anyone you distribute the software to.
+- **Offering it as a network service**: section 13 applies. If you run a
+  modified version and let others interact with it over a network, you
+  must offer those users its source. This is the clause that keeps a
+  competing hosted service from building on this work while keeping its
+  improvements private.
+
+Contributions are accepted under the same licence. If AGPL does not work
+for your use case, ask about a commercial licence.

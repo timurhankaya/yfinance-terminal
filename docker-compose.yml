@@ -1,39 +1,35 @@
 services:
   timescaledb:
-    # Surum SABITLENIR: `latest-pg18` degisken bir tag'dir ve tasarim
-    # dogrulamasi sirasinda beklenen 2.26.3 yerine 2.29.2 getirdi.
-    # "Sifirdan calisiyor" bitis olcutunun zaman icinde farkli bir motora
-    # karsi kosmamasi icin tag sabit tutulur (PG S0, S1).
+    # Pinned on purpose: `latest-pg18` is a moving tag and returned
+    # 2.29.2 where 2.26.3 was expected. A "works from scratch" check is
+    # worthless if it silently runs against a different engine.
     image: timescale/timescaledb:2.29.2-pg18
     container_name: yfin-timescaledb
     environment:
       POSTGRES_USER: ${DB_USER:-yfin}
-      # Parola ZORUNLUDUR: `:?` ile bos parolayla ayaga kalkmak engellenir.
-      # MySQL kurulumunda root/bos parola kullaniliyordu; bu tasinmadi.
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD gerekli}
+      # `:?` refuses to start without a password.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       POSTGRES_DB: ${DB_NAME:-yfinance}
       TZ: UTC
       PGTZ: UTC
     command:
       - postgres
-      # db.py havuz formulu process basina 2 x max(5, workers+4) baglanti
-      # tavani koyar; workers=4 ve yf_max_shards=4 ile toplam
-      # (4 x 16) + 2 = 66. 200 rahat bir paydir (PG S1).
+      # db.py caps connections at 2 x max(5, workers+4) per process. With
+      # workers=4 and 4 shards that is (4 x 16) + 2 = 66; 200 leaves room.
       - -c
       - max_connections=200
       - -c
       - timescaledb.max_background_workers=8
-    # Port .env uzerinden: ileride bir cakisma olursa tek yerden degisir.
-    # config.py ayni DB_PORT anahtarini okur.
+    # Port comes from .env so a conflict is fixed in one place; config.py
+    # reads the same DB_PORT key.
     ports:
       - "${DB_PORT:-5432}:5432"
     volumes:
-      # MOUNT NOKTASI `/var/lib/postgresql`, `/var/lib/postgresql/data`
-      # DEGIL. PostgreSQL 18 imaji konvansiyonu degistirdi: veri artik
-      # mount'un ALT DIZININE konur, boylece `pg_upgrade --link` mount
-      # sinirina takilmaz. Eski (PG<=17) yolu kullanmak konteyneri
-      # "There appears to be PostgreSQL data in /var/lib/postgresql/data
-      # (unused mount/volume)" hatasiyla Exited(1) yapar -- olculdu.
+      # Mount at /var/lib/postgresql, NOT /var/lib/postgresql/data. The
+      # PostgreSQL 18 image puts data in a subdirectory of the mount so
+      # `pg_upgrade --link` does not cross a mount boundary. The old path
+      # leaves the container Exited(1) with "There appears to be
+      # PostgreSQL data in /var/lib/postgresql/data (unused mount/volume)".
       - yfin-pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-yfin} -d ${DB_NAME:-yfinance}"]

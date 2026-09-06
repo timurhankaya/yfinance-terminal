@@ -1,17 +1,19 @@
 [project]
 name = "yfin"
 version = "0.1.0"
-description = "yfinance Ticker API -> PostgreSQL 18 + TimescaleDB veri hatti"
+description = "Yahoo Finance ingestion pipeline for PostgreSQL 18 + TimescaleDB"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    # [repair] ekstrasi ZORUNLUDUR: history(repair=True) onarim
-    # heuristiklerinde scipy.ndimage ve sklearn.cluster.DBSCAN'i tembel
-    # import eder (scrapers/history.py:820, 1338). Eksikse onarim HER
-    # sembolde ModuleNotFoundError verir ve price_history hic yazilmaz.
+    # The [repair] extra is required: history(repair=True) lazily imports
+    # scipy.ndimage and sklearn.cluster.DBSCAN. Without it every symbol
+    # raises ModuleNotFoundError and no price history is written at all.
     "yfinance[repair]>=1.7.0",
-    # yfinance uzerinden gecisli olarak da gelir, ama proxy check onu
-    # DOGRUDAN import eder ve yfinance YF_DISABLE_CURL_CFFI ile onsuz da
-    # calisabilir; gecisli bir bagimliliga yaslanmak kirilgan olurdu.
+    # Also arrives transitively via yfinance, but the proxy check imports
+    # it directly and yfinance can run without it under
+    # YF_DISABLE_CURL_CFFI. Leaning on a transitive dependency is fragile.
     "curl_cffi>=0.15",
     "sqlalchemy>=2.0",
     "alembic>=1.13",
@@ -48,7 +50,7 @@ pythonpath = ["tests"]
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
-# Alembic autogenerate ciktisi makine uretimidir
+# Alembic autogenerate output is machine-generated
 extend-exclude = ["migrations/versions"]
 
 [tool.ruff.lint]
