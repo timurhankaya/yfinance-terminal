@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from yfin.api.core.config import ApiSettings, get_api_settings
 from yfin.api.core.errors import install_error_handlers
 from yfin.api.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from yfin.api.ratelimit.dependencies import UsageMiddleware
 from yfin.api.routers import meta, oauth
 
 TITLE = "yfin Data API"
@@ -58,6 +59,10 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
             allow_headers=["Authorization", "If-None-Match"],
         )
 
+    # Inside the security headers, outside the routes: it has to run
+    # after the handler so it can see the final status code, and it
+    # must run even when the handler raised, to release the slot.
+    app.add_middleware(UsageMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestContextMiddleware, settings=settings)
 

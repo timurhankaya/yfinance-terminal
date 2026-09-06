@@ -35,7 +35,9 @@ log = get_logger(__name__)
 
 api_app = typer.Typer(help="Read API administration", no_args_is_help=True)
 client_app = typer.Typer(help="API client credentials", no_args_is_help=True)
+usage_app = typer.Typer(help="Measured API usage", no_args_is_help=True)
 api_app.add_typer(client_app, name="client")
+api_app.add_typer(usage_app, name="usage")
 
 EXIT_REJECTED = 2
 #: The DB row is written but the change has not propagated to Redis.
@@ -186,3 +188,33 @@ def _set_active(client_id: str, *, active: bool) -> None:
             err=True,
         )
         raise typer.Exit(EXIT_NOT_PROPAGATED)
+
+
+@usage_app.command("flush")
+def usage_flush(
+    include_today: Annotated[
+        bool,
+        typer.Option(
+            "--include-today",
+            help="Also flush today's bucket (races with in-flight requests)",
+        ),
+    ] = False,
+) -> None:
+    """Moves buffered request counters into api_usage_daily.
+
+    Meant to run on a schedule. Today's bucket is skipped by default: it
+    is still being written to, and a flush that took it would lose
+    whatever landed between the read and the delete.
+    """
+    from yfin.api.ratelimit import usage
+
+    settings = get_api_settings()
+    factory = _session_factory()
+    with factory() as session:
+        result = usage.flush(session, settings, include_today=include_today)
+        session.commit()
+
+    typer.echo(
+        f"{result.usage_rows} usage rows, {result.last_used_rows} last-used stamps"
+        f" over {len(result.days)} day(s)"
+    )
