@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Literal, Protocol
 
+from yfin.datasets.exposure import ApiExposure
 from yfin.storage.contracts import (
     RowWriter,
     TableWrite,
@@ -210,6 +211,11 @@ class Dataset[RawT](ABC):
     # A class attribute, not a property: turning it into a property in a
     # subtype would narrow the base contract, same issue as `produces`.
     date_range: DateRange = "none"
+    # Opt-in to the generic read surface. None means "not served": the
+    # dataset stays out of the catalogue and /v1/datasets/{name} answers
+    # 404. Failing closed is what keeps a newly registered dataset from
+    # becoming readable, or readable under the wrong scope, by accident.
+    api: ApiExposure | None = None
 
     @abstractmethod
     def fetch(self, ctx: SyncContext) -> RawT:

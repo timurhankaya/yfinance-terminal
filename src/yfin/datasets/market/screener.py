@@ -19,8 +19,6 @@ from datetime import date, datetime
 from typing import Any
 
 import yfinance as yf
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from yfin.core import normalize as nz
 from yfin.core.config import Settings, get_settings
@@ -40,9 +38,8 @@ from yfin.datasets.market.base import GlobalDataset, MarketContext
 from yfin.datasets.registry import register_market
 from yfin.ingest.client import call_yahoo
 from yfin.ingest.screens import ALL_SCREENS, ScreenDef, screen_by_key
-from yfin.models.discovery import Screen
 from yfin.models.fields import SCREENER_NON_COLUMN_SOURCES, SCREENER_QUOTE_FIELDS
-from yfin.storage.contracts import TableWrite
+from yfin.storage.contracts import TableWrite, VariantState
 
 log = get_logger(__name__)
 
@@ -186,7 +183,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
 
     # --- outer loop -----------------------------------------------------
 
-    def variants(self, settings: Settings, session: Session | None) -> list[str]:
+    def variants(self, settings: Settings, state: VariantState | None) -> list[str]:
         """The screen set comes from `screens.py`; enabled state from the DB.
 
         Direction matters: the set comes from CODE, the DB only FILTERS.
@@ -205,7 +202,10 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
                     f"valid names: {', '.join(sorted(keys))}"
                 )
             keys = [k for k in keys if k in set(wanted)]
-        return [k for k in keys if k not in _disabled_keys(session)]
+        # Read the disabled set ONCE. Asking per screen inside the
+        # comprehension issued 19 round-trips for one answer.
+        disabled = state.disabled_variants() if state is not None else frozenset()
+        return [k for k in keys if k not in disabled]
 
     # --- fetch ------------------------------------------------------------
 
@@ -325,14 +325,6 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
             ),
         ]
         return NormalizedResult(writes=writes)
-
-
-def _disabled_keys(session: Session | None) -> set[str]:
-    """Screens EXPLICITLY disabled in the DB."""
-    if session is None:  # library usage / tests
-        return set()
-    stmt = select(Screen.screen_key).where(Screen.is_enabled.is_(False))
-    return set(session.execute(stmt).scalars())
 
 
 def _screen_row(spec: ScreenDef, raw: ScreenPayload) -> dict[str, Any]:

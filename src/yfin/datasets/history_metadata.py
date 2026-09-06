@@ -11,7 +11,7 @@ from yfin.datasets.symbols import fetch_history_metadata
 from yfin.models.fields import HISTORY_METADATA_FIELDS
 from yfin.storage.contracts import TableWrite
 
-# Sadece raw_json'da tutulan, tabloya tasinmayan anahtarlar
+# Keys kept only in raw_json; never promoted to a column
 _RAW_ONLY = frozenset(
     {"symbol", "tradingPeriods", "currentTradingPeriod", "validRanges", "YF repair?"}
 )

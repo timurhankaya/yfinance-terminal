@@ -26,10 +26,12 @@ from typing import Any
 import pandas as pd
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext
 from yfin.datasets.common import key_value
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import AsOfFramePayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_optional
@@ -124,12 +126,31 @@ class InstitutionalHoldersDataset(_HolderListDataset):
     name = "institutional_holders"
     api_method = "get_institutional_holders"
     holder_type = HolderType.INSTITUTION
+    # `fixed` is what keeps the two datasets apart on the read surface:
+    # both write this table and only holder_type tells them apart, so
+    # without it asking for one would also return the other's rows.
+    api = ApiExposure(
+        family=DataFamily.HOLDERS,
+        table=TABLE,
+        sort_key=("as_of_date", "holder"),
+        descending=True,
+        fixed=(("holder_type", HolderType.INSTITUTION.value),),
+        description="Institutional holders and their reported positions.",
+    )
 
 
 class MutualFundHoldersDataset(_HolderListDataset):
     name = "mutualfund_holders"
     api_method = "get_mutualfund_holders"
     holder_type = HolderType.MUTUALFUND
+    api = ApiExposure(
+        family=DataFamily.HOLDERS,
+        table=TABLE,
+        sort_key=("as_of_date", "holder"),
+        descending=True,
+        fixed=(("holder_type", HolderType.MUTUALFUND.value),),
+        description="Mutual fund holders and their reported positions.",
+    )
 
 
 register(InstitutionalHoldersDataset())

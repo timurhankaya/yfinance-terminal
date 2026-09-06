@@ -23,7 +23,7 @@ class ProxyEndpoint:
     password: str = ""
 
     def dsn(self) -> str:
-        """curl/libcurl'e verilecek tam adres. ASLA loglanmaz."""
+        """The full address handed to curl/libcurl. NEVER logged."""
         auth = ""
         if self.username:
             auth = quote(self.username, safe="")

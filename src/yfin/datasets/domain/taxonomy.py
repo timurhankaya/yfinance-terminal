@@ -88,7 +88,7 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
             if sector_symbol is None or sector_name is None:
                 # `symbol` is UNIQUE NOT NULL, `name` is NOT NULL: if missing,
                 # the row hits a NOT NULL violation (23502) and drops the whole pass.
-                log.warning("sektor kimlik alani eksik", domain_key=sector_key)
+                log.warning("the sector identity field is missing", domain_key=sector_key)
                 continue
 
             symbol_rows.append(_symbol_row(sector_symbol, sector_name, fetched_at))
@@ -123,7 +123,7 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
                 industry_symbol = text_of(row, "symbol", 32)
                 industry_name = text_of(row, "name", 64)
                 if industry_symbol is None or industry_name is None:
-                    log.warning("endustri kimlik alani eksik", domain_key=industry_key)
+                    log.warning("the industry identity field is missing", domain_key=industry_key)
                     continue
                 symbol_rows.append(_symbol_row(industry_symbol, industry_name, fetched_at))
                 domain_rows.append(

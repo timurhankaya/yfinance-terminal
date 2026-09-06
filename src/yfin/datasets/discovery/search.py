@@ -341,7 +341,7 @@ def _news_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str,
         if news_id is None or title is None or pub_date is None:
             # `title` and `pub_date` are NOT NULL; if missing, the row is
             # dropped and a warning logged -- instead of dropping the whole cell.
-            log.warning("search haberi eksik alanla geldi", news_id=news_id)
+            log.warning("a search news item arrived with a missing field", news_id=news_id)
             continue
         if news_id in seen:
             continue

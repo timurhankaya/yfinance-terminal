@@ -19,7 +19,7 @@ from yfin.api.core.errors import install_error_handlers
 from yfin.api.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
 from yfin.api.ratelimit.dependencies import UsageMiddleware
 from yfin.api.routers import meta, oauth
-from yfin.api.routers.v1 import market
+from yfin.api.routers.v1 import datasets, market
 
 TITLE = "yfin Data API"
 VERSION = "1.0.0"
@@ -70,6 +70,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.include_router(meta.router)
     app.include_router(oauth.router)
     app.include_router(market.router)
+    app.include_router(datasets.router)
     return app
 
 

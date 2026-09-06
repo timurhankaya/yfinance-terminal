@@ -283,8 +283,8 @@ def config_schema(
 ) -> None:
     """Metadata the panel needs to draw its form. Never touches the DB."""
     note = (
-        "Not: 8 env-only alan (db_*, yf_proxy_secret_key, log_level) "
-        "burada YER ALMAZ; onlar .env'de kalir."
+        "Note: the 8 env-only fields (db_*, yf_proxy_secret_key, log_level) "
+        "are NOT listed here; they stay in .env."
     )
     items = settings_schema()
     if as_json:

@@ -91,7 +91,7 @@ def repair_enabled() -> bool:
             _REPAIR_AVAILABLE = False
             log.error(
                 "history repair disabled: the yfinance[repair] extra is not installed "
-                "(pip install 'yfinance[repair]'); scipy ve scikit-learn gerekir"
+                "(pip install 'yfinance[repair]'); scipy and scikit-learn are required"
             )
     return _REPAIR_AVAILABLE
 

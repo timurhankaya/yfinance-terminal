@@ -1,4 +1,4 @@
-"""isin dataset'i (S6.3 #1) - symbols tablosunun YALNIZ isin kolonuna yazar."""
+"""The isin dataset -- writes ONLY the isin column of the symbols table."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ class IsinDataset(Dataset[str | None]):
         return result
 
     def normalize(self, raw: str | None, symbol: str) -> NormalizedResult:
-        # Sentinel ISIN: '-' THYAO.IS, BTC-USD, ^GSPC, GC=F, EURUSD=X'te gelir
+        # Sentinel ISIN: '-' comes back for THYAO.IS, BTC-USD, ^GSPC, GC=F, EURUSD=X
         isin = nz.to_str(raw, 16)
         if isin is None:
             return NormalizedResult(writes=[], skipped={})

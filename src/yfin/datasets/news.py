@@ -1,4 +1,4 @@
-"""news dataset'i (S6.3 #10) -> news, news_symbols."""
+"""The news dataset -> news, news_symbols."""
 
 from __future__ import annotations
 
@@ -46,8 +46,8 @@ def _url(value: Any) -> str | None:
 
 
 def _thumbnail(thumb: Any) -> tuple[str | None, int | None, int | None]:
-    """tag='original' cozunurlugu kolonlara; digerleri raw_json'da kalir.
-    thumbnail may be None (5 of 50 articles measured)."""
+    """The tag='original' resolution goes into columns; the rest stay in
+    raw_json. thumbnail may be None (5 of 50 articles measured)."""
     if not isinstance(thumb, dict):
         return None, None, None
     for res in thumb.get("resolutions") or []:
@@ -65,7 +65,7 @@ def _thumbnail(thumb: Any) -> tuple[str | None, int | None, int | None]:
 
 
 def _iso_to_dt(value: Any) -> Any:
-    """'2026-09-03T12:00:00Z' -> naive UTC datetime. Bos string sentineldir."""
+    """'2026-09-03T12:00:00Z' -> naive UTC datetime. An empty string is a sentinel."""
     text = nz.to_str(value)
     if text is None:
         return None
@@ -86,8 +86,8 @@ class NewsDataset(Dataset[NewsPayload]):
         settings = get_settings()
         # A FRESH Ticker is used: the get_news cache ignores the count/tab
         # parameters ('if self._news: return self._news'), so if the same
-        # Ticker already fetched news the call silently returns 10 items
-        # sinirlanir. Bu, ctx.cached mekanizmasinin TEK ISTISNASIDIR.
+        # Ticker already fetched news the call would silently return 10
+        # items. This is the ONLY exception to the ctx.cached mechanism.
         ticker = make_ticker(ctx.symbol)
         result: NewsPayload = call_yahoo(
             lambda: ticker.get_news(count=settings.yf_news_count, tab=settings.yf_news_tab),
@@ -108,8 +108,8 @@ class NewsDataset(Dataset[NewsPayload]):
             if not isinstance(item, dict):
                 continue
             # PK -> NEVER TRUNCATED: two articles sharing the first 36
-            # characters would collapse into a single row
-            # birlesir ve ikincisinin govdesi birincisini ezerdi.
+            # characters would collapse into one row and the second
+            # article's body would overwrite the first.
             news_id = key_value(
                 item.get("id"), 36, field="news_id", dataset=self.name, symbol=symbol
             )
@@ -119,7 +119,7 @@ class NewsDataset(Dataset[NewsPayload]):
             title = nz.to_str(content.get("title"), 512)
             pub_date = _iso_to_dt(content.get("pubDate"))
             if title is None or pub_date is None:
-                # title ve pub_date NOT NULL
+                # title and pub_date are NOT NULL
                 continue
 
             provider = _as_dict(content.get("provider"))
@@ -149,8 +149,8 @@ class NewsDataset(Dataset[NewsPayload]):
                     }
                 )
 
-            # M:N gercek: content.finance.stockTickers 50/50 haberde mevcut,
-            # 27/50 cok sembollu
+            # The M:N link is real: content.finance.stockTickers was present
+            # in 50 of 50 articles, and 27 of 50 carried several symbols.
             finance = _as_dict(content.get("finance"))
             tickers = finance.get("stockTickers") or []
             symbols: list[str] = []
@@ -169,7 +169,7 @@ class NewsDataset(Dataset[NewsPayload]):
                 if key in seen_links:
                     continue
                 seen_links.add(key)
-                # is_known upsert sirasinda DB'den doldurulur
+                # is_known is filled from the DB during the upsert
                 link_rows.append({"news_id": news_id, "symbol": linked, "is_known": False})
 
         if not news_rows:

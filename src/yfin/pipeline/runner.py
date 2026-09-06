@@ -97,45 +97,6 @@ class SymbolPayload:
     success_count: int = 0
 
 
-@dataclass
-class RunSummary:
-    run_id: int | None
-    items: list[ItemRecord]
-    symbol_count: int
-    dataset_count: int
-
-    @property
-    def failed(self) -> int:
-        return sum(1 for i in self.items if i.status is ItemStatus.FAILED)
-
-    @property
-    def resolved_symbols(self) -> int:
-        unresolved = {i.symbol for i in self.items if i.status is ItemStatus.UNKNOWN_SYMBOL}
-        return len({i.symbol for i in self.items} - unresolved)
-
-    def exit_code(self) -> int:
-        """No failures -> 0 (ok/empty/skipped are all fine)."""
-        if self.symbol_count and self.resolved_symbols == 0:
-            return EXIT_NO_SYMBOL_RESOLVED
-        if self.failed == 0:
-            return EXIT_OK
-        # Same exclusion set as RunTally.cells: never-attempted cells must
-        # not count toward "everything attempted failed".
-        excluded = {ItemStatus.UNKNOWN_SYMBOL, ItemStatus.OUT_OF_SCOPE}
-        cells = [i for i in self.items if i.status not in excluded]
-        if cells and self.failed == len(cells):
-            return EXIT_ALL_FAILED
-        return EXIT_PARTIAL
-
-    def totals(self) -> dict[str, int]:
-        return {
-            "rows_fetched": sum(i.rows_fetched for i in self.items),
-            "rows_written": sum(i.rows_written for i in self.items),
-            "rows_verified": sum(i.rows_verified for i in self.items),
-            "rows_skipped": sum(i.rows_skipped for i in self.items),
-        }
-
-
 class WatermarkReader:
     """Read-only watermark provider. Opens its own short session so worker
     threads never touch the main transaction."""

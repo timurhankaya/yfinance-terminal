@@ -57,6 +57,20 @@ class WriteStats:
         return list(seen)
 
 
+class VariantState(Protocol):
+    """What a variant-scoped dataset needs to know about stored state.
+
+    One method on purpose. The variant list used to be computed from a
+    live `sqlalchemy.orm.Session` handed straight into the dataset layer,
+    which put the ORM in the one package that is supposed to be free of
+    it. The dataset asks a question; the storage layer answers it.
+    """
+
+    def disabled_variants(self) -> frozenset[str]:
+        """Variant keys explicitly switched off in the database."""
+        ...
+
+
 class RowSink(Protocol):
     """Write-only capability.
 

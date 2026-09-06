@@ -18,12 +18,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Literal
 
-from sqlalchemy.orm import Session
-
 from yfin.core.config import Settings
 from yfin.datasets.base import NormalizedResult
 from yfin.datasets.snapshot_base import snapshot_upsert
-from yfin.storage.contracts import RowWriter, WriteStats, apply_write
+from yfin.storage.contracts import RowWriter, VariantState, WriteStats, apply_write
 
 # A third value: the screen loop also runs OUTSIDE the dataset -- the same
 # reasoning as the region loop above applies word for word:
@@ -90,13 +88,13 @@ class GlobalDataset[RawT](ABC):
     produces: tuple[str, ...] = ()
     scope: MarketScope = "global"
 
-    def variants(self, settings: Settings, session: Session | None) -> Sequence[str]:
+    def variants(self, settings: Settings, state: VariantState | None) -> Sequence[str]:
         """For `scope == "variant"`, the outer loop's keys.
 
-        `session` is REQUIRED, and is the most debatable part of this
-        signature: the variant set looks at the `is_enabled` column on the
-        `screens` table. A signature taking only `settings` could not read
-        the DB -- `Settings` is a Pydantic settings object.
+        `state` is the storage side of the question: the variant set also
+        depends on the `is_enabled` column of the `screens` table, which
+        `Settings` cannot answer. It is a one-method protocol rather than
+        a Session so that nothing in this package depends on the ORM.
 
         `market_regions()` is a MODULE FUNCTION in the runner because the
         region set comes only from config and is THE SAME for every

@@ -50,6 +50,59 @@ class LimitState:
     headers: dict[str, str] = field(default_factory=dict)
 
 
+def meter(
+    request: Request, response: Response, principal: Principal, family: DataFamily
+) -> None:
+    """Applies the plan's limits and records what was done.
+
+    Split out of `guard` because the generic dataset surface cannot name
+    its family in a signature -- the family depends on which dataset was
+    asked for. Both paths run this same function, so a request served
+    generically is metered exactly like one served by a hand-written
+    endpoint.
+    """
+    settings: ApiSettings = request.app.state.api_settings
+    limits = policy.limits_for_client(principal.client_id)
+    state = LimitState(client_id=principal.client_id, family=family.value)
+    request.state.limits = state
+    request.state.page_size_cap = limits.max_page_size
+
+    verdict = limiter.consume(settings, principal.client_id, limits)
+    state.degraded = verdict.degraded
+    state.headers = limiter.headers(verdict)
+    # Set on the success path here; the refusals below carry the same
+    # headers on the problem response.
+    response.headers.update(state.headers)
+
+    if not verdict.allowed:
+        if verdict.reason == limiter.REASON_QUOTA:
+            raise ApiProblem(
+                429,
+                TYPE_QUOTA,
+                "Monthly quota exhausted",
+                detail="the plan's monthly request quota is used up",
+                headers={"Retry-After": str(verdict.retry_after), **state.headers},
+            )
+        raise ApiProblem(
+            429,
+            TYPE_RATE_LIMIT,
+            "Too many requests",
+            detail="the request rate exceeds the plan's limit",
+            headers={"Retry-After": str(verdict.retry_after), **state.headers},
+        )
+
+    slot = concurrency.acquire(settings, principal.client_id, limits.max_concurrency)
+    if not slot.acquired:
+        raise ApiProblem(
+            429,
+            TYPE_CONCURRENCY,
+            "Too many concurrent requests",
+            detail=f"at most {limits.max_concurrency} requests may be in flight",
+            headers={"Retry-After": "1", **state.headers},
+        )
+    state.holds_slot = not slot.degraded
+
+
 def guard(family: DataFamily) -> Callable[..., Principal]:
     """Requires the family's scope, then meters the request under it."""
     scope = scope_for(family)
@@ -67,46 +120,7 @@ def guard(family: DataFamily) -> Callable[..., Principal]:
             current_principal, scopes=[scope]
         ),
     ) -> Principal:
-        settings: ApiSettings = request.app.state.api_settings
-        limits = policy.limits_for_client(principal.client_id)
-        state = LimitState(client_id=principal.client_id, family=family.value)
-        request.state.limits = state
-        request.state.page_size_cap = limits.max_page_size
-
-        verdict = limiter.consume(settings, principal.client_id, limits)
-        state.degraded = verdict.degraded
-        state.headers = limiter.headers(verdict)
-        # Set on the success path here; the refusals below carry the same
-        # headers on the problem response.
-        response.headers.update(state.headers)
-
-        if not verdict.allowed:
-            if verdict.reason == limiter.REASON_QUOTA:
-                raise ApiProblem(
-                    429,
-                    TYPE_QUOTA,
-                    "Monthly quota exhausted",
-                    detail="the plan's monthly request quota is used up",
-                    headers={"Retry-After": str(verdict.retry_after), **state.headers},
-                )
-            raise ApiProblem(
-                429,
-                TYPE_RATE_LIMIT,
-                "Too many requests",
-                detail="the request rate exceeds the plan's limit",
-                headers={"Retry-After": str(verdict.retry_after), **state.headers},
-            )
-
-        slot = concurrency.acquire(settings, principal.client_id, limits.max_concurrency)
-        if not slot.acquired:
-            raise ApiProblem(
-                429,
-                TYPE_CONCURRENCY,
-                "Too many concurrent requests",
-                detail=f"at most {limits.max_concurrency} requests may be in flight",
-                headers={"Retry-After": "1", **state.headers},
-            )
-        state.holds_slot = not slot.degraded
+        meter(request, response, principal, family)
         return principal
 
     return dependency

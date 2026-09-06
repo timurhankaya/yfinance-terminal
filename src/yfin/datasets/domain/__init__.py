@@ -1,4 +1,4 @@
-"""Sektor / endustri dataset'leri (SI S7).
+"""Sector / industry datasets.
 
 Importing the submodules is what triggers the `DOMAIN_DATASETS` entries.
 """

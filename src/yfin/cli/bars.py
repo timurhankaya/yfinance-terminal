@@ -160,7 +160,7 @@ def bars_gaps(
         typer.echo("no gaps")
         return
     for sym, iv, start, end, why, resolved in rows:
-        state = "cozuldu" if resolved else "ACIK"
+        state = "resolved" if resolved else "OPEN"
         typer.echo(f"{sym:12s} {iv:4s} {start} -> {end}  {why:18s} {state}")
 
 
@@ -186,7 +186,7 @@ def bars_maintain(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -
         if unseeded:
             typer.echo(
                 f"WARNING: {unseeded} historical splits are unseeded. Running "
-                "`yfin sync --datasets bars` before `yfin rescale --seed` "
+                "`yfin sync --datasets bars` before `yfin bars rescale --seed` "
                 "CORRUPTS THE ARCHIVE."
             )
 
@@ -227,7 +227,7 @@ def bars_rescale(
         if seed:
             count = seed_baseline(session)
             session.commit()
-            typer.echo(f"baseline: {count} split tohumlandi")
+            typer.echo(f"baseline: {count} splits seeded")
             return
         if symbol is None:
             typer.echo("pass --seed or --symbol")

@@ -12,9 +12,11 @@ from typing import Any
 import pandas as pd
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import AsOfFramePayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_optional
@@ -37,6 +39,13 @@ class MajorHoldersDataset(AsOfDataset[AsOfFramePayload]):
     name = "major_holders"
     depends_on = ("symbols",)
     produces = asof_produces(TABLE)
+    api = ApiExposure(
+        family=DataFamily.HOLDERS,
+        table=TABLE,
+        sort_key=("as_of_date",),
+        descending=True,
+        description="Ownership split between insiders and institutions.",
+    )
 
     def fetch(self, ctx: SyncContext) -> AsOfFramePayload:
         frame = call_optional(ctx.ticker.get_major_holders, what=f"{self.name}:{ctx.symbol}")

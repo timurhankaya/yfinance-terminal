@@ -75,6 +75,18 @@ class Registry[D: Registrable]:
         `all` expansion. The declaration stays at the dataset's
         REGISTRATION SITE, not in a name list embedded in the registry.
         """
+        # Read reflectively rather than through the protocol: the market
+        # and domain dataset hierarchies are registrable without being
+        # exposable, and widening the protocol would force both to carry
+        # fields they never use.
+        exposure = getattr(ds, "api", None)
+        if exposure is not None:
+            # Validated here, at import time. A misdeclared dataset should
+            # stop the process from starting rather than surface as a 500
+            # to whoever calls it first.
+            exposure.validate(
+                dataset_name=ds.name, produces=tuple(getattr(ds, "produces", ()))
+            )
         self._items[ds.name] = ds
         if opt_in:
             self._opt_in.add(ds.name)

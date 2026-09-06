@@ -1,7 +1,7 @@
-"""Proxy havuzu.
+"""The proxy pool.
 
 Responsibilities live in separate modules: `dsn` (value object), `crypto`
-(sifreleme), `health` (SAF durum makinesi), `repository` (DB), `check`
+(encryption), `health` (a PURE state machine), `repository` (DB), `check`
 (network). From the outside a single surface is visible.
 """
 

@@ -47,6 +47,7 @@ from yfin.proxy import (
 )
 from yfin.storage.db import advisory_lock
 from yfin.storage.persistence import PostgresRowWriter
+from yfin.storage.variants import ScreenVariantState
 
 log = get_logger(__name__)
 
@@ -195,7 +196,7 @@ def run_market_sync(
             # open their own sessions, so holding a read session open
             # across the loop would waste a connection.
             with factory() as session:
-                variants = list(dataset.variants(cfg, session))
+                variants = list(dataset.variants(cfg, ScreenVariantState(session)))
             for variant in variants:
                 items.extend(
                     _run_turn(factory, dataset, base_ctx.for_variant(variant), variant, tracker)
