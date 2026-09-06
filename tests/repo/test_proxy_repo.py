@@ -30,7 +30,7 @@ from yfin.runner import (
 pytestmark = pytest.mark.repo
 
 POLICY = ProxyPolicy(failure_threshold=3, cooldown_seconds=900, dead_rounds=3)
-NOW = datetime.now(UTC).replace(tzinfo=None)
+NOW = datetime.now(UTC)
 
 
 # Host DETERMINISTIK uretilir. Onceki surum abs(hash(label)) kullaniyordu;

@@ -2,16 +2,36 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import os
 
-import pytest
-from sqlalchemy import Engine, create_engine, text
-from sqlalchemy.orm import Session
+# MODUL SEVIYESINDE ve HER `yfin` import'undan ONCE (CFG S8.3).
+#
+# Autouse bir session fixture'i YETMEZ: pytest once tum test modullerini
+# IMPORT eder, fixture'lar ondan SONRA calisir -- import aninda kurulan
+# bir `Settings` yukleyiciyi coktan tetiklemis olurdu. Ayrica
+# session-scoped bir fixture function-scoped `monkeypatch`i isteyemez
+# (ScopeMismatch).
+#
+# Zorunludur cunku `load_overrides` `db_name`e -- yani URETIM SEMASINA --
+# baglanir, oysa testler surece ozel bir semada kosar
+# (`tests/helpers.py`). `setdefault` kullanilir: DB yolunu sinayan repo
+# testleri `monkeypatch.delenv` + `config.reset_settings()` ile bu
+# korumayi bilincli olarak kaldirir.
+#
+# Spawn edilen child'lar `os.environ`i miras alir (shard.py), dolayisiyla
+# degisken onlara da gecer.
+os.environ.setdefault("YF_SETTINGS_SOURCE", "env")
 
-from helpers import drop_stale_schemas, schema_name
-from yfin.config import Settings, get_settings
-from yfin.db import create_db_engine
-from yfin.models import (
+from collections.abc import Iterator  # noqa: E402
+
+import pytest  # noqa: E402
+from sqlalchemy import Engine, create_engine, text  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
+
+from helpers import drop_stale_schemas, schema_name  # noqa: E402
+from yfin.config import Settings, get_settings  # noqa: E402
+from yfin.db import create_db_engine  # noqa: E402
+from yfin.models import (  # noqa: E402
     V_ACTIONS_CREATE,
     V_PRICE_BARS_REGULAR_CREATE,
     Base,

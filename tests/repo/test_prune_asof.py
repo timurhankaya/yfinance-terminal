@@ -25,7 +25,7 @@ from yfin.prune import PruneDisabledError, asof_tables, prune_asof, run_prune
 pytestmark = pytest.mark.repo
 
 SYMBOL = "ZZPRUNE"
-NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 DATASET = SYMBOL_DATASETS["institutional_holders"]
 TABLE = "institutional_holders"
 

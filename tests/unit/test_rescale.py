@@ -12,7 +12,7 @@ onlari Yahoo'nun guncel olcegine hizalar.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -62,7 +62,7 @@ def test_split_boundary_is_local_midnight_in_utc() -> None:
     """AAPL: America/New_York -04:00 -> yerel 00:00 = UTC 04:00."""
     boundary = split_boundary_utc(date(2026, 6, 10), "America/New_York")
 
-    assert boundary == datetime(2026, 6, 10, 4, 0)
+    assert boundary == datetime(2026, 6, 10, 4, 0, tzinfo=UTC)
 
 
 def test_positive_offset_exchange_shifts_the_other_way() -> None:
@@ -74,12 +74,14 @@ def test_positive_offset_exchange_shifts_the_other_way() -> None:
     """
     boundary = split_boundary_utc(date(2026, 6, 10), "Europe/Istanbul")
 
-    assert boundary == datetime(2026, 6, 9, 21, 0)
+    assert boundary == datetime(2026, 6, 9, 21, 0, tzinfo=UTC)
 
 
 def test_dst_transition_is_handled_by_zoneinfo() -> None:
     """Kis saatinde ofset -05:00'e doner."""
-    assert split_boundary_utc(date(2026, 1, 15), "America/New_York") == datetime(2026, 1, 15, 5, 0)
+    assert split_boundary_utc(date(2026, 1, 15), "America/New_York") == datetime(
+        2026, 1, 15, 5, 0, tzinfo=UTC
+    )
 
 
 def test_unknown_timezone_is_skipped_not_guessed() -> None:

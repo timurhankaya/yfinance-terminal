@@ -12,7 +12,7 @@ from yfin.datasets import SYMBOL_DATASETS
 from yfin.datasets.base import NormalizedResult, TableWrite
 from yfin.datasets.payloads import AsOfFramePayload, RangedFramePayload
 
-NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 AS_OF = date(2026, 9, 4)
 
 
@@ -291,7 +291,7 @@ def test_insider_roster_accepts_timestamp_and_raw_epoch_dates() -> None:
     row = _rows(
         dataset.normalize(AsOfFramePayload(_roster_frame(9), NOW), "KO"), "insider_roster"
     )[0]
-    assert row["position_direct_date"] == datetime(2026, 4, 1, 0, 0)
+    assert row["position_direct_date"] == datetime(2026, 4, 1, 0, 0, tzinfo=UTC)
     assert row["position_indirect_date"] is not None
 
 

@@ -24,7 +24,7 @@ from yfin.rescale import (
 
 pytestmark = pytest.mark.repo
 
-NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 SPLIT_DAY = date(2026, 6, 10)
 
 

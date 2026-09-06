@@ -94,7 +94,7 @@ def test_insert_outside_partition_range_fails_loudly(db_session: Session) -> Non
     """MAXVALUE'suz tasarimin TA KENDISI: aralik disi satir sessizce
     birikmez, ERROR 1526 ile duser ve bakimin atlandigini kosuda bildirir."""
     with pytest.raises(OperationalError) as excinfo:
-        db_session.add(_bar(datetime(2029, 1, 2, 14, 30, tzinfo=UTC).replace(tzinfo=None)))
+        db_session.add(_bar(datetime(2029, 1, 2, 14, 30, tzinfo=UTC)))
         db_session.flush()
 
     assert "1526" in str(excinfo.value) or "no partition" in str(excinfo.value).lower()

@@ -17,7 +17,7 @@ from yfin.datasets.domain.payloads import DomainPayload, TaxonomyPayload
 from yfin.datasets.registry import DOMAIN_DATASETS
 from yfin.persistence import PostgresRowWriter
 
-NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 AS_OF = date(2026, 9, 4)
 
 # Fixture'i olan sektorler; taksonomi bunlar uzerinden kurulur.

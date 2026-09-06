@@ -285,7 +285,7 @@ def run_domain_sync(
         selector=f"regions={','.join(regions)}",
     )
 
-    fetched_at = datetime.now(UTC).replace(tzinfo=None)
+    fetched_at = datetime.now(UTC)
     base_ctx = DomainContext(
         fetched_at=fetched_at,
         as_of_date=as_of_day(fetched_at),

@@ -37,7 +37,7 @@ from yfin.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo
 
-NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 
 # Referans semboller (AH S9.1); her biri bir kenar durumun kanitidir.
 SYMBOLS = ("AAPL", "MSFT", "THYAO.IS", "PFE", "XOM", "NVDA", "WMT", "KO", "SPY", "BND", "^GSPC")

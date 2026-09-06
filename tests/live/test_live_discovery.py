@@ -23,7 +23,7 @@ from yfin.screens import screen_by_key
 
 pytestmark = pytest.mark.live
 
-NOW = datetime.now(UTC).replace(tzinfo=None)
+NOW = datetime.now(UTC)
 
 
 def _ctx(term: str) -> SyncContext:

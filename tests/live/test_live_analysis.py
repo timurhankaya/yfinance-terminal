@@ -161,7 +161,7 @@ def test_symbol_costs_seven_requests(test_engine: Engine) -> None:
     try:
         from datetime import UTC, datetime
 
-        ctx = SyncContext("AAPL", make_ticker("AAPL"), datetime.now(UTC).replace(tzinfo=None))
+        ctx = SyncContext("AAPL", make_ticker("AAPL"), datetime.now(UTC))
         for name in (*SYMBOL_DATASETS.aliases["analysis"], *SYMBOL_DATASETS.aliases["holders"]):
             SYMBOL_DATASETS[name].fetch(ctx)
     finally:

@@ -10,7 +10,7 @@ from yfin.datasets.domain.common import SECTOR_KEYS
 from yfin.datasets.domain.payloads import TaxonomyPayload
 from yfin.datasets.registry import DOMAIN_DATASETS
 
-FETCHED_AT = datetime(2026, 9, 4, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+FETCHED_AT = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 AS_OF = date(2026, 9, 4)
 
 DATASET = DOMAIN_DATASETS["domain_taxonomy"]

@@ -28,7 +28,7 @@ from yfin.datasets.base import Dataset, NormalizedResult, TableWrite
 from yfin.models import Base
 
 AS_OF = date(2026, 9, 4)
-NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 
 # ALTIN DEGER: asagidaki deterministik govdenin SHA-256'si. Fixture'a
 # BAGLI DEGILDIR (fixture'lar yeniden yakalandiginda kirilmasin diye);

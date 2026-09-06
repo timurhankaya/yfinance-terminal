@@ -158,8 +158,12 @@ def to_decimal(value: Any) -> Decimal | None:
 
 
 def to_datetime_utc(value: Any) -> datetime | None:
-    """tz-aware degeri UTC'ye cevirir, naive degeri UTC kabul eder.
-    Donen deger tz-naive'dir (MySQL DATETIME(6) tz tasimaz)."""
+    """tz-aware degeri UTC'ye cevirir, naive degeri UTC KABUL EDER.
+
+    Donen deger UTC-AWARE'dir. MySQL DATETIME(6) tz tasimadigi icin damga
+    naive'e indiriliyordu; PostgreSQL kolonu `timestamptz`tir ve tz
+    bilgisini SAKLAR (PG S2.3).
+    """
     if is_missing(value):
         return None
     if isinstance(value, str):
@@ -169,14 +173,18 @@ def to_datetime_utc(value: Any) -> datetime | None:
             return None
     if isinstance(value, pd.Timestamp):
         ts = value.tz_convert(UTC) if value.tzinfo is not None else value.tz_localize(UTC)
-        naive: datetime = ts.to_pydatetime().replace(tzinfo=None)
-        return naive
+        aware: datetime = ts.to_pydatetime()
+        return aware
     if isinstance(value, datetime):
+        # Naive deger UTC KABUL EDILIR (dokumante edilmis sozlesme) ve
+        # acikca isaretlenir; aksi halde `timestamptz` kolonuna naive
+        # deger giderdi ve psycopg onu baglanti TZ'sine gore yorumlardi --
+        # sonuc dogru cikar ama tip tutarsizligi kalicilasir.
         if value.tzinfo is None:
-            return value
-        return value.astimezone(UTC).replace(tzinfo=None)
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
     if isinstance(value, date):
-        return datetime(value.year, value.month, value.day)
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
     return None
 
 
@@ -205,13 +213,13 @@ def to_local_date(value: Any) -> date | None:
 
 
 def epoch_to_datetime(value: Any, *, unit: str = "s") -> datetime | None:
-    """Epoch -> naive UTC datetime. unit 's' veya 'ms'."""
+    """Epoch -> UTC-AWARE datetime. unit 's' veya 'ms'."""
     raw = to_int(value)
     if raw is None:
         return None
     seconds = raw / 1000.0 if unit == "ms" else float(raw)
     try:
-        return datetime.fromtimestamp(seconds, tz=UTC).replace(tzinfo=None)
+        return datetime.fromtimestamp(seconds, tz=UTC)
     except (OverflowError, OSError, ValueError):
         return None
 
@@ -318,8 +326,15 @@ def canonical_json(payload: Any) -> str:
     """Kanonik JSON (S7.2).
 
     sort_keys + allow_nan=False + ensure_ascii=False + kompakt ayiricilar.
-    allow_nan varsayilani ile NaN sizarsa MySQL ERROR 3140 verir ve S8.7
-    geregi TUM sembolun transaction'i geri alinir.
+
+    allow_nan=False ZORUNLUDUR. Gerekce motor degisimiyle DEGISMEDI,
+    yalnizca belirtisi degisti: MySQL JSON tipi NaN iceren govdeyi
+    reddediyordu (ERROR 3140) ve tum sembolun transaction'i geri
+    alinirdi. Kolon artik TEXT oldugu icin (PG S2.4) NaN sessizce
+    YAZILIRDI -- ve `content_hash` uzerinden karsilastirildiginda
+    `NaN != NaN` oldugu icin hash kapisi HER KOSUDA acilir, degismeyen
+    veri surekli yeniden yazilirdi. Yani kapi artik motorun degil BU
+    fonksiyonun sorumlulugundadir.
     """
     return json.dumps(
         _scrub_nan(payload),

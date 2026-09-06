@@ -61,15 +61,15 @@ class TestTimezone:
         session_date yerel tarihi korumalidir."""
         ts = pd.Timestamp("2000-05-10 00:00:00+03:00")
         assert nz.to_local_date(ts) == date(2000, 5, 10)
-        assert nz.to_datetime_utc(ts) == datetime(2000, 5, 9, 21, 0)
+        assert nz.to_datetime_utc(ts) == datetime(2000, 5, 9, 21, 0, tzinfo=UTC)
 
     def test_negative_offset_same_day(self) -> None:
         ts = pd.Timestamp("2026-09-03 00:00:00-04:00")
         assert nz.to_local_date(ts) == date(2026, 9, 3)
-        assert nz.to_datetime_utc(ts) == datetime(2026, 9, 3, 4, 0)
+        assert nz.to_datetime_utc(ts) == datetime(2026, 9, 3, 4, 0, tzinfo=UTC)
 
     def test_utc_result_is_naive(self) -> None:
-        assert nz.to_datetime_utc(datetime(2020, 1, 1, tzinfo=UTC)).tzinfo is None
+        assert nz.to_datetime_utc(datetime(2020, 1, 1, tzinfo=UTC)).tzinfo is UTC
 
 
 class TestEpochMap:
@@ -78,12 +78,12 @@ class TestEpochMap:
 
     def test_milliseconds_field(self) -> None:
         assert nz.convert_epoch_field("firstTradeDateMilliseconds", 345479400000) == datetime(
-            1980, 12, 12, 14, 30
+            1980, 12, 12, 14, 30, tzinfo=UTC
         )
 
     def test_seconds_field(self) -> None:
         assert nz.convert_epoch_field("regularMarketTime", 345479400) == datetime(
-            1980, 12, 12, 14, 30
+            1980, 12, 12, 14, 30, tzinfo=UTC
         )
 
     @pytest.mark.parametrize("key", ["fullTimeEmployees", "allTimeHigh", "isEarningsDateEstimate"])
@@ -192,7 +192,7 @@ class TestNumericBoundaries:
         from yfin.models.kinds import KINDS
 
         convert = KINDS["dt"].convert
-        expected = datetime(2023, 11, 14, 22, 13, 20)
+        expected = datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
         assert convert(np.int64(1700000000)) == expected
         assert convert(np.float64(1700000000.0)) == expected
         assert convert(1700000000) == expected

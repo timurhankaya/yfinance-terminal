@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -47,7 +47,7 @@ class TestHistory:
         rows = _write(REGISTRY["history"].normalize(frame, "THYAO.IS"), "price_history").rows
         first = rows[0]
         assert first["session_date"] == date(2024, 9, 4)
-        assert first["ts_utc"] == datetime(2024, 9, 3, 21, 0)
+        assert first["ts_utc"] == datetime(2024, 9, 3, 21, 0, tzinfo=UTC)
 
     def test_etf_capital_gains_column_handled(self) -> None:
         """Fon/ETF'te 9. kolon olarak 'Capital Gains' eklenir."""

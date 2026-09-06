@@ -25,8 +25,8 @@ from yfin.persistence import PostgresRowWriter
 pytestmark = pytest.mark.repo
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
-NOW = datetime(2026, 9, 5, 12, 0, tzinfo=UTC).replace(tzinfo=None)
-LATER = datetime(2026, 9, 6, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+NOW = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
+LATER = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
 AS_OF = date(2026, 9, 5)
 
 

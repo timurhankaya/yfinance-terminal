@@ -594,7 +594,7 @@ def open_run(
     """
     with factory() as session:
         run = SyncRun(
-            started_at=datetime.now(UTC).replace(tzinfo=None),
+            started_at=datetime.now(UTC),
             scope=scope,
             status=RunStatus.RUNNING,
             symbol_count=symbol_count,
@@ -609,15 +609,31 @@ def open_run(
         return int(run.id)
 
 
-# InnoDB deadlock (1213) ve lock wait timeout (1205). Semboller shard'lara
-# dagitildigi icin iki process ayni news / news_symbols satirina yazabilir;
-# tek process'te bu risk yoktu.
-_LOCK_ERRORS = ("1213", "1205", "deadlock", "lock wait timeout")
+# PostgreSQL SQLSTATE'leri. Semboller shard'lara dagitildigi icin iki
+# process ayni news / news_symbols satirina yazabilir; tek process'te bu
+# risk yoktu.
+#   40001 serialization_failure
+#   40P01 deadlock_detected
+#
+# 55P03 (lock_not_available) LISTEDE YOKTUR: bu kod yolunda hic olusmaz
+# cunku NOWAIT / SKIP LOCKED kullanilmiyor. Gerekcesiz bir SQLSTATE'i
+# yeniden denemek, ileride NOWAIT eklenirse yanlis davranisi sessizce
+# mesrulastirirdi.
+_RETRYABLE_SQLSTATES = frozenset({"40001", "40P01"})
 
 
 def _is_lock_conflict(exc: BaseException) -> bool:
-    text = f"{exc}".lower()
-    return any(marker in text for marker in _LOCK_ERRORS)
+    """Hata METNI degil SQLSTATE'e bakilir.
+
+    Metin eslesmesi yerellestirilmis mesajlardan ve surucu bicim
+    degisikliklerinden etkilenir; SQLSTATE yapisal ve sabittir.
+    psycopg3 istisnalari `sqlstate` tasir ve SQLAlchemy onu
+    `DBAPIError.orig` altinda sunar. `orig` tasimayan bir istisnada
+    (programlama hatasi) getattr zinciri None doner ve YENIDEN DENENMEZ --
+    dogru davranis.
+    """
+    sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+    return sqlstate in _RETRYABLE_SQLSTATES
 
 
 def _persist_with_retry(
@@ -626,10 +642,10 @@ def _persist_with_retry(
     """Sembol transaction'i; kilit catismasinda jitter'li yeniden deneme.
 
     Transaction sembol kapsamli (S8.7) ve idempotent (S7.2) oldugu icin
-    yeniden calistirmak guvenlidir. ERROR 1205 varsayilan MySQL
-    konfigurasyonunda (innodb_rollback_on_timeout=OFF) YALNIZCA son ifadeyi
-    geri alir; transaction yasamaya devam eder, bu yuzden yeniden denemeden
-    once rollback ZORUNLUDUR.
+    yeniden calistirmak guvenlidir. PostgreSQL'de hata alan transaction
+    HER ZAMAN abort durumuna gecer ve ROLLBACK disinda komut kabul etmez,
+    bu yuzden yeniden denemeden once rollback ZORUNLUDUR -- motorun
+    kendisi bunu dayatir.
     """
     last_error = ""
     for attempt in range(1, attempts + 1):
@@ -772,7 +788,7 @@ def run_shard(
                     bootstrap,
                     # fetched_at DB fonksiyonuyla degil, Python tarafinda
                     # SEMBOL BASINA BIR KEZ uretilir (S5.4)
-                    datetime.now(UTC).replace(tzinfo=None),
+                    datetime.now(UTC),
                     watermarks,
                     full_refresh,
                     start=start,
@@ -1045,7 +1061,7 @@ def finalize_run(
             update(SyncRun)
             .where(SyncRun.id == run_id)
             .values(
-                finished_at=datetime.now(UTC).replace(tzinfo=None),
+                finished_at=datetime.now(UTC),
                 status=_STATUS_TO_RUN[tally.exit_code()],
                 **totals,
             )

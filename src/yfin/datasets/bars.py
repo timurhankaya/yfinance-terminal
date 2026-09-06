@@ -359,7 +359,7 @@ def _gap_writes(raw: BarPayload, symbol: str) -> list[TableWrite]:
     Sonuncusu olmadan bar_gaps tek yonlu bir liste olurdu: bir kez yazilan
     bosluk sonsuza kadar acik kalir ve HER kosuda bosuna yeniden cekilirdi.
     """
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC)
     rows: list[dict[str, Any]] = []
 
     if raw.gap is not None:
@@ -418,10 +418,12 @@ def _resolve_writes(raw: BarPayload, symbol: str, now: datetime) -> list[TableWr
         return []
     rows: list[dict[str, Any]] = []
     for gap_start, gap_end in raw.open_gaps:
+        # Pencere sinirlari da UTC-aware kurulur: aware ve naive
+        # datetime karsilastirmasi TypeError verir.
         covered = any(
-            datetime.combine(w_start, datetime.min.time())
-            <= _naive(gap_start)
-            < datetime.combine(w_end, datetime.min.time())
+            datetime.combine(w_start, datetime.min.time(), tzinfo=UTC)
+            <= _aware(gap_start)
+            < datetime.combine(w_end, datetime.min.time(), tzinfo=UTC)
             for w_start, w_end in raw.fetched_windows
         )
         if not covered:
@@ -430,8 +432,8 @@ def _resolve_writes(raw: BarPayload, symbol: str, now: datetime) -> list[TableWr
             {
                 "symbol": symbol,
                 "bar_interval": raw.interval,
-                "gap_start_utc": _naive(gap_start),
-                "gap_end_utc": _naive(gap_end),
+                "gap_start_utc": _aware(gap_start),
+                "gap_end_utc": _aware(gap_end),
                 "detected_at": now,
                 "reason": GAP_FETCH_FAILED,
                 "resolved_at": now,
@@ -449,8 +451,16 @@ def _resolve_writes(raw: BarPayload, symbol: str, now: datetime) -> list[TableWr
     ]
 
 
-def _naive(value: datetime) -> datetime:
-    return value.replace(tzinfo=None) if value.tzinfo is not None else value
+def _aware(value: datetime) -> datetime:
+    """UTC-aware'e cevirir; naive gelen deger UTC KABUL EDILIR.
+
+    Eskiden tersini yapiyordu (`_naive`): `bar_gaps.gap_start_utc` MySQL
+    DATETIME oldugu icin tz dusuruluyordu. Kolon artik `timestamptz`tir
+    (PG S2.3) ve naive deger yazmak, psycopg'nin baglanti TZ'sine gore
+    yorumlamasina birakmak demekti -- sonuc dogru cikar ama karsilastirma
+    ve depolama farkli farkindalik duzeylerinde kalirdi.
+    """
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 class IntervalBarDataset(Dataset[BarPayload]):

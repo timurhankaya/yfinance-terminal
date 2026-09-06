@@ -173,7 +173,7 @@ def run_market_sync(
     )
 
     base_ctx = MarketContext(
-        fetched_at=datetime.now(UTC).replace(tzinfo=None),
+        fetched_at=datetime.now(UTC),
         start=window_start,
         end=window_end,
     )

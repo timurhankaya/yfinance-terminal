@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -97,7 +97,7 @@ class TestCalendars:
         rows = _rows(self._result("earnings_calendar", "earnings_calendar"), "calendar_earnings")
         assert rows
         assert all(r["symbol"] == r["symbol"].upper() for r in rows)
-        assert all(r["event_start_ts_utc"].tzinfo is None for r in rows)
+        assert all(r["event_start_ts_utc"].tzinfo is UTC for r in rows)
 
     def test_economic_calendar_triple_key_is_unique(self) -> None:
         """Index (Event) tekil DEGIL (100 satirda 29 tekrar); uclu anahtar

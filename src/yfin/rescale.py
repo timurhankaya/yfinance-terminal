@@ -79,7 +79,10 @@ def split_boundary_utc(split_day: date, timezone_name: str | None) -> datetime:
         # duserse acikca reddedilir (PB S6.6/2).
         raise RescaleSkipped(f"gecersiz tz adi: {timezone_name}") from exc
     local_midnight = datetime.combine(split_day, datetime.min.time(), tzinfo=zone)
-    return local_midnight.astimezone(UTC).replace(tzinfo=None)
+    # UTC-AWARE doner: `price_bars.ts_utc` artik timestamptz'dir
+    # (PG S2.3) ve karsilastirma ayni farkindalik duzeyinde
+    # yapilmalidir.
+    return local_midnight.astimezone(UTC)
 
 
 def _symbol_timezone(session: Session, symbol: str) -> str | None:
@@ -148,7 +151,7 @@ def seed_baseline(session: Session) -> int:
     Idempotenttir: var olan kayitlara dokunmaz. `bars_*` ilk kez kosmadan
     ONCE calismak zorundadir (PB S10/9a).
     """
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC)
     result = session.execute(
         text(
             "INSERT INTO bar_rescales (symbol, split_date, ratio, applied_at, rows_affected) "
@@ -203,22 +206,22 @@ def _apply_one(
 ) -> int:
     """Tek split: once SLOTU AL, sonra UPDATE et.
 
-    Slot `INSERT ... ON DUPLICATE KEY UPDATE` ile alinir, kilitle DEGIL.
+    Slot `INSERT ... ON CONFLICT DO NOTHING` ile alinir, kilitle DEGIL.
     Ilk tasarim `SELECT ... FOR UPDATE` oneriyordu; olcum bunun
     CALISMADIGINI gosterdi: var olmayan bir PK uzerindeki FOR UPDATE
     yalnizca bir GAP LOCK alir, gap lock'lar birbiriyle uyumludur, iki
     oturum da "satir yok, uygulayacagim" der ve cakisma INSERT aninda
     ERROR 1213 (deadlock) olarak patlar.
 
-    ROW_COUNT() 1 ise slot bizimdir; 0 ise baska bir oturum onceden
+    rowcount 1 ise slot bizimdir; 0 ise baska bir oturum onceden
     almistir ve UPDATE calistirilmaz.
     """
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC)
     claim = session.execute(
         text(
             "INSERT INTO bar_rescales (symbol, split_date, ratio, applied_at, rows_affected) "
             "VALUES (:symbol, :split_date, :ratio, :now, 0) "
-            "ON DUPLICATE KEY UPDATE symbol = symbol"
+            "ON CONFLICT (symbol, split_date) DO NOTHING"
         ),
         {"symbol": symbol, "split_date": split_day, "ratio": ratio, "now": now},
     )
@@ -245,9 +248,15 @@ def _apply_one(
             "  high = high * :price_factor, "
             "  low = low * :price_factor, "
             "  close = close * :price_factor, "
-            # FLOOR SART: 3:2 split'te volume*1.5 kesirli cikar ve
-            # BIGINT UNSIGNED'a yazilirken MySQL onu SESSIZCE yuvarlar
-            # (STRICT_TRANS_TABLES altinda bile, uyari yok).
+            # FLOOR SART: 3:2 split'te volume*1.5 kesirli cikar. FLOOR
+            # olmadan `numeric` deger `bigint` kolona atanirken YUVARLANIR;
+            # FLOOR ile kesme davranisi ACIKTIR ve niyet kodda gorunur.
+            #
+            # Bu UPDATE artik bir HYPERTABLE'a gidiyor; `ts_utc < :boundary`
+            # kosulu sayesinde yalnizca ilgili chunk'lara dokunur. Tam da
+            # bu geriye donuk yazma yuzunden compression ACILMADI
+            # (PG S7.3): sikistirilmis chunk'ta UPDATE chunk'i acmayi
+            # gerektirir ve bir split tum tarihsel arsive dokunabilir.
             "  volume = FLOOR(volume * :volume_factor) "
             "WHERE symbol = :symbol AND ts_utc < :boundary "
             f"  AND bar_interval IN ({placeholders})"

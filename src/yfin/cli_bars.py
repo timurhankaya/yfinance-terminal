@@ -66,7 +66,7 @@ def scope_add(
             )
             raise typer.Exit(code=1)
 
-        now = datetime.now(UTC).replace(tzinfo=None)
+        now = datetime.now(UTC)
         for code in codes:
             session.merge(
                 IntradayScope(

@@ -38,7 +38,7 @@ def select_eligible(session: Session, limit: int) -> list[Proxy]:
     kullanilmaz, buna karsilik cooldown'dan yeni cikmis (ve gecmiste
     latency olculmus) bir proxy tercih edilirdi.
     """
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC)
     stmt = (
         select(Proxy)
         .where(
@@ -83,7 +83,7 @@ def persist_event(
     `proxy check`) ve okunan degeri geri yazmak lost update uretirdi.
     Durum gecisi FOR UPDATE altinda yapilir.
     """
-    moment = now or datetime.now(UTC).replace(tzinfo=None)
+    moment = now or datetime.now(UTC)
     row = session.execute(
         select(Proxy).where(Proxy.id == proxy_id).with_for_update()
     ).scalar_one_or_none()
@@ -158,7 +158,7 @@ class ShardProxyTracker:
         self._append(event, message)
 
     def _append(self, event: HealthEvent, message: str | None) -> None:
-        now = datetime.now(UTC).replace(tzinfo=None)
+        now = datetime.now(UTC)
         self._pending.append((event, message))
         self.state = apply_outcome(self.state, event, now, self.policy)
         if self.state.health in (ProxyHealth.COOLDOWN, ProxyHealth.DEAD):

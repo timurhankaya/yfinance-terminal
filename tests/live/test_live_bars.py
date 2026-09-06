@@ -25,7 +25,7 @@ def _ctx(symbol: str) -> SyncContext:
     return SyncContext(
         symbol,
         make_ticker(symbol),
-        datetime.now(UTC).replace(tzinfo=None),
+        datetime.now(UTC),
     )
 
 

@@ -16,7 +16,7 @@ import multiprocessing as mp
 import signal
 import types
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from queue import Empty
 from typing import TYPE_CHECKING, Any
@@ -25,7 +25,13 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.client import configure_yfinance
-from yfin.config import Settings, get_settings
+from yfin.config import (
+    Settings,
+    applied_overrides,
+    get_settings,
+    install_settings,
+    settings_from_overrides,
+)
 from yfin.datasets import SYMBOL_DATASETS
 from yfin.db import advisory_lock, create_db_engine
 from yfin.logging_setup import configure_logging, get_logger
@@ -94,6 +100,13 @@ class ShardSpec:
     start: date | None = None
     end: date | None = None
     selector: str | None = None
+    # Parent'in COZDUGU DB ezmeleri (CFG S3.5). Child kendi
+    # `get_settings()`ini cagirsaydi uc sorun dogardi: (a) araya giren bir
+    # `yfin config set` shard-0 ile shard-3'u FARKLI yapilandirmayla
+    # kostururdu, (b) N ekstra baglanti acilirdi, (c) child
+    # `settings.db_name`e baglanip asil isini `spec.database`de yapar --
+    # yani `--database` ile YONLENDIRILMEDIGI semadan ayar okurdu.
+    settings_overrides: dict[str, str] = field(default_factory=dict)
 
     @property
     def proxy_key(self) -> str:
@@ -121,7 +134,11 @@ def _queue_source(queue: MPQueue[str]) -> SymbolSource:
 
 def shard_main(spec: ShardSpec, queue: MPQueue[str]) -> None:
     """Child process girisi. MODUL SEVIYESINDE olmak zorundadir (spawn)."""
-    settings = get_settings()
+    # Child DB'ye HIC SELECT atmaz: parent'in cozdugu ezmeler `spec` ile
+    # tasindi (CFG S3.5). Kosan bir sync boylece tutarli TEK bir anlik
+    # goruntu kullanir.
+    settings = settings_from_overrides(spec.settings_overrides)
+    install_settings(settings)
 
     # ILK ADIM: structlog cache_logger_on_first_use=True ile calisir ve
     # modul seviyesindeki logger'lar ilk kullanimda yapilandirmayi
@@ -397,6 +414,7 @@ def _spawn_and_wait(
             proxy_dsn=plan.dsn,
             start=start,
             end=end,
+            settings_overrides=applied_overrides(),
         )
         process = ctx.Process(
             target=shard_main, args=(spec, queue), name=f"yfin-shard-{index}", daemon=False
@@ -451,7 +469,7 @@ def _record_crashes(
     factory: sessionmaker[Session], plans: Sequence[_ProxyPlan], settings: Settings
 ) -> None:
     policy = ProxyPolicy.from_settings(settings)
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC)
     with factory() as session:
         for plan in plans:
             log.error("shard beklenmedik sekilde sonlandi", proxy=plan.proxy_label)

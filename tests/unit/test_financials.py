@@ -308,7 +308,8 @@ class TestEarningsDates:
     def test_utc_and_local_date_both_kept(self) -> None:
         rows = _rows(self._result("AAPL"), "earnings_dates")
         row = rows[0]
-        assert row["earnings_ts_utc"].tzinfo is None  # MySQL DATETIME tz tasimaz
+        # Kolon timestamptz; normalize UTC-aware dondurur (PG S2.3)
+        assert row["earnings_ts_utc"].tzinfo is UTC
         assert row["earnings_date_local"] is not None
 
     def test_none_frame_is_empty(self) -> None:

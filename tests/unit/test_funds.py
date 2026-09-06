@@ -19,7 +19,7 @@ from yfin.datasets.base import NormalizedResult, SyncContext, TableWrite
 from yfin.datasets.payloads import FundsPayload
 from yfin.datasets.symbols import CACHE_FAST_INFO, CACHE_HISTORY_METADATA
 
-NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 AS_OF = date(2026, 9, 4)
 DATASET = SYMBOL_DATASETS["funds_data"]
 

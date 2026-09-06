@@ -43,9 +43,18 @@ class SettingRow(Base):
     setting_key: Mapped[str] = mapped_column(AsciiKeyType(SETTING_KEY_LENGTH), primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # `func.now()`, `func.now(6)` DEGIL.
+    #
+    # `symbols` deseni `now(6)` yaziyor ve bu bir MySQL KALINTISIDIR:
+    # PostgreSQL'de `now(integer)` diye bir fonksiyon YOKTUR ve tablo
+    # olusturulamaz ("function now(integer) does not exist" -- olculdu).
+    # Argumansiz `now()` PG'de zaten mikrosaniye hassasiyetinde
+    # `timestamptz` dondurur, yani `TsType()`in alti hanesi tam olarak
+    # karsilanir. Kalan tablolarin donusumu PG spec'ine aittir; bu tablo
+    # o donusumu BEKLEYEMEZ cunku aksi halde hic yaratilamaz.
     created_at: Mapped[datetime] = mapped_column(
-        TsType(), nullable=False, server_default=func.now(6)
+        TsType(), nullable=False, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        TsType(), nullable=False, server_default=func.now(6), server_onupdate=func.now(6)
+        TsType(), nullable=False, server_default=func.now(), server_onupdate=func.now()
     )

@@ -18,7 +18,7 @@ from yfin.datasets import SYMBOL_DATASETS
 from yfin.datasets.base import NormalizedResult
 from yfin.datasets.payloads import AsOfFramePayload, AsOfMappingPayload, RangedFramePayload
 
-NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 AS_OF = date(2026, 9, 4)
 
 
@@ -364,7 +364,7 @@ def test_grade_changes_timestamp_is_utc_without_second_conversion() -> None:
         "analyst_grade_changes",
     )
     stamps = {row["grade_ts_utc"] for row in rows}
-    assert datetime(2024, 9, 30, 0, 0) in stamps
+    assert datetime(2024, 9, 30, 0, 0, tzinfo=UTC) in stamps
 
 
 # --- earnings_history ------------------------------------------------------

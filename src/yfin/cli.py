@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from yfin import normalize as nz
 from yfin import proxy as px
 from yfin.cli_bars import bars_app, scope_app
-from yfin.config import get_settings
+from yfin.cli_config import config_app
+from yfin.config import SETTINGS_SOURCE_VAR, bootstrap_settings, get_settings
 from yfin.datasets import DOMAIN_DATASETS, MARKET_DATASETS, SYMBOL_DATASETS
 from yfin.db import LockNotAcquired, create_db_engine
 from yfin.domain_audit import audit_domains
@@ -62,11 +63,19 @@ app.add_typer(domain_app, name="domain")
 # komutlarin hicbiri mevcut komutlarla durum paylasmiyor.
 app.add_typer(bars_app, name="bars")
 app.add_typer(scope_app, name="scope")
+# DB tabanli yapilandirma (CFG S6.2). Ayri modulde: hicbir komutu
+# mevcutlarla durum paylasmiyor ve cli.py zaten 1000 satiri asti.
+app.add_typer(config_app, name="config")
 
 
 def _parse_date(value: str | None) -> datetime | None:
-    """YYYY-MM-DD -> naive datetime (MySQL DATETIME tz tasimaz)."""
-    return datetime.strptime(value.strip(), "%Y-%m-%d") if value else None
+    """YYYY-MM-DD -> UTC-AWARE datetime.
+
+    Kolonlar `timestamptz`tir (PG S2.3); naive bir sinir degeri
+    psycopg tarafindan baglanti TZ'sine gore yorumlanirdi -- sonuc dogru
+    cikar ama karsilastirma farkli farkindalik duzeyinde kalirdi.
+    """
+    return datetime.strptime(value.strip(), "%Y-%m-%d").replace(tzinfo=UTC) if value else None
 
 
 def _parse_day(value: str | None, *, option: str) -> date | None:
@@ -192,14 +201,54 @@ def db_upgrade(
     cfg = Config("alembic.ini")
     command.upgrade(cfg, revision)
     typer.echo(f"migration uygulandi: {revision}")
+    _warn_missing_settings_rows()
+
+
+def _warn_missing_settings_rows() -> None:
+    """Satiri OLMAYAN DB-yonetimli anahtarlari tek satirda uyarir (CFG S5.4).
+
+    Goc sonrasi `.env` katmani fiilen BOSTUR; `Settings`e sonradan eklenen
+    bir alan icin `yfin config seed` calistirilmazsa deger artik `.env`e
+    degil DOGRUDAN model varsayilanina duser. Bu yuzden `seed` her
+    `upgrade` sonrasi standart adimdir ve komut bunu HATIRLATIR.
+
+    Komut `Settings.model_fields`i okur; bu bir MIGRATION degil bir
+    KOMUTTUR, dolayisiyla "migration uygulama kodunu import etmesin"
+    ilkesi ihlal edilmez (CFG S5.4).
+    """
+    from yfin.config import DB_MANAGED_FIELDS, bootstrap_settings, source_is_env
+    from yfin.settings_store import fetch_rows
+
+    if source_is_env():
+        return
+    try:
+        rows = fetch_rows(bootstrap_settings())
+    except Exception as exc:  # noqa: BLE001 - uyari yolu, komutu coktrmez
+        typer.echo(f"settings tablosu okunamadi, eksik satir denetimi atlandi: {exc}", err=True)
+        return
+    if rows is None:
+        return
+    missing = sorted(DB_MANAGED_FIELDS - set(rows))
+    if missing:
+        typer.echo(
+            f"{len(missing)} ayarin `settings` satiri yok (ilki: {missing[0]}); "
+            "degerleri .env ya da model varsayilanindan gelecek. "
+            "`yfin config seed` calistirin."
+        )
 
 
 @db_app.command("create")
 def db_create() -> None:
-    """Veritabani semalarini olusturur (yoksa)."""
+    """Veritabani semalarini olusturur (yoksa).
+
+    DB YAPILANDIRMA KATMANINI HIC KULLANMAZ (CFG S7): veritabanini
+    YARATAN komut, var olmayan veritabanina baglanamaz. `get_settings()`
+    cagrilsaydi yukleyici `settings` tablosunu okumak icin tam o
+    veritabanina baglanmayi denerdi.
+    """
     from sqlalchemy import create_engine
 
-    settings = get_settings()
+    settings = bootstrap_settings()
     engine = create_engine(settings.bootstrap_url())
     with engine.connect() as conn:
         for name in (settings.db_name, settings.db_test_name):
@@ -215,10 +264,20 @@ def db_create() -> None:
 
 @db_app.command("revision")
 def db_revision(message: Annotated[str, typer.Option("-m", "--message")]) -> None:
-    """Modellerden yeni bir migration uretir."""
+    """Modellerden yeni bir migration uretir.
+
+    DB yapilandirma katmani KAPATILIR (CFG S7). `migrations/env.py`
+    `get_settings()` cagirir; sema henuz olusmadan calistirilan bir
+    `revision` aksi halde `settings` tablosunu ararken patlardi. Ortam
+    degiskeni kurulur, cunku katmani kapatan anahtarin kendisi
+    katmandan okunamaz (tavuk-yumurta).
+    """
+    import os
+
     from alembic import command
     from alembic.config import Config
 
+    os.environ[SETTINGS_SOURCE_VAR] = "env"
     command.revision(Config("alembic.ini"), message=message, autogenerate=True)
 
 
@@ -1008,7 +1067,7 @@ def proxy_list(
 ) -> None:
     """Havuzu listeler. PAROLA HICBIR ZAMAN BASILMAZ."""
     factory = _session_factory()
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC)
     stmt = select(Proxy).order_by(Proxy.label)
     if not show_all:
         stmt = stmt.where(Proxy.is_enabled.is_(True))

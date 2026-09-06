@@ -13,7 +13,7 @@ kenar durumun kanitidir - fixture'lardaki olculmus dagilim:
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -142,7 +142,7 @@ def test_ts_utc_is_naive_utc() -> None:
     """Kolon DATETIME(6); MySQL tz tasimaz, cevrim normalize'da yapilir."""
     rows = _rows("AAPL")
 
-    assert all(r["ts_utc"].tzinfo is None for r in rows)
+    assert all(r["ts_utc"].tzinfo is UTC for r in rows)
     assert isinstance(rows[0]["local_date"], date)
 
 

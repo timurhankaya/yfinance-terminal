@@ -29,9 +29,9 @@ pytestmark = pytest.mark.repo
 
 AS_OF = date(2026, 9, 4)
 NEXT_DAY = date(2026, 9, 5)
-NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 LATER = NOW + timedelta(hours=6)
-TOMORROW = datetime(2026, 9, 5, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+TOMORROW = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
 
 DATASET = SYMBOL_DATASETS["institutional_holders"]
 

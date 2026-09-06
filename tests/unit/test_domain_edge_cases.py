@@ -12,7 +12,7 @@ from helpers import domain_data
 from yfin.datasets.domain.payloads import DomainPayload
 from yfin.datasets.registry import DOMAIN_DATASETS
 
-NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC).replace(tzinfo=None)
+NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 AS_OF = date(2026, 9, 4)
 
 SECTOR_RANKINGS = DOMAIN_DATASETS["sector_rankings"]
