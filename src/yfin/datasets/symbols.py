@@ -35,6 +35,15 @@ def fetch_history_metadata(ctx: SyncContext) -> Any:
 _HM: dict[str, Field] = {f.source: f for f in HISTORY_METADATA_FIELDS}
 
 
+def _upper(value: str | None) -> str | None:
+    """None'i gecirir; aksi halde buyuk harfe cevirir (PG S2.5.1).
+
+    `yfin symbols add` ile eklenen sembolde `exchange`/`quote_type` ILK
+    SYNC'E KADAR NULL'dur; None'i patlatmamak sart.
+    """
+    return value.upper() if value is not None else None
+
+
 class SymbolsDataset(Dataset[SymbolsPayload]):
     name = "symbols"
     depends_on = ()
@@ -55,8 +64,14 @@ class SymbolsDataset(Dataset[SymbolsPayload]):
 
         row: dict[str, Any] = {
             "symbol": symbol,
-            "quote_type": nz.to_str(fi.get("quoteType") or md.get("instrumentType"), 32),
-            "exchange": nz.to_str(fi.get("exchange") or md.get("exchangeName"), 32),
+            # .upper() SART: kolonlar artik COLLATE "C"dir (buyuk/kucuk
+            # harf DUYARLI). MySQL'de tablo varsayilani ai_ci oldugu icin
+            # `--exchange nms` calisiyordu; duyarsizlik simdi YAZMA ve
+            # SORGU yollarinda saglanir (PG S2.5.1). Yahoo bu iki alani
+            # zaten buyuk harfle donduruyor -- yani bu veride kimliktir --
+            # ama tek normalizasyon yeri burasi olmali.
+            "quote_type": _upper(nz.to_str(fi.get("quoteType") or md.get("instrumentType"), 32)),
+            "exchange": _upper(nz.to_str(fi.get("exchange") or md.get("exchangeName"), 32)),
             "full_exchange_name": nz.to_str(md.get("fullExchangeName"), 64),
             "currency": nz.to_str(fi.get("currency") or md.get("currency"), 32),
             "timezone": nz.to_str(fi.get("timezone") or md.get("timezone"), 64),

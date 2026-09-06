@@ -122,6 +122,16 @@ def _selector(
     return " ".join(parts)[:255] or None
 
 
+def _normalize_filter_values(values: list[str]) -> list[str]:
+    """--exchange / --quote-type girdisini yazma yolunun bicimine cevirir.
+
+    `datasets/symbols.py` bu iki kolonu `.upper()` ile yaziyor; filtre de
+    ayni bicime gelmezse `--exchange nms` SESSIZCE bos sonuc dondururdu
+    (PG S2.5.1).
+    """
+    return [v.strip().upper() for v in values]
+
+
 def _filtered_symbols(
     session: Session,
     base_stmt: Any,
@@ -132,15 +142,20 @@ def _filtered_symbols(
 ) -> list[str]:
     """--exchange / --quote-type / --suffix filtreleri; AND'lenir (AH S6.4).
 
-    `func.upper` KULLANILMAZ: kolonlar utf8mb4_0900_ai_ci'dir (zaten
-    buyuk/kucuk harf duyarsiz) ve fonksiyon sarmalamak `exchange`
-    indeksini kullanilamaz hale getirirdi.
+    Girdi `.upper()` ile normalize edilir. Kolonlar artik COLLATE "C"dir
+    (duyarli) ve YAZMA YOLU da buyuk harfe cevirir (datasets/symbols.py),
+    yani iki taraf ayni bicimde bulusur (PG S2.5.1).
+
+    `func.upper` YINE KULLANILMAZ ama gerekcesi degisti: eskiden kolon
+    zaten duyarsiz oldugu icin gereksizdi; simdi kolonu fonksiyonla
+    sarmalamak `ix_symbols_exchange` indeksini kullanilamaz hale
+    getirecegi icin kacinilir. Normalizasyon KOLONDA degil GIRDIDE yapilir.
     """
     stmt = base_stmt
     if exchanges:
-        stmt = stmt.where(Symbol.exchange.in_(exchanges))
+        stmt = stmt.where(Symbol.exchange.in_(_normalize_filter_values(exchanges)))
     if quote_types:
-        stmt = stmt.where(Symbol.quote_type.in_(quote_types))
+        stmt = stmt.where(Symbol.quote_type.in_(_normalize_filter_values(quote_types)))
     if suffix:
         # Borsa COZULMEDEN de calisir; NULL tuzagina takilmaz.
         stmt = stmt.where(Symbol.symbol.like(f"%{suffix.strip().upper()}"))

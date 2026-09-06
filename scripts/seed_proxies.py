@@ -40,7 +40,13 @@ def parse_line(line: str, scheme: ProxyScheme) -> ProxyEndpoint | None:
     parts = text.split(":")
     if len(parts) < 2:
         raise ValueError(f"gecersiz satir (host:port bekleniyor): {text[:24]}...")
-    host, port = parts[0].strip(), parts[1].strip()
+    # .lower() SART: hostname'ler buyuk/kucuk harf duyarsizdir (RFC 4343)
+    # ve `uq_proxies_endpoint` buna dayanir. MySQL bunu SEMADA sagliyordu
+    # (ascii_general_ci); PostgreSQL'de kolon COLLATE "C"dir, yani
+    # duyarsizlik YAZMA YOLUNDA saglanmali -- aksi halde
+    # HOST.example.com ve host.example.com AYRI iki proxy olur
+    # (PG S2.5.2). `parse_dsn` yolunda urlsplit bunu zaten yapiyor.
+    host, port = parts[0].strip().lower(), parts[1].strip()
     if not port.isdigit():
         raise ValueError(f"gecersiz port: {port!r}")
     return ProxyEndpoint(

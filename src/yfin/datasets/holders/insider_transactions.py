@@ -124,9 +124,16 @@ class InsiderTransactionsDataset(Dataset[RangedFramePayload]):
                 if record.get("Ownership") not in (None, "")
                 else None,
             }
-            # Hash PYTHON tarafinda HAM dizeden hesaplanir: DB collation'i
-            # `utf8mb4_0900_ai_ci` oldugu icin 'Sale'/'sale' orada ayni
-            # gorunur, hash'te AYRISIR. Bu bilinclidir.
+            # Hash PYTHON tarafinda HAM dizeden hesaplanir, yani 'Sale' ve
+            # 'sale' AYRI iki satirdir. Bu BILINCLIDIR ve motor
+            # degisiminden ETKILENMEZ: PK bileseni `fact_hash`tir ve
+            # karsilastirma zaten burada, Python'da yapiliyordu.
+            #
+            # MySQL'de DB collation'i (utf8mb4_0900_ai_ci) ikisini AYNI
+            # gorurdu ama hash zaten ayristiriyordu; PostgreSQL'de kolon
+            # COLLATE "C" oldugu icin sema da ayni sonuca varir.
+            # Normalizasyon EKLENMEZ -- eklenseydi bugun ayri sayilan iki
+            # olay tek satira inerdi (PG S2.5.3).
             digest = nz.content_hash(
                 {
                     name: (str(values[name]) if values[name] is not None else None)
