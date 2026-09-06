@@ -56,8 +56,12 @@ Reddedilen:
   API'nin her yeniden başlatılışı veri toplamayı keser; canlı akışta
   kaybedilen veri geri gelmez.
 - **Bağlantı başına thread (asyncio yok).** Kod tabanıyla tek deyim
-  olurdu, ama yeniden bağlanma ve heartbeat mantığı her thread'de ayrı
-  yürür.
+  olurdu, ama **ölçüldü ve hedefi karşılamıyor**: 110 bağlantı kurup
+  okumaya çalışan bir `websockets.sync` istemcisi yalnızca **19**'unu
+  kurabildi; aynı iş tek bir asyncio event loop ile **110/110** başarıldı
+  (§3.4). Senkron model bağlantı başına bir okuma thread'i açar ve ~330
+  thread'e çıkar. 10.000 sembol ≈ 106 bağlantı gerektirdiği için (K3) bu
+  alternatif hedefi yapısal olarak karşılayamaz.
 
 ### K2 — `yfinance`'ın WebSocket sınıfları kullanılmaz; yalnız `pricing_pb2` alınır
 
@@ -82,6 +86,14 @@ sapmadır ve dört doğrulanmış nedene dayanır (yfinance 1.7.0, `live.py`):
 4. **Deprecated çağrı biçimi.** `sync_connect(self.url)` — ölçümde
    `DeprecationWarning: connect() must be used as a context manager`
    üretti.
+5. **100 sembol kotasını bilmez ve aşıldığında belirsiz davranır.**
+   `self._subscriptions` bir `set`'tir (`live.py:21`) ve gönderim
+   `list(self._subscriptions)` ile yapılır (`live.py:108`, `:263`).
+   Sunucu listeyi ilk 100 girdiye kırptığı için (K3), 100'ü aşan bir
+   abonelikte **hangi sembollerin akacağını Python'un set sıralaması
+   belirler** — `PYTHONHASHSEED` ile süreçler arası değişir. Kullanıcıya
+   hiçbir uyarı verilmez. Bu tek başına, 10.000 sembollük bir evrende
+   kütüphaneyi kullanılamaz kılar.
 
 "Çökmeyecek akış" şartı bu dört madde varken upstream'e bırakılamaz.
 Protobuf şeması ise upstream'de kalır: `pricing.proto` değişirse
@@ -92,26 +104,55 @@ yakalar.
 bugün `yfinance` üzerinden transitif geliyor ama doğrudan kullanılıyor —
 `curl_cffi` için kurulmuş olan kalıbın aynısı, aynı gerekçeyle.
 
-### K3 — Bağlantı bölme gerekçesi arıza izolasyonudur, Yahoo limiti değil
+### K3 — Bağlantı başına 100 sembol; bölme zorunludur
 
-**Ölçüldü: Yahoo'nun gözlenen bir sembol sayısı sınırı yoktur.** 50.000
-sembollük, 802 KB'lık tek bir `subscribe` mesajı reddedilmedi, bağlantı
-kapatılmadı, akış devam etti (§3.3). 10.000 sembol tek bir bağlantıdan
-dinlenebilir.
+**Ölçüldü: Yahoo bağlantı başına tam olarak 100 sembole abone eder ve
+fazlasını sessizce atar.** Kanarya yöntemiyle (kanarya listenin sonunda)
+kırpma noktası birebir bulundu: 100 sembolde 5/5 kanarya akıyor, 101
+sembolde 4/5, 125 sembolde 0/5 (§3.3).
 
-Dolayısıyla bağlantıyı bölmenin gerekçesi kapasite değil, **arıza
-izolasyonudur**: bir bağlantının ölümü yalnızca kendi sembol kümesini
-durdurmalıdır. Exchange doğal bölme eksenidir, çünkü bir borsanın
-sorunları o borsanın sembollerinde yoğunlaşır ve Kafka konu düzeni (§9.1)
-aynı ekseni kullanır.
+Kırpma **hiçbir geri bildirim üretmez** — hata frame'i yok, bağlantı
+kapanmıyor, onay yok. Bir istemci 10.000 sembole abone olduğunu sanarak
+100 sembol alabilir ve bunu asla fark etmeyebilir.
 
-Bu ölçümün doğrudan sonucu olarak tasarımdan bir parça **çıkarıldı**:
-bağlantı başına sembol tavanı varsayılan olarak devre dışıdır
-(`yf_stream_max_symbols_per_connection = 0`). Ölçülmemiş bir limite karşı
-savunma kodu yazmak YAGNI ihlalidir.
+Limitin dört özelliği tasarımı doğrudan bağlar:
 
-Reddedilen: **tek bağlantı, tüm semboller** — teknik olarak mümkün olduğu
-ölçüldü, ama tek arıza noktasıdır; bir kopma bütün evreni durdurur.
+| Özellik | Sonucu |
+|---|---|
+| **Bağlantı başına kümülatif** (mesaj başına değil) | Abonelik ekledikçe kota tükenir; supervisor bağlantı başına sayaç tutmak zorundadır |
+| **İlk gelen kazanır**; sonrakiler tahliye etmez | Sıralama belirleyicidir, dolayısıyla gönderilen liste deterministik olmalıdır |
+| `unsubscribe` **slot geri açar** | Yeniden dengeleme (§4.4) mümkündür |
+| **Geçersiz semboller de slot tüketir** | Kirli sembol listesi doğrudan kapasite yakar; `stream_scope` temiz tutulmalıdır |
+
+**Bunun tasarıma dört sonucu vardır:**
+
+1. `yf_stream_max_symbols_per_connection` **zorunludur ve varsayılanı
+   95'tir** — 100 değil. Beş sembolük pay, yeniden dengeleme sırasındaki
+   geçici üst üste binmeler ve `stream_scope`'a eşzamanlı eklemeler
+   içindir; kotayı aşmanın cezası sessiz veri kaybı olduğu için pay
+   ucuzdur.
+2. **10.000 sembol ≈ 106 bağlantı gerektirir.** Bağlantı sayısı artık bir
+   güvenlik supabı değil, kapasitenin kendisidir.
+3. `yf_stream_max_connections` aşıldığında **semboller sessizce
+   düşürülemez.** Tavan yetmiyorsa supervisor başlangıçta yüksek sesle
+   hata verir ve kapsama alınamayan sembol sayısını söyler. Sessiz kırpma,
+   Yahoo'nun yaptığı hatanın aynısını bizim tarafımızda tekrarlamak
+   olurdu.
+4. Exchange hâlâ gruplama eksenidir, ama artık **her exchange birden çok
+   bağlantıya bölünür** (ölçülen evrende NAS 698 sembol → 8 bağlantı).
+   Exchange, bölmenin ortadan kaldırdığı bir eksen değil; bölmenin
+   *içinde* korunan bir sınırdır — bir bağlantı iki exchange'in sembolünü
+   taşımaz, böylece arıza izolasyonu ve Kafka konu düzeni (§9.1) bozulmaz.
+
+**Bu karar bir önceki turda yanlış alınmıştı ve düzeltildi.** İlk ölçüm
+"Yahoo'nun sembol limiti yok, 50.000 kabul edildi" sonucunu vermiş, buna
+dayanarak bölme varsayılan olarak *kapatılmıştı*. Ölçüm yöntemi hatalıydı:
+kanaryalar listenin başındaydı, yani her zaman kırpma noktasının içinde
+kalıyorlardı. Bu spec'in en pahalı hatası olurdu — üretimde 10.000
+sembolün 9.900'ü sessizce hiç dinlenmezdi.
+
+Reddedilen: **tek bağlantı, tüm semboller** — 100 sembolden fazlası
+mümkün değil; artık teknik olarak da imkânsız.
 
 ### K4 — Akış kapsamı bir tablodur, ayar değil
 
@@ -282,28 +323,87 @@ aralık koşulu taşımadığı için TimescaleDB chunk exclusion uygulayamaz;
 yüzlerce chunk biriktiğinde maliyetin %2'de kalıp kalmayacağı
 **ölçülmemiştir**. §13'ün 0. aşaması bunu ölçer.
 
-### 3.3 Abonelik limiti (ölçüldü)
+### 3.3 Abonelik limiti: 100 sembol / bağlantı (ölçüldü)
 
-5, 100, 500, 1.000, 2.000, 5.734, 10.000, 20.000 ve **50.000** sembol
-seviyelerinin tamamı kabul edildi; hiçbirinde bağlantı kapanmadı. 802
-KB'lık abonelik gövdesi sorunsuz iletildi. Geçersiz semboller için
-**hiçbir hata dönmedi** — sunucu tanımadığını sessizce yok sayar.
+Kanarya yöntemi — kanaryalar listenin **sonunda**, önlerindeki dolgu
+sayısı değiştirilerek:
 
-Ölçülmeyen: açık piyasada aynı abonelik büyüklüğünün sürdürülebilirliği,
-IP başına eşzamanlı bağlantı sınırı, uzun süreli bağlantıda throttle veya
-ban davranışı, gerçek mesaj hızı ve alan doluluk oranları — ölçüm Pazar
-günü alındı, yalnızca kripto akıyordu.
+| Liste | Toplam | Veri gelen kanarya |
+|---|---:|---:|
+| 94 dolgu + 5 kanarya | 99 | 5/5 |
+| **95 dolgu + 5 kanarya** | **100** | **5/5** |
+| **96 dolgu + 5 kanarya** | **101** | **4/5** |
+| 120 dolgu + 5 kanarya | 125 | 0/5 |
+| *Kontrol:* 5 kanarya **başta** + 200 dolgu | 205 | 5/5 |
 
-### 3.4 Sembol evreni (ölçüldü)
+Sunucu listeyi sırayı koruyarak ilk 100 girdiye kırpar ve **hiçbir geri
+bildirim vermez**. Kontrol satırı "ilk gelen kazanır" semantiğini
+doğrular.
+
+Ek özellikler: kota bağlantı başına kümülatiftir, `unsubscribe` slot geri
+açar, **geçersiz semboller de slot tüketir**, ve frame boyutu sınırlayıcı
+değildir (103 KB'lık frame kabul edildi — ama yalnızca ilk 100'ü işlendi).
+
+**Bir önceki ölçüm turu bu konuda yanlış sonuç verdi** ve spec o yanlışa
+dayanarak bölmeyi kapatmıştı. Hata kaydı `docs/measurements/websocket.md`
+içindedir: kanaryalar listenin başına konduğu için her zaman kırpma
+noktasının içinde kalıyor, akış sürüyor görünüyordu.
+
+### 3.4 Eşzamanlı bağlantı ve istemci modeli (ölçüldü)
+
+10.000 sembol ÷ 100 = **en az 100 eşzamanlı bağlantı**.
+
+Yahoo tarafı bunu karşılıyor: yalnızca soket açan bir istemciyle, tek
+IP'den, 110 bağlantı hem aralıksız hem 100 ms kademeli açmada **110/110**
+kuruldu. Bağlantı reddi, hız sınırı veya kademeli açma gereği görülmedi.
+
+İstemci tarafı ise modele bağlı. Aynı iş — 110 bağlantı kur, abone ol, 20
+saniye oku:
+
+| Model | Kurulan | Veri alan | Mesaj |
+|---|---:|---:|---:|
+| Thread başına bağlantı (`websockets.sync`) | **19**/110 | 19 | 171 |
+| **Tek asyncio event loop** | **110**/110 | 110 | 1.210 |
+
+`ulimit -n` 1.048.576'dır; dosya tanıtıcı sınırı değildir. Senkron model
+bağlantı başına bir okuma thread'i (artı zamanlayıcı) açar ve ~330
+thread'e çıkar.
+
+**Bu, K1'in ölçülmüş gerekçesidir.**
+
+### 3.5 Akışın doğası: tick değil, saniyelik snapshot (ölçüldü)
+
+BTC-USD için ardışık mesaj araları **tümü tam saniye katları** (medyan 6,0
+sn) ve `time` alanı hep `...000` ile bitiyor. BTC saniyede yüzlerce kez
+işlem görür; bu düzenlilik ancak sunucu tarafı örnekleme ile açıklanır.
+
+**Gelen veri tick-by-tick değil, ~1 saniyelik ızgaraya oturtulmuş
+birleştirilmiş snapshot'tır.** Bu, §10'un `volume` türetmeme kararını
+doğrudan doğrular: `day_volume` kümülatiftir ve mesajlar arasında binlerce
+adet atlar.
+
+Yük altında tekil sembol hızı düşmüyor: 2 sembollük bağlantıda BTC 23
+mesaj aldı, 99 sembollük bağlantıda yine 23. Darboğaz bant genişliği
+değil, 100'lük kota.
+
+**15 saniyelik yeniden-abonelik heartbeat'i gerekli değil:** 240 saniye
+boyunca hiçbir mesaj gönderilmeden bağlantı açık kaldı ve akış sürdü
+(§4.2).
+
+### 3.6 Sembol evreni (ölçüldü)
 
 5.735 sembol, `exchange IS NULL` yok, 9 farklı exchange. Dağılım (2.717
 sembolken): NAS 698, PCX 617, NYQ 474, NMS 335, NGM 236, BTS 178, YHD 156,
 NCM 18, ASE 5.
 
 **Dağılım son derece dengesizdir** — en büyük grup en küçüğün 140 katı.
-Exchange başına bir bağlantı, 5 sembollük bir bağlantı ile 698 sembollük
-bir bağlantıyı yan yana çalıştırır. Bu kabul edilir: amaç yük dengesi
-değil (K3), arıza izolasyonudur.
+100'lük kota (K3) bunu kendiliğinden yumuşatır: gruplar 95'lik parçalara
+bölündüğü için NAS 8 bağlantı, ASE 1 bağlantı alır ve hiçbir bağlantı
+kotanın üstüne çıkmaz. Bu evrende toplam 65 bağlantı eder.
+
+Artakalan dengesizlik (bir bağlantıda 5 sembol, diğerinde 95) kabul
+edilir: bölmenin amacı yük dengesi değil, kotaya uymak ve exchange
+sınırını arıza izolasyonu için korumaktır (§4.1).
 
 ## 4. Bağlantı topolojisi
 
@@ -311,14 +411,27 @@ değil (K3), arıza izolasyonudur.
 
 1. **Evren:** `stream_scope.enabled = true` **AND** `symbols.is_active =
    true` (K4).
-2. **Gruplama:** `symbols.exchange`. `NULL`/boş → `unknown` grubu.
-3. **Tavan:** grup sayısı `yf_stream_max_connections`'ı (varsayılan 16)
-   aşarsa gruplar sembol sayısına göre azalan sırada dizilir ve en küçük
-   gruplar tavana kadar birleştirilir (deterministik greedy bin-packing).
-   Ölçülen evrende (9 exchange) bu adım hiç devreye girmez.
-4. **Bölme:** `yf_stream_max_symbols_per_connection > 0` ise aşan grup
-   `NMS#0`, `NMS#1` diye bölünür. **Varsayılan 0'dır, yani kapalıdır**
-   (K3).
+2. **Gruplama:** `symbols.exchange`. `NULL`/boş → `unknown` grubu. Bir
+   bağlantı asla iki exchange'in sembolünü taşımaz.
+3. **Bölme (zorunlu).** Her grup `yf_stream_max_symbols_per_connection`
+   (varsayılan **95**) parçalara ayrılır: `NMS#0`, `NMS#1`, … Sıralama
+   sembol koduna göre deterministiktir — Yahoo'nun kotası "ilk gelen
+   kazanır" olduğu için (K3) gönderilen listenin sırası davranışı
+   belirler ve süreçler arasında değişmemelidir.
+4. **Tavan denetimi.** Gereken bağlantı sayısı
+   `yf_stream_max_connections`'ı aşarsa supervisor **başlangıçta hata
+   verir** ve kapsanamayan sembol sayısını bildirir. Sessizce kırpmaz.
+
+Bağlantı sayısı artık türetilmiş bir değerdir, bir ayar değil:
+
+```
+bağlantı = Σ ceil(exchange_sembol_sayısı / 95)
+```
+
+Ölçülen evrende (5.735 sembol, 9 exchange) bu 65 bağlantı eder; NAS tek
+başına 698 sembolle 8 bağlantı alır. 10.000 sembollük hedefte ~106
+bağlantı olur, ki §3.4 bunun tek asyncio event loop ile taşınabildiğini
+ölçmüştür.
 
 İlk taslak burada `blake2b(exchange) mod tavan` kullanıyor ve bunu
 `pipeline/shard.py`'a atfediyordu. **Her iki atıf da yanlıştı:**
@@ -328,11 +441,9 @@ değil (K3), arıza izolasyonudur.
 anahtarı içindir ve gerekçesi PYTHONHASHSEED değil, PostgreSQL
 `hashtext()`'in sürümler arası değişebilmesidir (`db.py:19-24`).
 
-`mod tavan` ayrıca §4.4'ün "cerrahi yeniden dengeleme" iddiasıyla
-çelişirdi: tavan 8'den 9'a çıktığında modulus değişir ve neredeyse her
-exchange yer değiştirirdi. Sıralı bin-packing'de tavan değişimi yalnızca
-birleştirilmiş grupları etkiler; hiçbir grup birleştirilmemişse — olağan
-durum — hiçbir bağlantı taşınmaz.
+Hash tabanlı bir eşleme zaten kullanılamazdı: 100'lük kota kesindir ve
+hash dağılımı bazı bağlantıları 100'ün üstüne taşıyıp sessiz kırpma
+üretirdi. Bölme sayma işidir, dağıtma işi değil.
 
 ### 4.2 Çökmeme garantisi
 
@@ -347,7 +458,7 @@ istisnasını yukarı taşımaz.
 |---|---|---|
 | `websockets` ping/pong | `ping_interval=20`, `ping_timeout=20` | TCP yaşıyor, karşı uç ölü |
 | Idle watchdog | `yf_stream_idle_timeout_seconds` (300) | Bağlantı sağlıklı görünüyor ama mesaj gelmiyor |
-| Abonelik heartbeat | 15 sn (upstream davranışı) | Yahoo tarafında sessizce düşmüş abonelik |
+| Kanarya sembolü | `yf_stream_canary_symbols` | **Sessiz kırpma ve sessiz abonelik kaybı** (aşağıda) |
 
 **Idle watchdog'un tetiklenme koşulu:** bağlantı `open`, `last_message_at`
 **dolu**, ve o andan bu yana `yf_stream_idle_timeout_seconds` geçmiş.
@@ -362,6 +473,29 @@ tek bir gereksiz yeniden bağlanmadır.
 Alternatif — `symbols.timezone` ve `calendar_*` verisinden seans penceresi
 hesaplamak — reddedildi: watchdog'un doğruluğunu, kendisi de bu hattan
 gelen ve eksik olabilen bir veriye bağlardı.
+
+**Kanarya izleme, bu sistemde sağlık kontrolünün tek güvenilir yoludur.**
+Sunucu hiçbir koşulda hata frame'i döndürmez: geçersiz sembol sessizce yok
+sayılır, kota aşımı sessizce kırpılır (K3), kopan abonelik bildirilmez.
+Dolayısıyla "hata gelmedi" hiçbir şey kanıtlamaz.
+
+Her bağlantının sembol listesinin **sonuna** bir kanarya eklenir —
+`yf_stream_canary_symbols` (varsayılan `BTC-USD`), 7/24 akan bir sembol.
+Kanarya listenin sonundadır, çünkü Yahoo listeyi baştan kırpar: kanarya
+susuyorsa kotanın aşıldığı ya da aboneliğin düştüğü kesindir. Kanarya bir
+slot tüketir; 95'lik varsayılan bunu zaten hesaba katar.
+
+Kanarya `stream_scope`'a yazılmaz ve `live_ticks`'e arşivlenmez — bir
+ölçüm aracıdır, veri değil. `stream_connection_health.last_canary_at`
+onun son görülme anını tutar.
+
+**15 saniyelik yeniden-abonelik heartbeat'i yoktur.** Ölçüm, 240 saniye
+boyunca hiçbir mesaj gönderilmeden bağlantının açık kaldığını ve akışın
+sürdüğünü gösterdi (§3.5). yfinance bunu her 15 saniyede yapar; bizde
+gereksiz olmanın ötesinde **zararlıdır**, çünkü her yeniden gönderim
+Yahoo'nun 100'lük kırpmasını yeniden uygular. Abonelik yalnızca gerçekten
+değiştiğinde gönderilir (§4.4). 4 dakikadan uzun idle davranışı
+ölçülmedi; idle watchdog zaten bu boşluğu kapatır.
 
 Backoff: full-jitter üstel, 1 sn → `yf_stream_reconnect_max_seconds` (60)
 tavanı, sonsuz. Vazgeçme yoktur; vazgeçmek sessiz veri kaybıdır.
@@ -416,6 +550,36 @@ her tarama turunda `settings_store.load_overrides()` +
 kendi yapılandırmasını ondan alır; süreç genelindeki singleton'a
 dokunmaz. İlk taslağın "`yfin config set` ile çalışırken değiştirilebilir"
 iddiası bu mekanizma olmadan yanlıştı.
+
+### 4.5 Gönderim güvenliği: bozuk mesaj bağlantıyı sessizce kapatır
+
+Ölçüldü: hatalı biçimli tek bir abonelik mesajı bağlantıyı **status kodu
+bile olmadan** (1005) kapatır.
+
+| Gönderilen | Sonuç |
+|---|---|
+| `{"subscribe": "BTC-USD"}` (liste değil, string) | **bağlantı kapandı** |
+| `{"subscribe": [null]}` | **bağlantı kapandı** |
+| `{"bogus_action": ["X"]}` | **bağlantı kapandı** |
+| `hello world` (JSON değil) | **bağlantı kapandı** |
+| `{"subscribe": []}` | hayatta |
+| `{}` | hayatta |
+| `{"unsubscribe": ["hiç-abone-olunmamış"]}` | hayatta |
+
+Tek bir `None` sembol sızıntısı bütün bir bağlantıyı düşürür ve hiçbir
+hata mesajı vermez. `connection.py` bu yüzden gönderim öncesi doğrulama
+yapar ve şu üç kuralı zorunlu kılar:
+
+1. Gövde her zaman `{"subscribe": [...]}` biçimindedir; liste elemanları
+   boş olmayan `str`'dir. `None`, boş string ve `str` olmayan hiçbir şey
+   listeye giremez.
+2. Liste boşsa mesaj **gönderilmez** (boş liste güvenli olsa da anlamsız
+   bir tur atmaz).
+3. Doğrulamadan geçemeyen sembol `stream_rejects`'e
+   `malformed_subscription` ile yazılır ve bağlantı kurulmaya devam eder.
+
+Bu, §7.4'teki normalizasyon ve uzunluk savunmasının ikinci yarısıdır:
+orası *yazma* yolunu korur, burası *abonelik* yolunu.
 
 ## 5. Paket düzeni
 
@@ -736,6 +900,7 @@ ihlaliyle reddedilirdi. `sync_run_items.symbol`'ün gerekçesinin aynısı
 | `non_finite_field` | NaN/Inf alan; satır yazılır, alan `NULL` |
 | `field_out_of_range` | Sayısal alan kolon aralığını aşıyor; alan `NULL` |
 | `expire_date_range` | `expire_date` makul aralığın dışında; alan `NULL` |
+| `malformed_subscription` | Abonelik doğrulamasından geçemedi (§4.5); sembol listeye alınmadı |
 
 Örnekleme: `(symbol, reason)` başına saatte
 `yf_stream_reject_sample_per_hour` (100) satır.
@@ -772,6 +937,8 @@ her mesajda `UPDATE` atmak yazma yolunu ikiye katlardı.
 | `state` | `AsciiKeyType(16)` — `connecting`, `open`, `reconnecting`, `closed` |
 | `symbol_count` | `Integer` |
 | `connected_at`, `last_message_at` | `TsType()` NULL |
+| `last_canary_at` | `TsType()` NULL — kanaryanın son görülme anı (§4.2) |
+| `subscribed_count` | `Integer` — bu bağlantıya gönderilen sembol sayısı; kota denetimi için |
 | `heartbeat_at` | `TsType()` NOT NULL |
 | `reconnect_count` | `Integer` NOT NULL default 0 |
 | `last_error` | `Text` NULL |
@@ -827,8 +994,23 @@ dizisidir. Bu protokolün özelliğidir; kod tarafında çözülemez.
 > tüketicilerinin bunu bilmesi gerekir.
 
 **İki istisna: `quote_type` ve `market_hours`.** Bu ikisi Yahoo enum
-kodudur ve `0` **geçerli bir koddur** — `market_hours = 0` PRE_MARKET
-demektir. Genel kural uygulansaydı tam da extended sayılması gereken
+kodudur ve `0` **geçerli bir koddur**:
+
+```
+MarketHoursType: PRE_MARKET=0  REGULAR_MARKET=1  POST_MARKET=2
+                 EXTENDED_HOURS_MARKET=3
+QuoteType:       NONE=0 ALTSYMBOL=5 HEARTBEAT=7 EQUITY=8 INDEX=9
+                 MUTUALFUND=11 MONEYMARKET=12 OPTION=13 CURRENCY=14
+                 WARRANT=15 BOND=17 FUTURE=18 ETF=20 COMMODITY=23
+                 ECNQUOTE=28 CRYPTOCURRENCY=41 INDICATOR=42 INDUSTRY=1000
+```
+
+Değerler `pricing.proto`'da **yoktur** — orada iki alan da çıplak `int32`
+olarak tanımlıdır, yani eşlemeyi istemci yapmak zorundadır. Kaynak
+[yliveticker/yaticker.proto](https://github.com/yahoofinancelive/yliveticker/blob/main/yliveticker/yaticker.proto);
+ölçümle kısmen doğrulandı (BTC-USD → `quote_type=41` CRYPTOCURRENCY,
+`market_hours=1` REGULAR_MARKET). Eşleme `protocol.py`'de bir sabittir;
+veritabanında ikinci bir doğruluk kaynağı yaratılmaz. Genel kural uygulansaydı tam da extended sayılması gereken
 pre-market tick'lerinde `market_hours_code` `NULL` olurdu ve §10'un
 `is_extended` türetimi imkânsızlaşırdı (`price_bars.is_extended`
 NOT NULL'dır, `models/bars.py:146`). Bu yüzden iki kolon NOT NULL'dır ve
@@ -1107,10 +1289,13 @@ import edilmez.
    dakikanın tüm tick'lerinde `price` `NULL` ise o dakika atlanır
    (`price_bars.close` NOT NULL'dır, `models/bars.py:137`).
    `open`/`close` ilk ve son tick, `high`/`low` uç değerler.
-5. `volume` **türetilmez**, `NULL` bırakılır: `day_volume` kümülatiftir ve
-   dakikalık hacme çevrilmesi iki ardışık dakikanın tam gözlemini
-   gerektirir; eksik tick'te bu yanlış olur. OHLC dördü de doğrudur, hacim
-   dürüstçe "bilinmiyor" işaretlenir.
+5. `volume` **türetilmez**, `NULL` bırakılır. Bu karar §3.5'te ölçümle
+   doğrulandı: gelen veri tick değil, ~1 saniyelik ızgaraya oturtulmuş
+   birleştirilmiş snapshot'tır ve `day_volume` mesajlar arasında binlerce
+   adet atlar. Kümülatif bir sayacı dakikalık hacme çevirmek iki ardışık
+   dakikanın *tam* gözlemini gerektirir; snapshot akışında bu gözlem
+   hiçbir zaman tam değildir. OHLC dördü de doğrudur, hacim dürüstçe
+   "bilinmiyor" işaretlenir.
 6. `is_extended`, `market_hours_code`'dan türetilir (`1 = REGULAR`
    dışındaki her şey `true`). §7.2'nin istisnası bunu mümkün kılar.
 7. `local_date` `symbols.timezone` üzerinden `nz.to_local_date` ile
@@ -1184,8 +1369,9 @@ kalıbıyla ortamda kalırlar.
 | ayar | varsayılan |
 |---|---|
 | `yf_stream_enabled` | `false` |
-| `yf_stream_max_connections` | `16` |
-| `yf_stream_max_symbols_per_connection` | `0` (kapalı, K3) |
+| `yf_stream_max_connections` | `256` (tavan denetimi, §4.1) |
+| `yf_stream_max_symbols_per_connection` | `95` (Yahoo kotası 100, K3) |
+| `yf_stream_canary_symbols` | `"BTC-USD"` |
 | `yf_stream_queue_maxsize` | `10000` |
 | `yf_stream_batch_size` | `500` |
 | `yf_stream_batch_interval_ms` | `250` |
@@ -1217,7 +1403,16 @@ Supervisor bunları §4.4'teki açık yeniden okuma yoluyla tazeler.
 - Sembol normalizasyonu, uzunluk savunması, ms/sn zaman dönüşümleri,
   `expire_date` aralığı, NaN/Inf, sayısal taşma.
 - Sembol → bağlantı eşlemesinin determinizmi (PYTHONHASHSEED'den
-  bağımsız), tavan/birleştirme ve bölme mantığı.
+  bağımsız) ve bölme mantığı. **Hiçbir bağlantının sembol sayısı
+  `yf_stream_max_symbols_per_connection`'ı aşmadığı** ve kanarya dahil
+  toplamın 100'ü geçmediği — Yahoo'nun kotası sessiz kırpma yaptığı için
+  bu testin kırılması doğrudan veri kaybı demektir (K3).
+- Tavan aşıldığında supervisor'ın **hata verdiği**, sembol düşürmediği.
+- **Abonelik gövdesi doğrulaması (§4.5):** `None`, boş string veya `str`
+  olmayan bir eleman listeye giremez; gövde her zaman
+  `{"subscribe": [str, ...]}` biçimindedir. Bozuk bir gövdenin bağlantıyı
+  sessizce düşürdüğü ölçüldüğü için bu bir doğruluk testidir, bir stil
+  testi değil.
 - `guard_column`'ın `dedupe_rows` içindeki etkisi: aynı batch'te sıra dışı
   gelen iki tick'ten **yenisi** seçilmeli (§6.3).
 - Backoff, idle watchdog (özellikle `last_message_at IS NULL` iken
@@ -1287,9 +1482,17 @@ testleriyle paralel koşabilir.
 (`docs/measurements/websocket.md`) Pazar günü alındı: yazma tarafı
 eksiksizdir, akış tarafı değildir. Açık piyasada ölçülecekler:
 
-- Mesaj/saniye, sembol ve exchange kırılımında.
+- Mesaj/saniye, sembol ve exchange kırılımında. Özellikle: yoğun bir ABD
+  hissesinin (AAPL/NVDA/TSLA) saniyedeki mesaj sayısı — §3.5 bunu yalnızca
+  kripto üzerinden ölçebildi.
+- **`bid`/`ask` alanlarının hisse akışında gerçekten dolu gelip
+  gelmediği.** Kripto mesajlarında gelmiyorlar; hisse için doğrulanmadı.
+  Boş geliyorlarsa §7.2'nin "NULL ya da sıfır" uyarısı bu iki alan için
+  pratikte her zaman geçerli olur.
 - 33 alanın doluluk oranı — §7.2'nin presence kararını ve iki istisnasını
   doğrular.
+- **100'lük kotanın açık piyasada da geçerli olduğu** ve 100+ bağlantının
+  saatler boyunca ayakta kaldığı; uzun vadeli ban/throttle eşiği.
 - float32 artık dağılımı.
 - `expire_date` biriminin doğrulanması (§7.3).
 - `received_at - ts_utc` gecikme dağılımı.
