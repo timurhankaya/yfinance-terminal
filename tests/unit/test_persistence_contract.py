@@ -144,3 +144,112 @@ class TestDefaultUpsert:
         writer = FakeWriter()
         stats = REGISTRY["fast_info"].upsert(writer, result)
         assert set(stats.attempted) == {"ticker_fast_info", "ticker_fast_info_history"}
+
+
+# --- key_columns <-> PK/UNIQUE invaryanti (PG S9.2) ------------------------
+
+
+def _valid_key_sets(table_name: str) -> list[set[str]]:
+    """Tablonun `ON CONFLICT` hedefi olabilecek kolon kumeleri."""
+    from yfin.models import Base
+
+    table = Base.metadata.tables[table_name]
+    out = [{c.name for c in table.primary_key.columns}]
+    for constraint in table.constraints:
+        if constraint.__class__.__name__ == "UniqueConstraint":
+            out.append({c.name for c in constraint.columns})
+    for index in table.indexes:
+        if index.unique:
+            out.append({c.name for c in index.columns})
+    return out
+
+
+def _resolve_key_columns(node: Any, module: Any) -> tuple[str, ...] | None:
+    """AST dugumunden kolon adlarini cozer; cozemezse None.
+
+    Duz tuple, modul sabitine referans ve yildiz-acilimi
+    (`(*GATE_KEY, "item_key")`) desteklenir -- son ikisi statik taramanin
+    tek basina yetmedigi yerlerdi.
+    """
+    import ast
+
+    if isinstance(node, ast.Name):
+        value = getattr(module, node.id, None)
+        return tuple(value) if isinstance(value, tuple) else None
+    if not isinstance(node, ast.Tuple):
+        return None
+    names: list[str] = []
+    for element in node.elts:
+        if isinstance(element, ast.Constant) and isinstance(element.value, str):
+            names.append(element.value)
+        elif isinstance(element, ast.Starred):
+            inner = _resolve_key_columns(element.value, module)
+            if inner is None:
+                return None
+            names.extend(inner)
+        elif isinstance(element, ast.Name):
+            value = getattr(module, element.id, None)
+            if not isinstance(value, str):
+                return None
+            names.append(value)
+        else:
+            return None
+    return tuple(names)
+
+
+def test_every_declared_key_matches_a_real_unique_constraint() -> None:
+    """`ON CONFLICT (cols)` KUME OLARAK TAM ESLESME ister.
+
+    Alt kume de ust kume de "there is no unique or exclusion constraint
+    matching the ON CONFLICT specification" hatasi verir (sira
+    onemsizdir; olculdu). MySQL `ON DUPLICATE KEY UPDATE` hedefi hic
+    sormuyordu, yani bu kisit YENIDIR.
+
+    Invaryant olmadan yanlis `key_columns` ile eklenen bir dataset ancak
+    URETIMDE patlar -- ustelik yalnizca o dataset'in fixture'i varsa
+    testlerde gorulurdu. Bu test fixture GEREKTIRMEZ.
+    """
+    import ast
+    import importlib
+    from pathlib import Path
+
+    from yfin.models import Base
+
+    root = Path(__file__).resolve().parents[2] / "src" / "yfin" / "datasets"
+    problems: list[str] = []
+    checked = 0
+    unresolved: list[str] = []
+
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root.parent.parent).with_suffix("")
+        module = importlib.import_module(".".join(rel.parts))
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "TableWrite"):
+                continue
+            kwargs = {kw.arg: kw.value for kw in node.keywords}
+            table_node, key_node = kwargs.get("table"), kwargs.get("key_columns")
+            if not isinstance(table_node, ast.Constant) or key_node is None:
+                unresolved.append(f"{path.name}:{node.lineno}")
+                continue
+            keys = _resolve_key_columns(key_node, module)
+            if keys is None:
+                unresolved.append(f"{path.name}:{node.lineno}")
+                continue
+            table_name = str(table_node.value)
+            checked += 1
+            if table_name not in Base.metadata.tables:
+                problems.append(f"{path.name}:{node.lineno} bilinmeyen tablo {table_name}")
+            elif set(keys) not in _valid_key_sets(table_name):
+                problems.append(
+                    f"{path.name}:{node.lineno} {table_name} {keys} "
+                    f"hicbir PK/UNIQUE ile eslesmiyor"
+                )
+
+    assert not problems, problems
+    # Olculdu: 39 cagri statik olarak cozuluyor, 33'u cozulemiyor
+    # (degiskenden gelen tuple, kosullu dal). Esikler GEVSEK DEGIL:
+    # kapsam duserse ya da cozulemeyenler artarsa burasi kirmizi olur --
+    # aksi halde invaryant sessizce zayiflardi.
+    assert checked >= 39, f"denetlenen cagri sayisi DUSTU: {checked}"
+    assert len(unresolved) <= 33, f"cozulemeyen cagri sayisi ARTTI: {unresolved}"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from sqlalchemy import Engine, select, text
@@ -28,6 +29,19 @@ from yfin.runner import (
 )
 
 pytestmark = pytest.mark.repo
+
+
+def _load_seed_proxies() -> Any:
+    """`scripts/` bir paket DEGILDIR; dosyadan yuklenir."""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "seed_proxies.py"
+    spec = importlib.util.spec_from_file_location("_seed_proxies_repo", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 POLICY = ProxyPolicy(failure_threshold=3, cooldown_seconds=900, dead_rounds=3)
 NOW = datetime.now(UTC)
@@ -140,6 +154,32 @@ class TestUniqueness:
         # PG: "duplicate key value violates unique constraint" + kisit adi.
         # Kisit ADI arandi: mesajin dilinden bagimsiz ve hangi
         # tekilligin ihlal edildigini de kanitlar.
+        with pytest.raises(Exception, match="uq_proxies_endpoint"):
+            committed_session.commit()
+        committed_session.rollback()
+
+    def test_host_case_does_not_create_a_second_proxy(
+        self, committed_session: Session
+    ) -> None:
+        """Hostname'ler buyuk/kucuk harf duyarsizdir (RFC 4343).
+
+        MySQL bunu `ascii_general_ci` ile SEMADA sagliyordu; kolon artik
+        COLLATE "C" oldugu icin duyarsizlik YAZMA YOLUNA tasindi
+        (scripts/seed_proxies.py, PG S2.5.2). Bu test o tasimanin
+        gercekten calistigini GERCEK semaya karsi kanitlar: normalize
+        edilmis iki bicim ayni satira duser.
+        """
+        from yfin.models import ProxyScheme as _Scheme
+
+        seed = _load_seed_proxies()
+        left = seed.parse_line("HOST.Example.COM:1080", _Scheme.HTTP)
+        right = seed.parse_line("host.example.com:1080", _Scheme.HTTP)
+        assert left is not None and right is not None
+        assert left.host == right.host == "host.example.com"
+
+        committed_session.add(_proxy("case-a", host=left.host, port=left.port))
+        committed_session.commit()
+        committed_session.add(_proxy("case-b", host=right.host, port=right.port))
         with pytest.raises(Exception, match="uq_proxies_endpoint"):
             committed_session.commit()
         committed_session.rollback()

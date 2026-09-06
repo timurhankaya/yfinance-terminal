@@ -350,3 +350,66 @@ class TestView:
         ).all()
         assert [r[0] for r in rows] == ["DIVIDEND", "SPLIT", "CAPITAL_GAIN"]
         assert rows[0][1] == Decimal("0.25")
+
+
+@pytest.mark.repo
+class TestPostgresUpsertSemantics:
+    """PostgreSQL'e gecerken DAVRANISI degisen iki nokta (PG S4.1.1, S4.2).
+
+    Ikisi de MySQL'de sessizce farkli calisiyordu; burada GERCEK motora
+    karsi sabitlenir.
+    """
+
+    def test_greatest_ignores_null_and_orders_booleans(self, db_session: Session) -> None:
+        """MySQL `GREATEST(x, NULL)` NULL dondururdu; PostgreSQL NULL'i
+        YOK SAYAR. Monotonik kolon (price_history.is_repaired) bu iki
+        davranisa dayanir ve PG'deki hali DAHA GUVENLIDIR: kaynak bir kez
+        NULL bildirse bile mevcut deger korunur."""
+        row = db_session.execute(
+            text(
+                "SELECT greatest(true, NULL::boolean) AS a, "
+                "       greatest(false, true) AS b, "
+                "       greatest(5, NULL::int) AS c"
+            )
+        ).one()
+        assert row.a is True
+        assert row.b is True  # false < true siralamasi tanimli
+        assert row.c == 5
+
+    def test_repeated_key_in_one_write_does_not_raise(self, db_session: Session) -> None:
+        """Dedupe olmadan ERROR 21000 cardinality_violation alinirdi:
+        `ON CONFLICT DO UPDATE` ayni komutta ayni satira IKI KEZ
+        dokunamaz. MySQL bunu sorunsuz yutuyordu."""
+        _seed_symbol(db_session)
+        rows = [_row(1, "1.0"), _row(1, "2.5")]  # AYNI anahtar, iki satir
+        assert rows[0]["session_date"] == rows[1]["session_date"]
+
+        stats = WriteStats()
+        apply_write(PostgresRowWriter(db_session), _price_write(rows), stats)
+        db_session.flush()
+
+        close = db_session.execute(
+            text("SELECT close FROM price_history WHERE symbol = 'AAPL'")
+        ).scalar_one()
+        assert close == Decimal("2.5000000000000000000000000000"), "son satir kazanmali"
+
+    def test_monotonic_column_never_regresses(self, db_session: Session) -> None:
+        """Ayni satir icin once True sonra False yazilirsa deger True
+        KALMALI: kaynak onarim heuristikleri yuzunden ayni bari bir kez
+        1, ertesi kez 0 bildirebilir (PB S6.2)."""
+        _seed_symbol(db_session)
+        writer = PostgresRowWriter(db_session)
+        first = _row(2, "1.0")
+        first["is_repaired"] = True
+        apply_write(writer, _price_write([first]), WriteStats())
+        db_session.flush()
+
+        second = _row(2, "1.0")
+        second["is_repaired"] = False
+        apply_write(writer, _price_write([second]), WriteStats())
+        db_session.flush()
+
+        repaired = db_session.execute(
+            text("SELECT is_repaired FROM price_history WHERE symbol = 'AAPL' AND close = 1.0")
+        ).scalar_one()
+        assert repaired is True, "GREATEST monotonikligi korumali"
