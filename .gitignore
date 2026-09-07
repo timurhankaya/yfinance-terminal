@@ -9,3 +9,9 @@ __pycache__/
 dist/
 build/
 .cache/
+
+# Editor and tool state, per developer rather than per project.
+.idea/
+.vscode/
+.claude/
+.DS_Store

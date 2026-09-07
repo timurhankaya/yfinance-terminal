@@ -1,0 +1,5 @@
+{
+  "yf_max_shards": 8,
+  "yf_domain_regions": "US,GB",
+  "yf_prune_enabled": false
+}
