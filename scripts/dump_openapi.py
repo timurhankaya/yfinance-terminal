@@ -44,6 +44,10 @@ def build_document() -> dict[str, Any]:
             docs_enabled=True,
             cors_origins="",
             trusted_proxies="",
+            # Pinned like the rest: `servers` is part of the contract, so
+            # the committed document must not pick up whatever host the
+            # generating machine happens to be configured for.
+            public_base_url="",
         )
     )
     return app.openapi()

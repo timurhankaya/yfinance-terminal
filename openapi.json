@@ -168,41 +168,6 @@
         "title": "Bar",
         "type": "object"
       },
-      "Body_issue_token_oauth_token_post": {
-        "properties": {
-          "client_secret": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Client Secret"
-          },
-          "grant_type": {
-            "title": "Grant Type",
-            "type": "string"
-          },
-          "scope": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scope"
-          }
-        },
-        "required": [
-          "grant_type"
-        ],
-        "title": "Body_issue_token_oauth_token_post",
-        "type": "object"
-      },
       "CatalogEntryOut": {
         "description": "The catalogue as clients see it.\n\nThe mapping lives here rather than on the catalogue entry: the wire\nshape is an HTTP concern, and `api/storage` is not allowed to know\none. A `describe()` on the entry would have made the storage layer\nthe place where a field rename in the contract has to be made.",
         "properties": {
@@ -551,18 +516,21 @@
         "title": "FinancialFactOut",
         "type": "object"
       },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
+      "Forbidden": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Problem"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "insufficient_scope"
+                ]
+              }
+            }
           }
-        },
-        "title": "HTTPValidationError",
-        "type": "object"
+        ]
       },
       "Health": {
         "properties": {
@@ -580,6 +548,178 @@
         ],
         "title": "Health",
         "type": "object"
+      },
+      "InternalError": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Problem"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "internal_error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "InvalidBarsRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Problem"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "invalid_parameter",
+                  "invalid_cursor",
+                  "range_too_large"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "InvalidRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Problem"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "invalid_parameter",
+                  "invalid_cursor"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "NotFound": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Problem"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "not_found"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "OAuthError": {
+        "description": "RFC 6749 §5.2, and the reason this endpoint is not RFC 9457.\n\nNamed and published so the contract says what a client library will\nparse. `errors.py` builds the same two members for the failures the\nhandler below does not phrase itself.",
+        "properties": {
+          "error": {
+            "description": "invalid_request, invalid_client, invalid_scope, unsupported_grant_type, slow_down, temporarily_unavailable or server_error.",
+            "title": "Error",
+            "type": "string"
+          },
+          "error_description": {
+            "description": "Human-readable, not for branching on.",
+            "title": "Error Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "error_description"
+        ],
+        "title": "OAuthError",
+        "type": "object"
+      },
+      "Problem": {
+        "description": "RFC 9457 problem detail. `type` is an OPAQUE TOKEN, not a URL: do not dereference it, branch on it. The occurrence is identified by `request_id`, which is also the `X-Request-Id` of the response.",
+        "properties": {
+          "detail": {
+            "description": "What to change about the request, when there is something.",
+            "type": "string"
+          },
+          "request_id": {
+            "description": "Identifies this request in the server's logs.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "The HTTP status, repeated in the body.",
+            "type": "integer"
+          },
+          "title": {
+            "description": "A short, human-readable summary.",
+            "type": "string"
+          },
+          "type": {
+            "description": "What was refused. Stable; safe to branch on.",
+            "enum": [
+              "unauthenticated",
+              "invalid_token",
+              "client_disabled",
+              "insufficient_scope",
+              "not_found",
+              "invalid_parameter",
+              "invalid_cursor",
+              "range_too_large",
+              "rate_limit_exceeded",
+              "quota_exceeded",
+              "concurrency_limit",
+              "query_timeout",
+              "internal_error"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status"
+        ],
+        "title": "Problem",
+        "type": "object"
+      },
+      "QueryTimeout": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Problem"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "query_timeout"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "RateLimited": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Problem"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "rate_limit_exceeded",
+                  "quota_exceeded",
+                  "concurrency_limit"
+                ]
+              }
+            }
+          }
+        ]
       },
       "Readiness": {
         "properties": {
@@ -889,22 +1029,65 @@
         "title": "SymbolSummary",
         "type": "object"
       },
+      "TokenRequest": {
+        "description": "The form body, named.\n\nA model rather than three `Form()` parameters, so the published schema\nis called `TokenRequest` and not `Body_issue_token_oauth_token_post`.\nThe field names are the wire names; `client_secret` is accepted only\nto refuse it with a message that says where the credential belongs.",
+        "properties": {
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Not supported. client_secret_post is refused with `invalid_request`; send the credential in the Basic Authorization header.",
+            "title": "Client Secret"
+          },
+          "grant_type": {
+            "description": "Must be `client_credentials`.",
+            "title": "Grant Type",
+            "type": "string"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Space-separated scopes to ask for. Omit to receive everything the client holds; asking for more than it holds is `invalid_scope`.",
+            "title": "Scope"
+          }
+        },
+        "required": [
+          "grant_type"
+        ],
+        "title": "TokenRequest",
+        "type": "object"
+      },
       "TokenResponse": {
         "properties": {
           "access_token": {
+            "description": "The bearer token. Send it as `Authorization: Bearer <token>`.",
             "title": "Access Token",
             "type": "string"
           },
           "expires_in": {
+            "description": "Seconds until the token expires. There is no refresh token; ask for another.",
             "title": "Expires In",
             "type": "integer"
           },
           "scope": {
+            "description": "The scopes actually granted, space separated. Can be narrower than what was asked for, and narrower than what the client holds.",
             "title": "Scope",
             "type": "string"
           },
           "token_type": {
             "default": "Bearer",
+            "description": "Always `Bearer`.",
             "title": "Token Type",
             "type": "string"
           }
@@ -917,49 +1100,28 @@
         "title": "TokenResponse",
         "type": "object"
       },
-      "ValidationError": {
-        "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
+      "Unauthenticated": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Problem"
           },
-          "input": {
-            "title": "Input"
-          },
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "title": "Location",
-            "type": "array"
-          },
-          "msg": {
-            "title": "Message",
-            "type": "string"
-          },
-          "type": {
-            "title": "Error Type",
-            "type": "string"
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "unauthenticated",
+                  "invalid_token",
+                  "client_disabled"
+                ]
+              }
+            }
           }
-        },
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
-        "title": "ValidationError",
-        "type": "object"
+        ]
       }
     },
     "securitySchemes": {
       "clientCredentials": {
+        "description": "OAuth2 client credentials. POST your client id and secret as HTTP Basic to `/oauth/token` and send the returned token as `Authorization: Bearer <token>`. The token url is relative to this document's own URL, so a saved copy of the file has no base to resolve it against -- use the `servers` entry in that case.",
         "flows": {
           "clientCredentials": {
             "scopes": {
@@ -979,7 +1141,16 @@
     }
   },
   "info": {
+    "contact": {
+      "name": "Timurhan Kaya",
+      "url": "https://yfinance.monafy.com/"
+    },
     "description": "Read-only access to the yfin market data warehouse: symbols, price bars,\ncorporate actions, financial statements, analyst coverage, holdings,\nnews, discovery results and the sector/industry taxonomy.\n\n## Getting a token\n\nAuthentication is the OAuth2 **client credentials** grant. Send your\nclient id and secret as HTTP Basic to `/oauth/token`; you get a bearer\ntoken valid for 15 minutes.\n\n```\ncurl -u \"$CLIENT_ID:$CLIENT_SECRET\" \\\n     -d grant_type=client_credentials \\\n     https://<host>/oauth/token\n```\n\nAsk for fewer scopes than you hold with `-d scope=\"bars:read\"`. The token\ncarries what was granted, and the response says so.\n\nRevocation is immediate: rotating a secret or narrowing a scope stops the\ntokens already issued, without waiting for them to expire.\n\n## Paging\n\nCollections return `{\"data\": [...], \"next_cursor\": ...}`. Pass\n`next_cursor` back as `?cursor=` to get the next page, and stop when it\ncomes back `null`. There is no `offset`: on tables with hundreds of\nmillions of rows an offset gets slower the deeper you go and can skip\nrows while data is being written.\n\nA cursor belongs to the query that produced it. Change the interval, the\nrange or a filter and it is refused with `422 invalid_cursor` rather than\nquietly returning the wrong page.\n\n## Reading values\n\n**Numbers arrive as strings.** Prices and share counts are stored as\nexact decimals; sending them as JSON numbers would round them on the way\nout. Parse them with a decimal type, not a float.\n\n**Two different dates.** `ts_utc` is always UTC. `session_date` is the\nexchange's trading session; `local_date` is the bar's local calendar day.\nThey are not interchangeable -- a bar late in the local evening can\nbelong to the next session.\n\n**Ranges are half-open.** `from` is included, `to` is not, so consecutive\npages never overlap.\n\n**Bars default to regular hours.** Pass `session=all` for intraday\nextended-hours bars. The default is deliberate: mixing them into a\nregular series silently distorts anything computed from it.\n\n## Limits\n\nEvery response carries `RateLimit-*` for the per-second budget and\n`X-Quota-*` for the monthly one. A `429` says which limit was hit in its\n`type` field and how long to wait in `Retry-After`. Requests that fail\nwith a `5xx` are not counted against your quota.\n\nErrors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem\ndocuments, except on `/oauth/token`, which uses the OAuth2 error shape\nits own standard requires.\n\n## Resources\n\nEverything below is served by `GET /v1/datasets/{name}`, where the\nname is the first column. `symbol` says whether the resource is\nper-symbol: *required* means you must pass `?symbol=`, *optional*\nmeans you may browse without one. Time-ordered resources come\nnewest first.\n\n## reference\n\nRequires the `reference:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `company_officers` | Named officers and their compensation. | required | — |\n| `fast_info` | Latest lightweight quote snapshot. | required | — |\n| `fast_info_history` | Point-in-time history of the quote snapshot. | required | — |\n| `history_metadata` | Exchange, timezone and trading-period metadata. | required | — |\n| `info_history` | Point-in-time history of the identity snapshot. | required | — |\n| `market_status` | Whether each regional market is open, and when it next changes. | — | — |\n| `market_status_history` | Point-in-time history of market open/closed state. | — | `region` |\n| `market_summary` | Headline index quotes per region. | optional | `region` |\n| `market_summary_history` | Point-in-time history of headline index quotes. | required | `region` |\n\n## fundamentals\n\nRequires the `fundamentals:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `analyst_price_targets` | Analyst price target range and mean. | required | — |\n| `earnings_calendar` | Upcoming and past earnings events across the market. | optional | — |\n| `earnings_dates` | Past and upcoming earnings dates. | required | — |\n| `earnings_estimate` | Consensus earnings estimates by period. | required | — |\n| `earnings_history` | Reported versus estimated EPS, by quarter. | required | — |\n| `economic_calendar` | Scheduled macroeconomic events by region. | — | `region` |\n| `eps_revisions` | Counts of upward and downward EPS revisions. | required | — |\n| `eps_trend` | Consensus EPS estimate as it moved over time. | required | — |\n| `growth_estimates` | Consensus growth estimates by period. | required | — |\n| `ipo_calendar` | IPO pricings, filings and withdrawals. | optional | `action` |\n| `recommendations` | Buy/hold/sell recommendation counts by period. | required | — |\n| `revenue_estimate` | Consensus revenue estimates by period. | required | — |\n| `sec_filing_exhibits` | Documents attached to a filing. | required | `exhibit_type` |\n| `sec_filings` | SEC filings, newest first. | required | `filing_type` |\n| `shares_full` | Shares outstanding over time. | required | — |\n| `splits_calendar` | Announced stock splits and their payable dates. | optional | — |\n| `ticker_calendar` | Next dividend and earnings dates for one symbol. | required | — |\n| `ticker_calendar_history` | Point-in-time history of those dates. | required | — |\n| `upgrades_downgrades` | Analyst upgrades and downgrades, newest first. | required | — |\n\n## holders\n\nRequires the `holders:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `fund_metrics` | Fund performance and risk metrics. | required | `section` |\n| `fund_profile` | Fund family, category and fee profile. | required | — |\n| `fund_top_holdings` | The fund's largest positions. | required | — |\n| `fund_weightings` | Sector, asset-class and bond-rating weightings. | required | `category` |\n| `insider_purchases` | Aggregated insider buying and selling. | required | — |\n| `insider_roster_holders` | Insiders on record and the shares they hold. | required | — |\n| `insider_transactions` | Individual insider transactions. | required | — |\n| `institutional_holders` | Institutional holders and their reported positions. | required | — |\n| `major_holders` | Ownership split between insiders and institutions. | required | — |\n| `mutualfund_holders` | Mutual fund holders and their reported positions. | required | — |\n\n## news\n\nRequires the `news:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `news` | Articles, newest first, across the whole universe. | — | — |\n| `news_symbols` | Which symbols an article mentions. | required | — |\n\n## discovery\n\nRequires the `discovery:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `lookup_results` | Symbols a lookup query returned. | optional | `query_term` |\n| `lookup_totals` | How many results a lookup had, by type. | — | `query_term`, `lookup_type` |\n| `screen_members` | Symbols a predefined screen matched on a given day. | optional | `screen_key` |\n| `screen_quotes` | Quote snapshot captured with a screen run. | required | — |\n| `screen_runs` | When a screen last ran and how many it matched. | — | `screen_key` |\n| `search_lists` | Curated lists a search returned. | — | `query_term` |\n| `search_quotes` | Symbols a free-text search returned. | optional | `query_term` |\n| `search_report_hits` | Research reports a search returned. | — | `query_term` |\n\n## domains\n\nRequires the `domains:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `domain_metrics` | Company and employee counts, market weight per domain. | — | `domain_key` |\n| `domain_report_links` | Which research reports belong to which domain. | — | `domain_key` |\n| `domain_top_companies` | Largest companies in a sector or industry. | optional | `domain_key`, `region` |\n| `domain_top_funds` | Largest funds tracking a sector or industry. | optional | `domain_key`, `region`, `fund_type` |\n| `domain_top_movers` | Gainers, losers and most active names in a domain. | optional | `domain_key`, `region`, `rank_type` |\n| `domains` | The sector and industry taxonomy. | required | `domain_type`, `parent_key` |\n| `research_reports` | Research reports linked to sectors and industries. | — | — |\n",
+    "license": {
+      "identifier": "AGPL-3.0-or-later",
+      "name": "AGPL-3.0-or-later"
+    },
+    "summary": "Read-only access to the yfin market data warehouse.",
     "title": "yfin Data API",
     "version": "1.0.0"
   },
@@ -988,7 +1159,7 @@
     "/health": {
       "get": {
         "description": "Answers whether the process is up. Touches nothing else, so it\nstays truthful while dependencies are down.",
-        "operationId": "health_health_get",
+        "operationId": "getHealth",
         "responses": {
           "200": {
             "content": {
@@ -998,7 +1169,69 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Liveness",
@@ -1009,7 +1242,8 @@
     },
     "/health/ready": {
       "get": {
-        "operationId": "health_ready_health_ready_get",
+        "description": "Answers whether the process can serve traffic: PostgreSQL and Redis\nare both reachable. The result is cached for a few seconds and the\nendpoint carries its own per-IP limit, because it is unauthenticated\nand touches both dependencies on every call.",
+        "operationId": "getReadiness",
         "responses": {
           "200": {
             "content": {
@@ -1019,7 +1253,112 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimited"
+                }
+              }
+            },
+            "description": "A rate limit, concurrency limit or the monthly quota was hit",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Never an HTTP-date.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Readiness",
@@ -1030,12 +1369,13 @@
     },
     "/oauth/token": {
       "post": {
-        "operationId": "issue_token_oauth_token_post",
+        "description": "Exchanges a client id and secret for a bearer token.\n\nSend the credentials as HTTP Basic; `client_secret_post` is refused.\nErrors here are RFC 6749 objects with an `error` field, not the\nproblem documents the rest of the API uses -- every OAuth2 client\nlibrary parses that shape and nothing else.",
+        "operationId": "issueToken",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
               "schema": {
-                "$ref": "#/components/schemas/Body_issue_token_oauth_token_post"
+                "$ref": "#/components/schemas/TokenRequest"
               }
             }
           },
@@ -1050,29 +1390,313 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `no-store` (RFC 6749 §5.1).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "description": "Always `no-cache`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
-            "description": "invalid_request | unsupported_grant_type | invalid_scope"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthError"
+                }
+              }
+            },
+            "description": "invalid_request, unsupported_grant_type or invalid_scope",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `no-store` (RFC 6749 §5.1).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "description": "Always `no-cache`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "The Basic challenge, per RFC 6749 §5.2.",
+                "example": "Basic realm=\"yfin-api\", charset=\"UTF-8\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
-            "description": "invalid_client"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthError"
+                }
+              }
+            },
+            "description": "invalid_client",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `no-store` (RFC 6749 §5.1).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "description": "Always `no-cache`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "The Basic challenge, per RFC 6749 §5.2.",
+                "example": "Basic realm=\"yfin-api\", charset=\"UTF-8\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/OAuthError"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "invalid_request: a form field is missing",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `no-store` (RFC 6749 §5.1).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "description": "Always `no-cache`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "429": {
-            "description": "too many attempts"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthError"
+                }
+              }
+            },
+            "description": "slow_down: too many token requests",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `no-store` (RFC 6749 §5.1).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "description": "Always `no-cache`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Never an HTTP-date.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "503": {
-            "description": "authentication temporarily unavailable"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthError"
+                }
+              }
+            },
+            "description": "temporarily_unavailable: a dependency is unavailable",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `no-store` (RFC 6749 §5.1).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "description": "Always `no-cache`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Never an HTTP-date.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Issue an access token",
@@ -1084,7 +1708,7 @@
     "/v1/datasets": {
       "get": {
         "description": "What this token can read, by default.\n\nFiltering to the caller's scopes is the default because advertising\ndata they cannot fetch is noise. `?all=true` is the documented way to\nsee the rest -- a deliberate choice, not an accident of implementation.",
-        "operationId": "list_datasets_v1_datasets_get",
+        "operationId": "listDatasets",
         "parameters": [
           {
             "description": "List every dataset, not only those this token can read.",
@@ -1108,17 +1732,203 @@
                 }
               }
             },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `private`: responses vary by scope and by the plan's page size, so a shared cache must not hold one and serve it to another client.",
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Always includes `Authorization`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthenticated"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Authentication failed or the token is not usable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "The challenge, per RFC 6750 §3.",
+                "example": "Bearer realm=\"yfin-api\", error=\"invalid_token\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            },
+            "description": "The request parameters are not acceptable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimited"
+                }
+              }
+            },
+            "description": "A rate limit, concurrency limit or the monthly quota was hit",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Never an HTTP-date.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1135,7 +1945,7 @@
     "/v1/datasets/{name}": {
       "get": {
         "description": "Rows from one dataset.\n\nAny query parameter that is not reserved is treated as a filter, and\nonly the columns the dataset declared as filterable are accepted --\nan unknown one is refused rather than ignored, because silently\ndropping a filter returns more data than the caller asked for and\nlooks like it worked.",
-        "operationId": "read_dataset_v1_datasets__name__get",
+        "operationId": "readDataset",
         "parameters": [
           {
             "in": "path",
@@ -1205,17 +2015,402 @@
                 }
               }
             },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `private`: responses vary by scope and by the plan's page size, so a shared cache must not hold one and serve it to another client.",
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "type": "string"
+                }
+              },
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Always includes `Authorization`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthenticated"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Authentication failed or the token is not usable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "The challenge, per RFC 6750 §3.",
+                "example": "Bearer realm=\"yfin-api\", error=\"invalid_token\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            },
+            "description": "The token does not carry the required scope",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "Names the scope the token is missing, per RFC 6750 §3.",
+                "example": "Bearer error=\"insufficient_scope\", scope=\"bars:read\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            },
+            "description": "No such resource",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            },
+            "description": "The request parameters are not acceptable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimited"
+                }
+              }
+            },
+            "description": "A rate limit, concurrency limit or the monthly quota was hit",
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Never an HTTP-date.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryTimeout"
+                }
+              }
+            },
+            "description": "The query took too long and was cancelled",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1232,7 +2427,7 @@
     "/v1/symbols": {
       "get": {
         "description": "Symbols in the universe.\n\n`active` defaults to true: an inactive row is one discovery found but\nan operator never activated, so the pipeline does not fetch it and it\nis close to empty.",
-        "operationId": "list_symbols_v1_symbols_get",
+        "operationId": "listSymbols",
         "parameters": [
           {
             "in": "query",
@@ -1341,17 +2536,366 @@
                 }
               }
             },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `private`: responses vary by scope and by the plan's page size, so a shared cache must not hold one and serve it to another client.",
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "type": "string"
+                }
+              },
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Always includes `Authorization`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthenticated"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Authentication failed or the token is not usable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "The challenge, per RFC 6750 §3.",
+                "example": "Bearer realm=\"yfin-api\", error=\"invalid_token\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            },
+            "description": "The token does not carry the required scope",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "Names the scope the token is missing, per RFC 6750 §3.",
+                "example": "Bearer error=\"insufficient_scope\", scope=\"bars:read\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            },
+            "description": "The request parameters are not acceptable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimited"
+                }
+              }
+            },
+            "description": "A rate limit, concurrency limit or the monthly quota was hit",
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Never an HTTP-date.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryTimeout"
+                }
+              }
+            },
+            "description": "The query took too long and was cancelled",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1369,7 +2913,8 @@
     },
     "/v1/symbols/{symbol}": {
       "get": {
-        "operationId": "get_symbol_v1_symbols__symbol__get",
+        "description": "One symbol's identity, plus the newest snapshot the pipeline holds\nfor it. `info` is null for a symbol discovery found but never synced.",
+        "operationId": "getSymbol",
         "parameters": [
           {
             "in": "path",
@@ -1390,17 +2935,402 @@
                 }
               }
             },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `private`: responses vary by scope and by the plan's page size, so a shared cache must not hold one and serve it to another client.",
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "type": "string"
+                }
+              },
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Always includes `Authorization`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthenticated"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Authentication failed or the token is not usable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "The challenge, per RFC 6750 §3.",
+                "example": "Bearer realm=\"yfin-api\", error=\"invalid_token\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            },
+            "description": "The token does not carry the required scope",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "Names the scope the token is missing, per RFC 6750 §3.",
+                "example": "Bearer error=\"insufficient_scope\", scope=\"bars:read\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            },
+            "description": "No such resource",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            },
+            "description": "The request parameters are not acceptable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimited"
+                }
+              }
+            },
+            "description": "A rate limit, concurrency limit or the monthly quota was hit",
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Never an HTTP-date.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryTimeout"
+                }
+              }
+            },
+            "description": "The query took too long and was cancelled",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1418,7 +3348,8 @@
     },
     "/v1/symbols/{symbol}/actions": {
       "get": {
-        "operationId": "list_actions_v1_symbols__symbol__actions_get",
+        "description": "Dividends, splits and capital gains for one symbol, newest first.\n\nRanges are half-open and capped like a monthly series; the action\nvalue's meaning depends on `action_type` -- a cash amount for a\ndividend, a ratio for a split.",
+        "operationId": "listActions",
         "parameters": [
           {
             "in": "path",
@@ -1506,17 +3437,402 @@
                 }
               }
             },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `private`: responses vary by scope and by the plan's page size, so a shared cache must not hold one and serve it to another client.",
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "type": "string"
+                }
+              },
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Always includes `Authorization`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthenticated"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Authentication failed or the token is not usable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "The challenge, per RFC 6750 §3.",
+                "example": "Bearer realm=\"yfin-api\", error=\"invalid_token\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            },
+            "description": "The token does not carry the required scope",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "Names the scope the token is missing, per RFC 6750 §3.",
+                "example": "Bearer error=\"insufficient_scope\", scope=\"bars:read\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            },
+            "description": "No such resource",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            },
+            "description": "The request parameters are not acceptable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimited"
+                }
+              }
+            },
+            "description": "A rate limit, concurrency limit or the monthly quota was hit",
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Never an HTTP-date.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryTimeout"
+                }
+              }
+            },
+            "description": "The query took too long and was cancelled",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1535,7 +3851,7 @@
     "/v1/symbols/{symbol}/bars": {
       "get": {
         "description": "Bars for one symbol.\n\n`session` applies to intraday intervals only, and defaults to\n`regular`. That default is accident prevention: extended-hours bars\nmixed into a regular series corrupt every indicator computed from it,\ninvisibly. Above daily the flag has no meaning, so passing it there is\nrejected rather than ignored.",
-        "operationId": "list_bars_v1_symbols__symbol__bars_get",
+        "operationId": "listBars",
         "parameters": [
           {
             "in": "path",
@@ -1653,17 +3969,402 @@
                 }
               }
             },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `private`: responses vary by scope and by the plan's page size, so a shared cache must not hold one and serve it to another client.",
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "type": "string"
+                }
+              },
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Always includes `Authorization`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthenticated"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Authentication failed or the token is not usable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "The challenge, per RFC 6750 §3.",
+                "example": "Bearer realm=\"yfin-api\", error=\"invalid_token\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            },
+            "description": "The token does not carry the required scope",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "Names the scope the token is missing, per RFC 6750 §3.",
+                "example": "Bearer error=\"insufficient_scope\", scope=\"bars:read\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            },
+            "description": "No such resource",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidBarsRequest"
+                }
+              }
+            },
+            "description": "The request parameters are not acceptable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimited"
+                }
+              }
+            },
+            "description": "A rate limit, concurrency limit or the monthly quota was hit",
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Never an HTTP-date.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryTimeout"
+                }
+              }
+            },
+            "description": "The query took too long and was cancelled",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1682,7 +4383,7 @@
     "/v1/symbols/{symbol}/financials": {
       "get": {
         "description": "Line items for one statement.\n\n`statement` and `freq` are both required, and that is a performance\ncontract rather than a stylistic choice: `financial_facts` is keyed on\n(symbol, statement, freq, period_end, item_key), so without them the\nquery cannot use the leading columns of its own primary key.",
-        "operationId": "list_financials_v1_symbols__symbol__financials_get",
+        "operationId": "listFinancials",
         "parameters": [
           {
             "in": "path",
@@ -1754,17 +4455,402 @@
                 }
               }
             },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `private`: responses vary by scope and by the plan's page size, so a shared cache must not hold one and serve it to another client.",
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "type": "string"
+                }
+              },
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Always includes `Authorization`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthenticated"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Authentication failed or the token is not usable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "The challenge, per RFC 6750 §3.",
+                "example": "Bearer realm=\"yfin-api\", error=\"invalid_token\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            },
+            "description": "The token does not carry the required scope",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "Names the scope the token is missing, per RFC 6750 §3.",
+                "example": "Bearer error=\"insufficient_scope\", scope=\"bars:read\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            },
+            "description": "No such resource",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            },
+            "description": "The request parameters are not acceptable",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimited"
+                }
+              }
+            },
+            "description": "A rate limit, concurrency limit or the monthly quota was hit",
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Never an HTTP-date.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryTimeout"
+                }
+              }
+            },
+            "description": "The query took too long and was cancelled",
+            "headers": {
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1781,6 +4867,16 @@
       }
     }
   },
+  "servers": [
+    {
+      "description": "Production",
+      "url": "https://yfinance.monafy.com"
+    },
+    {
+      "description": "This deployment",
+      "url": "/"
+    }
+  ],
   "tags": [
     {
       "description": "Token issuance. Start here.",

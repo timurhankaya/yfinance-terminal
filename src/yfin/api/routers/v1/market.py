@@ -163,6 +163,8 @@ def get_symbol(
     symbol: str,
     principal: Annotated[Principal, Depends(guard(DataFamily.REFERENCE))],
 ) -> Resource[SymbolDetail]:
+    """One symbol's identity, plus the newest snapshot the pipeline holds
+    for it. `info` is null for a symbol discovery found but never synced."""
     limits.apply_statement_timeout(session)
     row = reads.get_symbol(session, _normalise_symbol(symbol))
     if row is None:
@@ -324,6 +326,12 @@ def list_actions(
     limit: Annotated[int | None, Query(ge=1)] = None,
     cursor: str | None = None,
 ) -> Collection[Action]:
+    """Dividends, splits and capital gains for one symbol, newest first.
+
+    Ranges are half-open and capped like a monthly series; the action
+    value's meaning depends on `action_type` -- a cash amount for a
+    dividend, a ratio for a split.
+    """
     limits.apply_statement_timeout(session)
     code = _normalise_symbol(symbol)
 

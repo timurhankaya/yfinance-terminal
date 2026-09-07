@@ -14,6 +14,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from yfin.api.core import openapi as openapi_document
 from yfin.api.core.config import ApiSettings, get_api_settings
 from yfin.api.core.docs import TAGS, description
 from yfin.api.core.errors import install_error_handlers
@@ -24,7 +25,17 @@ from yfin.api.routers import meta, oauth
 from yfin.api.routers.v1 import datasets, market
 
 TITLE = "yfin Data API"
+SUMMARY = "Read-only access to the yfin market data warehouse."
+#: The DOCUMENT's version, which moves with the contract. `/v1` is the
+#: SURFACE's version and moves only when the surface breaks; the two are
+#: not the same number and the introduction says so.
 VERSION = "1.0.0"
+
+CONTACT = {"name": "Timurhan Kaya", "url": openapi_document.PRODUCTION_URL}
+
+#: `identifier` is OpenAPI 3.1 only and is mutually exclusive with `url`:
+#: a licence link cannot be added here without removing the SPDX id.
+LICENSE = {"name": "AGPL-3.0-or-later", "identifier": "AGPL-3.0-or-later"}
 
 
 def create_app(settings: ApiSettings | None = None) -> FastAPI:
@@ -36,6 +47,10 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         # Generated from the catalogue, so the document cannot list a
         # resource the API does not serve or miss one it does.
         description=description(),
+        summary=SUMMARY,
+        contact=CONTACT,
+        license_info=LICENSE,
+        servers=openapi_document.servers_for(settings),
         openapi_tags=TAGS,
         # Two views of the same document, because they answer different
         # questions. Swagger UI is where a developer pastes a client id
@@ -86,6 +101,12 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.include_router(oauth.router)
     app.include_router(market.router)
     app.include_router(datasets.router)
+
+    # After the routers, because it names every route and builds the
+    # document from them. Installed even when the docs are withheld: a
+    # deployment that does not publish the contract must still BE the
+    # application the committed contract describes.
+    openapi_document.install(app)
     return app
 
 

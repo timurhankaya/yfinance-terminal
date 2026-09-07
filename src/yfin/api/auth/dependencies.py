@@ -62,6 +62,13 @@ oauth2_scheme = OAuth2(
         )
     ),
     scheme_name="clientCredentials",
+    description=(
+        "OAuth2 client credentials. POST your client id and secret as HTTP "
+        "Basic to `/oauth/token` and send the returned token as "
+        "`Authorization: Bearer <token>`. The token url is relative to this "
+        "document's own URL, so a saved copy of the file has no base to "
+        "resolve it against -- use the `servers` entry in that case."
+    ),
     auto_error=False,
 )
 

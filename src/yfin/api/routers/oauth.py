@@ -26,7 +26,7 @@ from urllib.parse import unquote_plus
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from yfin.api.auth.hashing import verify_against
@@ -51,10 +51,63 @@ INVALID_CLIENT_MESSAGE = "client authentication failed"
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "Bearer"
-    expires_in: int
-    scope: str
+    access_token: str = Field(
+        description="The bearer token. Send it as `Authorization: Bearer <token>`."
+    )
+    token_type: str = Field(default="Bearer", description="Always `Bearer`.")
+    expires_in: int = Field(
+        description="Seconds until the token expires. There is no refresh token; ask for another."
+    )
+    scope: str = Field(
+        description=(
+            "The scopes actually granted, space separated. Can be narrower than "
+            "what was asked for, and narrower than what the client holds."
+        )
+    )
+
+
+class TokenRequest(BaseModel):
+    """The form body, named.
+
+    A model rather than three `Form()` parameters, so the published schema
+    is called `TokenRequest` and not `Body_issue_token_oauth_token_post`.
+    The field names are the wire names; `client_secret` is accepted only
+    to refuse it with a message that says where the credential belongs.
+    """
+
+    grant_type: str = Field(description="Must be `client_credentials`.")
+    scope: str | None = Field(
+        default=None,
+        description=(
+            "Space-separated scopes to ask for. Omit to receive everything the "
+            "client holds; asking for more than it holds is `invalid_scope`."
+        ),
+    )
+    client_secret: str | None = Field(
+        default=None,
+        description=(
+            "Not supported. client_secret_post is refused with `invalid_request`; "
+            "send the credential in the Basic Authorization header."
+        ),
+    )
+
+
+class OAuthError(BaseModel):
+    """RFC 6749 §5.2, and the reason this endpoint is not RFC 9457.
+
+    Named and published so the contract says what a client library will
+    parse. `errors.py` builds the same two members for the failures the
+    handler below does not phrase itself.
+    """
+
+    error: str = Field(
+        description=(
+            "invalid_request, invalid_client, invalid_scope, "
+            "unsupported_grant_type, slow_down, temporarily_unavailable or "
+            "server_error."
+        )
+    )
+    error_description: str = Field(description="Human-readable, not for branching on.")
 
 
 def _oauth_error(
@@ -109,23 +162,39 @@ def _parse_basic(header: str) -> tuple[str, str] | None:
     summary="Issue an access token",
     response_model=TokenResponse,
     responses={
-        400: {"description": "invalid_request | unsupported_grant_type | invalid_scope"},
-        401: {"description": "invalid_client"},
-        429: {"description": "too many attempts"},
-        503: {"description": "authentication temporarily unavailable"},
+        400: {
+            "model": OAuthError,
+            "description": "invalid_request, unsupported_grant_type or invalid_scope",
+        },
+        401: {"model": OAuthError, "description": "invalid_client"},
+        # Declared explicitly so it replaces the HTTPValidationError body
+        # FastAPI would generate. A missing form field is answered in the
+        # RFC 6749 shape too -- see `core/errors.py`.
+        422: {"model": OAuthError, "description": "invalid_request: a form field is missing"},
+        429: {"model": OAuthError, "description": "slow_down: too many token requests"},
+        503: {
+            "model": OAuthError,
+            "description": "temporarily_unavailable: a dependency is unavailable",
+        },
     },
 )
 def issue_token(
     request: Request,
     session: Annotated[Session, Depends(session_scope)],
-    grant_type: Annotated[str, Form()],
-    scope: Annotated[str | None, Form()] = None,
-    posted_credential: Annotated[str | None, Form(alias="client_secret")] = None,
+    form: Annotated[TokenRequest, Form()],
 ) -> JSONResponse:
+    """Exchanges a client id and secret for a bearer token.
+
+    Send the credentials as HTTP Basic; `client_secret_post` is refused.
+    Errors here are RFC 6749 objects with an `error` field, not the
+    problem documents the rest of the API uses -- every OAuth2 client
+    library parses that shape and nothing else.
+    """
     settings: ApiSettings = request.app.state.api_settings
     client_ip = getattr(request.state, "client_ip", "unknown")
+    grant_type, scope = form.grant_type, form.scope
 
-    if posted_credential is not None:
+    if form.client_secret is not None:
         # client_secret_post is not supported. Saying so plainly beats a
         # generic failure the caller would read as "wrong credential" and
         # then chase in the wrong place.

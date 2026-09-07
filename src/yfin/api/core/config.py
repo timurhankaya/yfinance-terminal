@@ -49,6 +49,11 @@ class ApiSettings(BaseSettings):
     trusted_proxies: str = ""
     cors_origins: str = ""
     docs_enabled: bool = True
+    #: The base URL this deployment answers on, published as the first
+    #: `servers` entry. Empty means the constant in `core/openapi.py`,
+    #: which is what the committed openapi.json carries -- the document
+    #: must not differ by whose machine generated it.
+    public_base_url: str = ""
 
     # --- health -----------------------------------------------------------
     health_cache_seconds: int = Field(default=5, ge=0)

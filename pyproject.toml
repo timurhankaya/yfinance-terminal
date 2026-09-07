@@ -64,6 +64,10 @@ dev = [
     # so they are async. Without this plugin bare pytest SKIPS `async def`
     # tests silently -- they would look green while never running.
     "pytest-asyncio>=0.24",
+    # Validates the committed contract against the OpenAPI 3.1 meta-schema.
+    # Reviewing a 2000-line document by eye does not catch an illegal
+    # `license` pair or a malformed header object; this does.
+    "openapi-spec-validator>=0.7",
 ]
 
 [project.urls]
@@ -90,7 +94,12 @@ markers = [
 ]
 addopts = "-m 'not repo and not live'"
 asyncio_mode = "auto"
-pythonpath = ["tests"]
+# The repo root is on the path so `import scripts.dump_openapi` resolves:
+# `scripts/` is not a package and not part of the distribution, but the
+# OpenAPI contract test renders through the same code CI runs. Without
+# this the test errors on ModuleNotFoundError instead of comparing the
+# document, which is a contract check that silently never runs.
+pythonpath = ["tests", "."]
 
 [tool.ruff]
 line-length = 100

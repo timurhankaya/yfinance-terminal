@@ -123,6 +123,10 @@ def health() -> Health:
 
 @router.get("/health/ready", response_model=Readiness, summary="Readiness")
 def health_ready(request: Request) -> Readiness:
+    """Answers whether the process can serve traffic: PostgreSQL and Redis
+    are both reachable. The result is cached for a few seconds and the
+    endpoint carries its own per-IP limit, because it is unauthenticated
+    and touches both dependencies on every call."""
     settings: ApiSettings = request.app.state.api_settings
     client_ip = getattr(request.state, "client_ip", "unknown")
     if not _limiter.allow(client_ip, settings.health_rate_limit_per_minute):

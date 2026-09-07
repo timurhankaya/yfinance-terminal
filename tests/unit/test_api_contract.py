@@ -10,6 +10,7 @@ the change was made rather than a push later.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -228,3 +229,273 @@ def test_the_introduction_covers_what_callers_get_wrong(document: dict[str, Any]
     text = document["info"]["description"]
     for topic in ("next_cursor", "session_date", "local_date", "client_credentials"):
         assert topic in text
+
+
+# --- the schema half of the contract ----------------------------------------
+#
+# Everything below guards `core/openapi.py`. The module's tables have to be
+# maintained by hand; these are what make forgetting fail here rather than
+# in a client six months from now.
+
+
+def test_the_document_is_openapi_31(document: dict[str, Any]) -> None:
+    """`license.identifier` and the `["string", "null"]` type arrays are 3.1
+    only. A dependency downgrade would emit a document that is illegal
+    rather than merely different, and nothing else would notice."""
+    assert document["openapi"].startswith("3.1")
+
+
+def test_every_route_is_named(document: dict[str, Any]) -> None:
+    """A route missing from the map keeps FastAPI's generated id, which
+    becomes a client method called `list_bars_v1_symbols__symbol__bars_get`.
+    That is permanent once someone has generated against it."""
+    from yfin.api.core.openapi import OPERATION_IDS, walk_routes
+
+    app = create_app(api_settings())
+    routed = {
+        (method.lower(), route.path)
+        for route in walk_routes(app.routes)
+        for method in (getattr(route, "methods", None) or ())
+        if route.path.startswith(("/v1", "/oauth", "/health"))
+    }
+    assert routed - set(OPERATION_IDS) == set()
+
+
+def test_operation_ids_are_camel_case_and_unique(document: dict[str, Any]) -> None:
+    ids = [
+        operation["operationId"]
+        for operations in document["paths"].values()
+        for operation in operations.values()
+    ]
+    assert len(ids) == len(set(ids))
+    assert [i for i in ids if not re.fullmatch(r"[a-z][A-Za-z0-9]*", i)] == []
+
+
+def test_the_route_and_the_document_agree_on_the_id() -> None:
+    """The id is set on the route, not patched into the finished document,
+    so `route.operation_id` and the contract cannot drift -- and the example
+    files, which are named after it, can be found from either."""
+    from yfin.api.core.openapi import OPERATION_IDS, walk_routes
+
+    app = create_app(api_settings())
+    for route in walk_routes(app.routes):
+        for method in getattr(route, "methods", None) or ():
+            expected = OPERATION_IDS.get((method.lower(), route.path))
+            if expected is not None:
+                assert route.operation_id == expected
+
+
+def test_every_operation_publishes_the_statuses_it_can_answer(
+    document: dict[str, Any],
+) -> None:
+    from yfin.api.core.openapi import ERROR_STATUSES
+
+    for operations in document["paths"].values():
+        for operation in operations.values():
+            published = {int(code) for code in operation["responses"]}
+            expected = {200, *ERROR_STATUSES[operation["operationId"]]}
+            assert published == expected, operation["operationId"]
+
+
+def test_the_validation_error_schemas_are_GONE(document: dict[str, Any]) -> None:
+    """The API answers every 422 through `_validation_error`, which builds a
+    problem document. Publishing FastAPI's default body described a
+    response no code path can produce."""
+    assert "HTTPValidationError" not in document["components"]["schemas"]
+    assert "ValidationError" not in document["components"]["schemas"]
+    assert "ValidationError" not in json.dumps(document)
+
+
+def test_every_error_carries_a_narrowed_problem_schema(document: dict[str, Any]) -> None:
+    """Narrowed per status, not one enum of all thirteen types: a 404 that
+    documented it might answer `quota_exceeded` would be a contract a
+    generated client is entitled to believe."""
+    from yfin.api.core.errors import PROBLEM_MEDIA_TYPE
+    from yfin.api.core.openapi import BARS_VARIANT, PROBLEM_VARIANTS, TOKEN_OPERATION
+
+    for operations in document["paths"].values():
+        for operation in operations.values():
+            if operation["operationId"] == TOKEN_OPERATION:
+                continue
+            for code, response in operation["responses"].items():
+                if int(code) < 400:
+                    continue
+                content = response["content"]
+                assert set(content) == {PROBLEM_MEDIA_TYPE}, (operation["operationId"], code)
+                expected = (
+                    BARS_VARIANT[0]
+                    if operation["operationId"] == "listBars" and code == "422"
+                    else PROBLEM_VARIANTS[int(code)][0]
+                )
+                assert content[PROBLEM_MEDIA_TYPE]["schema"]["$ref"].endswith(f"/{expected}")
+
+
+def test_the_token_endpoints_errors_carry_the_oauth_schema(
+    document: dict[str, Any],
+) -> None:
+    responses = document["paths"]["/oauth/token"]["post"]["responses"]
+    for code, response in responses.items():
+        if int(code) < 400:
+            continue
+        content = response["content"]
+        assert set(content) == {"application/json"}, code
+        assert content["application/json"]["schema"]["$ref"].endswith("/OAuthError")
+
+
+def test_ALL_TYPES_covers_every_error_type_the_code_defines() -> None:
+    """An explicit tuple, not a scan of the module's globals: reflection
+    would absorb any future name starting `TYPE_` into the published enum
+    without anyone deciding to."""
+    from yfin.api.core import errors
+
+    declared = {
+        value
+        for name, value in vars(errors).items()
+        if name.startswith("TYPE_") and isinstance(value, str)
+    }
+    assert set(errors.ALL_TYPES) == declared
+
+
+def test_every_error_type_has_a_status_that_can_carry_it() -> None:
+    """A type nothing publishes is a type a client cannot prepare for.
+    `range_too_large` was exactly that until it was given to bars."""
+    from yfin.api.core.errors import ALL_TYPES
+    from yfin.api.core.openapi import BARS_VARIANT, PROBLEM_VARIANTS
+
+    placed: set[str] = set()
+    for _, types in (*PROBLEM_VARIANTS.values(), BARS_VARIANT):
+        placed |= set(types)
+    assert placed == set(ALL_TYPES)
+
+
+#: Every header the API can put on a response, gathered from the code that
+#: sets it. The document may publish a subset; it may not invent one.
+def _emittable_headers() -> set[str]:
+    from yfin.api.core.middleware import SECURITY_HEADERS
+
+    return {
+        *SECURITY_HEADERS,
+        "X-Request-Id",
+        "RateLimit-Limit",
+        "RateLimit-Remaining",
+        "RateLimit-Reset",
+        "X-Quota-Limit",
+        "X-Quota-Remaining",
+        "X-Quota-Reset",
+        "Retry-After",
+        "Cache-Control",
+        "Vary",
+        "ETag",
+        "X-Data-As-Of",
+        "WWW-Authenticate",
+        "Pragma",
+    }
+
+
+def test_no_published_header_is_one_the_code_cannot_send(
+    document: dict[str, Any],
+) -> None:
+    published = {
+        name
+        for operations in document["paths"].values()
+        for operation in operations.values()
+        for response in operation["responses"].values()
+        for name in response.get("headers", {})
+    }
+    assert published - _emittable_headers() == set()
+
+
+def test_the_rate_headers_are_published_where_they_are_actually_set(
+    document: dict[str, Any],
+) -> None:
+    """`problem_response` builds a fresh response carrying only what the
+    raiser attached, so a 404 or a 504 genuinely has no rate headers while a
+    429 does -- the limiter merges them in. Publishing them everywhere would
+    be easier and would be a lie a client could act on."""
+    from yfin.api.core.openapi import METERED
+
+    for operations in document["paths"].values():
+        for operation in operations.values():
+            metered = operation["operationId"] in METERED
+            for code, response in operation["responses"].items():
+                has_rate = "RateLimit-Limit" in response.get("headers", {})
+                assert has_rate == (metered and code in {"200", "429"}), (
+                    operation["operationId"],
+                    code,
+                )
+
+
+def test_the_document_says_where_the_api_is(document: dict[str, Any]) -> None:
+    from yfin.api.core.openapi import PRODUCTION_URL
+
+    servers = document["servers"]
+    assert servers[0]["url"] == PRODUCTION_URL
+    # The relative entry is what lets /docs on a laptop call itself rather
+    # than production.
+    assert servers[-1]["url"] == "/"
+
+
+def test_the_token_url_stays_relative(document: dict[str, Any]) -> None:
+    """Deliberate, and reaffirmed after review: an absolute tokenUrl would
+    make a developer's local /docs authenticate against production. In 3.1 a
+    relative one resolves against the document's own URL."""
+    flow = document["components"]["securitySchemes"]["clientCredentials"]["flows"]
+    assert flow["clientCredentials"]["tokenUrl"] == "/oauth/token"
+
+
+def test_the_security_scheme_explains_itself(document: dict[str, Any]) -> None:
+    scheme = document["components"]["securitySchemes"]["clientCredentials"]
+    assert scheme.get("description")
+
+
+def test_every_operation_has_a_summary_and_a_description(
+    document: dict[str, Any],
+) -> None:
+    """FastAPI takes both from the handler's docstring, so deleting one
+    empties the contract silently."""
+    for operations in document["paths"].values():
+        for operation in operations.values():
+            assert operation.get("summary"), operation["operationId"]
+            assert operation.get("description"), operation["operationId"]
+
+
+def test_the_licence_is_published_the_way_31_allows(document: dict[str, Any]) -> None:
+    """`identifier` and `url` are mutually exclusive; publishing both is an
+    invalid document, and the SPDX id is the more useful of the two."""
+    licence = document["info"]["license"]
+    assert licence["identifier"] == "AGPL-3.0-or-later"
+    assert "url" not in licence
+
+
+def test_withholding_the_docs_does_not_change_the_contract() -> None:
+    """A deployment that does not publish its surface must still BE the
+    application the committed document describes."""
+    settings = api_settings().model_copy(update={"docs_enabled": False})
+    assert create_app(settings).openapi() == create_app(api_settings()).openapi()
+
+
+def test_the_document_is_a_VALID_openapi_document(document: dict[str, Any]) -> None:
+    """A machine check for the classes of mistake a reader misses: a
+    licence with both `identifier` and `url`, `example` alongside
+    `examples`, a header object shaped like a parameter. Every one of those
+    was proposed at some point while this contract was being written."""
+    from openapi_spec_validator import validate  # noqa: PLC0415 - optional dev dependency
+
+    validate(document)
+
+
+def test_the_token_endpoint_answers_a_missing_field_in_the_OAUTH_shape() -> None:
+    """The endpoint's docstring has always promised RFC 6749 errors, and
+    until now the promise held only for the failures its own handler wrote.
+    A missing form field reached the app-wide validation handler and came
+    back as problem+json -- with no `error` field for a client library to
+    read, and no test to notice, because the document still matched what we
+    published."""
+    with TestClient(create_app(api_settings()), raise_server_exceptions=False) as client:
+        response = client.post("/oauth/token", data={})
+
+    assert response.status_code == 422
+    assert response.headers["content-type"].startswith("application/json")
+    body = response.json()
+    assert body["error"] == "invalid_request"
+    assert "error_description" in body

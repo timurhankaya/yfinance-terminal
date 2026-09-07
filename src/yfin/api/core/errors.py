@@ -42,6 +42,41 @@ TYPE_CONCURRENCY = "concurrency_limit"
 TYPE_QUERY_TIMEOUT = "query_timeout"
 TYPE_INTERNAL = "internal_error"
 
+#: Every type the API can emit, as an explicit tuple rather than a scan of
+#: this module's globals. The published document enumerates these, and a
+#: reflective version would absorb any future name beginning `TYPE_` --
+#: including one that is not an error type -- into the contract without
+#: anyone deciding to. A test asserts this covers the constants above.
+ALL_TYPES: tuple[str, ...] = (
+    TYPE_UNAUTHENTICATED,
+    TYPE_INVALID_TOKEN,
+    TYPE_CLIENT_DISABLED,
+    TYPE_INSUFFICIENT_SCOPE,
+    TYPE_NOT_FOUND,
+    TYPE_INVALID_PARAMETER,
+    TYPE_INVALID_CURSOR,
+    TYPE_RANGE_TOO_LARGE,
+    TYPE_RATE_LIMIT,
+    TYPE_QUOTA,
+    TYPE_CONCURRENCY,
+    TYPE_QUERY_TIMEOUT,
+    TYPE_INTERNAL,
+)
+
+#: The one path whose errors are not problem documents. Kept here rather
+#: than imported from the router: this module decides the format, and
+#: importing the router would make the error layer depend on the routing
+#: layer it exists to serve.
+TOKEN_ENDPOINT_PATH = "/oauth/token"
+
+#: Which RFC 6749 error each status carries when a generic handler, not
+#: the token endpoint's own code, is what refused the request.
+_OAUTH_ERRORS = {
+    422: ("invalid_request", "the request is missing a required parameter"),
+    500: ("server_error", "the authorisation server encountered an unexpected condition"),
+    504: ("temporarily_unavailable", "the authorisation server is overloaded"),
+}
+
 
 class ApiProblem(Exception):
     """An error that is safe to show a client, verbatim.
@@ -67,6 +102,30 @@ class ApiProblem(Exception):
         self.headers = headers or {}
 
 
+def _oauth_shaped(
+    status: int,
+    title: str,
+    *,
+    detail: str | None,
+    headers: dict[str, str] | None,
+) -> JSONResponse:
+    """RFC 6749 §5.2 body for a failure the token endpoint did not phrase.
+
+    Two members only, exactly as `_oauth_error` in the router builds them,
+    so every failure of this endpoint looks the same to a client library
+    whether the router refused it or a generic handler did. The request id
+    is still on the response, in `X-Request-Id`.
+    """
+    error, description = _OAUTH_ERRORS.get(status, ("invalid_request", title))
+    all_headers = {"Cache-Control": "no-store", "Pragma": "no-cache"}
+    all_headers.update(headers or {})
+    return JSONResponse(
+        {"error": error, "error_description": detail or description},
+        status_code=status,
+        headers=all_headers,
+    )
+
+
 def problem_response(
     request: Request,
     status: int,
@@ -76,6 +135,17 @@ def problem_response(
     detail: str | None = None,
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
+    if request.url.path == TOKEN_ENDPOINT_PATH:
+        # The token endpoint's own code answers in the RFC 6749 shape, but
+        # the generic handlers registered below do not know that. Without
+        # this, a missing `grant_type` (RequestValidationError), an
+        # unhandled failure or a cancelled query would reach an OAuth2
+        # client library as a problem document with no `error` field --
+        # exactly the failure `routers/oauth.py` documents at length and
+        # which no schema test would catch, because the document would
+        # still match what we published.
+        return _oauth_shaped(status, title, detail=detail, headers=headers)
+
     body: dict[str, Any] = {
         "type": problem_type,
         "title": title,
