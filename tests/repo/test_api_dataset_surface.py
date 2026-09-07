@@ -282,3 +282,21 @@ def test_the_generic_surface_is_metered_like_the_rest(
     )
     counts: dict[str, Any] = redis.hgetall(next(iter(redis.keys("usage:*"))))
     assert counts == {f"{CLIENT_ID}:holders": "1"}
+
+
+def test_a_calendar_can_be_browsed_without_a_symbol(client: TestClient) -> None:
+    """The default refuses an unfiltered scan of a symbol-keyed table, and
+    calendars are the documented exception: "what reports this week" is the
+    whole point, and each calendar carries an index on its time column, so
+    the browse is an index scan rather than a sort over the table."""
+    response = client.get(
+        "/v1/datasets/earnings_calendar", headers=_token("fundamentals:read")
+    )
+    assert response.status_code == 200
+
+
+def test_a_symbol_keyed_dataset_without_that_opt_in_still_refuses(
+    client: TestClient,
+) -> None:
+    response = client.get("/v1/datasets/major_holders", headers=_token("holders:read"))
+    assert response.status_code == 422

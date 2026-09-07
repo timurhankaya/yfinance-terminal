@@ -53,6 +53,18 @@ class ApiExposure:
     #: as well -- wrong, and wrong in a way a caller cannot see.
     fixed: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
+    #: Whether the table may be browsed without a symbol filter.
+    #:
+    #: The default is no, and that default earns its keep: an unfiltered
+    #: scan of a symbol-keyed table is neither what a caller wants nor
+    #: cheap to serve. Calendars are the exception -- "what reports this
+    #: week" is the whole point of them -- and they can afford it because
+    #: each carries an index on its time column, so the browse is an index
+    #: scan rather than a sort over the table. Setting this without such
+    #: an index would create exactly the endpoint §5.5 exists to prevent:
+    #: cheap to send, expensive to serve.
+    symbol_optional: bool = False
+
     #: One line for the catalogue.
     description: str = ""
 

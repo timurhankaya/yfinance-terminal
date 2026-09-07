@@ -15,9 +15,11 @@ from __future__ import annotations
 from typing import Any
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult
 from yfin.datasets.common import mark_known
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.market.base import MarketContext, SnapshotGlobalDataset
 from yfin.datasets.payloads import MarketStatusPayload, MarketSummaryPayload
 from yfin.datasets.registry import register_market
@@ -96,6 +98,12 @@ class MarketStatusDataset(SnapshotGlobalDataset[MarketStatusPayload]):
     snapshot_table = "market_status"
     history_table = "market_status_history"
     key_columns = ("region",)
+    api = ApiExposure(
+        family=DataFamily.REFERENCE,
+        table="market_status",
+        sort_key=("region",),
+        description="Whether each regional market is open, and when it next changes.",
+    )
 
     def fetch(self, mctx: MarketContext) -> MarketStatusPayload:
         region = mctx.region or "US"
@@ -156,6 +164,14 @@ class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
     snapshot_table = "market_summary"
     history_table = "market_summary_history"
     key_columns = ("region", "board_code")
+    api = ApiExposure(
+        family=DataFamily.REFERENCE,
+        table="market_summary",
+        sort_key=("region", "board_code"),
+        symbol_optional=True,
+        filters=("region",),
+        description="Headline index quotes per region.",
+    )
 
     def fetch(self, mctx: MarketContext) -> MarketSummaryPayload:
         region = mctx.region or "US"

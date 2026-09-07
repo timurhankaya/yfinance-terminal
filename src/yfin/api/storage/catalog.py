@@ -52,6 +52,10 @@ class CatalogEntry:
         return tuple(self.table.c[name] for name in self.exposure.sort_key)
 
     @property
+    def symbol_required(self) -> bool:
+        return self.has_symbol and not self.exposure.symbol_optional
+
+    @property
     def has_symbol(self) -> bool:
         return "symbol" in self.table.c
 

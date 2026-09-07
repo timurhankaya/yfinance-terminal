@@ -24,9 +24,11 @@ import pandas as pd
 
 from yfin.core import normalize as nz
 from yfin.core.config import get_settings
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult
 from yfin.datasets.common import key_value, mark_known
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.market.base import GlobalDataset, MarketContext
 from yfin.datasets.payloads import CalendarFramePayload
 from yfin.datasets.registry import register_market
@@ -156,6 +158,14 @@ class EarningsCalendarDataset(CalendarDatasetBase):
         "is_known",
         "fetched_at",
     )
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="calendar_earnings",
+        sort_key=("event_start_ts_utc", "symbol"),
+        descending=True,
+        symbol_optional=True,
+        description="Upcoming and past earnings events across the market.",
+    )
 
     def build_row(self, index: Any, record: Any, fetched_at: datetime) -> dict[str, Any] | None:
         symbol = _symbol_of(index, dataset=self.name)
@@ -187,6 +197,14 @@ class EconomicCalendarDataset(CalendarDatasetBase):
     # Index (Event) is NOT unique (29 repeats in 100 rows); the triple key is.
     key_columns = ("region", "event_time_utc", "event_name")
     update_columns = ("period_for", "actual", "expected", "last_reported", "revised", "fetched_at")
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="calendar_economic",
+        sort_key=("event_time_utc", "event_name"),
+        descending=True,
+        filters=("region",),
+        description="Scheduled macroeconomic events by region.",
+    )
 
     def build_row(self, index: Any, record: Any, fetched_at: datetime) -> dict[str, Any] | None:
         # Both are PK components -> NOT TRUNCATED (key_value contract): two
@@ -234,6 +252,15 @@ class IpoCalendarDataset(CalendarDatasetBase):
         "is_known",
         "fetched_at",
     )
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="calendar_ipo",
+        sort_key=("ipo_date_utc", "symbol"),
+        descending=True,
+        symbol_optional=True,
+        filters=("action",),
+        description="IPO pricings, filings and withdrawals.",
+    )
 
     def build_row(self, index: Any, record: Any, fetched_at: datetime) -> dict[str, Any] | None:
         symbol = _symbol_of(index, dataset=self.name)
@@ -277,6 +304,14 @@ class SplitsCalendarDataset(CalendarDatasetBase):
         "ratio",
         "is_known",
         "fetched_at",
+    )
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="calendar_splits",
+        sort_key=("payable_on_utc", "symbol"),
+        descending=True,
+        symbol_optional=True,
+        description="Announced stock splits and their payable dates.",
     )
 
     def build_row(self, index: Any, record: Any, fetched_at: datetime) -> dict[str, Any] | None:

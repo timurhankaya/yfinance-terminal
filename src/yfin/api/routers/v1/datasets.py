@@ -150,7 +150,7 @@ def read_dataset(
 
     filters = _filters(request, entry)
     code = symbol.strip().upper() if symbol else None
-    if entry.has_symbol and code is None:
+    if entry.has_symbol and code is None and not entry.exposure.symbol_optional:
         raise ApiProblem(
             422,
             TYPE_INVALID_PARAMETER,
