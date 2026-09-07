@@ -11,6 +11,7 @@ can log or fail with it.
 
 from __future__ import annotations
 
+from importlib.metadata import version
 from typing import Any
 
 from fastapi import FastAPI
@@ -33,6 +34,8 @@ from yfin.api.routers import meta, oauth
 from yfin.api.routers.v1 import datasets, market
 from yfin.core.config import bootstrap_settings
 from yfin.core.logging_setup import configure_logging, get_logger
+from yfin.core.metrics import set_build_info
+from yfin.core.tracing import configure_tracing, instrument_fastapi
 
 log = get_logger(__name__)
 
@@ -244,6 +247,11 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.include_router(datasets.router)
 
     _install_metrics(app)
+    # After the routers, like the instrumentator: the span name is the
+    # route template, so the routes have to exist first.
+    configure_tracing("api")
+    instrument_fastapi(app)
+    set_build_info(version("yfin"))
 
     if settings.ui_enabled:
         # Validated here, not at field level, so `yfin api client` and the

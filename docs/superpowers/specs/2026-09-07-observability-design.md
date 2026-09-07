@@ -1053,3 +1053,40 @@ While implementing step 8 (the API):
   at 8.1.0 rather than pinned: unlike `prometheus-client`, it does not
   decide anything at import time, and the thing worth pinning exactly is
   the library whose value class the whole process inherits.
+
+While implementing step 9 (stream, relays, tracing):
+
+- **`metrics.timed(name, **labels)`** joins `inc` and `set_gauge`: a
+  context manager that records into a histogram and records EVEN WHEN THE
+  BLOCK RAISES. A pass that failed is still a pass that took time, and
+  dropping its duration would flatten the histogram exactly when something
+  is going wrong. There is no accumulator branch -- `run_metrics` stores
+  integers keyed by name and labels, which is a counter's shape and not a
+  histogram's, and a shard's durations already go to
+  `sync_run_items.duration_ms`.
+- **`yfin_stream_rejects_total` is incremented BEFORE the sampler.**
+  `RejectSampler` caps how many rows one `(symbol, reason)` pair may write,
+  so `stream_rejects` deliberately under-reports a storm. Counting after it
+  would make the metric agree with the table and both be wrong; the metric
+  is the number that is not sampled.
+- **`yfin_cache_ops_total{cache="symbol_filter"}` counts SYMBOLS, not
+  calls.** A batch of 500 ticks holding one unknown symbol is 499 hits and
+  one miss; counting calls would report that batch as a 100 % miss and the
+  ratio would be unreadable.
+- **An empty relay pass is not timed and draws no span.** At the idle poll
+  rate empty passes would be most of the histogram and would pull the
+  median to zero on exactly the graph that answers "is the relay keeping
+  up".
+- **`scheduler.job` sets `result` INSIDE the span.** A span that has ended
+  takes no further attributes, and `result` is the one thing anybody would
+  filter these traces by -- so the exit-code mapping moved inside the
+  `with` block. The subprocess is deliberately not a child of this span:
+  no context crosses the fork, and pretending otherwise would draw a trace
+  the collector never receives.
+- **`sync.dataset.fetch` covers fetch AND normalize.** They are not
+  separable from the outside, and both run on the worker thread no
+  automatic instrumentation reaches -- yfinance talks through `curl_cffi`,
+  which has no OTel instrumentation at all.
+- **`yfin_build_info` is set in the scheduler and the API** from
+  `importlib.metadata.version`, which is the first thing that actually
+  writes the gauge step 1 declared.

@@ -21,7 +21,7 @@ from typing import Any
 
 from sqlalchemy.orm import sessionmaker
 
-from yfin.core import metrics
+from yfin.core import metrics, tracing
 from yfin.core.errors import classify_error
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult
@@ -93,8 +93,15 @@ def run_turn(
             kind=kind,
         )
 
+    # The span covers fetch AND normalize, because a caller cannot tell
+    # them apart from the outside and both are on the worker thread the
+    # automatic instrumentation does not reach: yfinance uses curl_cffi,
+    # which no OTel instrumentation covers.
+    fetch_span = tracing.span("sync.dataset.fetch", dataset=turn.dataset.name)
     try:
-        result = turn.normalize(turn.fetch())
+        with fetch_span as current:
+            result = turn.normalize(turn.fetch())
+            tracing.set_attributes(current, outcome="ok")
     except Exception as exc:  # noqa: BLE001 - this IS the error boundary
         kind = classify_error(exc)
         metrics.inc(

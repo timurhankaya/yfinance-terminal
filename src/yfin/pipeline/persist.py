@@ -14,7 +14,7 @@ import time
 from sqlalchemy import update
 from sqlalchemy.orm import Session, sessionmaker
 
-from yfin.core import metrics
+from yfin.core import metrics, tracing
 from yfin.core.logging_setup import get_logger
 from yfin.models import Symbol
 from yfin.pipeline.audit import ItemRecord, channel_records, failed_records, record_items
@@ -40,24 +40,43 @@ def persist_symbol(
     """
     records: list[ItemRecord] = []
     writer = PostgresRowWriter(session, collector=collector)
+    # One span per symbol, not per dataset write: this is the transaction
+    # boundary, and it is what a "why did AAPL take four seconds" question
+    # is actually asking about. `symbol` is an attribute here and is
+    # forbidden as a metric label -- a trace is sampled and discarded, a
+    # series is kept forever.
+    tracing_span = tracing.span(
+        "sync.symbol",
+        symbol=payload.symbol,
+        dataset_count=len(payload.results),
+    )
     # Rescale hook runs before price_bars is written, in the same
     # transaction. In the reverse order, bars written in this run (already
     # at Yahoo's current scale) would get split again. A separate
     # transaction doesn't work either: persist_with_retry replays the
     # whole block on a lock conflict, and a rescale that already committed
     # would muddy the accounting even if not reapplied.
-    rescale_before_bars(session, payload, collector)
-    for dataset, result, fetched, duration in payload.results:
+    with tracing_span as current:
+        rescale_before_bars(session, payload, collector)
+        for dataset, result, fetched, duration in payload.results:
+            if collector is not None:
+                # Labels the events that follow. The dataset is the answer to
+                # "which fetch produced this", which the table alone cannot give:
+                # six datasets write `symbols`.
+                collector.enter_dataset(dataset.name)
+            stats = dataset.upsert(writer, result, full_refresh=payload.full_refresh)
+            records.extend(
+                record_items(dataset, payload.symbol, stats, fetched, duration)
+            )
         if collector is not None:
-            # Labels the events that follow. The dataset is the answer to
-            # "which fetch produced this", which the table alone cannot give:
-            # six datasets write `symbols`.
-            collector.enter_dataset(dataset.name)
-        stats = dataset.upsert(writer, result, full_refresh=payload.full_refresh)
-        records.extend(record_items(dataset, payload.symbol, stats, fetched, duration))
-    if collector is not None:
-        collector.flush(session)
-    records.extend(channel_records(payload))
+            collector.flush(session)
+        records.extend(channel_records(payload))
+        # At the end, because the number does not exist until now -- which
+        # is the whole reason the span is around the loop rather than
+        # inside it.
+        tracing.set_attributes(
+            current, rows_written=sum(record.rows_written for record in records)
+        )
     return records
 
 

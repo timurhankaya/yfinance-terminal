@@ -64,6 +64,8 @@ def changes_relay(
 
     from yfin.core.config import get_settings
     from yfin.core.logging_setup import configure_logging
+    from yfin.core.metrics import serve_metrics
+    from yfin.core.tracing import configure_tracing
     from yfin.outbox.relay import OutboxRelay, RelayConfig
     from yfin.storage.db import advisory_lock
 
@@ -71,6 +73,8 @@ def changes_relay(
     # Both relays are `relay`; `outbox` is the label that tells them apart,
     # and it is already on every metric and every span they produce.
     configure_logging(settings.log_level, settings.log_format, "relay")
+    serve_metrics(settings.metrics_port)
+    configure_tracing("relay")
     if not settings.yf_changes_enabled:
         _disabled()
 

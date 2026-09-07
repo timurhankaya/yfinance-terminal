@@ -40,6 +40,7 @@ from typing import Any
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from yfin.core import tracing
 from yfin.core.config import Settings, get_settings
 from yfin.core.logging_setup import get_logger
 from yfin.core.metrics import inc
@@ -156,17 +157,30 @@ class SchedulerService:
             state.running = True
         log.info("job started", job=job.name, pid=process.pid, run_id=run_id)
 
-        try:
-            exit_code = process.wait()
-        finally:
-            with self._lock:
-                self._groups.pop(job.name, None)
-                state.running = False
+        # The span covers the WAIT, so its duration is the job's. The
+        # subprocess draws its own trace and is not a child of this one:
+        # the two are separate processes and no context is propagated
+        # across the fork, which is honest -- the scheduler's job is to
+        # start it and wait, not to be its parent in a trace.
+        with tracing.span("scheduler.job", job=job.name) as current:
+            try:
+                exit_code = process.wait()
+            finally:
+                with self._lock:
+                    self._groups.pop(job.name, None)
+                    state.running = False
+            # Inside the span, because a span that has ended takes no
+            # further attributes -- and `result` is the one thing anybody
+            # would filter these traces by.
+            #
+            # A job the scheduler killed is `terminated`, whatever the
+            # shell made of the signal: "we stopped it" and "it failed"
+            # are different facts and an operator acts differently on them.
+            result = (
+                "terminated" if self._stopping.is_set() else runs.result_for(exit_code)
+            )
+            tracing.set_attributes(current, result=result)
 
-        # A job the scheduler killed is `terminated`, whatever the shell
-        # made of the signal: "we stopped it" and "it failed" are different
-        # facts and an operator acts differently on them.
-        result = "terminated" if self._stopping.is_set() else runs.result_for(exit_code)
         runs.close_run(self._factory, run_id, result=result, exit_code=exit_code)
         self._record_result(state, result, started)
         log.info("job finished", job=job.name, result=result, exit_code=exit_code)

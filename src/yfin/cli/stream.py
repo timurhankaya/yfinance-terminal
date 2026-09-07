@@ -52,6 +52,8 @@ def stream_run() -> None:
 
     from yfin.core.config import get_settings
     from yfin.core.logging_setup import configure_logging
+    from yfin.core.metrics import serve_metrics
+    from yfin.core.tracing import configure_tracing, instrument_sqlalchemy
     from yfin.stream.runner import StreamDisabled, run_stream
 
     engine = _engine()
@@ -60,6 +62,12 @@ def stream_run() -> None:
     # `_engine()` already configured logging; this renames the process now
     # that it is known to be the stream rather than any other command.
     configure_logging(settings.log_level, settings.log_format, "stream")
+    # A long-lived process, so Prometheus can reach it where it stands.
+    # 0 means off, which is the default: METRICS_PORT is env-only because
+    # one value in the settings table would bind five services to one port.
+    serve_metrics(settings.metrics_port)
+    configure_tracing("stream")
+    instrument_sqlalchemy(engine)
     try:
         result = run_stream(engine, settings)
     except StreamDisabled as exc:
@@ -337,6 +345,8 @@ def stream_relay(
 
     from yfin.core.config import get_settings
     from yfin.core.logging_setup import configure_logging
+    from yfin.core.metrics import serve_metrics
+    from yfin.core.tracing import configure_tracing
     from yfin.outbox.relay import OutboxRelay, RelayConfig
     from yfin.outbox.spec import TICK_OUTBOX
     from yfin.storage.db import advisory_lock
@@ -344,6 +354,8 @@ def stream_relay(
 
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_format, "relay")
+    serve_metrics(settings.metrics_port)
+    configure_tracing("relay")
     if not settings.yf_kafka_enabled:
         typer.echo(
             "yf_kafka_enabled is off; enable it with "

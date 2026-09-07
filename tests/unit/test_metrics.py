@@ -288,3 +288,54 @@ class TestTheRepublishedSyncCounters:
         from yfin.core.metrics import exported_name
 
         assert exported_name("yfin_sync_retries_total") == "yfin_sync_retries"
+
+
+class TestTheServiceCounters:
+    """What the long-lived services count, and why the names differ from
+    the exporter's gauges for the same thing."""
+
+    def test_a_histogram_can_be_observed(self) -> None:
+        from yfin.core.metrics import observe
+
+        observe("yfin_stream_batch_seconds", 0.012)
+
+    def test_observing_never_raises(self) -> None:
+        """A batch that failed to be timed is still a batch that was
+        written, and the timing is worth less than the write."""
+        from yfin.core.metrics import observe
+
+        observe("yfin_not_declared", 1.0)
+        observe("yfin_stream_batch_seconds", 1.0, nonsense="x")
+
+    def test_timed_records_even_when_the_block_raises(self) -> None:
+        """A pass that failed is still a pass that took time; dropping it
+        would flatten the histogram exactly when something is going wrong."""
+        from prometheus_client import generate_latest
+
+        from yfin.core.metrics import timed
+
+        with pytest.raises(ValueError, match="boom"), timed(
+            "yfin_relay_pass_seconds", outbox="stream_outbox"
+        ):
+            raise ValueError("boom")
+        assert b"yfin_relay_pass_seconds_count" in generate_latest()
+
+    def test_the_stream_counter_and_the_stream_gauge_are_different_names(
+        self,
+    ) -> None:
+        """The table says what the CURRENT session has seen; the counter
+        says what this process has seen since it started. A reconnect storm
+        that ends in a new session shows in one and not the other."""
+        assert METRICS["yfin_stream_reconnects_total"].kind == "counter"
+        assert METRICS["yfin_stream_reconnects"].kind == "gauge"
+
+    def test_every_relay_metric_is_labelled_by_outbox(self) -> None:
+        """Two relays run the same code in two processes. Without the
+        label a tick backlog and a change backlog would be one number."""
+        for name, spec in METRICS.items():
+            if name.startswith("yfin_relay_"):
+                assert "outbox" in spec.labelnames, name
+
+    def test_the_histograms_are_declared_as_histograms(self) -> None:
+        for name in ("yfin_stream_batch_seconds", "yfin_relay_pass_seconds"):
+            assert METRICS[name].kind == "histogram"

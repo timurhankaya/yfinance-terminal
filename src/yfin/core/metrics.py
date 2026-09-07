@@ -33,7 +33,9 @@ from __future__ import annotations
 
 import json
 import threading
-from contextlib import suppress
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -158,6 +160,78 @@ _SERVICE_COUNTERS: dict[str, MetricSpec] = _declare(
         documentation="In-process cache hits and misses in a long-lived service.",
         kind="counter",
         labelnames=("cache", "result"),
+    ),
+    # --- `stream run` -----------------------------------------------------
+    #
+    # These four have gauge counterparts the exporter reads from
+    # `stream_sessions` and `stream_connection_health`, and the pair is
+    # deliberate: the table says what the CURRENT session has seen, these
+    # say what this process has seen since it started. A reconnect storm
+    # that ends in a new session shows here and nowhere else.
+    MetricSpec(
+        name="yfin_stream_messages_total",
+        documentation="Messages decoded from the upstream socket.",
+        kind="counter",
+    ),
+    MetricSpec(
+        name="yfin_stream_rejects_total",
+        documentation="Ticks refused, by why. `unknown_symbol` is the FK filter.",
+        kind="counter",
+        labelnames=("reason",),
+    ),
+    MetricSpec(
+        name="yfin_stream_reconnects_total",
+        documentation="Upstream reconnects. Survives the session the table's count does not.",
+        kind="counter",
+    ),
+    MetricSpec(
+        name="yfin_stream_batch_seconds",
+        documentation=(
+            "One write batch, end to end. The number the 250 ms batch "
+            "interval has to stay under for the queue not to grow."
+        ),
+        kind="histogram",
+    ),
+    MetricSpec(
+        name="yfin_stream_copy_rows_total",
+        documentation="Rows verified into each table by the COPY path.",
+        kind="counter",
+        labelnames=("table",),
+    ),
+    # --- the relays -------------------------------------------------------
+    #
+    # `outbox` is the table name, which is what tells the two relays apart:
+    # they are separate processes running the same code, and a metric
+    # without it would sum a tick backlog into a change backlog.
+    MetricSpec(
+        name="yfin_relay_published_total",
+        documentation="Messages acknowledged by the broker, by outbox.",
+        kind="counter",
+        labelnames=("outbox",),
+    ),
+    MetricSpec(
+        name="yfin_relay_failures_total",
+        documentation=(
+            "Passes that ended with the offset NOT advanced. The rows are "
+            "retried, so this counts refusals to lose them, not lost rows."
+        ),
+        kind="counter",
+        labelnames=("outbox",),
+    ),
+    MetricSpec(
+        name="yfin_relay_pass_seconds",
+        documentation="One read-publish-advance pass, by outbox.",
+        kind="histogram",
+        labelnames=("outbox",),
+    ),
+    MetricSpec(
+        name="yfin_relay_chunks_dropped_total",
+        documentation=(
+            "Outbox chunks dropped after every row in them was published. "
+            "At 1.5 billion rows a year this is what keeps the queue affordable."
+        ),
+        kind="counter",
+        labelnames=("outbox",),
     ),
 )
 
@@ -624,19 +698,56 @@ def _object(name: str) -> Any:
     if existing is not None:
         return existing
     spec = METRICS[name]
-    from prometheus_client import Counter, Gauge
+    from prometheus_client import Counter, Gauge, Histogram
 
-    if spec.kind == "gauge":
+    if spec.kind == "histogram":
+        # The library's default buckets, which run to 10 seconds. Both
+        # histograms here measure a pass that is supposed to take
+        # milliseconds, and the tail is exactly the part worth seeing.
+        created: Any = Histogram(spec.name, spec.documentation, spec.labelnames)
+    elif spec.kind == "gauge":
         # `multiprocess_mode="max"` costs nothing in a single-process
         # service and is what makes the gauge readable at all if one ever
         # runs under `PROMETHEUS_MULTIPROC_DIR`.
-        created: Any = Gauge(
+        created = Gauge(
             spec.name, spec.documentation, spec.labelnames, multiprocess_mode="max"
         )
     else:
         created = Counter(spec.name, spec.documentation, spec.labelnames)
     _OBJECTS[name] = created
     return created
+
+
+def observe(name: str, value: float, **labels: str) -> None:
+    """Records one measurement in a histogram.
+
+    Never raises, like `inc`. A batch that failed to be timed is still a
+    batch that was written, and the timing is worth less than the write.
+
+    There is no accumulator branch: `run_metrics` stores integers keyed by
+    name and labels, which is a counter's shape and not a histogram's. A
+    shard that needs a duration puts it in `sync_run_items.duration_ms`,
+    where it already goes.
+    """
+    with suppress(Exception):
+        _validate(name, labels)
+        histogram = _object(name)
+        (histogram.labels(**labels) if labels else histogram).observe(value)
+
+
+@contextmanager
+def timed(name: str, **labels: str) -> Iterator[None]:
+    """Times the block and records it. Records even when the block raises.
+
+    A pass that failed is still a pass that took time, and dropping its
+    duration would make the histogram flatter exactly when something is
+    going wrong.
+    """
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        observe(name, time.monotonic() - started, **labels)
 
 
 def set_gauge(name: str, value: float, **labels: str) -> None:
@@ -727,8 +838,10 @@ __all__ = [
     "exported_name",
     "inc",
     "label_key",
+    "observe",
     "serve_metrics",
     "set_build_info",
     "set_gauge",
+    "timed",
     "use_accumulator",
 ]

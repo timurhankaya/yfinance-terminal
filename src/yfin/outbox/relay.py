@@ -32,10 +32,12 @@ from dataclasses import dataclass, field
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
+from yfin.core import metrics, tracing
 from yfin.core.logging_setup import get_logger
 from yfin.outbox.cursor import Lag, Position, cursor_for
 from yfin.outbox.kafka import (
     KafkaUnavailable,
+    OutboxMessage,
     Producer,
     build_producer,
     existing_topics,
@@ -134,14 +136,28 @@ class OutboxRelay:
         step past messages a broker outage swallowed, and the outbox is the
         only place they exist.
         """
+        outbox = self._spec.table
         with self._session_factory() as session:
             at = self._cursor.read(session, self._spec)
             messages = self._cursor.batch(
                 session, self._spec, at, self._config.batch_size
             )
         if not messages:
+            # An empty pass is not timed and draws no span. At the relay's
+            # idle poll rate that would be most of the histogram, and it
+            # would pull the median to zero on exactly the graph an
+            # operator reads to see whether the relay is keeping up.
             return 0
 
+        with (
+            metrics.timed("yfin_relay_pass_seconds", outbox=outbox),
+            tracing.span("relay.pass", outbox=outbox, messages=len(messages)),
+        ):
+            return self._publish_batch(producer, messages, outbox)
+
+    def _publish_batch(
+        self, producer: Producer, messages: list[OutboxMessage], outbox: str
+    ) -> int:
         tracker = publish(producer, messages, spec=self._spec)
         if not tracker.ok:
             # Deliberately not advancing: the same rows are retried on the
@@ -151,10 +167,13 @@ class OutboxRelay:
             self.stats.failures.extend(tracker.failed[:5])
             log.error(
                 "kafka delivery failed; offset not advanced",
-                outbox=self._spec.table,
+                outbox=outbox,
                 delivered=tracker.delivered,
                 failed=len(tracker.failed),
             )
+            # A pass, not a message: the rows are retried on the next one,
+            # so this counts refusals to lose them rather than losses.
+            metrics.inc("yfin_relay_failures_total", outbox=outbox)
             return 0
 
         last = messages[-1]
@@ -164,6 +183,10 @@ class OutboxRelay:
             )
         self.stats.published += len(messages)
         self.stats.passes += 1
+        # After the offset moved, not before: this counts what the broker
+        # acknowledged AND we recorded as done, which is the number an
+        # operator compares against the consumer's own.
+        metrics.inc("yfin_relay_published_total", len(messages), outbox=outbox)
         return len(messages)
 
     # --- cleanup -----------------------------------------------------------
@@ -173,7 +196,12 @@ class OutboxRelay:
         if now - self._last_cleanup < self._config.cleanup_every_seconds:
             return
         self._last_cleanup = now
-        self.stats.chunks_dropped += self.drop_published_chunks()
+        dropped = self.drop_published_chunks()
+        self.stats.chunks_dropped += dropped
+        if dropped:
+            metrics.inc(
+                "yfin_relay_chunks_dropped_total", dropped, outbox=self._spec.table
+            )
 
     def drop_published_chunks(self) -> int:
         """Drops outbox chunks whose rows are all published.
