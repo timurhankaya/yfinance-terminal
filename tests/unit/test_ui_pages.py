@@ -1,4 +1,4 @@
-"""Serving the SPA: index.html under /ui and /ui/t/*, assets under
+"""Serving the SPA: index.html under /ui, /ui/t/* and /ui/m/*, assets under
 /ui/assets, nothing when the build output is absent, and never for an
 API path."""
 
@@ -46,7 +46,7 @@ def test_index_is_served_at_ui_and_under_ui_t(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = make_client(build_dist(tmp_path), monkeypatch)
-    for path in ("/ui", "/ui/", "/ui/t/AAPL/DES", "/ui/t/-/HELP"):
+    for path in ("/ui", "/ui/", "/ui/t/AAPL/DES", "/ui/t/-/FA", "/ui/m/EQS", "/ui/m/WLA"):
         response = client.get(path)
         assert response.status_code == 200, path
         assert response.headers["content-type"].startswith("text/html")

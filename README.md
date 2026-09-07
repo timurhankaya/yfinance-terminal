@@ -89,6 +89,22 @@ Use `npm ci` in `web/`; plain `npm install` crashes on the npm that
 ships with Node 22 (an npm 10.9 resolver bug) -- the committed
 lockfile is the source of truth.
 
+`/ui` is the home: market status, the screens that ran today, and the
+way in by symbol. From there the terminal has two kinds of page, and the
+URL says which is which -- a screener is not a property of a symbol:
+
+| Shape | What it is | Example |
+|---|---|---|
+| `/ui` | the home | |
+| `/ui/m/{FUNCTION}` | market-wide, no symbol in the address | `/ui/m/EQS`, `/ui/m/WLA?symbols=AAPL,MSFT` |
+| `/ui/t/{SYMBOL}/{FUNCTION}` | one symbol's detail | `/ui/t/AAPL/GIP?interval=5m` |
+
+The strip's symbol still follows you across a market page -- `AAPL`,
+then `EQS`, then `FA` lands back on Apple -- but it rides in the history
+entry rather than the path, so a `/ui/m/EQS` link you paste to someone
+carries no one's symbol. Clicking a row in a screener or a watchlist
+opens that symbol's detail.
+
 The command box reads `[SYMBOL] [FUNCTION] [ARGS]`; a bare symbol keeps
 the current function, a bare function keeps the current symbol:
 
@@ -101,6 +117,9 @@ CF 10-K               # SEC filings of one type; Enter expands exhibits
 GP                    # daily candles, two years, dividends and splits marked
 GIP 5m                # intraday candles; the archive's gaps are shaded
 QR                    # time and sales: the last ticks, then live
+WLA AAPL MSFT NVDA    # a live watchlist; the list is the URL, so it is shareable
+EQS                   # every screen this deployment runs; Enter opens one
+EQS day_gainers       # what it matched, in the screen's own order
 HELP                  # every function and shortcut; Esc goes back
 ```
 
@@ -194,7 +213,7 @@ the secret on every request.
 |---|---|---|
 | **Kafka producer** | **TODO** | Publish each verified write as an event so downstream consumers do not poll the database. Open questions: topic per table vs per dataset, and whether the outbox lives in `sync_run_items` or a dedicated table. |
 | **WebSocket streaming** | **TODO** | Yahoo's live quote socket for intraday updates between scheduled runs, plus an outbound socket so clients can subscribe to symbols instead of polling. Needs a decision on how live ticks reconcile with the bar archive. |
-| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default. Every dataset in the archive is readable: `DS` browses the whole catalogue, `DES`/`FA`/`ANR`/`N`/`CF`/`CA`/`PX` and the tabbed `HDS`/`ERN`/`FUND`/`CAL`/`MKT`/`SCR`/`SRCH`/`DOM`/`REF` panels cover it by family; `GP`/`GIP` chart it and `QR` is the tape, live over a WebSocket when the stream is publishing (`docs/superpowers/specs/2026-09-07-web-terminal-design.md`). |
+| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default. Every dataset in the archive is readable: `DS` browses the whole catalogue, `DES`/`FA`/`ANR`/`N`/`CF`/`CA`/`PX` and the tabbed `HDS`/`ERN`/`FUND`/`CAL`/`MKT`/`SCR`/`SRCH`/`DOM`/`REF` panels cover it by family; `GP`/`GIP` chart it, `QR` is the tape, live over a WebSocket when the stream is publishing, `EQS` reads the screeners and `WLA` is a live watchlist (`docs/superpowers/specs/2026-09-07-web-terminal-design.md`). |
 
 ---
 

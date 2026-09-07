@@ -25,7 +25,8 @@ test("a typed command draws intraday candles", async ({ page }) => {
     if (message.type() === "error") errors.push(message.text());
   });
 
-  await page.goto("/ui/");
+  // `/ui` is the home now; the command box is focused there too.
+  await page.goto("/ui");
   const box = page.getByLabel("command");
   await expect(box).toBeFocused();
 

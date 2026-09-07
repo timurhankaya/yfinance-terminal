@@ -283,6 +283,12 @@ class ScreenSummary(BaseModel):
     description: str | None
     kind: str
     quote_type: str
+    #: What the roster is ordered by, and which way. The grid draws the
+    #: rows in `rank_index` order and this is what that order MEANS --
+    #: without it a screener is a list of tickers in an unexplained
+    #: sequence.
+    sort_field: str
+    sort_asc: bool
     as_of_date: date | None
     #: When that run actually fetched. `as_of_date` is the session day
     #: the roster belongs to; this is the instant it was verified against
@@ -323,14 +329,19 @@ class ScreenRow(BaseModel):
 class ScreenDetail(BaseModel):
     screen: ScreenSummary
     rows: list[ScreenRow]
-    #: True when the roster was longer than the cap below.
+    #: Where `rows` starts in the roster, so the page can say "301-400 of
+    #: 1,000" rather than leaving the reader to count.
+    offset: int
+    #: True when there are more rows after this page.
     truncated: bool
 
 
-#: A screen's roster. `day_gainers` returns ~120; the widest predefined
-#: screens are a few hundred. The cap is what stops a custom screen with
-#: a loose query from returning the universe.
-SCREEN_ROWS_MAX = 500
+#: Rows per page. A roster is bigger than this by default and by design:
+#: `yf_screen_size` is 250 and `yf_screen_max_pages` is 4, so a screen
+#: can hold 1,000 members, and `most_shorted_stocks` matched 4,022 when
+#: it was measured. Showing the first N and stopping would hide the rest
+#: of a list whose length the header states -- hence `offset`.
+SCREEN_ROWS_MAX = 250
 
 
 def _latest_runs(session: Session) -> dict[str, ScreenRun]:
@@ -356,6 +367,8 @@ def _summary(screen: Screen, run: ScreenRun | None) -> ScreenSummary:
         description=screen.description,
         kind=str(screen.kind),
         quote_type=str(screen.quote_type),
+        sort_field=screen.sort_field,
+        sort_asc=screen.sort_asc,
         as_of_date=None if run is None else run.as_of_date,
         fetched_at=None if run is None else run.fetched_at,
         total=None if run is None else run.total,
@@ -376,7 +389,9 @@ def list_screens(session: Session) -> list[ScreenSummary]:
     return [_summary(screen, runs.get(screen.screen_key)) for screen in session.scalars(stmt)]
 
 
-def read_screen(session: Session, screen_key: str, limit: int) -> ScreenDetail | None:
+def read_screen(
+    session: Session, screen_key: str, limit: int, offset: int = 0
+) -> ScreenDetail | None:
     """One screen's latest roster, joined to that day's quotes.
 
     None when there is no such screen. A screen that exists but has
@@ -400,7 +415,7 @@ def read_screen(session: Session, screen_key: str, limit: int) -> ScreenDetail |
     ).first()
     summary = _summary(screen, run)
     if run is None:
-        return ScreenDetail(screen=summary, rows=[], truncated=False)
+        return ScreenDetail(screen=summary, rows=[], offset=offset, truncated=False)
 
     quotes = screen_quotes.c
     stmt = (
@@ -420,7 +435,11 @@ def read_screen(session: Session, screen_key: str, limit: int) -> ScreenDetail |
         # away the one thing a screener's roster carries beyond a list of
         # tickers.
         .order_by(ScreenMember.rank_index)
+        # One past the page, so "is there more" is answered by the query
+        # rather than by comparing against a count that was read in a
+        # different statement and may have moved.
         .limit(limit + 1)
+        .offset(offset)
     )
     rows: list[ScreenRow] = []
     truncated = False
@@ -452,7 +471,7 @@ def read_screen(session: Session, screen_key: str, limit: int) -> ScreenDetail |
                 ),
             )
         )
-    return ScreenDetail(screen=summary, rows=rows, truncated=truncated)
+    return ScreenDetail(screen=summary, rows=rows, offset=offset, truncated=truncated)
 
 
 def _member_rows(
@@ -483,6 +502,7 @@ def screen_detail(
     session: SessionDep,
     screen_key: str,
     limit: Annotated[int | None, Query(ge=1)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Resource[ScreenDetail]:
     size = limit if limit is not None else SCREEN_ROWS_MAX
     if size > SCREEN_ROWS_MAX:
@@ -493,7 +513,7 @@ def screen_detail(
             detail=f"limit must not exceed {SCREEN_ROWS_MAX}",
         )
     limits.apply_statement_timeout(session)
-    detail = read_screen(session, screen_key, size)
+    detail = read_screen(session, screen_key, size, offset)
     if detail is None:
         raise ApiProblem(404, TYPE_NOT_FOUND, "No such screen")
     # `as_of` is filled in here, unlike the other UI routes: a screen run
