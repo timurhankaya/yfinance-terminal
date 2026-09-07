@@ -179,6 +179,22 @@ Use `npm ci` in `web/`; plain `npm install` crashes on the npm that
 ships with Node 22 (an npm 10.9 resolver bug) -- the committed
 lockfile is the source of truth.
 
+`/ui` is the home: market status, the screens that ran today, and the
+way in by symbol. From there the terminal has two kinds of page, and the
+URL says which is which -- a screener is not a property of a symbol:
+
+| Shape | What it is | Example |
+|---|---|---|
+| `/ui` | the home | |
+| `/ui/m/{FUNCTION}` | market-wide, no symbol in the address | `/ui/m/EQS`, `/ui/m/WLA?symbols=AAPL,MSFT` |
+| `/ui/t/{SYMBOL}/{FUNCTION}` | one symbol's detail | `/ui/t/AAPL/GIP?interval=5m` |
+
+The strip's symbol still follows you across a market page -- `AAPL`,
+then `EQS`, then `FA` lands back on Apple -- but it rides in the history
+entry rather than the path, so a `/ui/m/EQS` link you paste to someone
+carries no one's symbol. Clicking a row in a screener or a watchlist
+opens that symbol's detail.
+
 The command box reads `[SYMBOL] [FUNCTION] [ARGS]`; a bare symbol keeps
 the current function, a bare function keeps the current symbol:
 
@@ -188,8 +204,45 @@ FA balance quarterly  # statements: income|balance|cash, annual|quarterly|ttm
 ANR                   # analyst ratings on the current symbol
 N                     # news; j/k to move, Enter to open
 CF 10-K               # SEC filings of one type; Enter expands exhibits
+GP                    # daily candles, two years, dividends and splits marked
+GIP 5m                # intraday candles; the archive's gaps are shaded
+QR                    # time and sales: the last ticks, then live
+WLA AAPL MSFT NVDA    # a live watchlist; the list is the URL, so it is shareable
+EQS                   # every screen this deployment runs; Enter opens one
+EQS day_gainers       # what it matched, in the screen's own order
 HELP                  # every function and shortcut; Esc goes back
 ```
+
+Times are UTC everywhere -- axes, tooltips, tables and the strip -- and
+labelled as such. The archive keys everything by UTC, so a terminal in
+another city reads the same numbers.
+
+`GIP` shades the windows the archive knows it is missing. An hour with
+no candles otherwise means two very different things, a closed market or
+a missed fetch, and only `bar_gaps` can tell them apart; without the
+shading the chart draws a continuous line across a hole.
+
+### Live prices in the browser
+
+Off by default. Two settings turn it on, and they are deliberately on
+different sides: the switch is DB-managed, the Redis URL is env-only
+because it carries a credential.
+
+```bash
+yfin config set yf_stream_publish_enabled true
+export YF_STREAM_PUBLISH_REDIS_URL=redis://localhost:6379/2   # both processes
+```
+
+`yfin stream run` publishes each committed batch to `yfin:tick:{SYMBOL}`,
+after the transaction, never before; the API subscribes an open page to
+the symbols it is looking at over `/ui/ws`. Every failure on that path is
+swallowed, counted (`yfin_stream_publish_total{result}`) and logged once
+per outage: a browser that misses a tick repaints on the next one, and
+the archive is the writer's commit, which has already happened.
+
+With it off -- or with Redis unreachable, or for a symbol outside
+`yfin stream scope` -- the terminal says so rather than showing a price
+that will never move, and every REST panel works as before.
 
 ### Admin page
 
@@ -259,8 +312,8 @@ audit. When Yahoo breaks something, the fix usually belongs upstream.
 |---|---|---|
 | **Read-only HTTP API** | **In progress** | FastAPI, OAuth2 `client_credentials`, scopes derived from data families, rate limiting and quota metering. Client management via `yfin api client`. Self-service signup and billing are separate subsystems and out of scope for now. |
 | **Kafka producer** | **In progress** | Live ticks publish through a transactional outbox: `stream_outbox` is written inside the tick transaction, and `yfin stream relay` drains it to Kafka in `id` order, advancing `stream_relay_offset` only after every delivery is acknowledged. **Topic per exchange, partition key per symbol** — a topic per symbol would take the broker's metadata down, a single topic would give up per-exchange isolation, and keying on the symbol is what makes ordering per-symbol. The contract is at-least-once; consumers dedupe on `live_ticks`' primary key. Off by default (`yf_kafka_enabled`), and `confluent-kafka` is an extra (`pip install "yfin[kafka]"`). Publishing *pipeline* writes — as opposed to ticks — is not started. |
-| **WebSocket streaming** | **In progress** | Ingest side is complete and driven from `yfin stream`: `run` (single asyncio loop, 100 symbols per connection), `relay`, `status`, `reconcile`, and `yfin stream scope add/disable/list`. `src/yfin/stream/` holds connection, protocol, supervisor, topology, writer, repository, reconcile, relay and kafka; 8 tables (`live_ticks`, `live_quotes`, `stream_scope`, `stream_outbox`, `stream_relay_offset`, `stream_rejects`, `stream_sessions`, `stream_connection_health`), with measurements in [`docs/measurements/websocket.md`](docs/measurements/websocket.md). `yfin stream reconcile` fills open 1m bar gaps from the tick archive, which matters most for `retention_expired` windows Yahoo can no longer serve. The outbound socket, so clients subscribe instead of polling, is not started. |
-| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default. Every dataset in the archive is readable: `DS` browses the whole catalogue, `DES`/`FA`/`ANR`/`N`/`CF`/`CA`/`PX` and the tabbed `HDS`/`ERN`/`FUND`/`CAL`/`MKT`/`SCR`/`SRCH`/`DOM`/`REF` panels cover it by family; live ticks and charts follow (`docs/superpowers/specs/2026-09-07-web-terminal-design.md`). |
+| **WebSocket streaming** | **In progress** | Ingest side is complete and driven from `yfin stream`: `run` (single asyncio loop, 100 symbols per connection), `relay`, `status`, `reconcile`, and `yfin stream scope add/disable/list`. `src/yfin/stream/` holds connection, protocol, supervisor, topology, writer, repository, reconcile, relay and kafka; 8 tables (`live_ticks`, `live_quotes`, `stream_scope`, `stream_outbox`, `stream_relay_offset`, `stream_rejects`, `stream_sessions`, `stream_connection_health`), with measurements in [`docs/measurements/websocket.md`](docs/measurements/websocket.md). `yfin stream reconcile` fills open 1m bar gaps from the tick archive, which matters most for `retention_expired` windows Yahoo can no longer serve. The outbound socket is started for the browser terminal: `stream/publish.py` fans committed ticks out over Redis pub/sub and `/ui/ws` subscribes an open page to the symbols it is looking at. A public `/v1` socket for API clients is not started. |
+| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default. Every dataset in the archive is readable: `DS` browses the whole catalogue, `DES`/`FA`/`ANR`/`N`/`CF`/`CA`/`PX` and the tabbed `HDS`/`ERN`/`FUND`/`CAL`/`MKT`/`SCR`/`SRCH`/`DOM`/`REF` panels cover it by family; `GP`/`GIP` chart it, `QR` is the tape, live over a WebSocket when the stream is publishing, `EQS` reads the screeners and `WLA` is a live watchlist (`docs/superpowers/specs/2026-09-07-web-terminal-design.md`). |
 
 ---
 

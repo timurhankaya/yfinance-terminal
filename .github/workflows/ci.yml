@@ -57,6 +57,12 @@ jobs:
       - name: docs/changes/schema.json is current
         run: uv run python scripts/dump_change_schema.py --check
 
+      # And for the live tick body. The browser types a tick from the
+      # generated table; a key renamed on the Python side only would
+      # reach production as an undefined price on a chart that still drew.
+      - name: web/src/live/tick-fields.json is current
+        run: uv run python scripts/dump_tick_fields.py --check
+
       # The monitoring stack's own configuration. None of it is Python and
       # all of it fails at 3am if it is wrong: a Prometheus that will not
       # parse its config does not start, and an Alloy that will not parse

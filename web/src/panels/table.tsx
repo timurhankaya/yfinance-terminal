@@ -6,18 +6,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { WireType, type CatalogColumn, type Row } from "../api/client";
-import { LOCALE, asNumber, formatBig } from "./DES";
 import { DataTable, useListKeys, type Column } from "./common";
+import { LOCALE, asNumber, formatBig, isHttpUrl } from "./format";
 import type { LinkRule } from "./links";
 
 //: Shown only in the row detail: as a grid column it would be a page wide.
 export const DETAIL_ONLY = new Set(["raw_json"]);
-
-const HTTP_RE = /^https?:\/\//i;
-
-export function isHttpUrl(value: unknown): value is string {
-  return typeof value === "string" && HTTP_RE.test(value);
-}
 
 /** Decimals below a thousand keep two places (an EPS of 7.49, a ratio of
  *  0.16); above it the K/M/B/T scaler takes over, as in FA. */

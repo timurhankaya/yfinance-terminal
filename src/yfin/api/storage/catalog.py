@@ -25,15 +25,10 @@ from sqlalchemy.orm import Session
 
 from yfin.core.families import DataFamily, scope_for
 from yfin.datasets import DOMAIN_DATASETS, MARKET_DATASETS, SYMBOL_DATASETS
+from yfin.datasets.axis import DatasetAxis
 from yfin.datasets.exposure import ApiExposure
 from yfin.models.base import Base
 from yfin.storage.wire import wire_type
-
-#: Which registry a dataset was registered in. Not a property of the
-#: dataset itself -- it is exactly the registry it lives in.
-SCOPE_SYMBOL = "symbol"
-SCOPE_MARKET = "market"
-SCOPE_DOMAIN = "domain"
 
 
 @dataclass(frozen=True)
@@ -44,7 +39,10 @@ class CatalogEntry:
     #: The dataset that writes it. Kept so a clash names both sides.
     dataset: str
     family: DataFamily
-    kind: str
+    #: Which registry the dataset was registered in. Not re-declared as
+    #: bare strings here: `Turn.kind` on the pipeline side is the same
+    #: three-valued concept, and this one is published on the wire.
+    kind: DatasetAxis
     table: Table
     exposure: ApiExposure
 
@@ -80,21 +78,27 @@ class CatalogEntry:
 def _build() -> dict[str, CatalogEntry]:
     entries: dict[str, CatalogEntry] = {}
     for kind, registry in (
-        (SCOPE_SYMBOL, SYMBOL_DATASETS),
-        (SCOPE_MARKET, MARKET_DATASETS),
-        (SCOPE_DOMAIN, DOMAIN_DATASETS),
+        (DatasetAxis.SYMBOL, SYMBOL_DATASETS),
+        (DatasetAxis.MARKET, MARKET_DATASETS),
+        (DatasetAxis.DOMAIN, DOMAIN_DATASETS),
     ):
         # The registry is a collection of names; iterating it and
         # indexing is its published shape, not a second accessor.
         for name in registry:
             dataset = registry[name]
-            for exposure in getattr(dataset, "api", ()):
+            # `dataset.api`, not `getattr(dataset, "api", ())`: the
+            # three bases DECLARE the field, so the reflective read only
+            # served to hide a dataset whose declaration was misspelled.
+            for exposure in dataset.api:
                 _add(entries, kind, dataset.name, exposure)
     return entries
 
 
 def _add(
-    entries: dict[str, CatalogEntry], kind: str, dataset_name: str, exposure: ApiExposure
+    entries: dict[str, CatalogEntry],
+    kind: DatasetAxis,
+    dataset_name: str,
+    exposure: ApiExposure,
 ) -> None:
     """Registers one readable resource, checked against the real schema.
 

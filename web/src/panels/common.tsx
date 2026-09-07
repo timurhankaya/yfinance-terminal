@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { ApiError } from "../api/client";
 
@@ -65,6 +65,102 @@ export function usePanelData<T>(
   return { state, retry };
 }
 
+/** The newest payload of `key`, kept while a RELOAD of the same query is
+ *  in flight.
+ *
+ *  `usePanelData` goes back to `Loading` on every re-run, which unmounts
+ *  whatever was on screen. That is right for a new query and wrong for a
+ *  refresh of the one already showing: a chart loses the reader's pan and
+ *  zoom, a list loses its selection and its open row. `key` is the
+ *  query's IDENTITY -- the symbol and the interval, not the reload
+ *  counter -- so a genuinely different query still drops the old payload
+ *  rather than showing it under the new heading. */
+export function useKeptData<T>(key: string, state: Loaded<T>): T | null {
+  const [kept, setKept] = useState<{ key: string; data: T } | null>(null);
+  useEffect(() => {
+    if (state.kind === LoadState.Ready) setKept({ key, data: state.data });
+  }, [key, state]);
+  if (state.kind === LoadState.Ready) return state.data;
+  return kept !== null && kept.key === key ? kept.data : null;
+}
+
+export interface PagedRows<T> {
+  /** The pages after the first, in the order they were read. */
+  rows: T[];
+  /** The cursor the next page continues, or null when there is none. */
+  cursor: string | null;
+  loadMore: () => void;
+  loadingMore: boolean;
+  /** Why the last "Load more" failed, or null. Never silence: a button
+   *  that does nothing is indistinguishable from a page with no rows. */
+  error: string | null;
+}
+
+interface Paged<T> {
+  key: string;
+  rows: T[];
+  cursor: string | null;
+  loading: boolean;
+  error: string | null;
+}
+
+/** Cursor paging on top of a first page some other loader fetched.
+ *
+ *  One mechanism, one place: the reset on a new query, the guard against
+ *  a second in-flight page, and the error the button has to report are
+ *  the same for every list that pages by cursor. `key` identifies the
+ *  query; a new one drops the pages already read. */
+export function usePagedRows<T>(
+  key: string,
+  firstCursor: string | null,
+  fetchPage: (cursor: string) => Promise<{ rows: T[]; next_cursor: string | null }>,
+): PagedRows<T> {
+  const [paged, setPaged] = useState<Paged<T>>({ key, rows: [], cursor: null, loading: false, error: null });
+  // A ref, not a dep: callers pass an inline lambda, and a new function
+  // every render must not reset the pages.
+  const fetchRef = useRef(fetchPage);
+  fetchRef.current = fetchPage;
+
+  useEffect(() => {
+    setPaged({ key, rows: [], cursor: null, loading: false, error: null });
+  }, [key]);
+
+  // The state can be one render behind the key; read it as empty until
+  // the effect above catches up. Memoised so `loadMore` below keeps its
+  // identity across renders that changed nothing.
+  const current = useMemo<Paged<T>>(
+    () => (paged.key === key ? paged : { key, rows: [], cursor: null, loading: false, error: null }),
+    [paged, key],
+  );
+  // Once a page has been read, its `next_cursor` is the truth -- null
+  // included, which is what "no more pages" looks like.
+  const cursor = current.rows.length > 0 || current.cursor !== null ? current.cursor : firstCursor;
+
+  const loadMore = useCallback(() => {
+    if (cursor === null || current.loading) return;
+    setPaged({ ...current, loading: true, error: null });
+    void (async () => {
+      try {
+        const page = await fetchRef.current(cursor);
+        setPaged((p) =>
+          p.key === key
+            ? { ...p, rows: [...p.rows, ...page.rows], cursor: page.next_cursor, loading: false }
+            : p,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setPaged((p) => (p.key === key ? { ...p, loading: false, error: message } : p));
+      }
+    })();
+  }, [key, cursor, current]);
+
+  return { rows: current.rows, cursor, loadMore, loadingMore: current.loading, error: current.error };
+}
+
+export function NextPageError(props: { message: string }): ReactElement {
+  return <p className="card card-error">Could not load the next page: {props.message}</p>;
+}
+
 export function ErrorCard(props: { message: string; onRetry: () => void }): ReactElement {
   return (
     <p className="card card-error">
@@ -112,7 +208,11 @@ export function DataTable<Row extends Record<string, unknown>>(props: {
           <tr
             key={rowKey(row, index)}
             className={selected === index ? "row-selected" : undefined}
-            aria-selected={selected === index ? "true" : undefined}
+            // `aria-current`, not `aria-selected`: the latter is only
+            // meaningful inside a `grid`/`treegrid`, and on a plain table
+            // it is ignored -- leaving the visual selection with no
+            // accessible counterpart at all.
+            aria-current={selected === index ? "true" : undefined}
             onClick={() => onSelect?.(index)}
           >
             {columns.map((column) => (
@@ -127,7 +227,13 @@ export function DataTable<Row extends Record<string, unknown>>(props: {
   );
 }
 
-/** j/k/Enter over `count` rows while no INPUT/TEXTAREA is focused. */
+//: Anything that answers a keypress itself. A `<button>` keeps focus
+//: after a click, so without this Enter would re-click "Load more" AND
+//: open the selected row, and a tab click would leave j/k firing while
+//: the tab still has focus.
+const INTERACTIVE = "input, textarea, select, button, a, [contenteditable], [role=tab]";
+
+/** j/k/Enter over `count` rows while nothing interactive is focused. */
 export function useListKeys(
   count: number,
   onEnter: (index: number) => void,
@@ -145,7 +251,7 @@ export function useListKeys(
   useEffect(() => {
     function handler(event: KeyboardEvent) {
       const el = document.activeElement;
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return;
+      if (el !== null && el !== document.body && el.closest(INTERACTIVE) !== null) return;
       if (event.key === "j") setSelected((s) => Math.min(count - 1, s + 1));
       else if (event.key === "k") setSelected((s) => Math.max(0, s - 1));
       else if (event.key === "Enter") onEnterRef.current(selectedRef.current);

@@ -7,9 +7,10 @@ endpoints declare theirs. It is resolved from the catalogue and applied
 inside the handler instead, in the same order the rest of the API uses:
 authenticate, then scope, then existence.
 
-That ordering matters more here than anywhere else. Dataset names are the
-one part of the surface a caller could enumerate, and reading 404 against
-403 is exactly how they would do it.
+That ordering is about the answer a caller gets, not about hiding names:
+dataset names are public (`?all=true` lists them, and so does the
+OpenAPI description), and a scope failure is reported as a scope failure
+rather than as a 404 that would send the caller looking for a typo.
 
 OpenAPI describes one path with one parameter shape rather than a schema
 per dataset. A schema per dataset would make the frozen openapi.json
@@ -100,7 +101,10 @@ class CatalogEntryOut(BaseModel):
             name=entry.name,
             family=entry.family.value,
             scope=entry.scope,
-            kind=entry.kind,
+            # `.value`, like `family` above: the wire carries the enum's
+            # value, and the field stays a plain `str` so the published
+            # document does not gain an enum every axis has to be added to.
+            kind=entry.kind.value,
             table=entry.table.name,
             sort_key=list(entry.exposure.sort_key),
             descending=entry.exposure.descending,
@@ -207,8 +211,14 @@ def read_dataset(
     meter(request, response, principal, META_FAMILY)
     entry = catalog.CATALOG.get(name)
 
-    # Scope before existence: 404-versus-403 is how an unauthorised caller
-    # would enumerate dataset names.
+    # Scope before existence, and NOT to hide which names exist: an
+    # unknown name falls straight through to the 404 below, so the pair
+    # of answers is an oracle either way. It is not one worth closing --
+    # `GET /v1/datasets?all=true` hands every name to any token holder by
+    # design, and the OpenAPI description lists them all. The ordering
+    # exists so a scope failure is reported as a scope failure: a caller
+    # with the wrong token learns that, rather than being told the
+    # dataset does not exist.
     required = entry.scope if entry is not None else None
     if required is not None and required not in principal.scopes:
         # The same factory the scoped routes raise, not a second copy: the

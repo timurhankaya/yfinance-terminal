@@ -204,6 +204,17 @@ _SERVICE_COUNTERS: dict[str, MetricSpec] = _declare(
         kind="counter",
         labelnames=("table",),
     ),
+    # Counted per BATCH, not per tick: the question this answers is whether
+    # the browser fan-out is working, and one failed batch is one failure
+    # whether it carried 1 tick or 500. `disabled` is a real result rather
+    # than an absent series -- "nobody is publishing" and "publishing is
+    # broken" look identical on a graph that only counts failures.
+    MetricSpec(
+        name="yfin_stream_publish_total",
+        documentation="Tick batches offered to the browser fan-out, by outcome.",
+        kind="counter",
+        labelnames=("result",),
+    ),
     # --- the relays -------------------------------------------------------
     #
     # `outbox` is the table name, which is what tells the two relays apart:

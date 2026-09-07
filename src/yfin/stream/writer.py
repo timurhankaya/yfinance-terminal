@@ -36,7 +36,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
@@ -47,6 +47,7 @@ from yfin.models.stream import LiveQuote, LiveTick
 from yfin.storage.contracts import TableWrite, WriteStats, apply_write
 from yfin.storage.copy import copy_body, copy_value, jsonable
 from yfin.storage.persistence import PostgresRowWriter
+from yfin.stream.publish import TickPublisher
 from yfin.stream.rejects import REJECT_UNKNOWN_SYMBOL, Reject
 from yfin.stream.repository import StreamRepository
 from yfin.stream.supervisor import StreamSupervisor
@@ -73,6 +74,27 @@ class WriterConfig:
     #: With Kafka off the outbox is never written, so the second write
     #: path costs exactly nothing. Only whoever uses it pays for it.
     kafka_enabled: bool = False
+    #: The browser fan-out (stream/publish.py). Off means no client is
+    #: built and no socket is opened; the URL is env-only because it
+    #: carries a credential.
+    publish_enabled: bool = False
+    publish_redis_url: str = ""
+
+
+class TickWrite(NamedTuple):
+    """What one `live_ticks` write produced.
+
+    `accepted` is here rather than staying local because the browser
+    fan-out publishes exactly these rows, after the commit. It holds the
+    rows that passed the foreign-key filter, INCLUDING the duplicates
+    `ON CONFLICT DO NOTHING` dropped -- the write path cannot tell those
+    apart without a second read, so the same `(symbol, ts_utc)` can go
+    out twice and the page drops the repeat.
+    """
+
+    written: int
+    unknown: list[Reject]
+    accepted: list[dict[str, Any]]
 
 
 class SymbolFilter:
@@ -198,6 +220,9 @@ class StreamWriter:
         self._session_id = session_id
         self._filter = SymbolFilter(session_factory, self._config.symbol_cache_seconds)
         self._sampler = RejectSampler(self._config.reject_sample_per_hour)
+        self._publisher = TickPublisher(
+            enabled=self._config.publish_enabled, url=self._config.publish_redis_url
+        )
         self._stopping = threading.Event()
         self._batches = 0
         self.rows_written = 0
@@ -222,6 +247,9 @@ class StreamWriter:
         except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised by the runner
             self.failed = exc
             log.error("stream writer died", error=f"{type(exc).__name__}: {exc}")
+        finally:
+            # The one socket this thread owns outside the session factory.
+            self._publisher.close()
 
     def stop(self) -> None:
         self._stopping.set()
@@ -286,29 +314,40 @@ class StreamWriter:
         # The number the batch interval has to stay under. Above it the
         # queue grows, and the queue overflowing is how ticks are lost --
         # so this histogram is the stream's single most important metric.
-        with metrics.timed("yfin_stream_batch_seconds"), self._session_factory() as session:
-            written, unknown = self._write_ticks(session, rows)
-            if self._config.kafka_enabled:
-                self._write_outbox(session, rows)
-            # The FK filter's casualties go through the same path as every
-            # other reject. They used to be counted nowhere and logged at
-            # debug: a symbol dropped from `symbols` took its whole tick
-            # stream with it and nothing said so. `rows_written` still
-            # agreed with itself, which is exactly why nobody would look.
-            self._write_rejects(session, [*rejects, *unknown])
-            if self._batches % self._config.quotes_every_n_batches == 0:
-                self._write_quotes(session)
-            session.commit()
+        #
+        # The publish is INSIDE it, and that is deliberate: it runs on this
+        # thread between two batches, so a Redis that is slow delays the
+        # next `_collect` exactly the way a slow COPY does. Timing only the
+        # transaction would leave the histogram healthy while the queue
+        # grew, which is the one thing it exists to catch.
+        with metrics.timed("yfin_stream_batch_seconds"):
+            with self._session_factory() as session:
+                written, unknown, accepted = self._write_ticks(session, rows)
+                if self._config.kafka_enabled:
+                    self._write_outbox(session, rows)
+                # The FK filter's casualties go through the same path as
+                # every other reject. They used to be counted nowhere and
+                # logged at debug: a symbol dropped from `symbols` took its
+                # whole tick stream with it and nothing said so.
+                # `rows_written` still agreed with itself, which is exactly
+                # why nobody would look.
+                self._write_rejects(session, [*rejects, *unknown])
+                if self._batches % self._config.quotes_every_n_batches == 0:
+                    self._write_quotes(session)
+                session.commit()
+            # Committed, and only now. A tick published before the commit
+            # is a price the page has and the archive does not -- and if
+            # the transaction then rolls back, one it never will.
+            self._publisher.publish(accepted)
         self.rows_written += written
         metrics.inc("yfin_stream_copy_rows_total", written, table="live_ticks")
         self._flush_counters(written=written)
 
-    def _write_ticks(
-        self, session: Session, rows: Sequence[dict[str, Any]]
-    ) -> tuple[int, list[Reject]]:
-        """Rows written, and the ticks the foreign key would not accept."""
+    def _write_ticks(self, session: Session, rows: Sequence[dict[str, Any]]) -> TickWrite:
+        """Rows written, the ticks the foreign key would not accept, and
+        the ones the browser fan-out may publish once this commits."""
         if not rows:
-            return 0, []
+            return TickWrite(0, [], [])
 
         # The FK filter runs before anything touches the table: one
         # unknown symbol would otherwise abort the statement and take the
@@ -331,7 +370,7 @@ class StreamWriter:
                 symbols=sorted({reject.symbol for reject in unknown if reject.symbol}),
             )
         if not accepted:
-            return 0, unknown
+            return TickWrite(0, unknown, [])
 
         columns = ", ".join(TICK_COLUMNS)
         # Created once per connection, emptied per batch. `ON COMMIT DROP`
@@ -361,7 +400,7 @@ class StreamWriter:
                 f"ON CONFLICT (symbol, ts_utc, payload_hash) DO NOTHING"
             )
         )
-        return self._verify(session, accepted), unknown
+        return TickWrite(self._verify(session, accepted), unknown, accepted)
 
     def _verify(self, session: Session, rows: Sequence[dict[str, Any]]) -> int:
         """Counts the keys that are actually present.

@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
-  MAX_PAGES,
+  Interval,
   PAGE_LIMIT,
+  PAGE_SIZE,
   apiFetch,
   getActions,
   getBars,
   getCatalog,
   getDataset,
-  getDatasetRows,
+  getDatasetPage,
   getFinancials,
   getSymbol,
   resetCatalogCache,
@@ -164,24 +165,27 @@ describe("catalogue and dataset rows", () => {
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
-  it("getDatasetRows follows cursors up to the page cap and says when it was cut", async () => {
-    const spy = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
-      const url = String(input);
-      const n = /cursor=p(\d)/.exec(url)?.[1] ?? "0";
-      return Promise.resolve(respond(200, { data: [{ n }], next_cursor: `p${Number(n) + 1}` }));
-    });
-    const result = await getDatasetRows("screens", { kind: "predefined" });
-    expect(spy).toHaveBeenCalledTimes(MAX_PAGES);
-    expect(result.rows).toHaveLength(MAX_PAGES);
-    expect(result.truncated).toBe(true);
-    const url = spy.mock.calls[0]![0] as string;
-    expect(url).toBe(`/ui/api/v1/datasets/screens?kind=predefined&limit=${PAGE_LIMIT}`);
+  it("getDatasetPage carries the filters and the page size", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(respond(200, { data: [{ a: 1 }], next_cursor: null }));
+    const page = await getDatasetPage("screens", { kind: "predefined" });
+    expect(spy.mock.calls[0]![0]).toBe(
+      `/ui/api/v1/datasets/screens?kind=predefined&limit=${PAGE_SIZE}`,
+    );
+    expect(page).toEqual({ rows: [{ a: 1 }], next_cursor: null });
   });
 
-  it("getDatasetRows stops at the last page", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(respond(200, { data: [{ a: 1 }], next_cursor: null }));
-    const result = await getDatasetRows("screens");
-    expect(result).toEqual({ rows: [{ a: 1 }], truncated: false });
+  it("getDatasetPage hands the cursor back so the caller can continue", async () => {
+    // Paging is the CALLER's, not this function's: a panel decides how
+    // far to walk, and the load-more button is what asks for the next
+    // page. Following cursors here would fetch rows nobody scrolled to.
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(respond(200, { data: [{ a: 2 }], next_cursor: "p2" }));
+    const page = await getDatasetPage("screens", {}, "p1", 10);
+    expect(spy.mock.calls[0]![0]).toBe("/ui/api/v1/datasets/screens?limit=10&cursor=p1");
+    expect(page.next_cursor).toBe("p2");
   });
 
   it("getActions and getBars address the symbol routes", async () => {
@@ -190,7 +194,7 @@ describe("catalogue and dataset rows", () => {
       .mockImplementation(() => Promise.resolve(respond(200, { data: [], next_cursor: null })));
     await getActions("aapl");
     const now = Date.parse("2026-09-07T00:00:00Z");
-    await getBars("aapl", "1d", 50, now);
+    await getBars("aapl", Interval.D1, 50, now);
     expect(spy.mock.calls[0]![0]).toBe(`/ui/api/v1/symbols/AAPL/actions?limit=${PAGE_LIMIT}`);
     // 50 daily bars: 80 calendar days back, one full page, the tail kept.
     const from = encodeURIComponent(new Date(now - 1.6 * 86_400_000 * 50).toISOString());
@@ -201,6 +205,6 @@ describe("catalogue and dataset rows", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(() =>
       Promise.resolve(respond(200, { data: [{ n: 1 }, { n: 2 }, { n: 3 }], next_cursor: null })),
     );
-    await expect(getBars("aapl", "1d", 2)).resolves.toEqual([{ n: 2 }, { n: 3 }]);
+    await expect(getBars("aapl", Interval.D1, 2)).resolves.toEqual([{ n: 2 }, { n: 3 }]);
   });
 });

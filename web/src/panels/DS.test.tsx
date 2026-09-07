@@ -85,6 +85,20 @@ describe("DS", () => {
     expect(screen.getByTestId("location").textContent).toBe("/ui/t/AAPL/DS?name=market_status");
   });
 
+  it("is reachable by Tab and names the active option", async () => {
+    // The j/k/Enter model lives on a window listener; without a focusable
+    // container and an active descendant it is invisible to a screen
+    // reader and unreachable by keyboard alone.
+    mockApi([]);
+    renderDS("AAPL", {});
+    const list = await screen.findByRole("listbox", { name: "datasets" });
+    expect(list).toHaveAttribute("tabindex", "0");
+    const options = screen.getAllByRole("option");
+    expect(list.getAttribute("aria-activedescendant")).toBe(options[0]!.id);
+    fireEvent.keyDown(window, { key: "j" });
+    expect(list.getAttribute("aria-activedescendant")).toBe(options[1]!.id);
+  });
+
   it("shows a symbol-scoped dataset filtered to the strip's symbol, symbol column hidden", async () => {
     const seen: string[] = [];
     mockApi([{ symbol: "AAPL", as_of_date: "2026-09-06", insiders_pct_held: "0.01648" }], seen);

@@ -31,6 +31,7 @@ from yfin.datasets.domain.common import (
 from yfin.datasets.domain.payloads import DomainPayload
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.registry import register_domain
+from yfin.models.domains import DomainType
 from yfin.storage.contracts import RowWriter, TableWrite, WriteStats
 
 log = get_logger(__name__)
@@ -146,7 +147,7 @@ class _DomainRankingsDataset(DomainAsOfDataset[DomainPayload]):
 class SectorRankingsDataset(_DomainRankingsDataset):
     name = "sector_rankings"
     depends_on = ("domain_taxonomy",)
-    scope = "sector"
+    scope = DomainType.SECTOR
     produces = asof_produces(TOP_COMPANIES_TABLE, TOP_FUNDS_TABLE, gate=DOMAIN_GATE_TABLE)
     # Either block can come back empty on its own; the pair cannot, or
     # the result is empty and no gate row is written at all.
@@ -219,7 +220,7 @@ class SectorRankingsDataset(_DomainRankingsDataset):
 class IndustryRankingsDataset(_DomainRankingsDataset):
     name = "industry_rankings"
     depends_on = ("domain_taxonomy",)
-    scope = "industry"
+    scope = DomainType.INDUSTRY
     produces = asof_produces(TOP_MOVERS_TABLE, TOP_COMPANIES_TABLE, gate=DOMAIN_GATE_TABLE)
     gate_source_tables = (TOP_MOVERS_TABLE, TOP_COMPANIES_TABLE)
     api = (

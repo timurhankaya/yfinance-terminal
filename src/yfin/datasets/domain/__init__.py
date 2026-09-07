@@ -10,10 +10,13 @@ from yfin.datasets.domain.base import (
     DomainAsOfDataset,
     DomainContext,
     DomainDataset,
-    DomainType,
 )
 from yfin.datasets.domain.common import SECTOR_KEYS, as_of_day, fetch_domain, unwrap
 from yfin.datasets.domain.payloads import DomainPayload, TaxonomyPayload
+
+# Re-exported from `models`, where the `domains` table's own column is
+# typed with it. There is one DomainType.
+from yfin.models.domains import DomainType
 
 __all__ = [
     "SECTOR_KEYS",

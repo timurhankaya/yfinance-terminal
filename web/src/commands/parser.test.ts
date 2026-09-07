@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { clearRegistry, registerPanel } from "./registry";
-import { commandToPath, parse, ParseKind, pathToCommand } from "./parser";
+import { commandToPath, isMarketCode, parse, ParseKind, pathToCommand } from "./parser";
 import { Layout, type PanelArgs, type PanelSpec } from "./types";
 
 const Noop = () => null;
@@ -92,11 +92,44 @@ describe("paths", () => {
     expect(commandToPath(cmd)).toBe("/ui/t/AAPL/GIP?interval=5m");
     expect(pathToCommand("AAPL", "GIP", "?interval=5m")).toEqual(cmd);
   });
-  it("uses '-' for no symbol and encodes odd symbols on the way out only", () => {
-    expect(commandToPath({ symbol: null, code: "HELP", args: {} })).toBe("/ui/t/-/HELP");
+  it("puts a market-wide page on its own root, with no symbol slot", () => {
+    // A screener is not a property of a symbol, and `/ui/t/AAPL/HELP`
+    // said it was. The strip's symbol still travels with the reader --
+    // in the history entry (`useGo`), not in the address.
+    expect(commandToPath({ symbol: null, code: "HELP", args: {} })).toBe("/ui/m/HELP");
+    expect(commandToPath({ symbol: "AAPL", code: "HELP", args: {} })).toBe("/ui/m/HELP");
+    // Args ride along as they always did; only the symbol slot is gone.
+    expect(commandToPath({ symbol: "AAPL", code: "HELP", args: { a: "1,2" } })).toBe(
+      "/ui/m/HELP?a=1%2C2",
+    );
+  });
+
+  it("keeps the symbol in the address of a symbol's own page", () => {
     expect(commandToPath({ symbol: "^GSPC", code: "DES", args: {} })).toBe("/ui/t/%5EGSPC/DES");
+    expect(commandToPath({ symbol: null, code: "DES", args: {} })).toBe("/ui/t/-/DES");
+  });
+
+  it("gives the home the market root itself", () => {
+    // `/ui` is what a reader types and what a bookmark holds; a code
+    // under the market root would be a second address for one page.
+    expect(commandToPath({ symbol: null, code: "HOME", args: {} })).toBe("/ui");
+    expect(commandToPath({ symbol: "AAPL", code: "HOME", args: {} })).toBe("/ui");
+  });
+
+  it("reads a symbol back out of a path, and null off a market route", () => {
     // useParams hands us the decoded segment, so no second decode here.
-    expect(pathToCommand("-", "HELP", "")).toEqual({ symbol: null, code: "HELP", args: {} });
+    expect(pathToCommand("-", "FA", "")).toEqual({ symbol: null, code: "FA", args: {} });
     expect(pathToCommand("^gspc", "des", "")).toEqual({ symbol: "^GSPC", code: "DES", args: {} });
+    expect(pathToCommand(null, "eqs", "")).toEqual({ symbol: null, code: "EQS", args: {} });
+  });
+
+  it("calls a code market-wide only when the panel says it needs no symbol", () => {
+    // Read from the registry rather than a list here, so the two cannot
+    // disagree about what a panel is.
+    expect(isMarketCode("HELP")).toBe(true);
+    expect(isMarketCode("DES")).toBe(false);
+    // An unregistered code is treated as symbol-scoped, which is what
+    // the default panel is.
+    expect(isMarketCode("NOPE")).toBe(false);
   });
 });

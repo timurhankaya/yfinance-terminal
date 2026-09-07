@@ -3,9 +3,8 @@
 // This is the panel that guarantees nothing in the archive is unreachable
 // from the terminal, whether or not a curated panel covers it.
 import { useMemo } from "react";
-import { useNavigate } from "react-router";
 import { getCatalog, type CatalogEntry } from "../api/client";
-import { commandToPath } from "../commands/parser";
+import { useGo } from "../commands/go";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import { ErrorCard, LoadState, useListKeys, usePanelData } from "./common";
 import { DatasetView, SymbolMode, filtersOf, parseFilters } from "./dataset";
@@ -20,7 +19,7 @@ function parseArgs(tokens: string[]): PanelArgs {
 }
 
 function Catalog({ symbol }: { symbol: string | null }) {
-  const navigate = useNavigate();
+  const go = useGo();
   const { state, retry } = usePanelData<CatalogEntry[]>("catalog", getCatalog, (entries) => entries.length === 0);
   const entries = useMemo(() => {
     if (state.kind !== LoadState.Ready) return [];
@@ -28,7 +27,7 @@ function Catalog({ symbol }: { symbol: string | null }) {
   }, [state]);
   const open = (index: number) => {
     const entry = entries[index];
-    if (entry) void navigate(commandToPath({ symbol, code: "DS", args: { name: entry.name } }));
+    if (entry) go({ symbol, code: "DS", args: { name: entry.name } });
   };
   const [selected, setSelected] = useListKeys(entries.length, open);
 
@@ -43,15 +42,24 @@ function Catalog({ symbol }: { symbol: string | null }) {
       <p className="detail-meta">
         {entries.length} datasets. Enter or click opens one; add <code>filter=value</code> tokens to narrow it.
       </p>
-      <ul className="list" role="listbox" aria-label="datasets">
+      {/* Focusable, with the active option named: the j/k/Enter model
+          lives on a window listener, so without these the whole keyboard
+          interaction is unreachable by Tab and invisible to a reader. */}
+      <ul
+        className="list"
+        role="listbox"
+        aria-label="datasets"
+        tabIndex={0}
+        aria-activedescendant={entries.length > 0 ? `ds-entry-${selected}` : undefined}
+      >
         {entries.map((entry, index) => {
           const heading = entry.family !== family;
           family = entry.family;
           return (
             <li
               key={entry.name}
+              id={`ds-entry-${index}`}
               role="option"
-              tabIndex={-1}
               className={index === selected ? "list-row row-selected" : "list-row"}
               aria-selected={index === selected}
               data-family={heading ? entry.family : undefined}

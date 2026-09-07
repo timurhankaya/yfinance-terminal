@@ -7,30 +7,14 @@ import { Fragment } from "react";
 import type { ReactNode } from "react";
 import { getDataset, getSymbol, WireType, type CatalogColumn, type Row, type SymbolDetail } from "../api/client";
 import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
-import { ErrorCard, LoadState, MissingCard, usePanelData } from "./common";
+import { EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData } from "./common";
+import { LOCALE, asNumber, formatBig, isHttpUrl } from "./format";
 import { quoteUrl } from "./links";
 import { DatasetTable, formatDateTime } from "./table";
 
 // Keys are the API's: the `info` snapshot is normalised to snake_case on
 // the way into the database, not yfinance's camelCase. Numbers arrive as
 // strings (Decimal on the wire).
-
-export function formatBig(value: number): string {
-  const units: Array<[number, string]> = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "K"]];
-  for (const [size, suffix] of units) {
-    if (Math.abs(value) >= size) return `${(value / size).toFixed(2)}${suffix}`;
-  }
-  return value.toFixed(0);
-}
-
-export function asNumber(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
 
 //: Ratios Yahoo sends as fractions (0.24 is 24 %).
 const PERCENT_FRACTION = new Set([
@@ -44,7 +28,6 @@ const PERCENT_FRACTION = new Set([
 const PERCENT_ALREADY = new Set(["dividend_yield", "five_year_avg_dividend_yield", "net_expense_ratio"]);
 //: Keys whose numeric value is a UNIX epoch (seconds).
 const EPOCH_RE = /(_date|_timestamp|_timestamp_start|_timestamp_end|_time|_epoch_date|fiscal_year_end|most_recent_quarter)$/;
-export const LOCALE = "en-US";
 
 export const SECTIONS: ReadonlyArray<[title: string, keys: string[]]> = [
   ["Identity", [
@@ -155,10 +138,6 @@ export function formatInfo(key: string, value: unknown): string {
   return n.toLocaleString(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function isHttpUrl(value: unknown): value is string {
-  return typeof value === "string" && /^https?:\/\//i.test(value);
-}
-
 function InfoValue({ name, value }: { name: string; value: unknown }): ReactNode {
   if (isHttpUrl(value)) {
     return (
@@ -243,7 +222,9 @@ export function DES({ symbol }: PanelProps) {
   if (state.kind === LoadState.Loading) return <p className="muted">Loading {symbol}…</p>;
   if (state.kind === LoadState.Missing) return <MissingCard symbol={symbol} />;
   if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
-  if (state.kind === LoadState.Empty) return null;
+  // An `EmptyCard`, not a bare `null`: a blank panel is indistinguishable
+  // from a crash, and every other panel says what is missing.
+  if (state.kind === LoadState.Empty) return <EmptyCard what="description" />;
 
   const d = state.data;
   const grouped = group(d.info ?? {});

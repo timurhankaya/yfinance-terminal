@@ -24,6 +24,7 @@ from sqlalchemy.orm import sessionmaker
 from yfin.core import metrics, tracing
 from yfin.core.errors import classify_error
 from yfin.core.logging_setup import get_logger
+from yfin.datasets.axis import DatasetAxis
 from yfin.datasets.base import NormalizedResult
 from yfin.datasets.meta import DatasetMeta
 from yfin.datasets.registry import Registry
@@ -59,8 +60,10 @@ class Turn:
     #: write, so a failure still leaves one row per table.
     registry: Registry[Any]
 
-    #: Names the runner in the log line ("market" / "domain").
-    kind: str
+    #: Which registry's loop this turn belongs to; names the runner in
+    #: the log line. The same enum the API's catalogue publishes, so the
+    #: pipeline and the wire do not spell the three axes twice.
+    kind: DatasetAxis
 
     #: Extra structured log fields; scope on one side, key and region on
     #: the other.

@@ -22,6 +22,14 @@ export interface PanelSpec {
   layout: Layout;
   /** Turns the raw tokens after the code into args. Throws Error(message) on bad input. */
   parseArgs(tokens: string[]): PanelArgs;
+  /** Brings args that did NOT come through `parseArgs` back into range.
+   *
+   *  A bookmarked or hand-edited URL reaches a panel without ever being
+   *  parsed, so the same rules have to be applied once more. The shell
+   *  calls this after reading the URL, which is what keeps every panel
+   *  behaving the same on a bad `?interval=` -- rather than half of them
+   *  clamping locally and half passing it to the API. */
+  normalizeArgs?(args: PanelArgs): PanelArgs;
   component: ComponentType<PanelProps>;
 }
 

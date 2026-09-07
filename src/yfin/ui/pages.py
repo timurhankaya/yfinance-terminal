@@ -57,7 +57,14 @@ def install_pages(app: FastAPI, dist_dir: Path) -> None:
 
     pages.add_api_route("/ui", spa, methods=["GET"])
     pages.add_api_route("/ui/", spa, methods=["GET"])
+    # Two client routes, because there are two kinds of page: a symbol's
+    # detail carries the symbol in its address, a market-wide page does
+    # not. Listed rather than one `/ui/{path:path}` catch-all, which
+    # would swallow `/ui/api/*` and `/ui/assets/*` and answer a mistyped
+    # API path with the SPA instead of the 404 problem the contract
+    # promises.
     pages.add_api_route("/ui/t/{path:path}", spa, methods=["GET"])
+    pages.add_api_route("/ui/m/{path:path}", spa, methods=["GET"])
 
     app.include_router(pages)
     app.mount("/ui/assets", StaticFiles(directory=dist_dir / "assets"), name="ui-assets")

@@ -68,6 +68,19 @@ class ApiSettings(BaseSettings):
     #: Per client IP, per process, over everything under /ui/api. A crude
     #: brake on one browser's worth of traffic, not the API's limiter.
     ui_requests_per_minute: int = Field(default=600, ge=1)
+    #: New `/ui/ws` sockets one address may open per minute, per process.
+    #: A WebSocket never passes through `RequestBrake` (it is a
+    #: BaseHTTPMiddleware and this is a different scope type), so the
+    #: brake in front of `/ui/api` does not cover it. A page opens one
+    #: socket and reopens it on reconnect; anything opening thirty a
+    #: minute is not a page.
+    ui_ws_connections_per_minute: int = Field(default=30, ge=1)
+    #: Sockets this process serves at once, across all addresses. Each one
+    #: holds a Redis pub/sub connection, and each `sub` frame takes a
+    #: threadpool thread and a database session -- both of which are the
+    #: PROCESS's, shared with `/v1`. The ceiling is what keeps the free
+    #: terminal from spending the paid surface's resources.
+    ui_ws_max_connections: int = Field(default=200, ge=1)
 
     # --- admin page -------------------------------------------------------
     #: Switches the admin page (/admin) on: settings table, proxy pool,

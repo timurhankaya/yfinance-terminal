@@ -371,6 +371,23 @@ class Settings(BaseSettings):
         "stream", "Reject rows kept per (symbol, reason) per hour; counts are never sampled.",
         default=100, ge=0,
     )
+
+    # --- browser publish path (Redis pub/sub) ------------------------------
+    #
+    # The web terminal's live prices. Separate from the Kafka path below and
+    # from it in kind: Kafka is durable and consumed by other systems, this
+    # is at-most-once fan-out to open browser tabs. Losing a message here
+    # costs one repainted price; the archive is the writer's commit, which
+    # has already happened by the time anything is published.
+    yf_stream_publish_enabled: bool = _cfg(
+        "stream", "Publish committed ticks to Redis for the web terminal.", default=False
+    )
+    # Env-only, unlike every other stream setting: a Redis URL carries its
+    # password in the string, and the settings table stores values in clear
+    # text (only proxy secrets get Fernet). Empty means publishing is off
+    # whatever the switch above says -- there is nowhere to publish to.
+    yf_stream_publish_redis_url: str = ""
+
     # --- optional Kafka publish path ---------------------------------------
     #
     # Off by default, and off means nothing is written: with this false the
@@ -589,6 +606,11 @@ ENV_ONLY_FIELDS = frozenset(
         # Putting the Fernet key next to the proxy passwords it encrypts
         # would defeat the point of proxy/crypto.py.
         "yf_proxy_secret_key",
+        # A Redis URL carries its password inside the string. The settings
+        # table stores values in clear text, so this one stays in env with
+        # db_password -- the switch that turns publishing on is DB-managed,
+        # the credential is not.
+        "yf_stream_publish_redis_url",
         # configure_logging() is called before create_db_engine() (shard.py).
         # The log ordering also relies on this field being in env: the
         # loader's warnings -- including the security boundary one -- must

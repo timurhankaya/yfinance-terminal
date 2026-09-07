@@ -18,7 +18,6 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from yfin.api.auth.dependencies import UI_CLIENT_ID, UI_SCOPES, Principal, current_principal
 from yfin.api.core.config import ApiSettings
@@ -27,7 +26,7 @@ from yfin.api.core.errors import (
     install_error_handlers,
     problem_response,
 )
-from yfin.api.core.middleware import resolve_client_ip, trusted_networks
+from yfin.api.core.middleware import SettingsMiddleware, resolve_client_ip, trusted_networks
 from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.api.routers.v1 import datasets, market
 
@@ -60,7 +59,7 @@ def ui_principal(request: Request) -> Principal:
 BRAKE_PREFIX = "/ui/api"
 
 
-class RequestBrake(BaseHTTPMiddleware):
+class RequestBrake(SettingsMiddleware):
     """Per-IP fixed window over every request under BRAKE_PREFIX; anything
     else passes untouched (`/v1` has its own limiter).
 
@@ -73,7 +72,7 @@ class RequestBrake(BaseHTTPMiddleware):
     """
 
     def __init__(self, app: Callable[..., object], settings: ApiSettings) -> None:
-        super().__init__(app)  # type: ignore[arg-type]
+        super().__init__(app, settings)
         self._limit = settings.ui_requests_per_minute
         self._nets = trusted_networks(settings)
         self.window = FixedWindow()

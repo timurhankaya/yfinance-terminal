@@ -16,7 +16,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
-from typing import Any, Literal
+from enum import StrEnum
+from typing import Any
 
 from yfin.core.config import Settings
 from yfin.datasets.base import NormalizedResult
@@ -24,11 +25,25 @@ from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.snapshot_base import snapshot_upsert
 from yfin.storage.contracts import RowWriter, VariantState, WriteStats, apply_write
 
-# A third value: the screen loop also runs OUTSIDE the dataset -- the same
-# reasoning as the region loop above applies word for word:
-# `sync_run_items` granularity naturally becomes (dataset x screen x table),
-# and one screen failing doesn't mark a neighboring screen `failed`.
-MarketScope = Literal["global", "region", "variant"]
+
+class MarketScope(StrEnum):
+    """Which outer loop a market dataset runs inside.
+
+    An enum, not a Literal: this is a discriminator the runner branches
+    on, and a Literal is only checked where it is annotated -- the
+    runner's `dataset.scope == "region"` comparisons were bare strings
+    that no type would have caught if one were misspelled.
+
+    VARIANT is the third value: the screen loop also runs OUTSIDE the
+    dataset, and the same reasoning as the region loop applies word for
+    word -- `sync_run_items` granularity naturally becomes
+    (dataset x screen x table), and one screen failing doesn't mark a
+    neighboring screen `failed`.
+    """
+
+    GLOBAL = "global"
+    REGION = "region"
+    VARIANT = "variant"
 
 
 @dataclass
@@ -88,12 +103,12 @@ class GlobalDataset[RawT](ABC):
     produces: tuple[str, ...] = ()
     # Declared here rather than read off whatever the subclass happens to
     # have. Market datasets DO expose resources -- the screener alone
-    # declares four -- and while the registry read this with
-    # `getattr(ds, "api", ())`, misspelling the attribute created a new
-    # one instead: mypy silent, validation skipped, resource missing from
-    # the catalogue with nothing anywhere to say why.
+    # declares four -- so the catalogue builder names the field instead of
+    # reaching for it with `getattr`. Note that the declaration does not
+    # catch a misspelling: this default means `apis = (...)` still reads
+    # back as `()` (see `Registrable`).
     api: tuple[ApiExposure, ...] = ()
-    scope: MarketScope = "global"
+    scope: MarketScope = MarketScope.GLOBAL
 
     def variants(self, settings: Settings, state: VariantState | None) -> Sequence[str]:
         """For `scope == "variant"`, the outer loop's keys.

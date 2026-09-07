@@ -500,9 +500,11 @@ kilitler.
 
 ## Kapsam dışı
 
-**Faz 1.5:** `EQS`, `WLA`, `ECO`/`ERN`/`IPO` takvimleri (yeni
-`PanelSpec` kayıtları); arşivsiz semboller için yayın; 100+ sembol
-aboneliği ölçümü (`WLA` kapısı); borsa zaman dilimi.
+**Faz 1.5:** ~~`EQS`~~, ~~`WLA`~~ (ikisi de 2026-09-08'de yapıldı),
+~~`ECO`/`ERN`/`IPO` takvimleri~~ (1e'de `CAL` ve `ERN` olarak yapıldı);
+arşivsiz semboller için yayın; ~~100+ sembol aboneliği ölçümü (`WLA`
+kapısı)~~ (2026-09-08'de ölçüldü, kapı açıldı:
+`docs/measurements/websocket.md`); borsa zaman dilimi.
 
 **Faz 2:** dockview yerleşim, A/B/C grup harfleri, kayıtlı sayfalar ve
 F-tuşları, layout'un DB'de tutulması, arşiv oynatma (replay), hosted
@@ -604,3 +606,174 @@ senaryosu: `AAPL GIP 5m` → mum görünür.
   şekilde genişletildi.
 - 100 sembol CPU ölçümü faz 1.5'e; `HP`/`EE` listeden çıkarıldı;
   dockview araştırma tablosundan "Kapsam dışı"na.
+
+2026-09-08, 1c ve 1d uygulandı:
+
+- **Zaman dilimi UTC.** Grafik ekseni, tooltip, `QR` saatleri ve şerit
+  hepsi UTC ve etiketi yazılı. Spec'in "faz 1'de tarayıcı yerel saati"
+  ifadesi düştü: aynı sayfadaki `PX` tablosu ve satır detayı 1e'de UTC'ye
+  geçti, iki saat yan yana durmaz.
+- **Yayın URL'i env-only, anahtar DB-managed.** `yf_stream_publish_enabled`
+  `yfin config set` ile açılır; `yf_stream_publish_redis_url` `_cfg`
+  taşımaz ve `ENV_ONLY_FIELDS`'tedir — bir Redis URL'i parolasını
+  dizenin içinde taşır, `settings` tablosu düz metin tutar. API süreci
+  aynı iki değeri okur: kanal adını iki uç da tek ayardan alır.
+- **Ondalıklar `normalize()` edilir.** `price` `NUMERIC(28,12)`, yani
+  `live_quotes`'tan okunan bir fiyat `232.500000000000`. Bu on iki sıfır
+  her tick'te tel üzerinde ve `QR` listesinde görünürdü; `format(d.normalize(), "f")`
+  hem onları düşürür hem `1E-12`'yi engeller.
+- **Fiyatsız tick yayınlanmaz.** `p` zorunlu ve sütun nullable; çizilecek
+  ya da listelenecek bir şeyi olmayan tick sayfayı hiçbir şey yapamayacağı
+  bir duruma sokardı.
+- **`_write_ticks` `TickWrite` döner** (`written`, `unknown`, `accepted`);
+  yayın `session.commit()` sonrasında ve `yfin_stream_batch_seconds`
+  histogramının **içinde** — yayın writer thread'inde koştuğu için
+  histogramın dışına alınsaydı kuyruk büyürken histogram sağlıklı görünürdü.
+- **`GP` argümanı yıl sayısı** (`GP 5`), varsayılan 2; `GIP` penceresi
+  9 takvim günü (beş seansı kapsamak için; seans takvimi sayfada yok).
+- **Günlük grafikte canlı mum yalnız uzatır.** Günlük barın anı seansın
+  açılışıdır (13:30Z), UTC gece yarısı değil; 86.400'e yuvarlamak gerçek
+  mumun yanına ikinci bir mum çizerdi. Yarının barını sayfa uyduramaz —
+  hangi ana düşeceği borsanın takvimi. `BucketMode.Session` bu.
+- **Gap overlay whitespace ile çizilir.** Zaman ölçeğinde yalnız bir
+  serinin andığı anların koordinatı vardır ve gap tanımı gereği barsız;
+  boş yuvalar açılır, bant onların üstünde tam yükseklik bir overlay
+  histogramdır (`GAP_SLOT_LIMIT` 3000, aşılırsa bant çizilmez ve panel
+  bunu yazar).
+- **`QR` sanallaştırılmadı.** `@tanstack/react-virtual` mutlak
+  konumlandırma ister, o da terminalin tek inline stili olurdu (konvansiyon:
+  `web/src`'de `style=` yok). Bunun yerine tape 2000 satırla sınırlı ve
+  panel en yeni 300'ü çizip "show more" ile büyütüyor — terminalin
+  başka yerlerinde kullanılan `.load-more` kalıbı.
+- **Kopukluk ayırıcısı istemci tarafında.** Soket düşünce sayfanın o anki
+  en yeni satırı işaretlenir; kopukluk sırasındaki tick'ler geri
+  doldurulmaz (hiç teslim edilmediler) ve sessiz bir birleştirme sakin
+  bir piyasa gibi okunurdu.
+- **`GIP` iki durumda REST'i yeniler:** canlı mum arşivin yazmadığı bir
+  kovaya döndüğünde (hacim orada) ve soket geri geldiğinde (kopukluktaki
+  barlar yalnız arşivde).
+- **CI'a üçüncü bir kilit:** `scripts/dump_tick_fields.py --check`.
+  `web/src/live/tick-fields.json` `stream/publish.py`'den üretilir;
+  vitest TS tipinin anahtarlarını ve kodlamalarını bu dosyayla
+  karşılaştırır.
+- E2E CI'da koşmaz (arşiv, `dist` ve intraday barı olan bir sembol
+  ister): `web/playwright.config.ts` gerekçeyi ve komutları taşıyor.
+
+2026-09-08, `EQS` (Faz 1.5'in ilk maddesi):
+
+- **`/ui/api/screens` ve `/ui/api/screens/{key}`** — terminalin dördüncü
+  kendi okuması, `news` ile aynı gerekçe: `/v1` join yapmaz. Bir screen
+  dört tablodur (`screens` ne olduğunu, `screen_runs` en son ne zaman
+  koştuğunu, `screen_members` kimin hangi sırayla eşleştiğini,
+  `screen_quotes` her birinin ne ettiğini söyler) ve generic yüzeyden
+  okumak dört çağrı artı 107 kolonluk quote verisi üzerinde istemci
+  tarafı join demek — on ikisini göstermek için.
+- **Sıra `rank_index`.** Bir screener rosterinin ticker listesinden fazla
+  taşıdığı tek şey screen'in koyduğu sıradır; sembole göre sıralamak onu
+  atardı. Başlık `sort_field`/`sort_asc` yazıyor ki sıra açıklanmamış
+  kalmasın.
+- **OUTER join.** `screen_quotes` gate'in delete kapsamında değil, yani
+  quote satırı olmayan bir member olabilir (evren dışı sembol, parse
+  edilemeyen quote). Onları düşürmek, uzunluğu ayrıca raporlanan bir
+  rosteri sessizce kısaltırdı; satır kalıyor ve fiyatsızlığı yazılıyor.
+- **`is_enabled=false` screen listede yok, anahtarla okunabilir.**
+  Kapalı bir screen fetch edilmiyor, yani rosteri o günden itibaren
+  bayatlıyor — listelemek görünmez son kullanma tarihli bir sayfa sunmak
+  olurdu. Ama saklanmış bir URL 404 vermemeli: veri duruyor ve üstündeki
+  run tarihi ne kadar eski olduğunu söylüyor.
+- **Hiç koşmamış screen 404 değil, boş roster.** "Öyle bir screen yok"
+  ile "henüz kimse fetch etmedi" farklı problemler ve panel ikisine
+  farklı şey diyor.
+- **`as_of` burada dolu**, diğer UI rotalarının aksine: bir screen run'ı
+  *bir fetch*, dolayısıyla `fetched_at` zarfın "kaynağa karşı en son ne
+  zaman doğrulandı" sorusunun gerçek cevabı.
+- **Ondalıklar `paging.to_number`** ile — tick yolundaki `normalize()`
+  değil. Fark bilinçli: tick dizesi `QR`'da ham gösteriliyor, bu satırlar
+  ise `formatCell`'den geçiyor, yani `/v1`'in geri kalanıyla aynı dize.
+- **On iki kolon.** `screen_quotes`'un yüz küstür kolonu
+  `DS screen_quotes` ve `SCR` ile erişilebilir kalıyor; panel bunu
+  altında yazıyor, çünkü "arşivdeki her şey terminalden okunur" kuralı
+  kürate bir gridin yolu göstermesini gerektiriyor.
+
+2026-09-08, `EQS` alt sayfaları ve `WLA` kapısı:
+
+- **Roster sayfalanıyor.** İlk sürüm ilk 500 satırı gösterip "daha uzun"
+  diyordu ve devamına yol yoktu. Varsayılan ayarlarla bir roster
+  `yf_screen_size` (250) × `yf_screen_max_pages` (4) = 1.000 satıra
+  çıkıyor, ölçülen en pahalı screen (`most_shorted_stocks`) 4.022
+  eşleşme bildirmişti — yani ilk sayfa çoğu screen'de listenin kendisi
+  değil. Rota artık `offset` alıyor, sayfa boyu 250, ve dönen gövde
+  `offset` taşıyor ki panel "251–500 / 1.000" diyebilsin. "Daha var mı"
+  sorusunu `limit + 1` cevaplıyor, ayrı bir sayımla değil.
+- **İki alt sayfa: Members ve Runs.** Terminalin diğer market panelleri
+  (`SCR`, `MKT`, `CAL`, `SRCH`, `DOM`) sekmeli; `EQS` tek görünümdü.
+  `Runs` bir screen'in kendi geçmişi — roster boyu gün gün, sayfa sayısı
+  ve Yahoo'nun yankıladığı kriter — ve **yeni rota istemiyor**:
+  `screen_runs` zaten `screen_key` ile filtrelenebilen bir katalog
+  girdisi, o yüzden `DatasetView` ile çiziliyor. Elle yazılmış bir rota
+  tek tabloyu okumanın ikinci yolu olurdu.
+- **Bilinmeyen sekme roster'a düşer.** Argümanlar elle düzenlenmiş bir
+  URL'den de geliyor; hiçbir şey çizmemek yerine varsayılana dönüyor.
+- **`WLA` kapısı ölçüldü ve açıldı.** 200 sembol bir karede 0,024 ms
+  (p99 0,065 ms) — 60 Hz'de 16,7 ms'lik bütçenin %0,14'ü, ve ölçek
+  doğrusal. Asıl risk store değil React'ti; o bir zamanlama değil bir
+  özellik olduğu için `web/src/live/hooks.test.tsx`'te iddia ediliyor:
+  200 satır mount, bir sembol tick'liyor, tam olarak bir satır yeniden
+  render oluyor.
+
+2026-09-08, `WLA`:
+
+- **Liste URL'dedir.** `WLA AAPL MSFT NVDA` =
+  `/ui/t/-/WLA?symbols=AAPL,MSFT,NVDA`, ve durumun tamamı bu. Terminalde
+  giriş ve kullanıcı tablosu yok (o faz 2), dolayısıyla alternatifler
+  `localStorage` -- spec'in "yalnız yönlendirme içindir, ikinci bir durum
+  kaynağı değildir" dediği yer -- ya da kimsenin sahiplenmeye yetkili
+  olmadığı sunucu tarafı bir listeydi. URL ikisi de değil: paylaşılabilir,
+  her komut gibi bir history girdisi (Esc önceki listelere yürür) ve
+  sayfanın senkron tutması gereken hiçbir şey eklemiyor.
+- **Satır başına abonelik.** 200 sembolü ödenebilir kılan şey bu: store
+  quote'ları sembole göre anahtarlıyor ve her satır yalnız kendisininkini
+  seçiyor, yani bir sembol tick'leyince bir satır render oluyor. Ölçüldü
+  ve iddia edildi (`docs/measurements/websocket.md`,
+  `web/src/live/hooks.test.tsx`).
+- **Tavan soketin tavanı.** `WLA_MAX` = `ui/live.py`'deki `MAX_SYMBOLS`
+  (200). Fazlası `sub` çerçevesinin tamamının reddedilmesi demek olurdu,
+  o yüzden panel komutu reddediyor ve hangi sınıra çarptığını yazıyor.
+- **"Not streamed" boş fiyat değildir.** `yfin stream scope` dışındaki bir
+  sembolün canlı yolu hiç yok; bu eksik bir cevap değil, bir yapılandırma
+  cevabı.
+
+2026-09-08, iki kök ve bir anasayfa (routing revizyonu):
+
+Bir screener sembolün özelliği değil. `/ui/t/AAPL/EQS` her piyasa
+sayfasını şeritte hangi sembol varsa ona aitmiş gibi okutuyordu, ve
+paylaşılabilir bir linkin şekli `/ui/t/-/EQS` — sayfanın hiç kullanmadığı
+bir slotun yer tutucusu — oluyordu. 22 panelin 9'u piyasa geneli, yani
+kenar durum değil.
+
+- **URL artık sayfanın türünü söylüyor.** `/ui/t/{SEMBOL}/{KOD}` bir
+  sembolün detayı, sembol kimliğin parçası; `/ui/m/{KOD}` piyasa geneli,
+  değil. Hangisi olduğu `PanelSpec.needsSymbol`'den okunuyor
+  (`isMarketCode`), ikinci bir liste tutulmuyor.
+- **Bağlam sembolü history entry'sinde taşınıyor**, path'te değil
+  (`commands/go.ts`). `AAPL DES` → `EQS` → `FA` yine AAPL'a dönüyor;
+  Esc/ileri o adımdaki sembolü geri getiriyor; ama paylaşılan bir
+  `/ui/m/EQS` kimsenin sembolünü taşımıyor — ki doğrusu bu. Global bir
+  store değil, çünkü o URL'nin çelişebileceği ikinci bir doğruluk
+  kaynağı olurdu.
+- **`/ui` gerçek bir anasayfa.** Eskiden `localStorage`'daki son sayfaya
+  ya da boş bir `DES`'e — sembolsüz bir sembol sayfasına, yani hiçbir şey
+  göstermeyen ve hiçbir şey anlatmayan bir ekrana — yönlendiriyordu.
+  Artık piyasa durumu, bugün koşan screen'ler, takvim ve katalog kartları
+  var; her kart ilgili panele götürüyor, yani anasayfa bir dizin, ikinci
+  bir uygulama değil.
+- **`localStorage` tamamen gitti.** Spec'te "yalnız giriş yönlendirmesi
+  içindir" diye kayıtlıydı; anasayfa gelince o yönlendirmenin yapacak işi
+  kalmadı ve terminalin URL dışındaki tek durumu da kalmadı.
+- **Fonksiyon çubuğu ikiye ayrıldı:** "Market" ve şeritteki sembolün adı.
+  22 kodluk düz bir liste, okuyucuya hangisinde sembolün anlamlı olduğunu
+  söylemiyordu.
+- `pages.py` iki client rotası sunuyor (`/ui/t/*`, `/ui/m/*`), tek bir
+  `/ui/{path:path}` değil: o `/ui/api/*` ve `/ui/assets/*`'i de yutar ve
+  yanlış yazılmış bir API yoluna kontratın vaat ettiği 404 problem gövdesi
+  yerine SPA'yı döndürürdü.

@@ -17,7 +17,7 @@ a { color: var(--accent); }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 40%); gap: 12px; height: 100%; }
 .split-list { overflow: auto; min-height: 0; }
 .split-detail { overflow: auto; min-height: 0; border-left: 1px solid var(--line); padding-left: 12px; }
-.list-row { cursor: pointer; }
+.list-row { cursor: pointer; padding: 4px 8px; border-bottom: 1px solid var(--line); }
 .list-row:focus-visible, .list-row[aria-selected="true"] { outline: none; }
 .detail-meta { color: var(--muted); margin: 0 0 8px; }
 .thumb { max-width: 100%; height: auto; display: block; margin-bottom: 8px; border: 1px solid var(--line); }
@@ -35,13 +35,13 @@ dl.des dt { color: var(--muted); }
 .grid td { padding: 4px 8px; border-bottom: 1px solid var(--line); }
 .grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .row-selected { background: var(--line); }
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
 .tab { padding: 4px 10px; color: var(--muted); cursor: pointer; background: none; border: 0; font: inherit; }
 .anr-section { margin-bottom: 16px; }
 .anr-section h3 { margin: 8px 0 4px; font-size: 13px; color: var(--muted); }
 .tab-active { color: var(--fg); border-bottom: 2px solid var(--accent); }
 .list { list-style: none; margin: 0; padding: 0; }
-.list-row { padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.list:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .detail { padding: 10px; border: 1px solid var(--line); }
 .warn { color: var(--accent); }
 .card { padding: 8px; }
@@ -58,7 +58,6 @@ dl.des dt { color: var(--muted); }
 .scroll-x { overflow-x: auto; max-width: 100%; }
 .dataset .grid th, .dataset .grid td { white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
 .json { margin: 0; white-space: pre-wrap; word-break: break-all; font: inherit; color: var(--muted); }
-.tabs { flex-wrap: wrap; }
 .family { display: block; margin: 10px 0 2px; color: var(--accent); text-transform: uppercase; font-size: 11px; }
 .ds-name { font-weight: 600; }
 .summary { max-width: 90ch; white-space: pre-wrap; }
@@ -73,3 +72,33 @@ dl.des dd { margin: 0; word-break: break-word; }
 .guide td { vertical-align: top; }
 .load-more { margin: 8px 0; list-style: none; }
 .dataset.split { align-items: start; height: auto; }
+.strip-price { font-weight: 600; }
+.strip-change.up { color: #4cc38a; }
+.strip-change.down { color: #ff6b6b; }
+.strip-link { color: #ff6b6b; }
+.chart { height: 62vh; min-height: 320px; width: 100%; }
+.chart-note { display: flex; gap: 12px; align-items: baseline; margin: 0 0 6px; color: var(--muted); }
+.chart-legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 6px 0 0; color: var(--muted); }
+.swatch { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: baseline; }
+.swatch-gap { background: rgba(242, 181, 68, .22); border: 1px solid var(--accent); }
+.tape-break { color: var(--accent); }
+.tape-head { display: grid; grid-template-columns: 96px 1fr 1fr 1fr; gap: 8px; padding: 2px 8px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.tape-head .num { text-align: right; }
+.tape-line { display: grid; grid-template-columns: 96px 1fr 1fr 1fr; gap: 8px; }
+.tape-line .num { text-align: right; font-variant-numeric: tabular-nums; }
+.grid td.up, .strip-change.up { color: #4cc38a; }
+.grid td.down, .strip-change.down { color: #ff6b6b; }
+.fn-group { padding: 3px 8px 3px 2px; color: var(--muted); font-size: 11px; text-transform: uppercase; align-self: center; }
+.fn-group:not(:first-child) { border-left: 1px solid var(--line); margin-left: 8px; padding-left: 10px; }
+.home { max-width: 110ch; }
+.home-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 10px; }
+.home-card { border: 1px solid var(--line); padding: 8px 10px; }
+.home-card h3 { margin: 0 0 6px; font-size: 13px; }
+@keyframes flash-up { from { background: rgba(76, 195, 138, .45); } to { background: transparent; } }
+@keyframes flash-down { from { background: rgba(255, 107, 107, .45); } to { background: transparent; } }
+.strip-price { padding: 0 4px; border-radius: 2px; }
+.strip-price.flash-up { animation: flash-up .8s ease-out; }
+.strip-price.flash-down { animation: flash-down .8s ease-out; }
+@keyframes tape-in { from { background: rgba(242, 181, 68, .3); } to { background: transparent; } }
+.tape-line.tape-new { animation: tape-in 1.2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .strip-price, .tape-line { animation: none !important; } }

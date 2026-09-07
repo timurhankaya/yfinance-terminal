@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Table, and_, delete, func, select, tuple_
 from sqlalchemy.orm import Session
@@ -34,6 +34,11 @@ from yfin.models.market import CALENDAR_TIME_COLUMNS
 from yfin.storage.changes import ChangeCollector
 from yfin.storage.db import rowcount
 from yfin.storage.purge import delete_rows
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    # Type-only, so the local imports below keep doing their job: this
+    # module must not depend on `datasets` at runtime (circular import).
+    from yfin.datasets.registry import Registry
 
 # Defaults for the symbol side; parameterized to also serve the domain side.
 # Not imported from the `datasets` package at module level (circular import),
@@ -95,15 +100,20 @@ def history_tables() -> list[str]:
     )
 
 
-def _symbol_registry() -> Any:
-    """Local import to avoid a module-level dependency on the `datasets` package."""
+def _symbol_registry() -> Registry[Any]:
+    """Local import to avoid a module-level dependency on the `datasets` package.
+
+    The import is local; the TYPE is not. `Any` here meant a caller
+    passing a dict, or the wrong registry, failed as an AttributeError
+    deep inside `asof_table_datasets` -- on a path that deletes rows.
+    """
     from yfin.datasets import SYMBOL_DATASETS
 
     return SYMBOL_DATASETS
 
 
 def asof_table_datasets(
-    registry: Any = None,
+    registry: Registry[Any] | None = None,
     gate_table: str = _DEFAULT_GATE,
 ) -> dict[str, list[str]]:
     """As-of table -> names of the datasets that write to it.
@@ -208,7 +218,7 @@ def prune_asof(
     before: date,
     *,
     dry_run: bool = False,
-    registry: Any = None,
+    registry: Registry[Any] | None = None,
     gate_table: str = _DEFAULT_GATE,
     scope_column: str = _DEFAULT_SCOPE_COLUMN,
     collector: ChangeCollector | None = None,

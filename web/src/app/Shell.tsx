@@ -1,34 +1,87 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent } from "react";
-import { useLocation, useNavigate, useParams } from "react-router";
+import type { KeyboardEvent, ReactElement } from "react";
+import { useLocation, useParams } from "react-router";
 import { ApiError, getSymbol } from "../api/client";
-import { DEFAULT_CODE, NO_SYMBOL, commandToPath, parse, ParseKind, pathToCommand, SYMBOL_RE } from "../commands/parser";
+import {
+  DEFAULT_CODE,
+  HOME_CODE,
+  parse,
+  ParseKind,
+  pathToCommand,
+  SYMBOL_RE,
+} from "../commands/parser";
 import { getPanel, isMnemonic, listPanels } from "../commands/registry";
-import type { PanelArgs } from "../commands/types";
+import { Layout } from "../commands/types";
+import type { Command, PanelArgs, PanelSpec } from "../commands/types";
+import { useGo } from "../commands/go";
 import { CommandPalette } from "./CommandPalette";
+import { Strip } from "./Strip";
 import { useGlobalKeys } from "./keys";
 
-export const LAST_KEY = "yfin.ui.last";
+/** The symbol a market page inherits, carried in the history entry.
+ *
+ *  Not in the path, because the page is not about it; not in a store,
+ *  because that would be a second source of truth the URL could disagree
+ *  with. A history entry is exactly the right lifetime: Esc and forward
+ *  restore the symbol that was on the strip at that step, and a link
+ *  someone pastes carries none -- which is what a shared screener should
+ *  carry. */
+interface HistoryContext {
+  symbol?: string | null;
+}
+
+function FnButton(props: {
+  panel: PanelSpec;
+  current: string;
+  symbol: string | null;
+  runnable: boolean;
+  go: (command: Command) => void;
+}): ReactElement {
+  const { panel, current, symbol, runnable, go } = props;
+  return (
+    <button
+      type="button"
+      className={panel.code === current ? "fn fn-active" : "fn"}
+      aria-current={panel.code === current ? "page" : undefined}
+      disabled={!runnable}
+      title={panel.title}
+      onClick={() => go({ symbol, code: panel.code, args: {} })}
+    >
+      {panel.code}
+    </button>
+  );
+}
 
 export function Shell() {
-  const { symbol: rawSymbol = NO_SYMBOL, code: rawCode = DEFAULT_CODE } = useParams();
-  const { search } = useLocation();
-  const navigate = useNavigate();
-  const command = useMemo(() => pathToCommand(rawSymbol, rawCode, search), [rawSymbol, rawCode, search]);
+  // `symbol` is absent on the market routes (`/ui/m/:code`, `/ui`);
+  // present on `/ui/t/:symbol/:code`. Which of the two we are on is
+  // therefore readable from the params alone.
+  const { symbol: rawSymbol, code: rawCode } = useParams();
+  const { search, state } = useLocation();
+  const go = useGo();
+  const market = rawSymbol === undefined;
+  const code = rawCode ?? (market ? HOME_CODE : DEFAULT_CODE);
+  const context = (state as HistoryContext | null)?.symbol ?? null;
+  // The URL is the one input a panel gets that `parseArgs` never saw, so
+  // the panel's own rules are applied to it here -- once, for every
+  // panel, rather than in each panel that remembered to.
+  const command = useMemo(() => {
+    const fromPath = pathToCommand(rawSymbol ?? null, code, search);
+    // A market page still gets the strip's symbol as a prop: `DS` filters
+    // a symbol-scoped dataset to it and `WLA` opens on it. What it does
+    // not get is that symbol in its own address.
+    const withContext = market ? { ...fromPath, symbol: context } : fromPath;
+    const normalize = getPanel(withContext.code)?.normalizeArgs;
+    return normalize === undefined
+      ? withContext
+      : { ...withContext, args: normalize(withContext.args) };
+  }, [rawSymbol, code, search, market, context]);
   const spec = getPanel(command.code);
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState("");
   const [warning, setWarning] = useState<string | null>(null);
   const [palette, setPalette] = useState<{ open: boolean; query: string }>({ open: false, query: "" });
   const pendingRef = useRef<{ code: string; args: PanelArgs } | null>(null);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LAST_KEY, `/ui/t/${rawSymbol}/${rawCode}`);
-    } catch {
-      // Private mode or blocked storage: the redirect just loses its hint.
-    }
-  }, [rawSymbol, rawCode]);
 
   const submit = useCallback(
     async (text: string) => {
@@ -58,9 +111,9 @@ export function Shell() {
       // Hand the keyboard to the panel: while the box keeps focus, j/k/Enter
       // would be typed into it instead of moving a list selection.
       inputRef.current?.blur();
-      void navigate(commandToPath(next));
+      go(next);
     },
-    [command, navigate],
+    [command, go],
   );
 
   // Focus the box once, on mount: the shell owns the keyboard from the
@@ -79,7 +132,7 @@ export function Shell() {
       // no need to re-validate them the way a typed symbol is.
       setWarning(null);
       setDraft("");
-      void navigate(commandToPath({ symbol: text.toUpperCase(), code: pending.code, args: pending.args }));
+      go({ symbol: text.toUpperCase(), code: pending.code, args: pending.args });
       return;
     }
     void submit(text);
@@ -101,12 +154,15 @@ export function Shell() {
   }
 
   const openHelp = useCallback(() => {
-    void navigate(commandToPath({ symbol: command.symbol, code: "HELP", args: {} }));
-  }, [navigate, command.symbol]);
+    go({ symbol: command.symbol, code: "HELP", args: {} });
+  }, [go, command.symbol]);
 
   useGlobalKeys({ inputRef, paletteOpen: palette.open, openHelp });
 
   const hasSymbol = command.symbol !== null;
+  const panels = listPanels();
+  const market_panels = panels.filter((panel) => !panel.needsSymbol);
+  const symbol_panels = panels.filter((panel) => panel.needsSymbol);
 
   let body;
   if (!spec) {
@@ -131,28 +187,35 @@ export function Shell() {
         />
         {warning && <p className="warn">{warning}</p>}
       </header>
+      {/* Two groups, because they are two kinds of page and the URL now
+          says so: a market page has no symbol in its address, a symbol
+          page does. A flat list of 22 codes gave a reader no way to tell
+          which of them a symbol was even relevant to. */}
       <nav className="fnbar" aria-label="functions">
-        {listPanels().map((panel) => {
-          const runnable = !panel.needsSymbol || hasSymbol;
-          return (
-            <button
-              key={panel.code}
-              type="button"
-              className={panel.code === command.code ? "fn fn-active" : "fn"}
-              aria-current={panel.code === command.code ? "page" : undefined}
-              disabled={!runnable}
-              title={panel.title}
-              onClick={() => void navigate(commandToPath({ symbol: command.symbol, code: panel.code, args: {} }))}
-            >
-              {panel.code}
-            </button>
-          );
-        })}
+        <span className="fn-group">Market</span>
+        {market_panels.map((panel) => (
+          <FnButton key={panel.code} panel={panel} current={command.code} go={go} symbol={command.symbol} runnable />
+        ))}
+        <span className="fn-group">
+          {command.symbol === null ? "This symbol" : command.symbol}
+        </span>
+        {symbol_panels.map((panel) => (
+          <FnButton
+            key={panel.code}
+            panel={panel}
+            current={command.code}
+            go={go}
+            symbol={command.symbol}
+            runnable={hasSymbol}
+          />
+        ))}
       </nav>
-      {hasSymbol && (
-        <div className="strip">
-          <span className="strip-symbol">{command.symbol}</span>
-        </div>
+      {hasSymbol && command.symbol !== null && (
+        // `headed` is what turns the strip live. A `single` panel gets
+        // the symbol and nothing else, so opening a statement or a
+        // filing list does not hold a subscription for a price nobody is
+        // looking at.
+        <Strip symbol={command.symbol} live={spec?.layout === Layout.Headed} />
       )}
       <main className="panel">{body}</main>
       <footer className="credits" aria-label="credits">

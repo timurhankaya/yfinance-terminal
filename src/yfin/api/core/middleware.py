@@ -22,7 +22,7 @@ from collections.abc import Awaitable, Callable
 
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
+from starlette.requests import HTTPConnection, Request
 from starlette.responses import Response
 
 from yfin.api.core.config import ApiSettings
@@ -64,12 +64,17 @@ def _is_trusted(
 
 
 def resolve_client_ip(
-    request: Request, nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network]
+    request: HTTPConnection, nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network]
 ) -> str:
     """The address rate limits and logs are keyed on.
 
     With no trusted networks configured the forwarded header is ignored
     outright -- an unconfigured deployment must not be a bypass.
+
+    Typed as `HTTPConnection`, the base of both `Request` and
+    `WebSocket`, because `/ui/ws` keys its connection limit on the same
+    address: a socket is exactly as forgeable as a request and must not
+    be the one surface that reads the forwarded header naively.
     """
     peer = request.client.host if request.client else _UNKNOWN_IP
     if not nets or not _is_trusted(peer, nets):
@@ -86,7 +91,30 @@ def resolve_client_ip(
     return peer
 
 
-class RequestContextMiddleware(BaseHTTPMiddleware):
+class SettingsMiddleware(BaseHTTPMiddleware):
+    """A `BaseHTTPMiddleware` that is constructed with `ApiSettings`.
+
+    The whole of it is the constructor, and the constructor exists for
+    the annotation on `app`. Starlette types the parameter as its own
+    `ASGIApp` alias, but `add_middleware` hands over whatever the
+    previous layer is, so every subclass had to widen it to
+    `Callable[..., object]` and suppress the resulting mismatch. That
+    suppression was written out twice, identically, with no reason
+    attached; here it is written once, with the reason.
+
+    Subclasses resolve their own configuration in `__init__` and keep it,
+    so nothing reads `ApiSettings` per request.
+    """
+
+    def __init__(self, app: Callable[..., object], settings: ApiSettings) -> None:
+        # `app` is deliberately wider than Starlette's `ASGIApp` alias:
+        # the middleware stack passes an already-wrapped callable, and
+        # narrowing it here would be a lie that only mypy believes.
+        super().__init__(app)  # type: ignore[arg-type]
+        self.settings = settings
+
+
+class RequestContextMiddleware(SettingsMiddleware):
     """Assigns a request id, binds log context, times the request.
 
     The log line carries the route *template*, never the query string: a
@@ -95,7 +123,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
     """
 
     def __init__(self, app: Callable[..., object], settings: ApiSettings) -> None:
-        super().__init__(app)  # type: ignore[arg-type]
+        super().__init__(app, settings)
         self._nets = trusted_networks(settings)
 
     async def dispatch(

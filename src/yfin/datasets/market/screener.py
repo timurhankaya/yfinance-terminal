@@ -32,7 +32,7 @@ from yfin.datasets.common import (
 )
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.hash_gated import HashGate
-from yfin.datasets.market.base import GlobalDataset, MarketContext
+from yfin.datasets.market.base import GlobalDataset, MarketContext, MarketScope
 from yfin.datasets.registry import register_market
 from yfin.datasets.symbol_discovery import (
     dict_items,
@@ -173,7 +173,7 @@ def _fetch_page(
 
 class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
     name = "screener"
-    scope = "variant"
+    scope = MarketScope.VARIANT
     produces = (
         "screens",
         "symbols",

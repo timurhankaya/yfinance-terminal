@@ -29,11 +29,17 @@ class Registrable(Protocol):
     declare two and reach for the other two with `getattr(ds, ..., ())`,
     on the argument that market and domain datasets were registrable
     without being exposable. That stopped being true: five of seven market
-    datasets and four of five domain ones declare `api`. What the
-    reflective read bought was a typo that compiled -- `apis = (...)`
-    instead of `api = (...)` created a new attribute, passed mypy, skipped
-    `validate()` entirely and left the resource out of the catalogue with
-    nothing anywhere to say why.
+    datasets and four of five domain ones declare `api`.
+
+    Declaring them buys one thing, and it is worth being exact about
+    which: every reader now names the field, so the catalogue builder can
+    be read without knowing which datasets happen to carry it. It does
+    NOT catch a misspelled declaration. `api` has a class-level default of
+    `()` on all three bases, so `apis = (...)` still resolves `ds.api` to
+    `()` and still leaves the resource out of the catalogue silently --
+    extra class attributes are not a mypy error. Closing that would take
+    an `__init_subclass__` check on the bases; until one exists, this
+    protocol should not be read as promising it.
     """
 
     name: str

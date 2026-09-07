@@ -474,3 +474,88 @@ the smallest. A design that opens one connection per exchange would run
 a 5-symbol connection side by side with a 698-symbol connection. The
 exchange count (9) being close to the connection ceiling is also a
 coincidence, and it changes as the universe grows.
+
+## Browser fan-out: commit → screen
+
+**Not yet measured.** The spec makes this the gate on one open design
+question, so it is written down rather than assumed.
+
+**The question.** The publisher sends N `PUBLISH` commands in one
+pipeline, one per accepted tick (`stream/publish.py`). The alternative is
+one message per SYMBOL carrying an array of that symbol's ticks in the
+batch. At 500 rows a batch and a universe where most symbols tick once
+per batch, the two are nearly the same; the array form only wins where a
+few symbols dominate a batch. Which is true here is a measurement, and
+until it exists the simpler form stands.
+
+**What to measure.** End-to-end latency for one symbol, from
+`session.commit()` returning in the writer to the tick being applied in
+the browser store, p50 and p99. The path has four hops worth separating:
+
+1. commit → `pipeline.execute()` returning (the publisher's own cost),
+2. Redis → the API's `get_message` (`BUS_POLL_SECONDS` bounds this at
+   200 ms in the worst case, and it is the term most likely to dominate),
+3. the API's queue → `send_json` (the sender task),
+4. `onmessage` → the `requestAnimationFrame` flush (one frame, ~16 ms).
+
+**Method.** `t` is already in the body and is Yahoo's timestamp, not
+ours, so it cannot measure any of this. Add a temporary field carrying
+`time.time_ns()` at publish, read `performance.timeOrigin + performance.now()`
+at the rAF flush, and take the difference; the clock is the same machine
+in a single-host run, which is the setup this is for. A hundred ticks of
+a liquid symbol during the regular session is enough for p99.
+
+**When.** Needs an open equity market: pre-market equities do not stream
+at all (measured above), so a run outside 13:30–20:00 UTC on a weekday
+measures nothing. `BTC-USD` streams 24/7 and is the fallback, with the
+caveat that one symbol's cadence is not a busy batch.
+
+**What the result decides.** If hop 2 dominates, `BUS_POLL_SECONDS` comes
+down or the reader moves to `listen()` with a separate connection for
+subscribe. If hop 1 dominates at a realistic batch size, the per-symbol
+array form is worth the second code path.
+
+## Browser store at watchlist size — 2026-09-08
+
+The gate the spec puts on `WLA`: a watchlist subscribes to 100+ symbols
+at once, and nobody had measured what that costs the page. Measured with
+`npx vitest bench src/live/store.bench.ts` (Node 22, vitest 4, jsdom,
+Apple silicon), driving `handleFrame` and forcing the flush the way a
+paint would.
+
+The input rate is the measured stream's, not a guess: Yahoo sends one
+snapshot per second per symbol rather than a message per trade (see
+"Nature of the stream" above), so a 200-symbol watchlist is ~200 frames
+a second and one paint at 60 Hz covers a fraction of a round per symbol.
+What matters is therefore the cost of ONE flush holding a whole round.
+
+| Watchlist | mean | p75 | p99 | ops/s |
+|---|---|---|---|---|
+| 1 symbol | 0.0001 ms | 0.0001 ms | 0.0003 ms | 8,423,000 |
+| 20 symbols | 0.0024 ms | 0.0016 ms | 0.0046 ms | 424,000 |
+| 100 symbols | 0.0095 ms | 0.0074 ms | 0.0235 ms | 105,000 |
+| 200 symbols | 0.0237 ms | 0.0171 ms | 0.0647 ms | 42,000 |
+| 200 symbols, 5 updates each, one flush | 0.1841 ms | 0.1086 ms | 4.03 ms | 5,400 |
+| 200 symbols with the tape on one of them | 0.0253 ms | 0.0195 ms | 0.0614 ms | 39,500 |
+
+**Result: the store is not the constraint.** A frame at 60 Hz has 16.7 ms
+and 200 symbols cost 0.024 ms of it — 0.14 %. The scaling is linear
+(1 → 200 symbols is 199x, against 200x of work), so there is no
+superlinear term waiting at a larger size. The tape costs nothing extra:
+it is one symbol's ring, not every symbol's.
+
+**What the numbers do NOT cover, and why it is covered elsewhere.** The
+cost that would actually sink a watchlist is React, not the store: if
+every subscriber re-rendered on every tick, 200 symbols at one update a
+second would be 40,000 renders a second. That is a property, not a
+timing, so it is asserted in `web/src/live/hooks.test.tsx` instead --
+200 mounted rows, one symbol ticks, exactly one row re-renders; and a
+whole round of 200 updates is one render each rather than 200.
+
+**Server side, not measured and not needed.** 200 channels on one
+`redis.asyncio` pub/sub is the same code path as two, and
+`MAX_SYMBOLS` (200) already bounds a connection. The term that could
+dominate end to end is `BUS_POLL_SECONDS`, and that belongs to the
+commit → screen measurement above, which is still open.
+
+**So `WLA` is unblocked** as far as this gate goes.

@@ -93,6 +93,34 @@ describe("N", () => {
     expect(seen.at(-1)).toBe("/ui/api/symbols/AAPL/news?limit=200");
   });
 
+  it("keeps the open article and the selection across a Load more", async () => {
+    // Growing the page changes the load's key. If that went through
+    // `Loading`, the list would unmount: the article the reader was
+    // reading closes and the selection jumps back to row 0.
+    const many = Array.from({ length: 200 }, (_, i) => ({
+      ...articles[0]!,
+      news_id: `n${i}`,
+      title: `Story ${i}`,
+      summary: `Summary ${i}`,
+    }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const limit = Number(/limit=(\d+)/.exec(String(input))?.[1] ?? "50");
+      return json(200, { data: many.slice(0, limit), next_cursor: null, as_of: null });
+    });
+    render(<N symbol="AAPL" args={{}} />);
+    await screen.findByText("Story 49");
+    await userEvent.click(screen.getByText("Story 2"));
+    expect(screen.getByText("Summary 2")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+    // Still open, still selected, while the bigger page is in flight and
+    // after it lands.
+    expect(screen.getByText("Summary 2")).toBeInTheDocument();
+    expect(await screen.findByText("Story 99")).toBeInTheDocument();
+    expect(screen.getByText("Summary 2")).toBeInTheDocument();
+    expect(screen.getByRole("option", { selected: true }).textContent).toContain("Story 2");
+  });
+
   it("shows an empty card when there is no news", async () => {
     renderN([]);
     expect(await screen.findByText("No news for this symbol.")).toBeInTheDocument();

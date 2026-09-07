@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { NEWS_MAX, NEWS_PAGE, getNews, type NewsItem } from "../api/client";
 import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
-import { EmptyCard, ErrorCard, LoadState, MissingCard, useListKeys, usePanelData } from "./common";
+import { EmptyCard, ErrorCard, LoadState, MissingCard, useKeptData, useListKeys, usePanelData } from "./common";
+import { isHttpUrl } from "./format";
 
 function when(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
-}
-
-function isHttpUrl(value: string | null): value is string {
-  return value !== null && /^https?:\/\//i.test(value);
 }
 
 function Detail({ article }: { article: NewsItem }) {
@@ -50,12 +47,22 @@ function NewsList({ rows, onLoadMore }: { rows: NewsItem[]; onLoadMore: (() => v
 
   return (
     <div className="split">
-      <ul className="list split-list" role="listbox" aria-label="news" ref={listRef}>
+      {/* Focusable, with the active option named: the j/k/Enter model
+          lives on a window listener, so without these the whole keyboard
+          interaction is unreachable by Tab and invisible to a reader. */}
+      <ul
+        className="list split-list"
+        role="listbox"
+        aria-label="news"
+        ref={listRef}
+        tabIndex={0}
+        aria-activedescendant={rows.length > 0 ? `n-article-${selected}` : undefined}
+      >
         {rows.map((row, index) => (
           <li
             key={row.news_id}
+            id={`n-article-${index}`}
             role="option"
-            tabIndex={-1}
             className={index === selected ? "list-row row-selected" : "list-row"}
             aria-selected={index === selected}
             onClick={() => {
@@ -93,13 +100,18 @@ export function N({ symbol }: PanelProps) {
     () => (symbol === null ? Promise.reject(new Error("no symbol")) : getNews(symbol, limit)),
     (rows) => rows.length === 0,
   );
+  // "Load more" grows the page, which changes the load's key -- and a
+  // plain `Loading` there would unmount `NewsList`, closing the article
+  // the reader was reading and dropping the selection back to row 0. The
+  // symbol alone is the identity, so only a new symbol clears the list.
+  const rows = useKeptData(symbol ?? "", state);
   if (symbol === null) return null;
-  if (state.kind === LoadState.Loading) return <p className="muted">Loading {symbol}…</p>;
   if (state.kind === LoadState.Missing) return <MissingCard symbol={symbol} />;
   if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
   if (state.kind === LoadState.Empty) return <EmptyCard what="news" />;
-  const more = state.data.length >= limit && limit < NEWS_MAX;
-  return <NewsList rows={state.data} onLoadMore={more ? () => setLimit(Math.min(NEWS_MAX, limit + NEWS_PAGE)) : null} />;
+  if (rows === null) return <p className="muted">Loading {symbol}…</p>;
+  const more = rows.length >= limit && limit < NEWS_MAX;
+  return <NewsList rows={rows} onLoadMore={more ? () => setLimit(Math.min(NEWS_MAX, limit + NEWS_PAGE)) : null} />;
 }
 
 export const N_PANEL: PanelSpec = {

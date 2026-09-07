@@ -146,7 +146,7 @@ def market_sync(
     configure_logging(settings.log_level, settings.log_format)
     engine = create_db_engine(settings)
 
-    selected = MARKET_DATASETS.resolve(None if datasets.strip() == "all" else comma_list(datasets))
+    selected = MARKET_DATASETS.resolve(comma_list(datasets))
     # `_parse_day` gives a meaningful message + exit 1 on an invalid date. A raw
     # strptime ValueError would fall through to main()'s generic handler and
     # show the user "unexpected error" -- `sync` already did this correctly.

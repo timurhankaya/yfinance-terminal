@@ -2,16 +2,17 @@
 // follow top to bottom: what to type, every function with its usage,
 // every shortcut, and how tables and links behave. The function list is
 // read from the registry so it can never drift from what is installed.
-import { useNavigate } from "react-router";
-import { commandToPath } from "../commands/parser";
+import { useGo } from "../commands/go";
 import { listPanels } from "../commands/registry";
 import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
 
 //: Functions in reading order, grouped. A registered code not named
 //: here still shows, under "Other".
 const GROUPS: ReadonlyArray<[title: string, codes: string[]]> = [
-  ["About one symbol", ["DES", "FA", "ANR", "N", "CF", "CA", "PX", "HDS", "ERN", "FUND", "REF"]],
-  ["Market-wide", ["CAL", "MKT", "SCR", "SRCH", "DOM"]],
+  ["About one symbol (these live under /ui/t/SYMBOL/)", ["DES", "FA", "ANR", "N", "CF", "CA", "PX", "HDS", "ERN", "FUND", "REF"]],
+  ["Charts and the tape", ["GP", "GIP", "QR"]],
+  ["Several symbols at once", ["WLA"]],
+  ["Market-wide (no symbol; these live under /ui/m/)", ["HOME", "EQS", "CAL", "MKT", "SCR", "SRCH", "DOM"]],
   ["Everything in the archive", ["DS"]],
   ["This page", ["HELP"]],
 ];
@@ -23,7 +24,15 @@ const EXAMPLES: ReadonlyArray<[command: string, what: string]> = [
   ["MSFT N", "Symbol and function in one line: Microsoft's news."],
   ["HDS trades", "Holders panel, opened on the insider-transactions tab."],
   ["PX 5m 100", "The newest 100 five-minute bars as a table."],
+  ["GP", "Daily candles for the symbol on the strip: two years, with dividends and splits marked."],
+  ["GP 5", "The same chart over five years."],
+  ["AAPL GIP 5m", "Five-minute candles for the last few sessions, with the archive's gaps shaded."],
+  ["QR", "Time and sales: the last few hundred ticks, then live as they arrive."],
   ["CAL economic region=US", "A market-wide panel with a tab and a filter."],
+  ["WLA AAPL MSFT NVDA", "A live watchlist. The list is the URL, so it is shareable."],
+  ["EQS", "Every screen this deployment runs; Enter opens one."],
+  ["EQS day_gainers", "What that screen matched today, in its own order; Enter opens a symbol."],
+  ["EQS day_gainers runs", "That screen's history: how big the roster was each day, and why."],
   ["DS", "The catalogue: every dataset the archive holds, by family."],
   ["DS earnings_calendar", "Any dataset by name, filtered to the strip's symbol when it has one."],
   ["CF DES", "CF Industries' description: two function codes in a row mean the first is a symbol."],
@@ -44,7 +53,7 @@ const SHORTCUTS: ReadonlyArray<[keys: string, where: string, what: string]> = [
 ];
 
 function FunctionRow({ panel, symbol }: { panel: PanelSpec; symbol: string | null }) {
-  const navigate = useNavigate();
+  const go = useGo();
   const runnable = !panel.needsSymbol || symbol !== null;
   return (
     <li className="list-row">
@@ -52,7 +61,7 @@ function FunctionRow({ panel, symbol }: { panel: PanelSpec; symbol: string | nul
         type="button"
         className="help-fn"
         disabled={!runnable}
-        onClick={() => void navigate(commandToPath({ symbol, code: panel.code, args: {} }))}
+        onClick={() => go(({ symbol, code: panel.code, args: {} }))}
       >
         {panel.code}
       </button>{" "}

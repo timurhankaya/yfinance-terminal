@@ -19,12 +19,15 @@ from yfin.core.config import (
     Settings,
 )
 
-# Numbers are a 2026-09-07 snapshot (the live stream added 17 fields in the
-# new `stream` group) and the mechanism does not depend on them; they are
-# kept so that adding a field forces this file to be read.
-SNAPSHOT_TOTAL = 81
-SNAPSHOT_ENV_ONLY = 10
-SNAPSHOT_DB_MANAGED = 71
+# Numbers are a 2026-09-08 snapshot and the mechanism does not depend on
+# them; they are kept so that adding a field forces this file to be read.
+# The live stream added 17 fields in the `stream` group on 2026-09-07; the
+# browser publish path added two more on 2026-09-08, and they went to
+# DIFFERENT sides -- the switch is DB-managed, the Redis URL is env-only
+# because it carries a credential.
+SNAPSHOT_TOTAL = 83
+SNAPSHOT_ENV_ONLY = 11
+SNAPSHOT_DB_MANAGED = 72
 
 SECRET_NAME_RE = re.compile(r"secret|password|token|credential")
 
