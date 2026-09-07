@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from fastapi import Request, Response, Security
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from yfin.api.auth.dependencies import Principal, current_principal
+from yfin.api.auth.dependencies import UI_CLIENT_ID, UI_PAGE_CAP, Principal, current_principal
 from yfin.api.core.config import ApiSettings
 from yfin.api.core.errors import (
     TYPE_CONCURRENCY,
@@ -83,6 +83,13 @@ def meter(
     generically is metered exactly like one served by a hand-written
     endpoint.
     """
+    if principal.client_id == UI_CLIENT_ID:
+        # The operator's own browser: no plan row, no counters, no slot.
+        # `request.state.limits` is deliberately NOT set, which is what
+        # keeps UsageMiddleware and attribute_family out of the way.
+        request.state.page_size_cap = UI_PAGE_CAP
+        return
+
     settings: ApiSettings = request.app.state.api_settings
     limits = policy.limits_for_client(principal.client_id)
     billed = family.value if isinstance(family, DataFamily) else family

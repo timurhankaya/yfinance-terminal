@@ -42,6 +42,7 @@ from yfin.api.core.errors import (
 from yfin.api.models.clients import ApiScope
 from yfin.api.ratelimit.connection import get_redis
 from yfin.api.ratelimit.revocation import disabled_key, epoch_key, revoked_secret_key
+from yfin.core.families import DataFamily, scope_for
 from yfin.core.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -71,6 +72,14 @@ oauth2_scheme = OAuth2(
     ),
     auto_error=False,
 )
+
+
+#: The web terminal's principal. Not a row in `api_clients`, never
+#: metered (see `ratelimit/dependencies.meter`), and it holds every read
+#: scope: the single operator behind the UI owns the data.
+UI_CLIENT_ID = "ui"
+UI_PAGE_CAP = 1000
+UI_SCOPES = frozenset(scope_for(f) for f in DataFamily)
 
 
 @dataclass(frozen=True)
@@ -148,6 +157,32 @@ def _revocation_state(settings: ApiSettings, claims: TokenClaims) -> tuple[bool,
     return disabled is not None, int(epoch) if epoch is not None else None
 
 
+def _from_session_cookie(
+    request: Request, settings: ApiSettings, security_scopes: SecurityScopes
+) -> Principal | None:
+    """The UI's cookie, when the UI is on. Imported lazily: a deployment
+    with the UI off never loads `yfin.ui`."""
+    if not settings.ui_enabled:
+        return None
+    from yfin.ui import session as ui_session
+
+    raw = request.cookies.get(ui_session.COOKIE_NAME)
+    if not raw:
+        return None
+    try:
+        claims = ui_session.verify(settings, raw)
+    except ui_session.SessionInvalid as exc:
+        raise _invalid_token() from exc
+
+    for required in security_scopes.scopes:
+        if required not in UI_SCOPES:  # pragma: no cover - every read scope is held
+            raise insufficient_scope(required)
+
+    request.state.client_id = UI_CLIENT_ID
+    request.state.jti = claims.jti
+    return Principal(client_id=UI_CLIENT_ID, scopes=UI_SCOPES, jti=claims.jti)
+
+
 def current_principal(
     request: Request,
     security_scopes: SecurityScopes,
@@ -156,7 +191,13 @@ def current_principal(
     settings: ApiSettings = request.app.state.api_settings
 
     if not header:
-        raise _unauthenticated()
+        # A header, even a bad one, is evaluated alone; the cookie is only
+        # consulted when there is no header at all. Otherwise a client
+        # holding an expired token and a stray cookie would be promoted.
+        principal = _from_session_cookie(request, settings, security_scopes)
+        if principal is None:
+            raise _unauthenticated()
+        return principal
     if not header.lower().startswith(BEARER_PREFIX):
         raise _invalid_token()
 
