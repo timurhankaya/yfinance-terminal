@@ -21,6 +21,7 @@ from sqlalchemy.exc import OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from yfin.core.logging_setup import get_logger
+from yfin.core.metrics import inc
 
 log = get_logger(__name__)
 
@@ -135,6 +136,13 @@ def problem_response(
     detail: str | None = None,
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
+    # Before the OAuth branch, not after: the label set is `ALL_TYPES`, and
+    # an error that left through the token endpoint's own shape is still an
+    # error the dashboard has to see. This is the one function every refusal
+    # passes through, which is why the counter is here and not at each of
+    # the two dozen `raise ApiProblem` sites.
+    inc("yfin_api_problems_total", type=problem_type)
+
     if request.url.path == TOKEN_ENDPOINT_PATH:
         # The token endpoint's own code answers in the RFC 6749 shape, but
         # the generic handlers registered below do not know that. Without

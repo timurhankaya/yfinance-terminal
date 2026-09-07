@@ -117,6 +117,51 @@ _PROCESS_METRICS: dict[str, MetricSpec] = _declare(
 )
 
 
+#: What a long-lived SERVICE counts about the work it does.
+#:
+#: Real Prometheus counters, incremented where the decision is made. They
+#: are not in `_SHARD_COUNTERS` because nothing here runs in a process that
+#: exits before a scrape: the API, `stream run` and the two relays are all
+#: scraped where they stand.
+_SERVICE_COUNTERS: dict[str, MetricSpec] = _declare(
+    MetricSpec(
+        name="yfin_api_ratelimit_decisions_total",
+        documentation=(
+            "Metering decisions: `allowed`, refused on `rate`, refused on `quota`. "
+            "The Lua script's 0/1/2 mapped to words at the metering point."
+        ),
+        kind="counter",
+        labelnames=("reason",),
+    ),
+    MetricSpec(
+        name="yfin_api_concurrency_rejections_total",
+        documentation="Requests refused because the plan's in-flight limit was full.",
+        kind="counter",
+    ),
+    MetricSpec(
+        name="yfin_api_redis_failopen_total",
+        documentation=(
+            "Times the counter store was unreachable and the request was let "
+            "through unmetered, by which layer gave up."
+        ),
+        kind="counter",
+        labelnames=("where",),
+    ),
+    MetricSpec(
+        name="yfin_api_problems_total",
+        documentation="Problem documents returned, by their `type` URN.",
+        kind="counter",
+        labelnames=("type",),
+    ),
+    MetricSpec(
+        name="yfin_cache_ops_total",
+        documentation="In-process cache hits and misses in a long-lived service.",
+        kind="counter",
+        labelnames=("cache", "result"),
+    ),
+)
+
+
 #: What a sync SHARD accumulates in memory and flushes into `run_metrics`.
 #:
 #: Every one of these is republished by the exporter as a gauge -- see
@@ -447,6 +492,7 @@ _EXPORTER_GAUGES: dict[str, MetricSpec] = _declare(
 #: name is ever registered twice with two different label sets.
 METRICS: dict[str, MetricSpec] = {
     **_PROCESS_METRICS,
+    **_SERVICE_COUNTERS,
     **_SHARD_COUNTERS,
     **_republished(_SHARD_COUNTERS),
     **_EXPORTER_GAUGES,

@@ -1018,3 +1018,38 @@ While implementing step 7 (logging):
 - **A missing span adds nothing, not zeros.** An all-zero id is what
   OpenTelemetry returns for the invalid span, and Grafana's
   `derivedFields` would turn it into a link to a trace that does not exist.
+
+While implementing step 8 (the API):
+
+- **The instrumentator is built by `build_instrumentator(registry=None)`,
+  separate from installing it.** Not decoration: on a duplicate metric
+  registration `prometheus-fastapi-instrumentator` returns `None` from its
+  metric factory and attaches NO instrumentation, so the SECOND app built
+  in one process serves a `/metrics` that never moves. Production has one
+  app per process and is unaffected; a test suite builds dozens, and
+  against the default registry every assertion about the series would pass
+  or fail on collection order. The split lets a test point the same four
+  parameters at its own registry and actually observe what they do.
+- **Two windows, not one.** `api/core/window.py` keeps a FixedWindow PER
+  ENDPOINT NAME rather than one shared instance. A Prometheus scraping
+  every fifteen seconds is four requests a minute; sharing a bucket with
+  `/health/ready` would let the scrape spend a Kubernetes probe's
+  allowance, and the two failures would be indistinguishable.
+- **`yfin_api_problems_total` is incremented BEFORE the token-endpoint
+  branch** in `problem_response`. An error that leaves in the RFC 6749
+  shape is still an error the dashboard has to see, and counting after the
+  branch would make `/oauth/token` the one path whose failures are
+  invisible.
+- **The fail-open counter is incremented alongside the decision, not
+  instead of it.** A request the limiter let through because Redis was
+  gone is counted as `reason="allowed"` AND as
+  `where="limiter"`: it really was allowed, and the second counter is what
+  says the first one cannot be trusted for that minute.
+- **`_is_noise` skips `/health` by prefix and `/metrics` exactly.** The
+  request-log skip is a prefix match on `/health/` plus two literals rather
+  than a blanket `startswith`, so a future `/healthcheck-report` would be
+  logged like any other route.
+- **`prometheus-fastapi-instrumentator` is in the `[api]` extra**, floored
+  at 8.1.0 rather than pinned: unlike `prometheus-client`, it does not
+  decide anything at import time, and the thing worth pinning exactly is
+  the library whose value class the whole process inherits.

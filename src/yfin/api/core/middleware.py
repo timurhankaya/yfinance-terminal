@@ -113,6 +113,10 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             structlog.contextvars.unbind_contextvars("request_id")
 
         route = request.scope.get("route")
+        if _is_noise(request.url.path):
+            response.headers["X-Request-Id"] = request_id
+            return response
+
         log.info(
             "request",
             request_id=request_id,
@@ -124,6 +128,27 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         )
         response.headers["X-Request-Id"] = request_id
         return response
+
+
+#: Paths whose requests are not logged. At a fifteen-second scrape and a
+#: ten-second probe, these would be 14,000 lines a day saying nothing, and
+#: they would be 14,000 lines a day in Loki's retention window making the
+#: lines that DO say something harder to find.
+#:
+#: The request id header is still set, and a failure on either path is
+#: still visible -- as a metric, and as the alert on the scrape going away.
+_UNLOGGED = ("/metrics", "/health")
+
+
+def _is_noise(path: str) -> bool:
+    """`/health`, `/health/ready` and `/metrics`; nothing else by prefix.
+
+    `/health` matches its sub-paths on purpose and `/metrics` has none.
+    A route like `/healthcheck-report` would not exist here, and if one
+    ever did, being unlogged is the failure this comment exists to make
+    visible in review.
+    """
+    return path in _UNLOGGED or path.startswith("/health/")
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
