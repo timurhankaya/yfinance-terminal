@@ -112,6 +112,23 @@ describe("endpoints", () => {
     expect(secondUrl).toContain("cursor=page2");
   });
 
+  it("getFinancials stops after exactly 5 fetches when next_cursor never runs out", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      const pageNum = /cursor=page(\d)/.exec(url)?.[1] ?? "0";
+      return Promise.resolve(
+        respond(200, {
+          data: [{ period_end: `2024-0${pageNum}-01`, item_key: "revenue", value: pageNum, currency: "USD" }],
+          next_cursor: `page${Number(pageNum) + 1}`,
+        }),
+      );
+    });
+    const rows = await getFinancials("aapl", "income", "quarterly");
+    expect(spy).toHaveBeenCalledTimes(5);
+    expect(rows).toHaveLength(5);
+    expect(rows.map((r) => r.value)).toEqual(["0", "1", "2", "3", "4"]);
+  });
+
   it("getDataset carries symbol, limit and extra params in the query", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond(200, { data: [], next_cursor: null }));
     await getDataset("recommendations", "aapl", { filing_type: "10-K" });
@@ -119,5 +136,16 @@ describe("endpoints", () => {
     expect(url).toContain("symbol=AAPL");
     expect(url).toContain("limit=200");
     expect(url).toContain("filing_type=10-K");
+  });
+
+  it("getDataset's symbol and limit always win over caller-supplied params of the same name", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond(200, { data: [], next_cursor: null }));
+    await getDataset("recommendations", "aapl", { symbol: "msft", limit: "5", filing_type: "10-K" });
+    const url = spy.mock.calls[0]![0] as string;
+    expect(url).toContain("symbol=AAPL");
+    expect(url).toContain("limit=200");
+    expect(url).toContain("filing_type=10-K");
+    expect(url).not.toContain("symbol=MSFT");
+    expect(url).not.toContain("limit=5");
   });
 });

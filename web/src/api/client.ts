@@ -123,6 +123,8 @@ export async function searchSymbols(prefix: string): Promise<SymbolSummary[]> {
 }
 
 const FINANCIALS_PAGE = 1000;
+// Safety bound only: 5 pages of 1000 rows (5000 rows) is far above any real
+// statement's row count. A page beyond this cap is silently not fetched.
 const FINANCIALS_MAX_PAGES = 5;
 
 export async function getFinancials(symbol: string, statement: string, freq: string): Promise<FinancialFact[]> {
@@ -143,7 +145,7 @@ export async function getFinancials(symbol: string, statement: string, freq: str
 export async function getDataset(
   name: string, symbol: string, params: Record<string, string> = {},
 ): Promise<Record<string, unknown>[]> {
-  const search = new URLSearchParams({ symbol: symbol.trim().toUpperCase(), limit: "200", ...params });
+  const search = new URLSearchParams({ ...params, symbol: symbol.trim().toUpperCase(), limit: "200" });
   const page = await apiFetch<Page<Record<string, unknown>>>(`/v1/datasets/${name}?${search}`);
   return page.data;
 }
