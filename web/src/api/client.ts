@@ -82,3 +82,74 @@ export async function getSymbol(symbol: string): Promise<SymbolDetail> {
   const envelope = await apiFetch<{ data: SymbolDetail }>(`/v1/symbols/${code}`);
   return envelope.data;
 }
+
+export interface SymbolSummary {
+  symbol: string;
+  short_name: string | null;
+  long_name: string | null;
+  exchange: string | null;
+  quote_type: string | null;
+}
+
+export interface FinancialFact {
+  period_end: string;
+  item_key: string;
+  value: string;
+  currency: string | null;
+}
+
+export interface NewsItem {
+  news_id: string;
+  title: string;
+  summary: string | null;
+  pub_date: string;
+  provider_name: string | null;
+  link: string | null;
+  thumbnail_url: string | null;
+}
+
+interface Page<T> {
+  data: T[];
+  next_cursor: string | null;
+}
+
+export const SEARCH_MIN_PREFIX = 2;
+
+export async function searchSymbols(prefix: string): Promise<SymbolSummary[]> {
+  const q = prefix.trim().toUpperCase();
+  if (q.length < SEARCH_MIN_PREFIX) return [];
+  const page = await apiFetch<Page<SymbolSummary>>(`/v1/symbols?q=${encodeURIComponent(q)}&limit=20`);
+  return page.data;
+}
+
+const FINANCIALS_PAGE = 1000;
+const FINANCIALS_MAX_PAGES = 5;
+
+export async function getFinancials(symbol: string, statement: string, freq: string): Promise<FinancialFact[]> {
+  const code = encodeURIComponent(symbol.trim().toUpperCase());
+  const base = `/v1/symbols/${code}/financials?statement=${statement}&freq=${freq}&limit=${FINANCIALS_PAGE}`;
+  const rows: FinancialFact[] = [];
+  let cursor: string | null = null;
+  for (let i = 0; i < FINANCIALS_MAX_PAGES; i += 1) {
+    const url: string = cursor ? `${base}&cursor=${encodeURIComponent(cursor)}` : base;
+    const page: Page<FinancialFact> = await apiFetch<Page<FinancialFact>>(url);
+    rows.push(...page.data);
+    cursor = page.next_cursor;
+    if (!cursor) break;
+  }
+  return rows;
+}
+
+export async function getDataset(
+  name: string, symbol: string, params: Record<string, string> = {},
+): Promise<Record<string, unknown>[]> {
+  const search = new URLSearchParams({ symbol: symbol.trim().toUpperCase(), limit: "200", ...params });
+  const page = await apiFetch<Page<Record<string, unknown>>>(`/v1/datasets/${name}?${search}`);
+  return page.data;
+}
+
+export async function getNews(symbol: string): Promise<NewsItem[]> {
+  const code = encodeURIComponent(symbol.trim().toUpperCase());
+  const page = await apiFetch<Page<NewsItem>>(`/ui/api/symbols/${code}/news`);
+  return page.data;
+}

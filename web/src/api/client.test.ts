@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, UnauthorizedError, apiFetch, getMe, getSymbol, login } from "./client";
+import {
+  ApiError,
+  UnauthorizedError,
+  apiFetch,
+  getDataset,
+  getFinancials,
+  getMe,
+  getSymbol,
+  login,
+  searchSymbols,
+} from "./client";
 
 const PW = "hunter2";
 
@@ -72,5 +82,42 @@ describe("endpoints", () => {
     const detail = await getSymbol("aapl");
     expect(spy.mock.calls[0]![0]).toBe("/v1/symbols/AAPL");
     expect(detail.symbol).toBe("AAPL");
+  });
+
+  it("searchSymbols skips the fetch entirely for a too-short prefix", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(searchSymbols("a")).resolves.toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("getFinancials follows next_cursor and concatenates the pages", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        respond(200, {
+          data: [{ period_end: "2024-01-01", item_key: "revenue", value: "1", currency: "USD" }],
+          next_cursor: "page2",
+        }),
+      )
+      .mockResolvedValueOnce(
+        respond(200, {
+          data: [{ period_end: "2024-04-01", item_key: "revenue", value: "2", currency: "USD" }],
+          next_cursor: null,
+        }),
+      );
+    const rows = await getFinancials("aapl", "income", "quarterly");
+    expect(rows).toHaveLength(2);
+    expect(rows[1]?.value).toBe("2");
+    const secondUrl = spy.mock.calls[1]![0] as string;
+    expect(secondUrl).toContain("cursor=page2");
+  });
+
+  it("getDataset carries symbol, limit and extra params in the query", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond(200, { data: [], next_cursor: null }));
+    await getDataset("recommendations", "aapl", { filing_type: "10-K" });
+    const url = spy.mock.calls[0]![0] as string;
+    expect(url).toContain("symbol=AAPL");
+    expect(url).toContain("limit=200");
+    expect(url).toContain("filing_type=10-K");
   });
 });
