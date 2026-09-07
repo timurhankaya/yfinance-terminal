@@ -23,9 +23,9 @@ uv run ruff check . && uv run mypy src/yfin
 uv run pytest -q tests/unit && uv run pytest -q -m repo tests/repo
 uv run python scripts/dump_openapi.py --check
 ```
-Şu an hepsi yeşil: unit 1462, repo 467.
+Şu an hepsi yeşil: unit 1510, repo 481.
 
-## Bu turda tamamlananlar (2026-09-07)
+## Birinci turda tamamlananlar (2026-09-07)
 
 Beş madde bitti ve commit edildi; aşağıdaki listeden çıkarıldılar.
 
@@ -53,26 +53,49 @@ Beş madde bitti ve commit edildi; aşağıdaki listeden çıkarıldılar.
 Madde 1 (`.env.example`) bu turda alınmadı: dosya bu oturumda da izin
 ayarlarıyla korunuyordu, ne okunabildi ne yazılabildi.
 
+## İkinci turda tamamlananlar (2026-09-07)
+
+- `b1aa7cb` — YAGNI: 13 sembol silindi, `expected_cell_count` testlere taşındı,
+  `revoke`/`set-scopes`/`set-plan` CLI komutları eklendi (eski madde 6, ilk üç
+  madde işareti). Kural: **çağıranı hiç olmayanı sil, testlerin gözlemlemek ya
+  da sıfırlamak için gerçekten ihtiyaç duyduğunu tut, üretimin ihtiyaç duyup
+  yolu olmayanı bağla.** Bu yüzden `clear_cache`, `Registry.unregister` ve
+  `is_opt_in` duruyor.
+- `32fb360` — `cli/app.py` 1249 → 347 satır; `common`, `db`, `symbols`,
+  `market`, `domain`, `proxy` modülleri (eski madde 2). 44 komutun `--help`
+  çıktısı birebir aynı.
+- `24482d4` — sembol normalize, `sessionmaker` ve naive→UTC tekrarları tek yere
+  indi (eski madde 6, dördüncü madde işaretinin 3'ü).
+
+Yan bulgu: `test_api_examples.py` `token_endpoint`'i stub'lamıyordu, o yüzden
+API'nin tek fail-closed limiter'ı **gerçek** Redis'e yazıyordu. 401 örneğini
+yakalayan test her koşuda kalıcı bir sayaç bırakıyor, onuncu koşuda endpoint
+401 yerine 429 döndürüyordu — on dakikada on kez koşturulamayan bir suite.
+
+`.env.example` bu turda dolduruldu (12 `YFAPI_*` anahtarı) ve test
+`ApiSettings`'i de kapsayacak şekilde genişletildi, **ama commit edilmedi**:
+dosya hâlâ okunamıyor, dolayısıyla içinde benim yazmadığım commit edilmemiş
+değişikliklerin de olduğu bir dosyayı görmeden commit'lemek doğru değil.
+`git diff .env.example` ile gözden geçirip `tests/unit/test_env_example.py` ile
+birlikte commit'leyin.
+
 ## Kalan işler (öncelik sırasıyla)
 
-### 1. `.env.example` eksik — 12 `YFAPI_*` anahtarının hiçbiri yok
-Zorunlu `YFAPI_JWT_SIGNING_KEY` dahil hiçbiri dosyada yok; onsuz API başlamıyor.
-`tests/unit/test_env_example.py:33` yalnızca `Settings.model_fields`'a bakıyor,
-`ApiSettings`'e bakmıyor — bu yüzden boşluğu hiçbir test yakalamıyor.
-**Yapılacak:** 12 anahtarı `.env.example`'a ekle, testi `ApiSettings`'i de
-kapsayacak şekilde genişlet. (Önceki oturumda bu dosya izin ayarları yüzünden
-okunamadı; sizin oturumunuzda erişilebilir olmalı.)
+### 1. `yfin --help` hâlâ `yfin.models`'i yüklüyor (~560 ms)
+`cli/app.py` bölünürken kendi ağır import'ları komut gövdelerine indi ve
+`yfin.datasets` artık `--help` için hiç yüklenmiyor (ölçüldü: 1642 → 1529
+modül). Ama `bars`, `stream`, `settings` ve `api` modülleri `yfin.models`'i
+hâlâ modül düzeyinde alıyor, ve asıl maliyet o.
+**Yapılacak:** aynı işlemi o dört modülün ~35 komut gövdesinde tekrarla.
+Mekanik ama geniş; kendi turunu hak ediyor.
 
-### 2. `cli/app.py` — 1249 satır, 7 alt-Typer tek dosyada
-`db`, `symbols`, `proxy`, `market`, `screen`, `discover`, `domain` hepsi burada;
-oysa `bars`, `settings`, `stream`, `api` zaten ayrı dosyalarda. Projenin kendi
-kalıbına aykırı. Ayrıca modül düzeyinde tüm pipeline/datasets/models import
-ediliyor, yani `yfin --help` bile registry'nin tamamını yüklüyor —
-`cli/stream.py:321` aynı importları fonksiyon gövdesinde yapıyor.
-**Yapılacak:** `cli/proxy.py`, `cli/symbols.py`, `cli/market.py`, `cli/domain.py`,
-`cli/db.py` olarak ayır; paylaşılan yardımcılar (`_selector`,
-`_filtered_symbols`, `_engine`, `_session_factory`) `cli/common.py`'ye. Ağır
-import'lar komut gövdelerine insin. Saf taşıma, davranış değişmemeli.
+### 2. YAGNI: kalan 8 tekrar (~110 satır)
+`24482d4` üçünü kapattı. Kalanlar: CSV parse 8 yerde, `snapshot_rows` mantığı
+2 yerde elle tekrar, iki ayrı sabit-pencere limiter.
+**Reddedilen iddia:** advisory-lock "sarmalayıcısı" 3 yerde tekrar değil — üç
+runner'daki `if acquire_lock: with advisory_lock(...): return run(...,
+acquire_lock=False)` yeniden girişi üçer satır, ne yaptığını okutuyor, ve
+katlamanın her yolu daha uzun ve daha az anlatan bir thunk/dekoratör istiyor.
 
 ### 3. Sağlık kayıtları event loop'u bloke ediyor
 `stream/connection.py:259` her kanarya mesajında `_emit_health()` →
@@ -105,27 +128,6 @@ işareti. Ayrıca `get_shares()` ve `earnings`/`quarterly_earnings` yok.
 tasarımını hak ediyor); `shares` ve `earnings` için "türetilebilir/deprecated"
 gerekçesini koda yaz.
 
-### 6. YAGNI temizliği (~350 satır)
-- 9 sıfır-referans sembol: `INFO_SOURCE_KEYS`, `FAST_INFO_SOURCE_KEYS`,
-  `HISTORY_METADATA_SOURCE_KEYS` (`models/fields.py:312-314`),
-  `SKIP_OUT_OF_SCOPE` (`pipeline/runner.py:45`), `reject_for_subscription`
-  (`stream/connection.py:349`), `MINUTE`/`known_timezone`
-  (`stream/reconcile.py:48,280`), `now_utc` (`stream/supervisor.py:370`),
-  `last_claimed` (`api/ratelimit/revocation.py:86`)
-- Sadece testlerde kullanılanlar: `clients.set_scopes`/`set_plan`,
-  `policy.clear_cache`, `normalize.convert_epoch_field`, `prune.asof_tables`,
-  `domain_audit.expected_cell_count`, `Registry.unregister`/`is_opt_in`,
-  `StreamRepository.archived_symbols`, `variants.NoVariantState`
-- Bağlanmamış per-secret revocation: `publish_revocation(revoked_secret_ids=...)`
-  ve `clients.revoke_secret` — okuma tarafı her istekte canlı ama yazma tarafını
-  hiçbir CLI komutu tetiklemiyor (`cli/api.py`'de `revoke` komutu yok, oysa modül
-  docstring'i ondan söz ediyor). **Ya CLI komutunu ekle ya yolu tamamen sil.**
-- 11 kesin tekrar (~155 satır): sembol normalize (`core/normalize.py:72` vs
-  `api/routers/v1/market.py:148` — gövdeler birebir aynı), naive→UTC 5 yerde,
-  CSV parse 8 yerde, `sessionmaker(...)` 10 yerde (ve `stream/runner.py`'ın 3'ü
-  sessizce `future=` olmadan), advisory-lock sarmalayıcısı 3 yerde,
-  `snapshot_rows` mantığı 2 yerde elle tekrar, iki ayrı sabit-pencere limiter
-
 ## Zaten reddedilmiş iddialar (tekrar açmayın)
 
 - `uvicorn` ölü değil — `Dockerfile:65` konteyner komutu olarak çalıştırıyor.
@@ -142,7 +144,6 @@ gerekçesini koda yaz.
 
 ## Nasıl ilerleyelim
 
-Önce hangilerini bu turda alacağımıza karar verelim. Madde 1 küçük ve tamamen
-zorlanabilir, ama `.env.example`'a erişim izni açılmadan yapılamaz. Madde 2 ve 6
-mekanik ama geniş; 3 dar ve tek başına alınabilir; 4 ve 5 kendi tasarım
-turlarını hak ediyor.
+Önce hangilerini bu turda alacağımıza karar verelim. Madde 3 dar ve tek başına
+alınabilir; 1 ve 2 mekanik ama geniş; 4 ve 5 kendi tasarım turlarını hak
+ediyor.
