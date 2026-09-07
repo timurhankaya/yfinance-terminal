@@ -1,10 +1,10 @@
 """Single-proxy setup for the one-process runners.
 
-`runner.py` deliberately does not import `yfin.proxy` -- the
-`ProxyTracker` protocol exists so the symbol runner stays independent of
-the proxy package. This module is the seam where the two meet, so the
-market and domain runners can share the policy without dragging the
-proxy package into the runner.
+No runner imports `yfin.proxy` -- the `ProxyTracker` protocol in
+`pipeline/contracts.py` exists so they stay independent of the proxy
+package. This module is the seam where the two meet, so the market and
+domain runners can share the policy without dragging the proxy package
+into a runner.
 """
 
 from __future__ import annotations

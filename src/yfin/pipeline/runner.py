@@ -9,10 +9,10 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Any, Protocol
+from typing import Any
 
 from sqlalchemy import Engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from yfin.core.config import Settings, get_settings
 from yfin.core.errors import PROXY_FAULT_KINDS, DatasetOutOfScope, ErrorKind, classify_error
@@ -30,6 +30,7 @@ from yfin.pipeline.audit import (
     open_run,
     write_items,
 )
+from yfin.pipeline.contracts import ProxyTracker
 from yfin.pipeline.payload import SymbolPayload
 from yfin.pipeline.persist import mark_unknown, persist_with_retry
 from yfin.pipeline.readers import GapReader, ScopeReader, WatermarkReader
@@ -166,23 +167,6 @@ def list_source(symbols: Sequence[str]) -> SymbolSource:
             return next(iterator, None)
 
     return _next
-
-
-class ProxyTracker(Protocol):
-    """The only interface the runner sees into proxy health accounting.
-
-    The concrete implementation is `yfin.proxy.ShardProxyTracker`; the
-    runner depends on this abstraction instead so proxy policy can evolve
-    without touching the runner, and tests can pass a fake tracker.
-    """
-
-    withdrawn: bool
-
-    def record_success(self) -> None: ...
-
-    def record_error(self, kind: ErrorKind, message: str | None = None) -> None: ...
-
-    def flush(self, session: Session) -> None: ...
 
 
 @dataclass

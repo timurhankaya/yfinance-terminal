@@ -27,7 +27,7 @@ from yfin.datasets.base import NormalizedResult
 from yfin.datasets.meta import DatasetMeta
 from yfin.datasets.registry import Registry
 from yfin.pipeline.audit import ItemRecord, failed_records, record_items
-from yfin.pipeline.runner import ProxyTracker
+from yfin.pipeline.contracts import ProxyTracker
 from yfin.storage.contracts import RowWriter, WriteStats
 from yfin.storage.persistence import PostgresRowWriter
 
