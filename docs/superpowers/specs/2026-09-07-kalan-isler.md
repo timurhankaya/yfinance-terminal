@@ -23,7 +23,35 @@ uv run ruff check . && uv run mypy src/yfin
 uv run pytest -q tests/unit && uv run pytest -q -m repo tests/repo
 uv run python scripts/dump_openapi.py --check
 ```
-Şu an hepsi yeşil: unit 1437, repo 450.
+Şu an hepsi yeşil: unit 1462, repo 467.
+
+## Bu turda tamamlananlar (2026-09-07)
+
+Beş madde bitti ve commit edildi; aşağıdaki listeden çıkarıldılar.
+
+- `b2d8e38` — market/domain audit satırları tur başına yazılıyor (eski madde 8)
+- `ba0ec55` — as-of gate kaynağı, paylaşılan frame tüketicileri ve
+  `--full-refresh`'in gate'lere ulaşması (eski maddeler 4, 5, 7; tek commit
+  çünkü aynı dosyalara dokunuyorlar)
+- `271730e` — yayımlanan başlık sözleşmesi route'ta bildiriliyor ve çalışma
+  zamanına karşı test ediliyor (eski madde 3)
+
+İki noktada plandan sapıldı, ikisinin de gerekçesi commit gövdesinde:
+
+1. **`gate_source_table` tekil değil, `gate_source_tables` çoğul.** Tek bir
+   "her zaman dolu" gate tablosu varsayımı repoda yanlış:
+   `tests/fixtures/_discovery/search_Turkish-Airlines.json` `quotes: 0,
+   researchReports: 3` döndürüyor, yani `search` için böyle bir tablo yok.
+   Bildirilen şey artık sıralı bir aday listesi — asıl kazanç, sıranın
+   `normalize`'ın write listesinden değil bildirimden gelmesi.
+
+2. **`METERED` `guard()`'tan türetilmedi.** `listDatasets` ve `readDataset`
+   metering'i gövdede yapıyor (ikincisi zorunlu olarak: ailesi hangi dataset'in
+   istendiğine bağlı), dolayısıyla bağımlılıktan okunan bir kural bu ikisini
+   "metered değil" sayardı. Üçü de tek tip `contract(...)` bildirimine indi.
+
+Madde 1 (`.env.example`) bu turda alınmadı: dosya bu oturumda da izin
+ayarlarıyla korunuyordu, ne okunabildi ne yazılabildi.
 
 ## Kalan işler (öncelik sırasıyla)
 
@@ -46,42 +74,7 @@ ediliyor, yani `yfin --help` bile registry'nin tamamını yüklüyor —
 `_filtered_symbols`, `_engine`, `_session_factory`) `cli/common.py`'ye. Ağır
 import'lar komut gövdelerine insin. Saf taşıma, davranış değişmemeli.
 
-### 3. `core/openapi.py`'de üç tablo zorlanmıyor
-`METERED`, `CACHED`, `CONDITIONAL` elle güncelleniyor ama unutulursa **hiçbir
-test kırılmıyor** — belge sadece eksik kalıyor. Onları koruduğu sanılan üç test
-totolojik: belgeyi, belgeyi üreten tablonun kendisine karşı doğruluyorlar
-(`tests/unit/test_api_contract.py`'de `test_the_rate_headers_are_published...`,
-`test_a_conditional_response_carries...`, `test_every_operation_publishes...`).
-**Yapılacak:** `METERED`'i `guard()`'ın döndürdüğü bağımlılıktan türet;
-`CACHED`/`CONDITIONAL`'ı route dekoratöründeki tek bir bildirime indir. Totolojik
-testleri sil, yerine gerçek olanları koy (çalışma zamanı davranışını belgeye
-karşı doğrulayan).
-
-### 4. `AsOfGate`'in yazılı olmayan önkoşulu
-`datasets/asof_base.py:155` gate satırını `first_row(result)`'tan kazıyor —
-"ilk yazılan tablonun ilk satırı `as_of_date`, `fetched_at` ve `symbol` taşımalı"
-diye yazılı olmayan bir sözleşme. Üç alt sınıf bunu ayrı ayrı atlatmış
-(`discovery/base.py:36` `UNGATED_TABLES`, `domain/base.py:149` ve
-`discovery/base.py:55` `gate_identity` override).
-**Risk:** yeni bir as-of dataset'i yazma listesinde başka bir tabloyu öne
-koyarsa gate yanlış satırdan üretilir — ya `KeyError` (fetch parası ödendikten
-sonra) ya da sessizce yanlış `as_of_date` ile yazılır ve gate kalıcı olarak
-"değişmedi" der.
-**Yapılacak:** `AsOfGate`'e `gate_source_table: str` ekle, `first_row` yerine o
-tablonun write'ını oku. Bildirmeyen alt sınıf import zamanında patlasın.
-
-### 5. `FRAME_CONSUMERS` ikinci merkezi liste
-`datasets/history.py:45-50` paylaşılan history frame'ini tüketen dataset'leri
-elle sayıyor ve `depends_on` DAG'ında yok (bilerek — `corporate_actions.py:38`
-ve `bars.py:494` nedenini yazıyor). `tests/unit/test_sharding.py:254` seti sabit
-assert ediyor: **ekleme yaparsanız** test kırılıyor, **eklemeyi unutursanız**
-kırılmıyor — koruma yanlış yöne bakıyor. Unutulursa yeni tablo kalıcı olarak dar
-pencereyle dolar.
-**Yapılacak:** tüketiciliği dataset'in kendisinde bildir
-(`shared_frame_watermark: tuple[str, str] | None`), `_shared_watermark` registry
-üzerinden toplasın, `history.py`'deki dict silinsin.
-
-### 6. Sağlık kayıtları event loop'u bloke ediyor
+### 3. Sağlık kayıtları event loop'u bloke ediyor
 `stream/connection.py:259` her kanarya mesajında `_emit_health()` →
 `supervisor.py:323` → `repository.py:220` **senkron `INSERT`**, hem de asyncio
 event loop'unun içinde. Kanarya `BTC-USD` 7/24 tikliyor ve her bağlantıya
@@ -91,22 +84,7 @@ kuyruk için uyulmuş, sağlık yolu için gözden kaçmış.
 **Yapılacak:** `LatestBox` deseni: thread-safe `HealthBox`, writer thread'i
 `_flush_counters` içinde toplu yazsın.
 
-### 7. `--full-refresh` gate'leri atlamıyor
-`datasets/base.py:174` yalnızca watermark'ı `None` yapıyor; `asof_base.py` ve
-`hash_gated.py` `full_refresh`'e hiç bakmıyor. Veri satırları kaybolup gate satırı
-kalırsa bir sonraki koşu hash'i eşit bulur, `skipped` der ve hiçbir şey yazmaz —
-ve `--full-refresh` bunu onaramaz.
-**Yapılacak:** bayrağı gate karşılaştırmasına kadar taşı.
-
-### 8. Market/domain audit satırları run sonunda toplu yazılıyor
-`pipeline/market_runner.py:151` ve `domain_runner.py:252` `items` listesini
-biriktirip döngü bitince `write_items` çağırıyor; oysa veri her turda kendi
-transaction'ında commit ediliyor. Süreç ortada ölürse veri yazılmış ama o koşunun
-**hiçbir audit satırı yok**, `sync_runs` "running"da asılı kalıyor. Symbol runner
-bu hatayı yapmıyor (`runner.py:279` sembol başına emit ediyor).
-**Yapılacak:** her turdan sonra (veya N turda bir) yaz.
-
-### 9. Yazma politikası metot olduğu için kalıtımla çoğalıyor
+### 4. Yazma politikası metot olduğu için kalıtımla çoğalıyor
 `upsert` `Dataset`'in metodu; 4 politika × 3 eksen = bugün 6 sınıf + 2 mixin +
 1 serbest fonksiyon. Somut zarar bugün var: `SnapshotDataset.key_columns`
 varsayılanı `("symbol",)` (`snapshot_base.py:73`) ama `SnapshotGlobalDataset`'te
@@ -117,7 +95,7 @@ yani Yahoo çağrısı ödendikten sonra patlıyor.
 `SnapshotPolicy`, `HashGatePolicy`, `AsOfPolicy`); gated base sınıflarını sil.
 **Büyük iş** — ~6 base dosyası + ~25 dataset. Kendi planını hak ediyor.
 
-### 10. `options` / `option_chain` için dataset yok
+### 5. `options` / `option_chain` için dataset yok
 yfinance'in `Ticker.option_chain()` / `options` yüzeyi hiç toplanmıyor ve repo
 genelinde (docs, test, yorum dahil) tek kelime geçmiyor. Bu kod tabanı her
 dışlamayı yazılı gerekçelendiriyor (`sustainability`, atlanan interval'ler,
@@ -127,7 +105,7 @@ işareti. Ayrıca `get_shares()` ve `earnings`/`quarterly_earnings` yok.
 tasarımını hak ediyor); `shares` ve `earnings` için "türetilebilir/deprecated"
 gerekçesini koda yaz.
 
-### 11. YAGNI temizliği (~350 satır)
+### 6. YAGNI temizliği (~350 satır)
 - 9 sıfır-referans sembol: `INFO_SOURCE_KEYS`, `FAST_INFO_SOURCE_KEYS`,
   `HISTORY_METADATA_SOURCE_KEYS` (`models/fields.py:312-314`),
   `SKIP_OUT_OF_SCOPE` (`pipeline/runner.py:45`), `reject_for_subscription`
@@ -164,6 +142,7 @@ gerekçesini koda yaz.
 
 ## Nasıl ilerleyelim
 
-Önce hangilerini bu turda alacağımıza karar verelim. Benim önerim: 1 ve 3 hemen
-(küçük, tamamen zorlanabilir), sonra 4-5-7-8 (sessiz hata sınıfı), sonra 2 ve 11
-(mekanik ama geniş). 9 ve 10 kendi tasarım turlarını hak ediyor.
+Önce hangilerini bu turda alacağımıza karar verelim. Madde 1 küçük ve tamamen
+zorlanabilir, ama `.env.example`'a erişim izni açılmadan yapılamaz. Madde 2 ve 6
+mekanik ama geniş; 3 dar ve tek başına alınabilir; 4 ve 5 kendi tasarım
+turlarını hak ediyor.
