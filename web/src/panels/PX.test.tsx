@@ -1,6 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SessionProvider } from "../app/session";
 import { CA } from "./CA";
 import { PX, PX_PANEL, PX_USAGE } from "./PX";
 
@@ -8,7 +7,6 @@ function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-const me = { authenticated: true, expires_at: null, live_enabled: false, public: true };
 
 afterEach(() => {
   cleanup();
@@ -32,7 +30,6 @@ describe("PX", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       seen.push(url);
-      if (url === "/ui/api/me") return json(200, me);
       return json(200, {
         data: [
           { symbol: "AAPL", ts_utc: "2026-09-03T04:00:00Z", open: "1", high: "2", low: "0.5", close: "1.5", adj_close: "1.5", volume: 100, session_date: "2026-09-03", bar_interval: null, local_date: null, is_extended: null },
@@ -42,9 +39,7 @@ describe("PX", () => {
       });
     });
     render(
-      <SessionProvider>
-        <PX symbol="AAPL" args={{ interval: "1d", rows: "2" }} />
-      </SessionProvider>,
+      <PX symbol="AAPL" args={{ interval: "1d", rows: "2" }} />,
     );
     const rows = await screen.findAllByRole("row");
     expect(rows[1]!.textContent).toContain("2026-09-04");
@@ -57,7 +52,6 @@ describe("CA", () => {
   it("shows actions newest first, and an empty card when there are none", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
       if (url.includes("/symbols/AAPL/actions")) {
         return json(200, {
           data: [
@@ -70,18 +64,14 @@ describe("CA", () => {
       return json(200, { data: [], next_cursor: null });
     });
     const first = render(
-      <SessionProvider>
-        <CA symbol="AAPL" args={{}} />
-      </SessionProvider>,
+      <CA symbol="AAPL" args={{}} />,
     );
     const rows = await screen.findAllByRole("row");
     expect(rows[1]!.textContent).toContain("SPLIT");
     first.unmount();
 
     render(
-      <SessionProvider>
-        <CA symbol="MSFT" args={{}} />
-      </SessionProvider>,
+      <CA symbol="MSFT" args={{}} />,
     );
     expect(await screen.findByText(/No corporate actions/)).toBeInTheDocument();
   });

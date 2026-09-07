@@ -33,11 +33,16 @@ export const BAR_COLUMNS: CatalogColumn[] = [
 ];
 
 export function PX({ symbol, args }: PanelProps) {
+  // Args can arrive from a hand-edited URL, not only from parseArgs.
   const interval = args.interval ?? "1d";
   const rows = Number(args.rows ?? DEFAULT_ROWS);
+  const valid = BAR_INTERVALS.includes(interval) && Number.isInteger(rows) && rows >= 1 && rows <= PAGE_LIMIT;
   const { state, retry } = usePanelData<Row[]>(
     `${symbol ?? ""}|${interval}|${rows}`,
-    () => (symbol === null ? Promise.reject(new Error("no symbol")) : getBars(symbol, interval, rows)),
+    () =>
+      symbol === null || !valid
+        ? Promise.reject(new Error(valid ? "no symbol" : PX_USAGE))
+        : getBars(symbol, interval, rows),
     (data) => data.length === 0,
   );
   if (symbol === null) return null;

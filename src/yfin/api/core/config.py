@@ -59,20 +59,21 @@ class ApiSettings(BaseSettings):
 
     # --- web terminal -----------------------------------------------------
     # Off by default: a deployment that has not opted in serves nothing
-    # under /ui and never imports yfin.ui. The password is a plain string
-    # in the environment on purpose -- one operator, one secret, nothing
-    # a hash would protect (see the web terminal design, "Kimlik
-    # doğrulama").
+    # under /ui and never imports yfin.ui. Switching it on publishes the
+    # terminal to anyone who can reach the port: it has no login and no
+    # identity of any kind, and it shows the same data the read API
+    # serves, through its own unmetered mount (`/ui/api/v1`). The only
+    # thing in front of it is the per-address brake below.
     ui_enabled: bool = False
-    #: Public by default: the terminal shows the same data the read API
-    #: serves, without a login, through its own unmetered, rate-limited
-    #: mount (`/ui/api/v1`). Set to false to put it behind the one-operator
-    #: password instead; the password is then required.
-    ui_public: bool = True
-    ui_password: str = ""
-    #: Per client IP, per process, on the public data mount only. A crude
+    #: Per client IP, per process, over everything under /ui/api. A crude
     #: brake on one browser's worth of traffic, not the API's limiter.
     ui_requests_per_minute: int = Field(default=600, ge=1)
+
+    # --- admin page -------------------------------------------------------
+    #: Switches the admin page (/admin) on: settings table, proxy pool,
+    #: screens, API clients. Empty (the default) means no such routes at
+    #: all. One operator, one secret, HTTP Basic; serve it behind TLS.
+    admin_password: str = ""
 
     # --- health -----------------------------------------------------------
     health_cache_seconds: int = Field(default=5, ge=0)
@@ -97,24 +98,6 @@ class ApiSettings(BaseSettings):
 
     def trusted_proxy_list(self) -> list[str]:
         return comma_list(self.trusted_proxies)
-
-    def validate_ui(self) -> None:
-        """Refuses a UI that is switched on with nothing guarding it.
-
-        Called from `create_app`, not at field level, for the same reason
-        as `signing_key_bytes`: a CLI command that never serves the UI
-        must not fail because the UI is misconfigured.
-        """
-        if self.ui_enabled and not self.ui_public and not self.ui_password:
-            raise ValueError(
-                "YFAPI_UI_ENABLED is on with YFAPI_UI_PUBLIC=false but YFAPI_UI_PASSWORD is empty"
-            )
-
-    def ui_cookie_secure(self) -> bool:
-        """`Secure` only when the deployment says it is behind TLS. An empty
-        base URL means plain HTTP on localhost, where a Secure cookie is
-        silently dropped by the browser and login appears to do nothing."""
-        return self.public_base_url.lower().startswith("https://")
 
 
 @functools.lru_cache(maxsize=1)

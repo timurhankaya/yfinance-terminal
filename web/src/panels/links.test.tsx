@@ -20,8 +20,12 @@ describe("linksFor", () => {
       "https://finance.yahoo.com/sectors/technology/consumer-electronics/",
     );
 
-    const [screen] = linksFor("screens", ["screen_key"]);
-    expect(screen!.href({ screen_key: "day_gainers" })).toBe("https://finance.yahoo.com/research-hub/screener/day_gainers/");
+    const [edgar] = linksFor("sec_filings", ["filing_id", "symbol"]);
+    expect(edgar!.href({ filing_id: "0001140361-26-035325_320193" })).toBe(
+      "https://www.sec.gov/Archives/edgar/data/320193/000114036126035325/",
+    );
+    expect(edgar!.href({ filing_id: "0001140361-26-035325" })).toBeNull();
+    expect(edgar!.href({ filing_id: "junk_1" })).toBeNull();
 
     const quote = linksFor("major_holders", ["symbol", "as_of_date"]);
     expect(quote.map((r) => r.label)).toEqual(["quote"]);

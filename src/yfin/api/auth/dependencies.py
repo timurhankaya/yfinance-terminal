@@ -157,32 +157,6 @@ def _revocation_state(settings: ApiSettings, claims: TokenClaims) -> tuple[bool,
     return disabled is not None, int(epoch) if epoch is not None else None
 
 
-def _from_session_cookie(
-    request: Request, settings: ApiSettings, security_scopes: SecurityScopes
-) -> Principal | None:
-    """The UI's cookie, when the UI is on. Imported lazily: a deployment
-    with the UI off never loads `yfin.ui`."""
-    if not settings.ui_enabled:
-        return None
-    from yfin.ui import session as ui_session
-
-    raw = request.cookies.get(ui_session.COOKIE_NAME)
-    if not raw:
-        return None
-    try:
-        claims = ui_session.verify(settings, raw)
-    except ui_session.SessionInvalid as exc:
-        raise _invalid_token() from exc
-
-    for required in security_scopes.scopes:
-        if required not in UI_SCOPES:  # pragma: no cover - every read scope is held
-            raise insufficient_scope(required)
-
-    request.state.client_id = UI_CLIENT_ID
-    request.state.jti = claims.jti
-    return Principal(client_id=UI_CLIENT_ID, scopes=UI_SCOPES, jti=claims.jti)
-
-
 def current_principal(
     request: Request,
     security_scopes: SecurityScopes,
@@ -191,13 +165,10 @@ def current_principal(
     settings: ApiSettings = request.app.state.api_settings
 
     if not header:
-        # A header, even a bad one, is evaluated alone; the cookie is only
-        # consulted when there is no header at all. Otherwise a client
-        # holding an expired token and a stray cookie would be promoted.
-        principal = _from_session_cookie(request, settings, security_scopes)
-        if principal is None:
-            raise _unauthenticated()
-        return principal
+        # A Bearer token is the only credential `/v1` knows. The terminal
+        # does not reach here at all: its mount overrides this dependency
+        # with a fixed public principal (`yfin.ui.public.ui_principal`).
+        raise _unauthenticated()
     if not header.lower().startswith(BEARER_PREFIX):
         raise _invalid_token()
 

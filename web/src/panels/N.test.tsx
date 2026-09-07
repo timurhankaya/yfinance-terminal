@@ -2,13 +2,11 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { N, N_PANEL } from "./N";
-import { SessionProvider } from "../app/session";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-const me = { authenticated: true, expires_at: 1, live_enabled: false };
 
 const articles = [
   {
@@ -29,14 +27,11 @@ afterEach(() => {
 function renderN(rows: unknown[]) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
-    if (url === "/ui/api/me") return json(200, me);
     if (url === "/ui/api/symbols/AAPL/news") return json(200, { data: rows, next_cursor: null, as_of: null });
     throw new Error(`unexpected ${url}`);
   });
   return render(
-    <SessionProvider>
-      <N symbol="AAPL" args={{}} />
-    </SessionProvider>,
+    <N symbol="AAPL" args={{}} />,
   );
 }
 

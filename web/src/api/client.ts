@@ -1,18 +1,11 @@
-// One fetch wrapper for the page. Same-origin cookie, never cached: the
-// API's Vary header names Authorization, not Cookie, so a cached /v1
-// response could outlive a logout.
+// One fetch wrapper for the page. Same-origin and never cached: the API's
+// Vary header names Authorization, which this page never sends, so a cached
+// response could be served for far longer than the data behind it lives.
 
 // The page reads through the terminal's own mirror of /v1: same routers,
 // no OAuth2, a per-IP brake instead of plan metering. /v1 itself stays the
 // contracted, metered API for Bearer clients.
 export const DATA_BASE = "/ui/api/v1";
-
-export class UnauthorizedError extends Error {
-  constructor() {
-    super("unauthorized");
-    this.name = "UnauthorizedError";
-  }
-}
 
 export class ApiError extends Error {
   constructor(
@@ -28,6 +21,7 @@ export class ApiError extends Error {
 interface Problem {
   type?: string;
   title?: string;
+  detail?: string;
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -36,7 +30,6 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     credentials: "same-origin",
     cache: "no-store",
   });
-  if (response.status === 401) throw new UnauthorizedError();
   if (!response.ok) {
     let problem: Problem = {};
     try {
@@ -44,18 +37,14 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     } catch {
       // A non-JSON error body carries nothing worth showing.
     }
-    throw new ApiError(response.status, problem.type ?? "unknown", problem.title ?? response.statusText);
+    // Title and detail together: the detail is where the API says what to
+    // change (the filters it accepts, the page cap), and a panel that
+    // shows only the title would drop the remedy.
+    const title = problem.title ?? response.statusText;
+    throw new ApiError(response.status, problem.type ?? "unknown", problem.detail ? `${title}: ${problem.detail}` : title);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
-}
-
-export interface Me {
-  authenticated: boolean;
-  expires_at: number | null;
-  live_enabled: boolean;
-  /** No login on this terminal; the page never shows the modal. */
-  public: boolean;
 }
 
 export interface SymbolDetail {
@@ -69,19 +58,6 @@ export interface SymbolDetail {
   timezone: string | null;
   is_active: boolean;
   info: Record<string, unknown> | null;
-}
-
-export function getMe(): Promise<Me> {
-  return apiFetch<Me>("/ui/api/me");
-}
-
-export async function login(password: string): Promise<void> {
-  const body = new URLSearchParams({ password });
-  await apiFetch<void>("/ui/api/login", { method: "POST", body });
-}
-
-export async function logout(): Promise<void> {
-  await apiFetch<void>("/ui/api/logout", { method: "POST" });
 }
 
 export async function getSymbol(symbol: string): Promise<SymbolDetail> {

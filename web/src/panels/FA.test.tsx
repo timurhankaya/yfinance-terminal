@@ -3,13 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation } from "react-router";
 import { FA, FA_PANEL, cell } from "./FA";
-import { SessionProvider } from "../app/session";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-const me = { authenticated: true, expires_at: 1, live_enabled: false };
 
 const INCOME_URL = "/ui/api/v1/symbols/AAPL/financials?statement=income&freq=annual&limit=1000";
 const BALANCE_URL = "/ui/api/v1/symbols/AAPL/financials?statement=balance_sheet&freq=annual&limit=1000";
@@ -33,12 +31,10 @@ function LocationProbe() {
 
 function renderFA(args: Record<string, string> = {}, path = "/ui/t/AAPL/FA") {
   return render(
-    <SessionProvider>
-      <MemoryRouter initialEntries={[path]}>
-        <LocationProbe />
-        <FA symbol="AAPL" args={args} />
-      </MemoryRouter>
-    </SessionProvider>,
+    <MemoryRouter initialEntries={[path]}>
+      <LocationProbe />
+      <FA symbol="AAPL" args={args} />
+    </MemoryRouter>,
   );
 }
 
@@ -78,7 +74,6 @@ describe("FA", () => {
   it("pivots facts into one row per item and one column per period, newest first", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
       if (url === INCOME_URL) return json(200, { data: incomeRows, next_cursor: null, as_of: null });
       throw new Error(`unexpected ${url}`);
     });
@@ -98,7 +93,6 @@ describe("FA", () => {
   it("switches statement through the tabs by rewriting the URL args", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
       if (url === INCOME_URL) return json(200, { data: incomeRows, next_cursor: null, as_of: null });
       if (url === BALANCE_URL) {
         return json(200, {
@@ -119,7 +113,6 @@ describe("FA", () => {
   it("loads the statement and frequency named in the args", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
       if (url === BALANCE_URL.replace("freq=annual", "freq=quarterly")) {
         return json(200, { data: [], next_cursor: null, as_of: null });
       }

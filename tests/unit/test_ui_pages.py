@@ -13,20 +13,15 @@ from yfin.api.core.config import ApiSettings
 from yfin.ui import pages
 
 KEY = "k" * 32
-PW = "hunter2"
 
 
-def settings(
-    *, ui_enabled: bool = True, ui_password: str = PW, ui_public: bool = True
-) -> ApiSettings:
+def settings(*, ui_enabled: bool = True) -> ApiSettings:
     return ApiSettings(
         _env_file=None,
         jwt_signing_key=KEY,
         jwt_kid="k1",
         jwt_issuer="yfin-api",
         ui_enabled=ui_enabled,
-        ui_public=ui_public,
-        ui_password=ui_password,
         docs_enabled=True,
     )
 
@@ -85,11 +80,17 @@ def test_a_missing_asset_is_404_not_index(tmp_path: Path, monkeypatch: pytest.Mo
 def test_ui_api_is_never_answered_with_html(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    response = make_client(build_dist(tmp_path), monkeypatch).get(
-        "/ui/api/whatever", headers={"Accept": "text/html"}
-    )
-    assert response.status_code == 404
-    assert response.headers["content-type"] == "application/problem+json"
+    """With a build present the SPA fallback exists, so this is the case
+    that matters: an unknown API path must be the mount's problem
+    document, not index.html, for every method the browser can send."""
+    client = make_client(build_dist(tmp_path), monkeypatch)
+    for method in ("GET", "HEAD"):
+        response = client.request(method, "/ui/api/no-such-thing", headers={"Accept": "text/html"})
+        assert response.status_code == 404, method
+        assert response.headers["content-type"] == "application/problem+json", method
+        assert "id=root" not in response.text, method
+    body = client.get("/ui/api/no-such-thing", headers={"Accept": "text/html"}).json()
+    assert body["type"] == "not_found"
 
 
 def test_v1_404s_are_untouched_by_the_spa(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -105,7 +106,7 @@ def test_without_a_build_only_the_api_routes_exist(
 ) -> None:
     client = make_client(tmp_path / "absent", monkeypatch)
     assert client.get("/ui").status_code == 404
-    assert client.get("/ui/api/me").status_code == 200
+    assert client.get("/ui/api/v1/datasets").status_code == 200
 
 
 def test_index_without_an_assets_dir_is_treated_as_no_build(
@@ -138,22 +139,15 @@ def test_create_app_installs_the_ui_when_enabled(
 ) -> None:
     client = make_client(build_dist(tmp_path), monkeypatch)
     assert client.get("/ui").status_code == 200
-    assert client.get("/ui/api/me").status_code == 200
+    assert client.get("/ui/api/v1/datasets").status_code == 200
 
 
 def test_create_app_leaves_ui_out_when_disabled() -> None:
     from yfin.api.app import create_app
 
     client = TestClient(create_app(settings(ui_enabled=False)))
-    assert client.get("/ui/api/me").status_code == 404
+    assert client.get("/ui/api/v1/datasets").status_code == 404
     assert client.get("/ui").status_code == 404
-
-
-def test_create_app_refuses_enabled_without_a_password() -> None:
-    from yfin.api.app import create_app
-
-    with pytest.raises(ValueError, match="YFAPI_UI_PASSWORD"):
-        create_app(settings(ui_password="", ui_public=False))
 
 
 def test_the_openapi_document_has_no_ui_routes(

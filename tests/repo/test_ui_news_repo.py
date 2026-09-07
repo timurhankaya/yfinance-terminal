@@ -2,10 +2,10 @@
 
 Copies the `seeded`/`client` pattern from `test_api_read_endpoints.py`,
 with the differences the UI route requires: `ApiSettings` carries
-`ui_enabled=True, ui_password=PW` (otherwise `create_app` never installs
-the UI and the route is a plain 404); `pages.default_dist_dir` is
-monkeypatched to an absent directory (no build is needed to exercise the
-data routes); and identity is the session cookie, not a Bearer token.
+`ui_enabled=True` (otherwise `create_app` never installs the UI and the
+route is a plain 404); `pages.default_dist_dir` is monkeypatched to an
+absent directory (no build is needed to exercise the data routes); and
+there is no credential at all -- the terminal is public.
 """
 
 from __future__ import annotations
@@ -25,13 +25,11 @@ from yfin.api.core.config import ApiSettings
 from yfin.api.ratelimit import concurrency, limiter, usage
 from yfin.api.storage import session as api_session
 from yfin.models.news import News, NewsSymbol
-from yfin.ui import pages, session
-from yfin.ui.session import COOKIE_NAME
+from yfin.ui import pages
 
 pytestmark = pytest.mark.repo
 
 SIGNING_KEY = "k" * 48
-PW = "hunter2"
 
 
 def api_settings() -> ApiSettings:
@@ -41,7 +39,6 @@ def api_settings() -> ApiSettings:
         jwt_issuer="yfin-api",
         jwt_audience="yfin-api",
         ui_enabled=True,
-        ui_password=PW,
     )
 
 
@@ -122,8 +119,6 @@ def client(
     app = create_app(api_settings())
     app.dependency_overrides[api_session.session_scope] = scope
     with TestClient(app) as test_client:
-        token, _ = session.issue(api_settings())
-        test_client.cookies.set(COOKIE_NAME, token)
         yield test_client
 
 

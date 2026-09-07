@@ -2,9 +2,10 @@
 
 The public `/v1` surface deliberately does not join: "news about AAPL" is
 two calls there (`news_symbols` for the ids, then `news`). The page wants
-one list, newest first, so the join lives here, behind the session cookie
-and outside the OpenAPI document. Promoting it to `/v1` is a separate
-decision (spec, "Kararlar" 8).
+one list, newest first, so the join lives here, outside the OpenAPI
+document and outside the metered surface -- reachable by anyone, like the
+rest of the terminal, with `RequestBrake` the only thing in front of it.
+Promoting it to `/v1` is a separate decision (spec, "Kararlar" 8).
 """
 
 from __future__ import annotations
@@ -23,7 +24,6 @@ from yfin.api.storage import limits
 from yfin.api.storage.session import session_scope
 from yfin.core.normalize import normalize_symbol
 from yfin.models.news import News, NewsSymbol
-from yfin.ui.router import UiSession
 
 router = APIRouter(prefix="/ui/api", include_in_schema=False)
 
@@ -70,7 +70,6 @@ def list_news(session: Session, symbol: str, limit: int) -> list[NewsOut]:
 
 @router.get("/symbols/{symbol}/news", response_model=Collection[NewsOut])
 def symbol_news(
-    _claims: UiSession,
     session: SessionDep,
     symbol: str,
     limit: Annotated[int | None, Query(ge=1)] = None,

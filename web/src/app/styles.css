@@ -8,8 +8,6 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 ui-mon
 .strip-symbol { color: var(--accent); font-weight: 600; }
 .panel { flex: 1; overflow: auto; padding: 10px; }
 .muted { color: var(--muted); }
-.error { color: #ff6b6b; }
-.modal-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.7); display: grid; place-items: center; }
 .fnbar { display: flex; gap: 2px; padding: 4px 10px 0; border-bottom: 1px solid var(--line); }
 .fn { padding: 3px 10px; color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; font: inherit; cursor: pointer; }
 .fn:hover:not(:disabled) { color: var(--fg); }
@@ -30,9 +28,6 @@ a { color: var(--accent); }
 .credit-logo-wide { width: auto; height: 18px; }
 .help-fn { color: var(--accent); background: none; border: 0; font: inherit; cursor: pointer; padding: 0; }
 .help-fn:disabled { color: var(--muted); cursor: default; }
-.modal { background: #12171d; border: 1px solid var(--line); padding: 20px 24px; display: grid; gap: 10px; min-width: 280px; }
-.modal input { font: inherit; padding: 6px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); }
-.modal button { font: inherit; padding: 6px 10px; background: var(--accent); color: #000; border: 0; cursor: pointer; }
 dl.des { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
 dl.des dt { color: var(--muted); }
 .grid { width: 100%; border-collapse: collapse; }
@@ -68,7 +63,11 @@ dl.des dt { color: var(--muted); }
 .ds-name { font-weight: 600; }
 .summary { max-width: 90ch; white-space: pre-wrap; }
 .usage { color: var(--muted); }
-h3 { margin: 14px 0 4px; font-size: 13px; color: var(--muted); }
+.panel h3 { margin: 14px 0 4px; font-size: 13px; color: var(--muted); }
 dl.des dd { margin: 0; word-break: break-word; }
 .credits-right { margin-left: auto; }
 .row-links a { margin-right: 8px; white-space: nowrap; }
+.guide { max-width: 110ch; }
+.guide h4 { margin: 10px 0 2px; font-size: 13px; color: var(--fg); }
+.guide table { margin: 4px 0 10px; }
+.guide td { vertical-align: top; }

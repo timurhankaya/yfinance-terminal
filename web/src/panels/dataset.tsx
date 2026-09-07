@@ -104,6 +104,7 @@ export function DatasetView(props: {
         {state.data.symbol !== null && <> · {state.data.symbol}</>}
       </p>
       <DatasetTable
+        key={entry.name}
         columns={entry.columns}
         rows={rows.rows}
         hide={state.data.symbol !== null ? ["symbol"] : []}

@@ -43,7 +43,7 @@ SECURITY_HEADERS = {
 _UNKNOWN_IP = "unknown"
 
 
-def _networks(settings: ApiSettings) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+def trusted_networks(settings: ApiSettings) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
     nets = []
     for cidr in settings.trusted_proxy_list():
         try:
@@ -96,7 +96,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
     def __init__(self, app: Callable[..., object], settings: ApiSettings) -> None:
         super().__init__(app)  # type: ignore[arg-type]
-        self._nets = _networks(settings)
+        self._nets = trusted_networks(settings)
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]

@@ -160,7 +160,7 @@ export const MKT_PANEL = tabbedPanel({
     mkt("status", "Status", "market_status"),
     opt("summary", "Summary", "market_summary"),
     mkt("statushist", "Status history", "market_status_history"),
-    opt("summaryhist", "Summary history", "market_summary_history"),
+    sym("summaryhist", "Summary history", "market_summary_history"),
   ],
 });
 
@@ -191,8 +191,8 @@ export const DOM_PANEL = tabbedPanel({
   code: "DOM",
   title: "Sectors and industries: taxonomy, metrics, top companies/funds/movers, research",
   tabs: [
-    sym("tree", "Taxonomy (by domain symbol)", "domains"),
     mkt("metrics", "Metrics", "domain_metrics"),
+    sym("tree", "Taxonomy (by domain symbol)", "domains"),
     opt("companies", "Top companies", "domain_top_companies"),
     opt("funds", "Top funds", "domain_top_funds"),
     opt("movers", "Top movers", "domain_top_movers"),

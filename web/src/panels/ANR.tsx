@@ -1,4 +1,4 @@
-import { UnauthorizedError, getDataset } from "../api/client";
+import { getDataset } from "../api/client";
 import type { PanelProps, PanelSpec } from "../commands/types";
 import { asNumber } from "./DES";
 import { DataTable, EmptyCard, ErrorCard, MissingCard, usePanelData, type Column } from "./common";
@@ -24,11 +24,6 @@ const SOURCES: Array<[key: keyof Sections, dataset: string]> = [
 
 async function loadSections(symbol: string): Promise<Sections> {
   const settled = await Promise.allSettled(SOURCES.map(([, dataset]) => getDataset(dataset, symbol)));
-  // allSettled swallows every rejection; a 401 must still reach usePanelData
-  // so the login modal opens instead of five error cards.
-  for (const result of settled) {
-    if (result.status === "rejected" && result.reason instanceof UnauthorizedError) throw result.reason;
-  }
   const sections = {} as Sections;
   SOURCES.forEach(([key], index) => {
     const result = settled[index];

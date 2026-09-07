@@ -38,13 +38,14 @@ export function rawDecimal(value: unknown): string {
   return value.includes(".") ? value.replace(/0+$/, "").replace(/\.$/, "") : value;
 }
 
-const YEAR_RE = /year|born/;
+//: Integer years, by column name: 1,974 is not a year of birth.
+const YEAR_COLUMNS = new Set(["year_born", "fiscal_year", "year"]);
 
 /** Thousands separators, except for a year (1,974 is not a year). */
 export function formatInteger(value: unknown, name = ""): string {
   const n = asNumber(value);
   if (n === null) return "—";
-  return YEAR_RE.test(name) ? String(n) : n.toLocaleString(LOCALE);
+  return YEAR_COLUMNS.has(name) ? String(n) : n.toLocaleString(LOCALE);
 }
 
 /** An ISO date-time as `YYYY-MM-DD HH:MM UTC`, or the date alone at
@@ -73,7 +74,11 @@ export function formatCell(value: unknown, type: string, name = ""): ReactNode {
       </a>
     );
   }
-  return String(value);
+  const text = String(value);
+  // The grid clips long text with an ellipsis (styles.css); the title
+  // attribute keeps the whole value a hover away, and the row detail has
+  // it in full.
+  return text.length > 40 ? <span title={text}>{text}</span> : text;
 }
 
 export function isNumericType(type: string): boolean {

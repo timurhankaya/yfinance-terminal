@@ -44,7 +44,6 @@ const PERCENT_FRACTION = new Set([
 const PERCENT_ALREADY = new Set(["dividend_yield", "five_year_avg_dividend_yield", "net_expense_ratio"]);
 //: Keys whose numeric value is a UNIX epoch (seconds).
 const EPOCH_RE = /(_date|_timestamp|_timestamp_start|_timestamp_end|_time|_epoch_date|fiscal_year_end|most_recent_quarter)$/;
-const LINK_KEYS = new Set(["website", "ir_website"]);
 export const LOCALE = "en-US";
 
 export const SECTIONS: ReadonlyArray<[title: string, keys: string[]]> = [
@@ -129,7 +128,10 @@ function epochToText(key: string, n: number): string {
 }
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
-const YEAR_RE = /year|born/;
+//: Integer years, shown without separators. By name, not by a pattern:
+//: `three_year_average_return` is a ratio and `last_fiscal_year_end` an
+//: epoch, and both contain "year".
+const YEAR_KEYS = new Set(["year_born", "fiscal_year"]);
 
 /** One info value as text, by what its key says it is. */
 //: Digits that are not numbers: a postal code of 95014 is not 95,014.
@@ -142,10 +144,10 @@ export function formatInfo(key: string, value: unknown): string {
   if (typeof value === "string" && ISO_RE.test(value)) return formatDateTime(value);
   const n = asNumber(value);
   if (n === null) return String(value);
-  if (YEAR_RE.test(key) && Number.isInteger(n)) return String(n);
   if (PERCENT_FRACTION.has(key)) return `${(n * 100).toFixed(2)}%`;
   if (PERCENT_ALREADY.has(key) || key.endsWith("_percent")) return `${n.toFixed(2)}%`;
   if (EPOCH_RE.test(key) && n > 1e8) return epochToText(key, n);
+  if (YEAR_KEYS.has(key) && Number.isInteger(n)) return String(n);
   if (Math.abs(n) >= 1e6) return formatBig(n);
   // A fixed locale: the terminal reads the same on a tr-TR machine as on
   // an en-US one, and 36,61 next to 4.67T would be two number formats.
@@ -158,7 +160,7 @@ function isHttpUrl(value: unknown): value is string {
 }
 
 function InfoValue({ name, value }: { name: string; value: unknown }): ReactNode {
-  if ((LINK_KEYS.has(name) || typeof value === "string") && isHttpUrl(value)) {
+  if (isHttpUrl(value)) {
     return (
       <a href={value} target="_blank" rel="noopener noreferrer">
         {value}

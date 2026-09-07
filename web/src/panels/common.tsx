@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
-import { ApiError, UnauthorizedError } from "../api/client";
-import { useSession } from "../app/session";
+import { ApiError } from "../api/client";
 
 export type Loaded<T> =
   | { kind: "loading" }
@@ -10,16 +9,13 @@ export type Loaded<T> =
   | { kind: "missing" }
   | { kind: "error"; message: string };
 
-/** Loads while the session is authenticated; re-runs when `key` changes or the session
- *  comes back after a login; drops stale responses; 401 -> requireLogin (state stays
- *  "loading" until the session returns); 404 -> missing; isEmpty(data) -> empty. */
+/** Loads on mount and re-runs whenever `key` changes; drops stale responses;
+ *  404 -> missing; any other failure -> error; isEmpty(data) -> empty. */
 export function usePanelData<T>(
   key: string,
   load: () => Promise<T>,
   isEmpty?: (data: T) => boolean,
 ): { state: Loaded<T>; retry: () => void } {
-  const { me, requireLogin } = useSession();
-  const authenticated = me?.authenticated === true;
   const [state, setState] = useState<Loaded<T>>({ kind: "loading" });
   // Refs, not deps: panels pass inline lambdas, and a new function each
   // render must not restart the load.
@@ -41,23 +37,21 @@ export function usePanelData<T>(
       setState(empty && empty(data) ? { kind: "empty" } : { kind: "ready", data });
     } catch (err) {
       if (token.cancelled) return;
-      if (err instanceof UnauthorizedError) requireLogin(); // stays "loading"; re-runs after login
-      else if (err instanceof ApiError && err.status === 404) setState({ kind: "missing" });
+      if (err instanceof ApiError && err.status === 404) setState({ kind: "missing" });
       else setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
     }
-  }, [requireLogin]);
+  }, []);
 
   useEffect(() => {
-    if (!authenticated) return;
     void run();
     return () => {
       tokenRef.current.cancelled = true;
     };
-  }, [key, authenticated, run]);
+  }, [key, run]);
 
   const retry = useCallback(() => {
-    if (authenticated) void run();
-  }, [authenticated, run]);
+    void run();
+  }, [run]);
 
   return { state, retry };
 }

@@ -17,9 +17,9 @@ arşivine tarayıcıdan, Bloomberg alışkanlıklarıyla (`AAPL GP`, `FA`,
 `QR`) bakmasını sağlar ve bunu yaparken tarayıcıya canlı tick yayınını
 başlatır.
 
-Kapsam bilinçli olarak dar: herkese açık (public) tek terminal, tek
-sembol derinliği. Şifreli mod (`YFAPI_UI_PUBLIC=false`) opsiyon olarak
-kalır; varsayılan giriş istemez. Watchlist, screener, sürükle-bırak yerleşim ve hosted çok
+Kapsam bilinçli olarak dar: herkese açık (public) tek terminal, giriş
+yok, tek sembol derinliği; operatör işleri ayrı `/admin` sayfasında.
+Watchlist, screener, sürükle-bırak yerleşim ve hosted çok
 kiracılılık dışarıda; "Kapsam dışı" bölümü bu spec'in onları
 engellemediğini garanti eder.
 
@@ -103,9 +103,10 @@ FA, ANR, N, CF, EQS, WLA.
 8. **`/v1`'de olmayan üç okuma UI'a özel rotadan gelir:** `bar_gaps`,
    son N tick, sembole göre haber. `/v1`'e taşınmaları `openapi.json`'ı
    değiştirir; o karar ayrı bir değişiklikte alınır.
-9. **SameSite=Lax.** Strict, yer iminden ya da dış bağlantıdan gelen ilk
-   gezinmede çerezi düşürür ve giriş yapmış kullanıcıya login modalı
-   gösterirdi. Lax çapraz site POST'u yine keser.
+9. **Giriş yok.** Terminal herkese açıktır: çerez, oturum, şifre ve
+   `me` uç noktası yoktur (1a'daki giriş 2026-09-08'de kaldırıldı).
+   Operatör işleri ayrı `/admin` sayfasındadır (HTTP Basic,
+   `YFAPI_ADMIN_PASSWORD`); terminal ile hiçbir kimlik paylaşmaz.
 
 ## Mimari ve dizin yerleşimi
 
@@ -119,10 +120,14 @@ web/                          npm paketi, React 19 + Vite + TS, base "/ui/"
   src/api/        REST istemcisi (TanStack Query), tipler
 src/yfin/ui/                  yeni Python paketi
   __init__.py     install(app, settings): rotaları ve statik servisi kurar
-  router.py       /ui/api/*: login, logout, me, gaps, ticks, news
+  data.py         /ui/api/symbols/{s}/news (1c/1d: ticks, gaps)
+  public.py       /ui/api mount: /v1 router'larının aynası, RequestBrake
   pages.py        /ui ve /ui/t/{path:path} → index.html + CSP başlıkları
-  session.py      çerez üretimi ve doğrulaması
   live.py         /ui/ws
+src/yfin/admin/               /admin: settings, proxies, screens, clients
+  auth.py         HTTP Basic + başarısız deneme freni
+  ops.py          settings_store ve `yfin proxy` ile aynı işlemler
+  html.py, router.py  sunucu tarafı HTML, form → 303
   static/dist/    Vite çıktısı; .gitignore'da, package-data ile wheel'e
 src/yfin/stream/publish.py    tick yayını; alan tablosu tek yerde
 src/yfin/api/core/window.py   _FixedWindow buraya taşınır (meta re-export)
@@ -132,53 +137,56 @@ src/yfin/api/core/window.py   _FixedWindow buraya taşınır (meta re-export)
 `yfin.ui.install(app, settings)` çağrılır; kapalıyken `yfin.ui` import
 edilmez. `install`:
 
-- `/ui/api/*`, `/ui/ws` rotalarını kaydeder.
-- `/ui/api/{path:path}` için catch-all 404 problem yanıtı kaydeder; bu
-  önekte `index.html` asla dönmez.
+- `/ui/api/symbols/{s}/news` (1c/1d: `ticks`, `gaps`) ve `/ui/ws`
+  rotalarını kaydeder.
+- `/v1` router'larını yeniden sunan alt uygulamayı `/ui/api`'ye monte
+  eder; `/ui/api` altında eşleşmeyen her yol alt uygulamanın 404 problem
+  gövdesiyle biter, bu önekte `index.html` asla dönmez.
+- `RequestBrake`'i dış uygulamaya ekler: `/ui/api` altındaki her istek
+  (ayna ve UI'a özel rotalar birlikte) istemci IP'si başına dakikada
+  `ui_requests_per_minute` ile sınırlıdır.
 - `static/dist` varsa `/ui/assets` altına `StaticFiles` monte eder ve
   `/ui`, `/ui/t/{path:path}` için `index.html` rotasını kaydeder. Dizin
   yoksa (`vite build` koşmamış geliştirme, unit testler) uyarı loglar ve
   yalnızca API/WS rotaları kalır.
 
 **Ayarlar.** `ApiSettings` (`YFAPI_` prefix), hepsi env-only:
-`ui_enabled: bool = False`, `ui_public: bool = True`,
-`ui_password: str = ""`, `ui_requests_per_minute: int = 600`.
-`ui_enabled` açık, `ui_public` kapalı ve şifre boşsa `create_app`
-`ValueError` atar; public modda şifre gerekmez. Anahtarlar
-`YFAPI_UI_ENABLED`, `YFAPI_UI_PUBLIC`, `YFAPI_UI_PASSWORD`,
-`YFAPI_UI_REQUESTS_PER_MINUTE` olarak `.env.example`'a girer; oradaki
-test her `ApiSettings` alanının belgelenmesini zorunlu kılar.
-`docker-compose.yml` ve README de belgeler.
+`ui_enabled: bool = False`, `ui_requests_per_minute: int = 600`,
+`admin_password: str = ""` (boşsa `/admin` yoktur). Anahtarlar
+`YFAPI_UI_ENABLED`, `YFAPI_UI_REQUESTS_PER_MINUTE`,
+`YFAPI_ADMIN_PASSWORD` olarak `.env.example`'a girer; oradaki test her
+`ApiSettings` alanının belgelenmesini zorunlu kılar. `docker-compose.yml`
+ve README de belgeler.
 
 **Veri yolu: `/ui/api/v1` aynası.** Tarayıcının Bearer token'ı yoktur
 ve `/v1` sözleşmesi (`openapi.json`, plan ölçümü) değişmez. Bunun için
 `yfin/ui/public.py` `market` ve `datasets` router'larını `/ui/api`'ye
 mount edilmiş ikinci bir FastAPI alt uygulamasında yeniden sunar; yollar
 `/ui/api/v1/...` olur. Fark yalnızca iki noktadır: `current_principal`
-`ui_principal` ile override edilir (public modda sabit `ui` principal,
-şifreli modda çerezden) ve `RequestBrake` istemci IP'si başına dakikada
-`ui_requests_per_minute` isteği geçirir (aşımı 429 + `Retry-After: 60`).
+`ui_principal` ile override edilir (her istek sabit `ui` principal'ı)
+ve dış uygulamadaki `RequestBrake` `/ui/api` altında istemci IP'si
+başına dakikada `ui_requests_per_minute` isteği geçirir (aşımı 429 +
+`Retry-After: 60`; IP `resolve_client_ip` ile, `trusted_proxies`'e
+göre).
 Alt uygulama OpenAPI belgesi yayınlamaz; `/ui/api` altında
 eşleşmeyen her yol onun 404 problem gövdesiyle biter, SPA sayfasına
 düşmez. SPA yalnızca bu aynayı ve `/ui/api/*` rotalarını çağırır;
 `/v1`'i doğrudan hiç çağırmaz.
 
-**API'ye entegrasyon.** `current_principal`: `Authorization` başlığı
-varsa yalnızca o değerlendirilir, geçersizse 401; başlık yoksa ve UI
-açıksa `yfin_ui` çerezi denenir. Çerezli istek
-`Principal(client_id="ui", scopes=frozenset(scope_for(f) for f in
-DataFamily), jti=<çerez jti>)` döner. `meter`, `client_id == "ui"`
-görünce `request.state.page_size_cap = UI_PAGE_CAP` (1000) yazar ve
-döner; `limits` konmadığı için `UsageMiddleware` ve `attribute_family`
-no-op. `/ui/api/*` rotaları yalnız çerez kabul eder (`UiSession`
-bağımlılığı); Bearer ile 401.
+**API'ye entegrasyon.** `current_principal` yalnız Bearer'dır; `/v1`
+için değişen bir şey yoktur. Aynada `current_principal`'ın yerini
+`ui_principal` alır ve her isteğe `Principal(client_id="ui",
+scopes=frozenset(scope_for(f) for f in DataFamily), jti="public")`
+verir. `meter`, `client_id == "ui"` görünce
+`request.state.page_size_cap = UI_PAGE_CAP` (1000) yazar ve döner;
+`limits` konmadığı için `UsageMiddleware` ve `attribute_family` no-op.
+`/ui/api/*` rotaları hiçbir kimlik istemez.
 
-`/v1` yanıtlarındaki `Vary: Authorization` çerezi kapsamaz; UI istemcisi
-`fetch`'i `cache: "no-store"` ile yapar, logout sonrası eski yanıt
-görünmez. CORS gerekmez; aynı origin.
+UI istemcisi `fetch`'i `cache: "no-store"` ile yapar. CORS gerekmez;
+aynı origin.
 
 **Geliştirme.** Vite dev sunucusu `/ui/api`, `/ui/ws` ve `/v1`'i
-`localhost:8000`'e proxy'ler; çerez aynı origin'de kalır.
+`localhost:8000`'e proxy'ler.
 
 **Paketleme ve CI.** Vite `src/yfin/ui/static/dist`'e yazar;
 `[tool.setuptools.package-data]`'ya `"yfin.ui" = ["static/dist/**"]`.
@@ -229,7 +237,8 @@ aralıktır, `15M` değil). Sembol token'ı `/^[A-Z0-9.^=-]+$/` (`BRK-B`,
 dataset ve hiçbir `info` alanı dışarıda kalmaz. Tek bir tipli tablo
 motoru (`panels/table.tsx`) katalogun kolon türlerinden hücre biçimini
 türetir (`string (decimal)` → iki ondalık / K-M-B-T, `integer` → binlik
-ayraç, `string (date-time)` → yerel saat, `boolean` → yes/no, URL →
+ayraç, `string (date-time)` → UTC `YYYY-MM-DD HH:MM UTC` (arşiv UTC
+anahtarlıdır; şehirden bağımsız aynı okunur), `boolean` → yes/no, URL →
 bağlantı, null → "—"); grid'de gizlenen tek kolon `raw_json`'dır ve satır
 detayı (Enter/tıklama) her alanı, `raw_json`'ı okunur JSON olarak
 gösterir. Sayı biçimi sabit `en-US`'tir. Bunun üstünde:
@@ -240,7 +249,7 @@ gösterir. Sayı biçimi sabit `en-US`'tir. Bunun üstünde:
 | `HDS` | single | Sahipler: major, kurumsal, fon, insider roster/işlem/aktivite sekmeleri | `major_holders`, `institutional_holders`, `mutualfund_holders`, `insider_roster_holders`, `insider_transactions`, `insider_purchases` |
 | `ERN` | single | Kazanç: tarihler, geçmiş, EPS/gelir tahmini, trend, revizyon, büyüme, takvim (+geçmişi) | `earnings_dates`, `earnings_history`, `earnings_estimate`, `revenue_estimate`, `eps_trend`, `eps_revisions`, `growth_estimates`, `ticker_calendar`, `ticker_calendar_history` |
 | `FUND` | single | Fon profili, en büyük pozisyonlar, ağırlıklar, metrikler | `fund_profile`, `fund_top_holdings`, `fund_weightings`, `fund_metrics` |
-| `CAL` | single | Piyasa takvimleri (sembolsüz): kazanç, ekonomik, IPO, split | `earnings_calendar`, `economic_calendar`, `ipo_calendar`, `splits_calendar` |
+| `CAL` | single | Piyasa takvimleri: kazanç, ekonomik, IPO, split (`auto` sekmeler şeritte sembol varsa ona daraltır ve bunu başlıkta söyler) | `earnings_calendar`, `economic_calendar`, `ipo_calendar`, `splits_calendar` |
 | `MKT` | single | Piyasa durumu ve endeks özeti, geçmişleriyle | `market_status`, `market_summary`, `market_status_history`, `market_summary_history` |
 | `SCR` | single | Screen tanımları, koşuları, üyeleri, quote anlık görüntüsü | `screens`, `screen_runs`, `screen_members`, `screen_quotes` |
 | `SRCH` | single | Arama/lookup sonuçları (`query_term=` filtresi) | `search_quotes`, `search_lists`, `search_report_hits`, `lookup_results`, `lookup_totals` |
@@ -346,11 +355,9 @@ kimlik bilgisi taşıyabilir). URL boşken yayın kapalıdır. Her ikisi
 batch'te; DB yazımı sürer. Observability spec'ine bu sayaç bir satır
 olarak eklenir.
 
-**`/ui/ws`.** El sıkışmada çerez doğrulanır; yoksa/geçersizse kapanış
-4401. `Origin` kontrolü: `public_base_url` doluysa origin'i onunla,
+**`/ui/ws`.** Kimlik yoktur (terminal public); `Origin` kontrolü: `public_base_url` doluysa origin'i onunla,
 boşsa isteğin `Host` başlığıyla (şema bağımsız) eşleşmeli; yoksa ya da
-eşleşmiyorsa 4403. İstemci 4401'de yeniden bağlanmaz, login modalını
-açar. WS `BaseHTTPMiddleware`'lerden geçmediği için `request_id`
+eşleşmiyorsa 4403. WS `BaseHTTPMiddleware`'lerden geçmediği için `request_id`
 handler'da üretilir ve loglanır.
 
 Çerçeve her zaman `{"op": ..., ...}`:
@@ -371,7 +378,8 @@ büyük harfe çevrilir; bağlantı başına üst sınır 200. `snap` ve `ticks`
 sorguları senkron `session_factory` ile `run_in_threadpool` içinde.
 `asyncio.Queue(maxsize=1000)`; dolarsa en eski düşer. Redis'e
 ulaşılamıyorsa bağlantı kabul edilir, `live.enabled=false`, yalnız
-`snap` çalışır. `live_enabled` = API Redis'e ulaşıyor **ve**
+`snap` çalışır. `live.enabled` (bağlantıdaki ilk çerçeve) = API
+Redis'e ulaşıyor **ve**
 `yf_stream_publish_enabled` (ayar tablosundan okunur).
 
 **Tarayıcı.** Gelen tick'ler `Map<symbol, Tick[]>`'e birikir;
@@ -392,68 +400,60 @@ Yeniden bağlanma 1 s'den 30 s'e üstel (4401 hariç); bağlanınca
 abonelik seti tekrar gönderilir. `QR` kopukluk için ayırıcı satır
 gösterir.
 
-## Kimlik doğrulama ve oturum
+## Erişim modeli
 
-**Public mod (varsayılan, `YFAPI_UI_PUBLIC=true`).** Giriş yoktur:
-`/ui/api/login` ve `/ui/api/logout` 404 döner, `GET /ui/api/me`
-`{"authenticated": true, "expires_at": null, "live_enabled": false,
-"public": true}` verir ve SPA giriş modalını hiç göstermez. Aşağıdaki
-çerez mekanizması yalnızca `YFAPI_UI_PUBLIC=false` iken devrededir; o
-modda `me` gövdesi `"public": false` taşır.
+**Terminal herkese açıktır.** Giriş, çerez, oturum, şifre ve `me` uç
+noktası yoktur. Tarayıcı yalnızca `/ui/api/*` rotalarını ve `/ui/api/v1`
+aynasını çağırır; tek koruma dış uygulamadaki `RequestBrake`'tir
+(istemci IP'si başına dakikada `ui_requests_per_minute`; ters proxy
+arkasında `YFAPI_TRUSTED_PROXIES` şarttır, yoksa herkes tek kovayı
+paylaşır). 401 ve 4401 SPA'da özel bir durum değildir: gelirse hata
+kartıdır.
 
 **Künye.** Sayfa altbilgisi Yahoo Finance'e (`https://finance.yahoo.com/`)
 ve `yfinance` paketine (`https://github.com/ranaroussi/yfinance`)
-logolarıyla bağlantı verir ve Yahoo ile bağlantısızlık notunu taşır;
-logolar CSP'nin `img-src https:` iznine dayanır.
+logolarıyla bağlantı verir, Yahoo ile bağlantısızlık notunu taşır ve
+sağda "Powered by monafy.com · Timurhan Kaya" (GitHub `kayacekovic`)
+yazar; logolar CSP'nin `img-src https:` iznine dayanır.
 
-- `POST /ui/api/login`: form alanı `password`, sabit zamanlı
-  karşılaştırma; başarı 204 + `Set-Cookie: yfin_ui`; hata mevcut
-  problem gövdesi.
-- Çerez JWT claims: `iss` (mevcut), `aud="yfin-ui"`, `iat`, `exp`
-  (+24 saat, kayan yenileme yok), `jti` (login'de 128 bit rastgele),
-  `pwf` (şifrenin SHA-256 parmak izinin ilk 16 hex karakteri). `sub`
-  yok. `session.py` kendi `jwt.decode(audience="yfin-ui",
-  options={"require": ["exp","iat","jti","pwf"]})`'unu yazar; mevcut
-  `verify` `sid`/`epc` istediği için yeniden kullanılamaz. Mevcut
-  `verify` `audience=jwt_audience` doğruladığından UI çerezi Bearer
-  olarak reddedilir; ters yön `aud` uyuşmazlığıyla reddedilir. Şifre
-  değiştirilince tüm oturumlar anında geçersiz olur (tek operatörün
-  sahip olduğu tek olay müdahalesi budur); `jwt_signing_key`
-  rotasyonu ise ayrıca her `/v1` token'ını da öldürür.
-- `POST /ui/api/logout` çerezi siler. `GET /ui/api/me` her zaman 200:
-  `{"authenticated": bool, "expires_at": <UNIX epoch saniye>|null, "live_enabled": bool, "public": bool}`.
-- Çerez: `HttpOnly`, `SameSite=Lax`, `Path=/`; `Secure` yalnız
-  `public_base_url` https ise. `public_base_url` boşken çerez düz HTTP'de
-  gider; self-host tek kullanıcı için kabul edilir ve README'de yazar.
-- CSRF token yok: Lax çapraz site POST'u keser; login dışı tek yazma
-  logout. Faz 2'de yazma rotaları gelince Origin kontrolü eklenir.
-- Kaba kuvvet: `_FixedWindow` `api/core/window.py`'ye taşınır
-  (`meta` re-export eder, `test_api_app.py:160` çalışmaya devam eder);
-  login `client_ip` başına dakikada 5. Süreç içi, 4 worker'da fiilî 20.
-  Reverse proxy arkasında `YFAPI_TRUSTED_PROXIES` boşsa `client_ip` proxy
-  IP'sidir ve sınır **toplam** olur; README bunu UI için zorunlu
-  yapılandırma olarak yazar.
-- Şifre env'de düz metin. Tek kullanıcı için hash'lemek çözülen sorun
-  yaratmaz; hosted fazında kullanıcı tablosuyla değişir.
-- `pages.py` `index.html`'i döndürürken başlıkları koyar:
-  `Content-Security-Policy: default-src 'self'; connect-src 'self';
-  img-src 'self' data: https:; style-src 'self'; frame-ancestors 'none';
-  base-uri 'none'; form-action 'self'` ve
-  `X-Frame-Options: DENY`. `connect-src 'self'` aynı origin WS'i kapsar.
-  lightweight-charts ve cmdk'nın inline stil gereksinimi 1a'da
-  doğrulanır; gerekiyorsa `style-src` nonce ile açılır. Middleware
-  `setdefault` kullandığından üzerine yazmaz.
+**Dış bağlantılar.** Satırların ima ettiği sayfalar `panels/links.ts`
+kurallarıyla türetilir ve 2026-09-07'de canlı siteye karşı doğrulandı:
+`report_id` → `finance.yahoo.com/research/reports/{id}`, `domain_key`
+(+`parent_key`) → `finance.yahoo.com/sectors/{parent}/{key}/`, `symbol`
+→ `finance.yahoo.com/quote/{symbol}/`, `filing_id` (`<accession>_<cik>`)
+→ `www.sec.gov/Archives/edgar/data/{cik}/{accession}/` (arşivdeki
+`edgar_url` Yahoo tarafında 404 verdiğinden kullanılmaz). Yahoo'nun
+screener sayfaları için çalışan bir kalıp bulunamadı; `screens`
+satırları link taşımaz.
+
+**Admin sayfası (`/admin`).** Terminalden bağımsız, sunucu tarafında
+üretilen dört sayfa: `settings` tablosu (her DB yönetimli ayar için
+şema, kaynak ve etkin değer; kaydetme `settings_store.set_setting`'in
+doğrulamasından geçer, Unset satırı siler), proxy havuzu (ekleme `yfin
+proxy add` ile aynı DSN biçimi, gizli Fernet ile şifrelenir; enable /
+disable / reset / remove `yfin proxy` ile birebir), `screens.is_enabled`
+anahtarı ve salt okunur API istemci listesi (değişiklikler revocation
+yayınladığı için `yfin api client`'ta kalır). `YFAPI_ADMIN_PASSWORD`
+boşsa rotalar hiç kaydedilmez. Kimlik HTTP Basic'tir (tarayıcının kendi
+istemi; kullanıcı adı önemsiz, gizli sabit zamanlı karşılaştırılır),
+IP başına dakikada 5 başarısız denemeden sonra 429. Sayfa CSP
+`default-src 'none'; style-src 'self'; form-action 'self'` taşır,
+stil ayrı `/admin/admin.css` rotasındadır, JavaScript yoktur. Formlar
+POST → 303 ile sayfaya döner, sonuç `?ok=`/`?error=` ile gösterilir.
+OpenAPI belgesinde görünmez. TLS arkasında sunulmalıdır: Basic gizliyi
+her istekte taşır.
 
 ## Dosyalar
 
 **Yeni:** `web/` (package.json, vite.config.ts, tsconfig.json,
-eslint.config.js, src/...), `src/yfin/ui/{__init__,router,pages,
-session,live}.py`, `src/yfin/stream/publish.py`,
+eslint.config.js, src/...), `src/yfin/ui/{__init__,public,data,pages,live}.py`,
+`src/yfin/admin/{__init__,auth,html,ops,router}.py`, `src/yfin/stream/publish.py`,
 `src/yfin/api/core/window.py`, `web/src/live/tick-fields.json`
 (üretilir, commit edilir).
 
 **Değişen:** `api/app.py` (koşullu `ui.install`), `api/core/config.py`
-(iki alan), `api/auth/dependencies.py` (çerez dalı),
+(`ui_enabled`, `ui_requests_per_minute`, `admin_password`),
+`api/auth/dependencies.py` (`UI_*` sabitleri),
 `api/ratelimit/dependencies.py` (`ui` erken dönüşü),
 `api/routers/meta.py` (`_FixedWindow` re-export), `stream/writer.py`
 (`accepted` dönüşü, commit sonrası yayın), `core/config.py` (iki
@@ -471,7 +471,7 @@ Dev: `fakeredis` zaten var; `web/devDependencies`'e Playwright (1d'de).
 
 | # | Alt proje | Çıktı | Bağımlılık |
 | --- | --- | --- | --- |
-| 1a | İskelet | `web/` paketi, Vite build ve dev proxy, `yfin.ui` montajı, login/çerez/`me`, `pages.py` + CSP, `meter` erken dönüşü, CI web job'u, Dockerfile node aşaması, `DES` paneli (URL ile sembol, şerit yalnız sembol adı) | yok |
+| 1a | İskelet | `web/` paketi, Vite build ve dev proxy, `yfin.ui` montajı, `pages.py` + CSP, `meter` erken dönüşü, CI web job'u, Dockerfile node aşaması, `DES` paneli (URL ile sembol, şerit yalnız sembol adı) | yok |
 | 1b | Komut dili | parser, registry, cmdk, history gezinme, `HELP`, `FA`, `ANR`, `N` (+`/ui/api/.../news`), `CF` | 1a |
 | 1c | Canlı yol | `stream/publish.py`, iki `stream` ayarı, `/ui/ws`, `/ui/api/.../ticks`, WS istemcisi ve store, şeridin canlı hâli, ölçüm | 1a |
 | 1d | Grafikler ve QR | lightweight-charts, `GP`, `GIP`, marker, gap overlay, `/ui/api/.../gaps`, canlı mum, `QR` paneli, Playwright senaryosu | 1b, 1c |
@@ -514,8 +514,7 @@ yayının N `PUBLISH` mi sembol başına dizi mi olacağını belirler.
 - Sembol 404: uyarı ve palet; bağlam değişmez.
 - Dataset boş: "veri yok". `sync_run_items` durumu API'de olmadığından
   faz 1'de gösterilmez; eksiklik burada kayıtlı.
-- 401 (REST) ya da 4401 (WS): istekler durur, login modalı, başarılı
-  login sonrası son komut yeniden koşar ve WS yeniden bağlanır.
+- 401/403: beklenmez (kimlik yok); gelirse hata kartı ve Retry.
 - WS kopması: şeritte kırmızı nokta, `QR`'da ayırıcı; REST panelleri
   etkilenmez.
 - `live.enabled=false`: şerit "canlı akış kapalı, son: HH:MM", `snap`
@@ -524,16 +523,16 @@ yayının N `PUBLISH` mi sembol başına dizi mi olacağını belirler.
 
 ## Testler
 
-**`tests/unit`:** çerez üretimi/doğrulama, claims zorunluluğu; Bearer
-varsa çereze düşülmemesi; çerez JWT'si Bearer olarak 401, Bearer JWT'si
-çerez olarak 401; `ui_enabled` + boş şifre → `ValueError`; UI
-kapalıyken `/ui/*` yok ve `yfin.ui` import edilmemiş; `dist` yokken
-montajın SPA'yı atlaması; `/ui/api/bilinmeyen` → 404 problem; login
-rate limit; `meter` `ui` için rate/quota/concurrency atlar ve
+**`tests/unit`:** `/v1` Bearer'sız 401 (çerezle de); ayna kimliksiz
+200, OpenAPI belgesinde yok; fren IP başına ve UI'a özel rotaları da
+kapsar; UI kapalıyken `/ui/*` yok ve `yfin.ui` import edilmemiş; `dist`
+yokken montajın SPA'yı atlaması; `/ui/api/bilinmeyen` → 404 problem
+(dist varken de); admin: gizli boşken 404, kimliksiz 401 +
+`WWW-Authenticate`, 5 yanlış → 429, her sayfa ve form ops katmanı mock
+ile; `meter` `ui` için rate/quota/concurrency atlar ve
 `UsageMiddleware` kaydetmez; `page_size_cap` 1000; `publish` alan
 tablosu ve `tick-fields.json --check`; fail-open (Redis mock atarsa DB
-yazımı sürer, uyarı bir kez); `openapi.json` değişmemiş; `Secure`
-bayrağı koşulu; CSP başlıkları `index.html` yanıtında.
+yazımı sürer, uyarı bir kez); `openapi.json` değişmemiş; CSP başlıkları `index.html` yanıtında.
 
 **`tests/repo`:** `snap` sorgusu `live_quotes`'tan doğru satır;
 `_write` commit sonrası yayın sırası ve `accepted` içeriği (fakeredis);
@@ -551,7 +550,7 @@ anahtarları. React Testing Library: sembol prop'u değişince yeniden
 sorgu; `dropped` görünür.
 
 **E2E:** CI'da koşmaz; 1d'nin yerel kabul ölçütü olarak tek Playwright
-senaryosu: login → `AAPL GIP 5m` → mum görünür.
+senaryosu: `AAPL GIP 5m` → mum görünür.
 
 ## Revizyonlar
 
@@ -576,6 +575,22 @@ senaryosu: login → `AAPL GIP 5m` → mum görünür.
   `run_in_threadpool`.
 - Parser grammar ve `CF DES` kuralı; history tabanlı gezinme; `HELP`
   URL'i; `localStorage` yalnız yönlendirme.
+
+2026-09-08, 1b/1e sonrası:
+
+- Giriş tamamen kaldırıldı: çerez, oturum, `me`, `ui_password`,
+  `ui_public` ve `current_principal`'daki çerez dalı yok; terminal
+  public, koruma yalnız `RequestBrake`.
+- `/ui/api` aynası (`public.py`); fren dış uygulamada ve `/ui/api`'nin
+  tamamını kapsar (inceleme: içerideyken UI'a özel rotaları
+  görmüyordu; `client_ip`'yi kendisi çözer).
+- Admin sayfası `/admin` (HTTP Basic, `settings_store` ve `yfin proxy`
+  ile aynı işlemler).
+- 1e: tipli tablo motoru, `DS`, sekmeli aile panelleri, `CA`, `PX`, tam
+  `info`; satır detayı; türetilmiş dış bağlantılar; HELP kılavuzu.
+- Sayılar sabit en-US, tarih-saatler UTC (spec'teki "yerel saat"
+  buna göre değişti). `market_summary_history` ve `domains` sembol
+  zorunlu; DOM ilk sekmesi `metrics`.
 - `QR` 1d'ye; E2E ifadesi; test listesi tasarım kararlarını kapsayacak
   şekilde genişletildi.
 - 100 sembol CPU ölçümü faz 1.5'e; `HP`/`EE` listeden çıkarıldı;

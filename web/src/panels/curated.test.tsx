@@ -2,14 +2,12 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetCatalogCache } from "../api/client";
-import { SessionProvider } from "../app/session";
 import { CAL_PANEL, CURATED, HDS_PANEL, tabbedPanel } from "./curated";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-const me = { authenticated: true, expires_at: null, live_enabled: false, public: true };
 
 const CATALOG = [
   {
@@ -33,7 +31,6 @@ function mockApi(rows: Record<string, unknown>[], seen: string[] = []) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
     seen.push(url);
-    if (url === "/ui/api/me") return json(200, me);
     if (url === "/ui/api/v1/datasets") return json(200, { data: CATALOG, next_cursor: null });
     if (url.startsWith("/ui/api/v1/datasets/")) return json(200, { data: rows, next_cursor: null });
     throw new Error(`unexpected ${url}`);
@@ -74,10 +71,8 @@ describe("tabbedPanel", () => {
     const Component = HDS_PANEL.component;
     render(
       <MemoryRouter initialEntries={["/ui/t/AAPL/HDS"]}>
-        <SessionProvider>
-          <LocationProbe />
-          <Component symbol="AAPL" args={{ tab: "major" }} />
-        </SessionProvider>
+        <LocationProbe />
+        <Component symbol="AAPL" args={{ tab: "major" }} />
       </MemoryRouter>,
     );
     expect(await screen.findByText("0.5000")).toBeInTheDocument();
@@ -93,9 +88,7 @@ describe("tabbedPanel", () => {
     const Component = HDS_PANEL.component;
     render(
       <MemoryRouter initialEntries={["/ui/t/-/HDS"]}>
-        <SessionProvider>
-          <Component symbol={null} args={{ tab: "major" }} />
-        </SessionProvider>
+        <Component symbol={null} args={{ tab: "major" }} />
       </MemoryRouter>,
     );
     expect(await screen.findByText(/type one first, e.g. AAPL HDS major/)).toBeInTheDocument();
@@ -108,9 +101,7 @@ describe("tabbedPanel", () => {
     const Component = CAL_PANEL.component;
     render(
       <MemoryRouter initialEntries={["/ui/t/AAPL/CAL"]}>
-        <SessionProvider>
-          <Component symbol="AAPL" args={{ tab: "economic", region: "US" }} />
-        </SessionProvider>
+        <Component symbol="AAPL" args={{ tab: "economic", region: "US" }} />
       </MemoryRouter>,
     );
     expect(await screen.findByText("CPI")).toBeInTheDocument();

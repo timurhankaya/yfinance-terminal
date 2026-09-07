@@ -9,11 +9,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from yfin.api.core.config import ApiSettings
-from yfin.ui import public, session
-from yfin.ui.session import COOKIE_NAME
+from yfin.ui import public
 
 KEY = "k" * 32
-PW = "hunter2"
 
 
 def settings(**overrides: object) -> ApiSettings:
@@ -23,8 +21,6 @@ def settings(**overrides: object) -> ApiSettings:
         "jwt_kid": "k1",
         "jwt_issuer": "yfin-api",
         "ui_enabled": True,
-        "ui_public": True,
-        "ui_password": "",
     }
     fields.update(overrides)
     return ApiSettings(**fields)  # type: ignore[arg-type]
@@ -36,26 +32,6 @@ def make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **overrides: ob
 
     monkeypatch.setattr(pages, "default_dist_dir", lambda: tmp_path / "absent")
     return TestClient(create_app(settings(**overrides)))
-
-
-def test_me_reports_a_public_terminal_as_signed_in(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    body = make_client(tmp_path, monkeypatch).get("/ui/api/me").json()
-    assert body == {
-        "authenticated": True,
-        "expires_at": None,
-        "live_enabled": False,
-        "public": True,
-    }
-
-
-def test_login_and_logout_do_not_exist_in_public_mode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    client = make_client(tmp_path, monkeypatch)
-    assert client.post("/ui/api/login", data={"password": "x"}).status_code == 404
-    assert client.post("/ui/api/logout").status_code == 404
 
 
 def test_the_mirror_serves_v1_reads_without_a_credential(
@@ -79,6 +55,18 @@ def test_v1_itself_stays_gated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert response.json()["type"] == "unauthenticated"
 
 
+def test_a_ui_cookie_is_never_accepted_on_v1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The terminal's own mount is the only unmetered door. A cookie named
+    like the one an older build set must not open `/v1`."""
+    response = make_client(tmp_path, monkeypatch).get(
+        "/v1/datasets", headers={"Cookie": "yfin_ui=anything"}
+    )
+    assert response.status_code == 401
+    assert response.json()["type"] == "unauthenticated"
+
+
 def test_the_mirror_is_not_in_the_openapi_document(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -87,18 +75,33 @@ def test_the_mirror_is_not_in_the_openapi_document(
     assert not any(p.startswith("/ui") for p in paths)
 
 
-def test_ui_only_routes_need_no_cookie_in_public_mode(
+def test_the_ui_only_routes_need_no_credential(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """limit=0 fails validation before any database work, so the 422 shows
-    the cookie gate was passed."""
+    the request reached the handler."""
     response = make_client(tmp_path, monkeypatch).get(
         "/ui/api/symbols/AAPL/news", params={"limit": 0}
     )
     assert response.status_code == 422
 
 
-def test_the_brake_answers_429_per_address(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_unknown_ui_api_path_is_a_problem_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a build there is no SPA to fall through to, but the mount's
+    own 404 must still be the answer, in both methods the browser uses."""
+    client = make_client(tmp_path, monkeypatch)
+    for method in ("GET", "HEAD"):
+        response = client.request(method, "/ui/api/no-such-thing", headers={"Accept": "text/html"})
+        assert response.status_code == 404, method
+        assert response.headers["content-type"] == "application/problem+json", method
+    assert client.get("/ui/api/no-such-thing").json()["type"] == "not_found"
+
+
+def test_the_brake_answers_429_on_the_mirror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = make_client(tmp_path, monkeypatch, ui_requests_per_minute=2)
     assert client.get("/ui/api/v1/datasets").status_code == 200
     assert client.get("/ui/api/v1/datasets").status_code == 200
@@ -110,18 +113,35 @@ def test_the_brake_answers_429_per_address(tmp_path: Path, monkeypatch: pytest.M
     assert client.get("/v1/datasets").status_code == 401
 
 
-def test_password_mode_keeps_the_mirror_behind_the_cookie(
+def test_the_brake_covers_the_ui_only_routes_too(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = make_client(tmp_path, monkeypatch, ui_public=False, ui_password=PW)
-    assert client.get("/ui/api/v1/datasets").status_code == 401
-    assert (
-        client.get("/ui/api/v1/datasets", headers={"Authorization": "Bearer x"}).status_code == 401
-    )
-    token, _ = session.issue(settings(ui_public=False, ui_password=PW))
-    client.cookies.set(COOKIE_NAME, token)
-    assert client.get("/ui/api/v1/datasets").status_code == 200
-    assert client.get("/ui/api/me").json()["public"] is False
+    """These live outside the mount, so a brake installed on the sub-app
+    would never see them: an unbraked database query a page away."""
+    client = make_client(tmp_path, monkeypatch, ui_requests_per_minute=2)
+    news = "/ui/api/symbols/AAPL/news"
+    assert client.get(news, params={"limit": 0}).status_code == 422
+    assert client.get(news, params={"limit": 0}).status_code == 422
+    assert client.get(news, params={"limit": 0}).status_code == 429
+
+
+def test_the_brake_is_per_address(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One noisy browser must not lock out the next one."""
+    from yfin.api.app import create_app
+    from yfin.ui import pages
+
+    monkeypatch.setattr(pages, "default_dist_dir", lambda: tmp_path / "absent")
+    app = create_app(settings(ui_requests_per_minute=2))
+    first = TestClient(app, client=("10.0.0.1", 1))
+    second = TestClient(app, client=("10.0.0.2", 1))
+
+    assert first.get("/ui/api/v1/datasets").status_code == 200
+    assert first.get("/ui/api/v1/datasets").status_code == 200
+    assert first.get("/ui/api/v1/datasets").status_code == 429
+    # A fresh window for the other address, with the first one exhausted.
+    assert second.get("/ui/api/v1/datasets").status_code == 200
+    assert second.get("/ui/api/v1/datasets").status_code == 200
+    assert second.get("/ui/api/v1/datasets").status_code == 429
 
 
 def test_the_public_principal_is_the_ui_identity() -> None:

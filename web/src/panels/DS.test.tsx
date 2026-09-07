@@ -2,14 +2,12 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetCatalogCache } from "../api/client";
-import { SessionProvider } from "../app/session";
 import { DS, DS_PANEL, DS_USAGE } from "./DS";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-const me = { authenticated: true, expires_at: null, live_enabled: false, public: true };
 
 const CATALOG = [
   {
@@ -41,10 +39,8 @@ function LocationProbe() {
 function renderDS(symbol: string | null, args: Record<string, string>) {
   return render(
     <MemoryRouter initialEntries={["/ui/t/-/DS"]}>
-      <SessionProvider>
-        <LocationProbe />
-        <DS symbol={symbol} args={args} />
-      </SessionProvider>
+      <LocationProbe />
+      <DS symbol={symbol} args={args} />
     </MemoryRouter>,
   );
 }
@@ -53,7 +49,6 @@ function mockApi(rows: Record<string, unknown>[], seen: string[] = []) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
     seen.push(url);
-    if (url === "/ui/api/me") return json(200, me);
     if (url === "/ui/api/v1/datasets") return json(200, { data: CATALOG, next_cursor: null });
     if (url.startsWith("/ui/api/v1/datasets/")) return json(200, { data: rows, next_cursor: null });
     throw new Error(`unexpected ${url}`);
@@ -114,7 +109,6 @@ describe("DS", () => {
   it("names the accepted filters when the API refuses one", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
       if (url === "/ui/api/v1/datasets") return json(200, { data: CATALOG, next_cursor: null });
       return new Response(JSON.stringify({ type: "invalid_parameter", title: "Unknown filter" }), {
         status: 422, headers: { "content-type": "application/problem+json" },
@@ -133,7 +127,6 @@ describe("DS", () => {
   it("shows the API's refusal when a required symbol is missing", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
       if (url === "/ui/api/v1/datasets") return json(200, { data: CATALOG, next_cursor: null });
       return new Response(JSON.stringify({ type: "invalid_parameter", title: "symbol is required" }), {
         status: 422, headers: { "content-type": "application/problem+json" },

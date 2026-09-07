@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { ApiError, getSymbol, UnauthorizedError } from "../api/client";
+import { ApiError, getSymbol } from "../api/client";
 import { commandToPath, parse, pathToCommand, SYMBOL_RE } from "../commands/parser";
 import { getPanel, isMnemonic, listPanels } from "../commands/registry";
 import type { PanelArgs } from "../commands/types";
 import { CommandPalette } from "./CommandPalette";
 import { useGlobalKeys } from "./keys";
-import { useSession } from "./session";
 
 export const LAST_KEY = "yfin.ui.last";
 
@@ -15,7 +14,6 @@ export function Shell() {
   const { symbol: rawSymbol = "-", code: rawCode = "DES" } = useParams();
   const { search } = useLocation();
   const navigate = useNavigate();
-  const { me, requireLogin } = useSession();
   const command = useMemo(() => pathToCommand(rawSymbol, rawCode, search), [rawSymbol, rawCode, search]);
   const spec = getPanel(command.code);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -23,7 +21,6 @@ export function Shell() {
   const [warning, setWarning] = useState<string | null>(null);
   const [palette, setPalette] = useState<{ open: boolean; query: string }>({ open: false, query: "" });
   const pendingRef = useRef<{ code: string; args: PanelArgs } | null>(null);
-  const pendingDraftRef = useRef<string | null>(null);
 
   useEffect(() => {
     try {
@@ -52,11 +49,6 @@ export function Shell() {
             setPalette({ open: true, query: next.symbol });
             return;
           }
-          if (err instanceof UnauthorizedError) {
-            pendingDraftRef.current = text;
-            requireLogin();
-            return;
-          }
           setWarning("Could not reach the API. Try again.");
           return;
         }
@@ -68,23 +60,15 @@ export function Shell() {
       inputRef.current?.blur();
       void navigate(commandToPath(next));
     },
-    [command, navigate, requireLogin],
+    [command, navigate],
   );
 
-  // Focus the box once the session exists. A static autoFocus would race
-  // the login modal's password field on first load and win.
+  // Focus the box once, on mount: the shell owns the keyboard from the
+  // first paint, and a later re-render must not steal focus back from a
+  // panel or the palette.
   useEffect(() => {
-    if (me?.authenticated) inputRef.current?.focus();
-  }, [me?.authenticated]);
-
-  // The last command re-runs after a successful login.
-  useEffect(() => {
-    if (me?.authenticated && pendingDraftRef.current !== null) {
-      const text = pendingDraftRef.current;
-      pendingDraftRef.current = null;
-      void submit(text);
-    }
-  }, [me?.authenticated, submit]);
+    inputRef.current?.focus();
+  }, []);
 
   function onPick(text: string) {
     const pending = pendingRef.current;

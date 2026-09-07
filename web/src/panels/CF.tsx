@@ -2,6 +2,7 @@ import { useState } from "react";
 import { getDataset } from "../api/client";
 import type { PanelArgs, PanelProps, PanelSpec } from "../commands/types";
 import { EmptyCard, ErrorCard, MissingCard, useListKeys, usePanelData } from "./common";
+import { edgarUrl } from "./links";
 
 type Row = Record<string, unknown>;
 
@@ -49,7 +50,9 @@ function FilingList({ data }: { data: Filings }) {
       {filings.map((row, index) => {
         const id = String(row.filing_id ?? index);
         const attached = exhibits.get(id) ?? [];
-        const edgar = row.edgar_url;
+        // Yahoo's archived filing page (edgar_url) answers 404 today; the
+        // SEC's own folder for the accession number is the durable link.
+        const edgar = edgarUrl(row.filing_id);
         return (
           <li
             key={id}
@@ -69,7 +72,7 @@ function FilingList({ data }: { data: Filings }) {
             <span className="muted">
               {text(row, "exhibit_count")} {text(row, "exhibit_count") === "1" ? "exhibit" : "exhibits"}
             </span>{" "}
-            {typeof edgar === "string" && /^https?:\/\//i.test(edgar) && (
+            {edgar !== null && (
               <a href={edgar} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
                 EDGAR ↗
               </a>

@@ -9,8 +9,8 @@ whose only differences are the principal (a fixed `ui` identity that the
 metering layer already skips) and a per-IP brake. The public contract,
 its quotas and its document do not change.
 
-In password mode the mount stays, but the principal comes from the
-session cookie; in public mode it is granted to everyone.
+The terminal is public: every request on this mount runs as that one
+identity, with nothing to present and nothing to check.
 """
 
 from __future__ import annotations
@@ -23,17 +23,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from yfin.api.auth.dependencies import UI_CLIENT_ID, UI_SCOPES, Principal, current_principal
 from yfin.api.core.config import ApiSettings
 from yfin.api.core.errors import (
-    TYPE_INVALID_TOKEN,
     TYPE_RATE_LIMIT,
-    TYPE_UNAUTHENTICATED,
-    ApiProblem,
     install_error_handlers,
     problem_response,
 )
+from yfin.api.core.middleware import resolve_client_ip, trusted_networks
 from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.api.routers.v1 import datasets, market
-from yfin.ui import session
-from yfin.ui.session import COOKIE_NAME, SessionInvalid
 
 #: The routers keep their own `/v1` prefix, so mounting at /ui/api puts
 #: them at /ui/api/v1/... -- the same paths as the public API, one level
@@ -48,38 +44,46 @@ PUBLIC_PRINCIPAL = Principal(client_id=UI_CLIENT_ID, scopes=UI_SCOPES, jti="publ
 
 
 def ui_principal(request: Request) -> Principal:
-    """Public mode: everyone is the `ui` principal. Password mode: the
-    session cookie must be present and valid; a Bearer token is not
-    accepted here because this mount exists precisely to bypass metering."""
-    settings: ApiSettings = request.app.state.api_settings
-    if settings.ui_public:
-        request.state.client_id = UI_CLIENT_ID
-        request.state.jti = PUBLIC_PRINCIPAL.jti
-        return PUBLIC_PRINCIPAL
-    raw = request.cookies.get(COOKIE_NAME)
-    if not raw:
-        raise ApiProblem(401, TYPE_UNAUTHENTICATED, "Login required")
-    try:
-        claims = session.verify(settings, raw)
-    except SessionInvalid as exc:
-        raise ApiProblem(401, TYPE_INVALID_TOKEN, "The session is not valid") from exc
+    """Everyone is the `ui` principal. Nothing is presented and nothing is
+    checked: this mount exists to serve the browser page the same reads
+    `/v1` serves, off the metered path."""
     request.state.client_id = UI_CLIENT_ID
-    request.state.jti = claims.jti
-    return Principal(client_id=UI_CLIENT_ID, scopes=UI_SCOPES, jti=claims.jti)
+    request.state.jti = PUBLIC_PRINCIPAL.jti
+    return PUBLIC_PRINCIPAL
+
+
+#: Everything the browser page calls, the mirror and the UI-only routes
+#: alike. Installed on the outer app, because the UI-only routes
+#: (`/ui/api/symbols/{s}/news`, later `/ticks` and `/gaps`) are registered
+#: outside the mount and a brake inside it would never see them: an
+#: unmetered, unbraked database query a page away.
+BRAKE_PREFIX = "/ui/api"
 
 
 class RequestBrake(BaseHTTPMiddleware):
-    """Per-IP fixed window over everything on this mount."""
+    """Per-IP fixed window over every request under BRAKE_PREFIX; anything
+    else passes untouched (`/v1` has its own limiter).
+
+    It resolves the address itself rather than reading
+    `request.state.client_ip`. `add_middleware` prepends, so this one --
+    added last, from `install` -- runs OUTSIDE `RequestContextMiddleware`
+    and that attribute does not exist yet. Reading it would have every
+    request in the world share the "unknown" bucket, which is a brake
+    that is either off or shut, never per address.
+    """
 
     def __init__(self, app: Callable[..., object], settings: ApiSettings) -> None:
         super().__init__(app)  # type: ignore[arg-type]
         self._limit = settings.ui_requests_per_minute
+        self._nets = trusted_networks(settings)
         self.window = FixedWindow()
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        client_ip = getattr(request.state, "client_ip", "unknown")
+        if not request.url.path.startswith(BRAKE_PREFIX):
+            return await call_next(request)
+        client_ip = resolve_client_ip(request, self._nets)
         if not self.window.allow(client_ip, self._limit):
             return problem_response(
                 request,
@@ -98,7 +102,6 @@ def build_data_api(settings: ApiSettings) -> FastAPI:
     api = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
     api.state.api_settings = settings
     install_error_handlers(api)
-    api.add_middleware(RequestBrake, settings=settings)
     api.dependency_overrides[current_principal] = ui_principal
     api.include_router(market.router)
     api.include_router(datasets.router)

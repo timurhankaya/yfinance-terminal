@@ -1,13 +1,11 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DES, formatBig, formatInfo, group } from "./DES";
-import { SessionProvider, useSession } from "../app/session";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-const me = { authenticated: true, expires_at: 1, live_enabled: false };
 
 // vitest.config.ts sets `globals: false`, so @testing-library/react's
 // automatic afterEach(cleanup) (which looks for a global `afterEach`)
@@ -18,11 +16,7 @@ afterEach(() => {
 });
 
 function renderDES(symbol: string) {
-  return render(
-    <SessionProvider>
-      <DES symbol={symbol} args={{}} />
-    </SessionProvider>,
-  );
+  return render(<DES symbol={symbol} args={{}} />);
 }
 
 describe("formatBig", () => {
@@ -37,7 +31,6 @@ describe("DES", () => {
   it("renders identity and the info fields it knows", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
       if (url.startsWith("/ui/api/v1/datasets/company_officers")) return json(200, { data: [], next_cursor: null });
       if (url === "/ui/api/v1/symbols/AAPL") return json(200, { data: {
         symbol: "AAPL", long_name: "Apple Inc.", short_name: "Apple", exchange: "NMS",
@@ -100,49 +93,20 @@ describe("DES", () => {
   });
 
   it("says so when the symbol does not exist", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
-      return new Response(JSON.stringify({ type: "not_found", title: "No such symbol" }), {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify({ type: "not_found", title: "No such symbol" }), {
         status: 404, headers: { "content-type": "application/problem+json" },
-      });
-    });
+      }),
+    );
     renderDES("NOPE");
     expect(await screen.findByText(/No such symbol/)).toBeInTheDocument();
   });
 
   it("shows a retry on a server error", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
-      return new Response("{}", { status: 500, headers: { "content-type": "application/problem+json" } });
-    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response("{}", { status: 500, headers: { "content-type": "application/problem+json" } }),
+    );
     renderDES("AAPL");
     expect(await screen.findByRole("button", { name: /retry/i })).toBeInTheDocument();
   });
 });
-
-describe("SessionProvider", () => {
-  it("settles on unauthenticated when the initial /me call rejects", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("network"));
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    render(
-      <SessionProvider>
-        <SessionProbe />
-      </SessionProvider>,
-    );
-    expect(await screen.findByText("session:false")).toBeInTheDocument();
-    expect(errorSpy).toHaveBeenCalledWith("session refresh failed", expect.any(TypeError));
-  });
-});
-
-// A tiny consumer of useSession so the test can flip the session.
-function SessionProbe() {
-  const { me, refresh } = useSession();
-  return (
-    <>
-      <span>session:{String(me?.authenticated ?? "null")}</span>
-      <button onClick={() => void refresh()}>refresh</button>
-    </>
-  );
-}

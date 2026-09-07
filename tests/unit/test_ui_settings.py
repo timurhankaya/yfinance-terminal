@@ -1,44 +1,25 @@
-"""UI settings: the switch, the password and the cookie's Secure flag."""
+"""UI settings: the switch and the per-address brake."""
 
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from yfin.api.core.config import ApiSettings
-
-PW = "hunter2"
 
 
 def test_ui_is_off_by_default() -> None:
     # _env_file=None: the developer's own .env must not decide this test.
     assert ApiSettings(_env_file=None).ui_enabled is False
-    assert ApiSettings(_env_file=None).ui_password == ""
 
 
-def test_enabled_without_a_password_is_REFUSED() -> None:
-    """A UI with an empty password is not "no auth", it is a lie: the login
-    form would accept the empty string. Refuse at startup instead."""
-    with pytest.raises(ValueError, match="YFAPI_UI_PASSWORD"):
-        ApiSettings(_env_file=None, ui_enabled=True, ui_public=False, ui_password="").validate_ui()
+def test_the_brake_defaults_to_600_a_minute() -> None:
+    assert ApiSettings(_env_file=None).ui_requests_per_minute == 600
 
 
-def test_enabled_with_a_password_validates() -> None:
-    ApiSettings(_env_file=None, ui_enabled=True, ui_password=PW).validate_ui()
-
-
-def test_public_mode_needs_no_password() -> None:
-    ApiSettings(_env_file=None, ui_enabled=True, ui_public=True, ui_password="").validate_ui()
-    assert ApiSettings(_env_file=None).ui_public is True
-
-
-def test_disabled_never_validates_the_password() -> None:
-    ApiSettings(_env_file=None, ui_enabled=False, ui_password="").validate_ui()
-
-
-def test_cookie_is_secure_only_behind_https() -> None:
-    https = ApiSettings(_env_file=None, public_base_url="https://yfin.example")
-    http = ApiSettings(_env_file=None, public_base_url="http://localhost:8000")
-    none = ApiSettings(_env_file=None, public_base_url="")
-    assert https.ui_cookie_secure() is True
-    assert http.ui_cookie_secure() is False
-    assert none.ui_cookie_secure() is False
+def test_a_brake_of_zero_is_REFUSED() -> None:
+    """`ge=1`, because the terminal is public and the brake is the only
+    thing in front of it: a zero would read as "no limit" and mean
+    "no requests at all"."""
+    with pytest.raises(ValidationError):
+        ApiSettings(_env_file=None, ui_requests_per_minute=0)

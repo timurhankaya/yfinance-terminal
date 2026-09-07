@@ -50,13 +50,17 @@ const DOMAIN: LinkRule = {
   },
 };
 
-const SCREEN: LinkRule = {
-  label: "screener",
-  href: (row) => {
-    const key = str(row, "screen_key");
-    return key ? `${YF}/research-hub/screener/${enc(key)}/` : null;
-  },
-};
+/** The filing's folder on EDGAR. `filing_id` is `<accession>_<cik>`;
+ *  the archive's own `edgar_url` (Yahoo's copy of the page) answers 404
+ *  now, so the source of record is linked instead. */
+export function edgarUrl(filingId: unknown): string | null {
+  if (typeof filingId !== "string") return null;
+  const [accession, cik] = filingId.split("_");
+  if (!accession || !cik || !/^\d{10}-\d{2}-\d{6}$/.test(accession) || !/^\d+$/.test(cik)) return null;
+  return `https://www.sec.gov/Archives/edgar/data/${Number(cik)}/${accession.replace(/-/g, "")}/`;
+}
+
+const EDGAR: LinkRule = { label: "EDGAR", href: (row) => edgarUrl(row.filing_id) };
 
 const HOLDING: LinkRule = {
   label: "holding quote",
@@ -77,9 +81,8 @@ const BY_DATASET: Record<string, LinkRule[]> = {
   domain_top_companies: [DOMAIN],
   domain_top_funds: [DOMAIN],
   domain_top_movers: [DOMAIN],
-  screens: [SCREEN],
-  screen_runs: [SCREEN],
-  screen_members: [SCREEN],
+  sec_filings: [EDGAR],
+  sec_filing_exhibits: [EDGAR],
   fund_top_holdings: [HOLDING],
 };
 

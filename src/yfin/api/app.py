@@ -144,14 +144,17 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.include_router(datasets.router)
 
     if settings.ui_enabled:
-        # Validated here, not at field level, so `yfin api client` and the
-        # health probe still run with a misconfigured UI. Imported here,
-        # not at module level, so a deployment with the UI off never
-        # loads it.
-        settings.validate_ui()
+        # Imported here, not at module level, so a deployment with the UI
+        # off never loads it.
         from yfin.ui import install as install_ui
 
         install_ui(app, settings)
+
+    if settings.admin_password:
+        # Same rule as the terminal: imported only when switched on.
+        from yfin.admin import install as install_admin
+
+        install_admin(app, settings)
 
     # After the routers, because it names every route and builds the
     # document from them. Installed even when the docs are withheld: a

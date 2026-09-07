@@ -21,7 +21,7 @@ function parseArgs(tokens: string[]): PanelArgs {
 
 function Catalog({ symbol }: { symbol: string | null }) {
   const navigate = useNavigate();
-  const { state, retry } = usePanelData<CatalogEntry[]>("catalog", getCatalog);
+  const { state, retry } = usePanelData<CatalogEntry[]>("catalog", getCatalog, (entries) => entries.length === 0);
   const entries = useMemo(() => {
     if (state.kind !== "ready") return [];
     return [...state.data].sort((a, b) => a.family.localeCompare(b.family) || a.name.localeCompare(b.name));
@@ -34,7 +34,8 @@ function Catalog({ symbol }: { symbol: string | null }) {
 
   if (state.kind === "loading") return <p className="muted">Loading the catalogue…</p>;
   if (state.kind === "error") return <ErrorCard message={state.message} onRetry={retry} />;
-  if (state.kind !== "ready") return <p className="muted">The catalogue is empty.</p>;
+  if (state.kind === "empty") return <p className="muted">The catalogue is empty.</p>;
+  if (state.kind !== "ready") return null;
 
   let family = "";
   return (

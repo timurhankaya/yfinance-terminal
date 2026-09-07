@@ -1,60 +1,48 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/client";
-import { SessionProvider, useSession } from "../app/session";
 import { useListKeys, usePanelData } from "./common";
-
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-}
-
-const me = { authenticated: true, expires_at: 1, live_enabled: false };
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
 
-function wrapper({ children }: { children: ReactNode }) {
-  return <SessionProvider>{children}</SessionProvider>;
+// Every test guards the network: usePanelData must only ever call the `load`
+// it was handed, never reach for an endpoint of its own.
+function noNetwork() {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    throw new Error(`unexpected ${String(input)}`);
+  });
 }
 
 describe("usePanelData", () => {
-  it("does not load while unauthenticated, then loads once the session refreshes", async () => {
-    let authed = false;
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-      if (url === "/ui/api/me") return json(200, { ...me, authenticated: authed });
-      throw new Error(`unexpected ${url}`);
-    });
+  it("loads once on mount", async () => {
+    noNetwork();
     const load = vi.fn(async () => "data");
-    const { result } = renderHook(
-      () => {
-        const session = useSession();
-        const panel = usePanelData("k", load);
-        return { session, panel };
-      },
-      { wrapper },
-    );
-    await waitFor(() => expect(result.current.session.me).not.toBeNull());
-    expect(result.current.panel.state).toEqual({ kind: "loading" });
-    expect(load).not.toHaveBeenCalled();
-
-    authed = true;
-    await act(async () => {
-      await result.current.session.refresh();
-    });
-    await waitFor(() => expect(result.current.panel.state).toEqual({ kind: "ready", data: "data" }));
+    const { result, rerender } = renderHook(() => usePanelData("k", load));
+    await waitFor(() => expect(result.current.state).toEqual({ kind: "ready", data: "data" }));
+    rerender();
     expect(load).toHaveBeenCalledTimes(1);
   });
 
+  it("re-runs the load when the key changes", async () => {
+    noNetwork();
+    const load = vi.fn(async () => "first");
+    const { result, rerender } = renderHook(
+      ({ key }: { key: string }) => usePanelData(key, load),
+      { initialProps: { key: "AAPL" } },
+    );
+    await waitFor(() => expect(result.current.state).toEqual({ kind: "ready", data: "first" }));
+
+    load.mockImplementation(async () => "second");
+    rerender({ key: "MSFT" });
+    await waitFor(() => expect(result.current.state).toEqual({ kind: "ready", data: "second" }));
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
   it("drops a stale response when the key changes before it resolves", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
-      throw new Error(`unexpected ${url}`);
-    });
+    noNetwork();
     let resolveFirst!: (value: string) => void;
     const first = new Promise<string>((resolve) => {
       resolveFirst = resolve;
@@ -62,7 +50,7 @@ describe("usePanelData", () => {
     const load = vi.fn(() => first);
     const { result, rerender } = renderHook(
       ({ key }: { key: string }) => usePanelData(key, load),
-      { wrapper, initialProps: { key: "AAPL" } },
+      { initialProps: { key: "AAPL" } },
     );
     await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
 
@@ -78,45 +66,39 @@ describe("usePanelData", () => {
   });
 
   it("maps a 404 to missing", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
-      throw new Error(`unexpected ${url}`);
-    });
+    noNetwork();
     const load = vi.fn(async () => {
       throw new ApiError(404, "not_found", "No such symbol");
     });
-    const { result } = renderHook(() => usePanelData("k", load), { wrapper });
+    const { result } = renderHook(() => usePanelData("k", load));
     await waitFor(() => expect(result.current.state).toEqual({ kind: "missing" }));
   });
 
-  it("maps an empty result through isEmpty to empty", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
-      throw new Error(`unexpected ${url}`);
+  it("maps a 401 to a plain error, not a state of its own", async () => {
+    noNetwork();
+    const load = vi.fn(async () => {
+      throw new ApiError(401, "unauthenticated", "Unauthenticated");
     });
+    const { result } = renderHook(() => usePanelData("k", load));
+    await waitFor(() => expect(result.current.state).toEqual({ kind: "error", message: "Unauthenticated" }));
+  });
+
+  it("maps an empty result through isEmpty to empty", async () => {
+    noNetwork();
     const load = vi.fn(async () => [] as string[]);
-    const { result } = renderHook(
-      () => usePanelData("k", load, (data: string[]) => data.length === 0),
-      { wrapper },
-    );
+    const { result } = renderHook(() => usePanelData("k", load, (data: string[]) => data.length === 0));
     await waitFor(() => expect(result.current.state).toEqual({ kind: "empty" }));
   });
 
   it("maps any other error to an error state and retry re-runs the load", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
-      throw new Error(`unexpected ${url}`);
-    });
+    noNetwork();
     let calls = 0;
     const load = vi.fn(async () => {
       calls += 1;
       if (calls === 1) throw new TypeError("network");
       return "data";
     });
-    const { result } = renderHook(() => usePanelData("k", load), { wrapper });
+    const { result } = renderHook(() => usePanelData("k", load));
     await waitFor(() => expect(result.current.state).toEqual({ kind: "error", message: "network" }));
 
     await act(async () => {
@@ -127,16 +109,9 @@ describe("usePanelData", () => {
   });
 
   it("does not restart the load when isEmpty is a fresh lambda every render", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
-      throw new Error(`unexpected ${url}`);
-    });
+    noNetwork();
     const load = vi.fn(async () => "data");
-    const { result, rerender } = renderHook(
-      () => usePanelData("k", load, (data: string) => data === ""),
-      { wrapper },
-    );
+    const { result, rerender } = renderHook(() => usePanelData("k", load, (data: string) => data === ""));
     await waitFor(() => expect(result.current.state).toEqual({ kind: "ready", data: "data" }));
     rerender();
     rerender();

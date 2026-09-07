@@ -75,22 +75,15 @@ YFAPI_UI_ENABLED=true uvicorn yfin.api.app:app --port 8000
 open http://localhost:8000/ui
 ```
 
-The terminal is public by default: no login, and the page reads the
-archive through its own mirror of the `/v1` routers at `/ui/api/v1`
-(no Bearer token, no plan metering, a per-address brake of
-`YFAPI_UI_REQUESTS_PER_MINUTE` requests instead). `/v1` itself and its
-`openapi.json` do not change. Behind a reverse proxy set
-`YFAPI_TRUSTED_PROXIES`, or every browser in the world shares one
-brake bucket. The footer credits Yahoo Finance, where the data comes
-from, and the `yfinance` package that fetches it.
-
-To put the terminal behind a password instead, set
-`YFAPI_UI_PUBLIC=false` and `YFAPI_UI_PASSWORD=<choose one>`. Then set
-`YFAPI_PUBLIC_BASE_URL` to the `https://` origin so the session cookie
-is marked `Secure`; with it empty the cookie travels over plain HTTP,
-which is acceptable on localhost and nowhere else. Changing
-`YFAPI_UI_PASSWORD` signs every browser session out; changing
-`YFAPI_JWT_SIGNING_KEY` does that AND revokes every API token.
+The terminal is public: there is no login and no identity of any kind.
+The page reads the archive through its own mirror of the `/v1` routers
+at `/ui/api/v1` (no Bearer token, no plan metering, a per-address brake
+of `YFAPI_UI_REQUESTS_PER_MINUTE` requests instead). `/v1` itself and
+its `openapi.json` do not change. Behind a reverse proxy set
+`YFAPI_TRUSTED_PROXIES`, or every browser in the world shares one brake
+bucket -- that brake is the only thing in front of the terminal, so it
+is what makes the setting matter. The footer credits Yahoo Finance,
+where the data comes from, and the `yfinance` package that fetches it.
 
 Use `npm ci` in `web/`; plain `npm install` crashes on the npm that
 ships with Node 22 (an npm 10.9 resolver bug) -- the committed
@@ -107,6 +100,24 @@ N                     # news; j/k to move, Enter to open
 CF 10-K               # SEC filings of one type; Enter expands exhibits
 HELP                  # every function and shortcut; Esc goes back
 ```
+
+### Admin page
+
+```bash
+YFAPI_ADMIN_PASSWORD=<choose one> uvicorn yfin.api.app:app --port 8000
+open http://localhost:8000/admin
+```
+
+Four server-rendered pages, no JavaScript: the `settings` table (every
+DB-managed setting with its schema, source and effective value; Save
+validates through the same store `yfin config set` uses, Unset drops the
+row), the proxy pool (add with the `yfin proxy add` DSN form, credentials
+Fernet-encrypted; enable, disable, reset health, remove), which screens
+run, and a read-only list of API clients. The routes exist only while
+the variable is set. Access is HTTP Basic (the browser's own prompt;
+any username, the secret is the credential), with five failed attempts
+per address per minute before a 429. Put it behind TLS: Basic carries
+the secret on every request.
 
 ---
 
@@ -181,7 +192,7 @@ adding a module and registering it — no other file changes.
 | `src/yfin/persistence.py` | Write mechanics: upsert, chunking, verification |
 | `src/yfin/runner.py` | Orchestration, retries, audit records |
 | `src/yfin/proxy/` | Pool, health, encrypted credentials |
-| `src/yfin/ui/` | Web terminal: session cookie, `/ui/api` routes, SPA pages |
+| `src/yfin/ui/` | Web terminal: the public `/ui/api` mount, its own read routes, SPA pages |
 | `web/` | The SPA source (React + Vite); builds into `src/yfin/ui/static/dist` |
 | `migrations/` | Alembic |
 | `docs/measurements/` | Evidence behind the design decisions |

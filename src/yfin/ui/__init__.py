@@ -24,11 +24,15 @@ def install(app: FastAPI, settings: ApiSettings, dist_dir: Path | None = None) -
     pages. Starlette matches in registration order, so the mount must
     come after the routes it would otherwise swallow, and before the pages
     so /ui/api/* can never fall through to index.html."""
-    from yfin.ui import data, pages, public, router
+    from yfin.ui import data, pages, public
 
     app.include_router(data.router)
-    app.include_router(router.router)
     app.mount(public.MOUNT_PATH, public.build_data_api(settings), name="ui-data")
+    # On the outer app so it covers the UI-only routes above as well as
+    # the mount. `add_middleware` prepends, so added last it ends up
+    # outermost -- ahead of RequestContextMiddleware, which is why it
+    # resolves the client address itself (see RequestBrake).
+    app.add_middleware(public.RequestBrake, settings=settings)
 
     dist = dist_dir if dist_dir is not None else pages.default_dist_dir()
     # Both halves, because StaticFiles raises in its constructor when the

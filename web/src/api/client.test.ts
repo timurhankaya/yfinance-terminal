@@ -3,7 +3,6 @@ import {
   ApiError,
   MAX_PAGES,
   PAGE_LIMIT,
-  UnauthorizedError,
   apiFetch,
   getActions,
   getBars,
@@ -11,14 +10,10 @@ import {
   getDataset,
   getDatasetRows,
   getFinancials,
-  getMe,
   getSymbol,
-  login,
   resetCatalogCache,
   searchSymbols,
 } from "./client";
-
-const PW = "hunter2";
 
 function respond(status: number, body: unknown, contentType = "application/json"): Response {
   return new Response(body === null ? null : JSON.stringify(body), {
@@ -32,17 +27,20 @@ describe("apiFetch", () => {
 
   it("sends same-origin credentials and never caches", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond(200, { ok: 1 }));
-    await apiFetch("/ui/api/me");
+    await apiFetch("/ui/api/v1/datasets");
     const [, init] = spy.mock.calls[0]!;
     expect(init?.credentials).toBe("same-origin");
     expect(init?.cache).toBe("no-store");
   });
 
-  it("turns a 401 into UnauthorizedError", async () => {
+  it("turns a 401 into an ordinary ApiError, with no state of its own", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       respond(401, { type: "unauthenticated", title: "x" }, "application/problem+json"),
     );
-    await expect(apiFetch("/ui/api/v1/symbols/AAPL")).rejects.toBeInstanceOf(UnauthorizedError);
+    const err = await apiFetch("/ui/api/v1/symbols/AAPL").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(401);
+    expect((err as ApiError).type).toBe("unauthenticated");
   });
 
   it("turns another problem into ApiError with the type", async () => {
@@ -57,30 +55,12 @@ describe("apiFetch", () => {
 
   it("returns undefined for a 204", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
-    await expect(apiFetch("/ui/api/logout", { method: "POST" })).resolves.toBeUndefined();
+    await expect(apiFetch("/ui/api/v1/datasets", { method: "POST" })).resolves.toBeUndefined();
   });
 });
 
 describe("endpoints", () => {
   afterEach(() => vi.restoreAllMocks());
-
-  it("getMe reads /ui/api/me", async () => {
-    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      respond(200, { authenticated: false, expires_at: null, live_enabled: false }),
-    );
-    const me = await getMe();
-    expect(spy.mock.calls[0]![0]).toBe("/ui/api/me");
-    expect(me.authenticated).toBe(false);
-  });
-
-  it("login posts the form field", async () => {
-    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
-    await login(PW);
-    const [url, init] = spy.mock.calls[0]!;
-    expect(url).toBe("/ui/api/login");
-    expect(init?.method).toBe("POST");
-    expect(String(init?.body)).toContain(`password=${PW}`);
-  });
 
   it("getSymbol upper-cases and unwraps the resource envelope", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(

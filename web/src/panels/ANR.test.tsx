@@ -1,7 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ANR, ANR_PANEL } from "./ANR";
-import { SessionProvider, useSession } from "../app/session";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -14,7 +13,6 @@ function problem(status: number, type: string): Response {
   });
 }
 
-const me = { authenticated: true, expires_at: 1, live_enabled: false };
 
 function page(rows: unknown[]) {
   return json(200, { data: rows, next_cursor: null, as_of: null });
@@ -41,18 +39,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function SessionProbe() {
-  const { me } = useSession();
-  return <span>session:{String(me?.authenticated ?? "null")}</span>;
-}
-
 function renderANR() {
-  return render(
-    <SessionProvider>
-      <SessionProbe />
-      <ANR symbol="AAPL" args={{}} />
-    </SessionProvider>,
-  );
+  return render(<ANR symbol="AAPL" args={{}} />);
 }
 
 describe("ANR_PANEL", () => {
@@ -68,7 +56,6 @@ describe("ANR", () => {
   it("renders every section independently: tables, an empty note and an error card", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
       if (url === URLS.targets) return page(targets);
       if (url === URLS.recommendations) return page([]);
       if (url === URLS.grades) return page(grades);
@@ -94,7 +81,6 @@ describe("ANR", () => {
   it("shows one empty card when every section is empty", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
       if (url.startsWith("/ui/api/v1/datasets/")) return page([]);
       throw new Error(`unexpected ${url}`);
     });
@@ -102,16 +88,17 @@ describe("ANR", () => {
     expect(await screen.findByText("No analyst data for this symbol.")).toBeInTheDocument();
   });
 
-  it("drops the session when any section answers 401", async () => {
+  it("keeps a 401 inside its own section instead of failing the panel", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
       if (url === URLS.grades) return problem(401, "unauthenticated");
+      if (url === URLS.targets) return page(targets);
       if (url.startsWith("/ui/api/v1/datasets/")) return page([]);
       throw new Error(`unexpected ${url}`);
     });
     renderANR();
-    await screen.findByText("session:true");
-    expect(await screen.findByText("session:false")).toBeInTheDocument();
+    // The other sections still render; only the 401 one shows a retryable card.
+    expect(await screen.findByText("319.97")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
   });
 });

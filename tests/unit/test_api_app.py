@@ -10,7 +10,7 @@ from starlette.requests import Request
 
 from yfin.api.core.config import ApiSettings
 from yfin.api.core.errors import install_error_handlers
-from yfin.api.core.middleware import SECURITY_HEADERS, _networks, resolve_client_ip
+from yfin.api.core.middleware import SECURITY_HEADERS, resolve_client_ip, trusted_networks
 from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.api.routers import meta
 from yfin.core.logging_setup import REDACTED, redact_secrets
@@ -99,13 +99,13 @@ def _request(peer: str, forwarded: str | None = None) -> Request:
 def test_forwarded_header_is_IGNORED_when_no_proxy_is_configured() -> None:
     """An unconfigured deployment must not be a bypass: without a trusted
     network the header is attacker-controlled input."""
-    nets = _networks(ApiSettings(trusted_proxies=""))
+    nets = trusted_networks(ApiSettings(trusted_proxies=""))
     ip = resolve_client_ip(_request("203.0.113.9", forwarded="1.2.3.4"), nets)
     assert ip == "203.0.113.9"
 
 
 def test_forwarded_header_from_an_untrusted_peer_is_IGNORED() -> None:
-    nets = _networks(ApiSettings(trusted_proxies="10.0.0.0/8"))
+    nets = trusted_networks(ApiSettings(trusted_proxies="10.0.0.0/8"))
     ip = resolve_client_ip(_request("203.0.113.9", forwarded="1.2.3.4"), nets)
     assert ip == "203.0.113.9"
 
@@ -113,13 +113,13 @@ def test_forwarded_header_from_an_untrusted_peer_is_IGNORED() -> None:
 def test_behind_a_trusted_proxy_the_chain_is_walked_FROM_THE_RIGHT() -> None:
     """The client is the rightmost address that is not one of ours;
     anything further left was written by someone we do not control."""
-    nets = _networks(ApiSettings(trusted_proxies="10.0.0.0/8"))
+    nets = trusted_networks(ApiSettings(trusted_proxies="10.0.0.0/8"))
     request = _request("10.0.0.1", forwarded="9.9.9.9, 198.51.100.7, 10.0.0.2")
     assert resolve_client_ip(request, nets) == "198.51.100.7"
 
 
 def test_an_entirely_trusted_chain_falls_back_to_the_peer_address() -> None:
-    nets = _networks(ApiSettings(trusted_proxies="10.0.0.0/8"))
+    nets = trusted_networks(ApiSettings(trusted_proxies="10.0.0.0/8"))
     request = _request("10.0.0.1", forwarded="10.0.0.3, 10.0.0.2")
     assert resolve_client_ip(request, nets) == "10.0.0.1"
 
