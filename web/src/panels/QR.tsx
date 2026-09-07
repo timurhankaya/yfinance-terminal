@@ -133,7 +133,7 @@ export function QR({ symbol, args }: PanelProps) {
     <section>
       <p className="chart-note">
         <span>
-          {symbol} · time and sales · {items.length} ticks · UTC
+          {symbol} · time and sales · {items.length} {items.length === 1 ? "tick" : "ticks"} · UTC
         </span>
         {!enabled && <span className="muted">live stream off; this is the archive</span>}
         {enabled && link !== LinkState.Open && <span className="strip-link">reconnecting</span>}
