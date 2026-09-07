@@ -27,6 +27,16 @@ Read-only access to the yfin market data warehouse: symbols, price bars,
 corporate actions, financial statements, analyst coverage, holdings,
 news, discovery results and the sector/industry taxonomy.
 
+Every example in this document uses `ACME`, a fictional symbol. The
+response bodies were captured against it, so the parameters you see and
+the payloads you read describe one company throughout, and no number here
+is a real company's reported figure.
+
+**Live ticks are not served here.** The pipeline collects them and
+publishes them to Kafka for consumers that need them; this API serves the
+stored history and reference data. Everything readable over HTTP is in
+the resource table below.
+
 ## Getting a token
 
 Authentication is the OAuth2 **client credentials** grant. Send your

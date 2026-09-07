@@ -13,6 +13,12 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import (
+    get_redoc_html,
+    get_swagger_ui_html,
+    get_swagger_ui_oauth2_redirect_html,
+)
+from fastapi.responses import HTMLResponse
 
 from yfin.api.core import openapi as openapi_document
 from yfin.api.core.config import ApiSettings, get_api_settings
@@ -36,6 +42,36 @@ CONTACT = {"name": "Timurhan Kaya", "url": openapi_document.PRODUCTION_URL}
 #: `identifier` is OpenAPI 3.1 only and is mutually exclusive with `url`:
 #: a licence link cannot be added here without removing the SPDX id.
 LICENSE = {"name": "AGPL-3.0-or-later", "identifier": "AGPL-3.0-or-later"}
+
+
+def _install_documentation_pages(app: FastAPI) -> None:
+    """Swagger UI and ReDoc, with our icon instead of FastAPI's.
+
+    Both are excluded from the OpenAPI document -- they are how the
+    contract is read, not part of it -- which is also what keeps them out
+    of `OPERATION_IDS` and the response tables.
+    """
+
+    @app.get("/docs", include_in_schema=False)
+    def swagger_ui() -> HTMLResponse:
+        return get_swagger_ui_html(
+            openapi_url="/openapi.json",
+            title=f"{TITLE} — reference",
+            oauth2_redirect_url="/docs/oauth2-redirect",
+            swagger_favicon_url=openapi_document.FAVICON,
+        )
+
+    @app.get("/docs/oauth2-redirect", include_in_schema=False)
+    def swagger_ui_redirect() -> HTMLResponse:
+        return get_swagger_ui_oauth2_redirect_html()
+
+    @app.get("/redoc", include_in_schema=False)
+    def redoc() -> HTMLResponse:
+        return get_redoc_html(
+            openapi_url="/openapi.json",
+            title=f"{TITLE} — contract",
+            redoc_favicon_url=openapi_document.FAVICON,
+        )
 
 
 def create_app(settings: ApiSettings | None = None) -> FastAPI:
@@ -62,8 +98,10 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         # internet the pages load but stay blank -- the document itself
         # is always available at /openapi.json, which is what tooling
         # consumes anyway.
-        docs_url="/docs" if settings.docs_enabled else None,
-        redoc_url="/redoc" if settings.docs_enabled else None,
+        # The two HTML pages are served by hand below, so they can carry
+        # our own favicon; the OpenAPI route is FastAPI's.
+        docs_url=None,
+        redoc_url=None,
         openapi_url="/openapi.json" if settings.docs_enabled else None,
     )
 
@@ -71,6 +109,9 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     # otherwise create_app(settings) would be silently ignored and every
     # app in a process would share one configuration.
     app.state.api_settings = settings
+
+    if settings.docs_enabled:
+        _install_documentation_pages(app)
 
     install_error_handlers(app)
 

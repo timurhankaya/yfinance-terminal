@@ -44,6 +44,21 @@ PRODUCTION_URL = "https://yfinance.monafy.com"
 
 JSON_MEDIA_TYPE = "application/json"
 
+#: The icon both documentation pages use, inline.
+#:
+#: FastAPI's default points at `fastapi.tiangolo.com`, which means every
+#: reader of our contract makes a request to a third party's server and
+#: tells it they did. A `data:` URI costs nothing and makes the pages
+#: depend on one host fewer.
+FAVICON = (
+    "data:image/svg+xml,"
+    "%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E"
+    "%3Crect%20width='16'%20height='16'%20rx='3'%20fill='%23111'/%3E"
+    "%3Cpath%20d='M3%2012L6%208L9%2010L13%204'%20stroke='%236ee7b7'%20"
+    "stroke-width='1.8'%20fill='none'%20stroke-linecap='round'%20"
+    "stroke-linejoin='round'/%3E%3C/svg%3E"
+)
+
 #: Operation ids, spelled the way a generated client method should read.
 #: Applied to the route objects at startup, not to the finished document,
 #: so `route.operation_id` and the contract cannot disagree -- and so the
@@ -163,6 +178,42 @@ REQUIRED_EXAMPLES: dict[str, dict[int, tuple[str, ...]]] = {
         404: ("not_found",),
         422: ("invalid_cursor", "invalid_parameter"),
     },
+}
+
+#: An example value for every parameter, keyed by the name a caller
+#: sends. Keyed by name rather than by operation because `symbol`, `limit`
+#: and `cursor` appear on five operations each, and a document that
+#: illustrated them differently in each place would be answering the same
+#: question three ways.
+#:
+#: `ACME` is fictional, and deliberately so: the response examples are
+#: captured against it, so a reader following the document sees one
+#: company throughout, and nobody mistakes an illustrative number for a
+#: real company's reported figure.
+PARAMETER_EXAMPLES: dict[str, Any] = {
+    "symbol": "ACME",
+    "name": "major_holders",
+    "interval": "1d",
+    "from": "2026-01-01T00:00:00Z",
+    "to": "2026-02-01T00:00:00Z",
+    "session": "regular",
+    "limit": 100,
+    "cursor": "eyJrIjpbIjIwMjYtMDEtMDUiXSwicSI6IjhmMmEifQ",
+    "q": "AC",
+    "exchange": "NMS",
+    "quote_type": "EQUITY",
+    "active": True,
+    "all": False,
+    "statement": "income",
+    "freq": "annual",
+}
+
+#: The form body, which has no captured example: a real 200 needs a client
+#: row with a hashed secret, and what a reader needs here is the shape of
+#: the REQUEST anyway.
+TOKEN_REQUEST_EXAMPLE = {
+    "grant_type": "client_credentials",
+    "scope": "reference:read bars:read",
 }
 
 #: Where those files live. Inside the package, not under `docs/`: they are
@@ -512,6 +563,31 @@ def _apply(operation: dict[str, Any], operation_id: str) -> None:
             response.setdefault("headers", {}).update(headers)
 
     _attach_examples(responses, operation_id)
+    _attach_parameter_examples(operation)
+    if operation_id == TOKEN_OPERATION:
+        _attach_request_example(operation)
+
+
+def _attach_parameter_examples(operation: dict[str, Any]) -> None:
+    """A value a reader can paste, on every parameter.
+
+    On the Parameter Object, not inside its schema: Swagger UI pre-fills
+    its "Try it out" fields from the former and ignores the latter, and a
+    form a reader can submit unchanged is the difference between reading
+    the documentation and using it.
+    """
+    for parameter in operation.get("parameters", ()):
+        example = PARAMETER_EXAMPLES.get(parameter["name"])
+        if example is not None:
+            parameter["example"] = example
+
+
+def _attach_request_example(operation: dict[str, Any]) -> None:
+    body = operation.get("requestBody")
+    if body is None:
+        return
+    for media in body["content"].values():
+        media["examples"] = {"client_credentials": {"value": TOKEN_REQUEST_EXAMPLE}}
 
 
 def _attach_examples(responses: dict[str, Any], operation_id: str) -> None:

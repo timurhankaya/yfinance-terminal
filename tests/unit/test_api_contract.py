@@ -689,3 +689,54 @@ def test_the_example_check_would_NOTICE_a_broken_example(
     assert not list(
         validator.iter_errors({"type": "not_found", "title": "x", "status": 404})
     )
+
+
+def test_every_parameter_carries_an_example(document: dict[str, Any]) -> None:
+    """A reader should be able to press "Try it out" and get a response,
+    not first invent a symbol, a cursor and a date range."""
+    missing = [
+        f"{operation['operationId']}.{parameter['name']}"
+        for operations in document["paths"].values()
+        for operation in operations.values()
+        for parameter in operation.get("parameters", ())
+        if "example" not in parameter
+    ]
+    assert missing == []
+
+
+def test_the_token_form_shows_what_to_post(document: dict[str, Any]) -> None:
+    body = document["paths"]["/oauth/token"]["post"]["requestBody"]
+    media = next(iter(body["content"].values()))
+    assert media["examples"]["client_credentials"]["value"]["grant_type"] == (
+        "client_credentials"
+    )
+
+
+def test_the_documentation_pages_load_nothing_from_a_THIRD_party_beacon() -> None:
+    """FastAPI's default favicon is served from `fastapi.tiangolo.com`, so
+    every reader of the contract would announce to another project's server
+    that they had opened it."""
+    with TestClient(create_app(api_settings())) as client:
+        for path in ("/docs", "/redoc"):
+            assert "fastapi.tiangolo.com" not in client.get(path).text, path
+
+
+def test_the_documentation_pages_are_not_IN_the_contract(
+    document: dict[str, Any],
+) -> None:
+    """They are how the contract is read, not part of it. Being in the
+    document would also put them in the operation-id and response tables,
+    which describe the API."""
+    for path in ("/docs", "/redoc", "/docs/oauth2-redirect"):
+        assert path not in document["paths"]
+
+
+def test_the_introduction_says_what_this_api_does_NOT_serve(
+    document: dict[str, Any],
+) -> None:
+    """Live ticks are collected into `live_ticks` and published to Kafka,
+    and no dataset exposes them. A reader who knows the pipeline exists
+    would otherwise go looking for an endpoint that was never there."""
+    text = document["info"]["description"]
+    assert "Live ticks are not served here" in text
+    assert "ACME" in text
