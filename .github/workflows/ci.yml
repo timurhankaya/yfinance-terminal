@@ -116,3 +116,24 @@ jobs:
       # can be skipped on its own.
       - name: pytest -m repo
         run: uv run pytest -q -m repo
+
+  # The browser UI. Its own job on purpose: a Node failure must not mask
+  # a Python one, and the Python jobs must not need Node -- the API runs
+  # without the build and says so in the log.
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build

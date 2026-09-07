@@ -67,6 +67,22 @@ yfin rescale --seed               # baseline the split-adjustment ledger
 yfin config list                  # effective settings and their source
 ```
 
+### Web terminal
+
+```bash
+cd web && npm ci && npm run build   # writes src/yfin/ui/static/dist
+YFAPI_UI_ENABLED=true YFAPI_UI_PASSWORD=<choose one> \
+  uvicorn yfin.api.app:app --port 8000
+open http://localhost:8000/ui
+```
+
+One password, one operator. Behind a reverse proxy set
+`YFAPI_TRUSTED_PROXIES`, or every login attempt in the world shares one
+rate-limit bucket. Set `YFAPI_PUBLIC_BASE_URL` to the `https://` origin
+so the session cookie is marked `Secure`; with it empty the cookie
+travels over plain HTTP, which is acceptable on localhost and nowhere
+else.
+
 ---
 
 ## Integration status
@@ -108,6 +124,7 @@ yfin config list                  # effective settings and their source
 |---|---|---|
 | **Kafka producer** | **TODO** | Publish each verified write as an event so downstream consumers do not poll the database. Open questions: topic per table vs per dataset, and whether the outbox lives in `sync_run_items` or a dedicated table. |
 | **WebSocket streaming** | **TODO** | Yahoo's live quote socket for intraday updates between scheduled runs, plus an outbound socket so clients can subscribe to symbols instead of polling. Needs a decision on how live ticks reconcile with the bar archive. |
+| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Phase 1a ships login and `DES`; the command language, live ticks and charts follow (`docs/superpowers/specs/2026-09-07-web-terminal-design.md`). |
 
 ---
 
@@ -139,6 +156,8 @@ adding a module and registering it — no other file changes.
 | `src/yfin/persistence.py` | Write mechanics: upsert, chunking, verification |
 | `src/yfin/runner.py` | Orchestration, retries, audit records |
 | `src/yfin/proxy/` | Pool, health, encrypted credentials |
+| `src/yfin/ui/` | Web terminal: session cookie, `/ui/api` routes, SPA pages |
+| `web/` | The SPA source (React + Vite); builds into `src/yfin/ui/static/dist` |
 | `migrations/` | Alembic |
 | `docs/measurements/` | Evidence behind the design decisions |
 

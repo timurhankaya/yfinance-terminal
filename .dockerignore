@@ -1,0 +1,11 @@
+.git
+.venv
+.env
+web/node_modules
+src/yfin/ui/static/dist
+.claude
+.superpowers
+__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
