@@ -24,7 +24,7 @@ from yfin.outbox.kafka import (
     OutboxMessage,
     build_producer,
     publish,
-    topic_for_spec,
+    topic_for,
 )
 from yfin.outbox.spec import TICK_OUTBOX, OutboxSpec
 
@@ -84,33 +84,33 @@ def _message(
 def test_topic_is_per_exchange() -> None:
     """A topic per symbol would be thousands of topics; a single topic
     would give up per-exchange isolation."""
-    assert topic_for_spec(TICK_OUTBOX, "NMS") == "yfin.ticks.NMS"
+    assert topic_for(TICK_OUTBOX, "NMS") == "yfin.ticks.NMS"
 
 
 def test_topic_upper_cases_the_exchange() -> None:
     """Raw case differences would split one topic in two and quietly halve
     the per-symbol ordering guarantee."""
-    assert topic_for_spec(TICK_OUTBOX, "nms") == "yfin.ticks.NMS"
+    assert topic_for(TICK_OUTBOX, "nms") == "yfin.ticks.NMS"
 
 
 @pytest.mark.parametrize("exchange", [None, "", "   "])
 def test_missing_exchange_uses_the_unknown_label(exchange: str | None) -> None:
-    assert topic_for_spec(TICK_OUTBOX, exchange) == f"yfin.ticks.{UNKNOWN_EXCHANGE}"
+    assert topic_for(TICK_OUTBOX, exchange) == f"yfin.ticks.{UNKNOWN_EXCHANGE}"
 
 
 def test_illegal_characters_are_replaced() -> None:
     """Exchange codes come from discovery paths, so a slash is not
     impossible -- and an illegal name fails one message at a time."""
-    assert topic_for_spec(TICK_OUTBOX, "A/B C") == "yfin.ticks.A-B-C"
+    assert topic_for(TICK_OUTBOX, "A/B C") == "yfin.ticks.A-B-C"
 
 
 def test_topic_name_is_length_capped() -> None:
-    assert len(topic_for_spec(TICK_OUTBOX, "X" * 400)) <= 249
+    assert len(topic_for(TICK_OUTBOX, "X" * 400)) <= 249
 
 
 def test_a_pattern_without_the_placeholder_gives_one_topic() -> None:
     """Operators who want a single topic just leave {exchange} out."""
-    assert topic_for_spec(replace(TICK_OUTBOX, topic_pattern="yfin.ticks"), "NMS") == (
+    assert topic_for(replace(TICK_OUTBOX, topic_pattern="yfin.ticks"), "NMS") == (
         "yfin.ticks"
     )
 
@@ -183,7 +183,7 @@ def test_empty_bootstrap_servers_is_refused() -> None:
 def test_a_family_route_is_not_upper_cased() -> None:
     """`DataFamily` is already a closed lower-case set; upper-casing it
     would name a topic no ACL and no consumer expects."""
-    assert topic_for_spec(CHANGES_SPEC, "fundamentals") == "yfin.changes.fundamentals"
+    assert topic_for(CHANGES_SPEC, "fundamentals") == "yfin.changes.fundamentals"
 
 
 def test_the_dedupe_header_travels_only_where_it_is_asked_for() -> None:

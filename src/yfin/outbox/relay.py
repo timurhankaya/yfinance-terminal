@@ -41,7 +41,7 @@ from yfin.outbox.kafka import (
     build_producer,
     existing_topics,
     publish,
-    topic_for_spec,
+    topic_for,
 )
 from yfin.outbox.spec import TICK_OUTBOX, OutboxSpec
 
@@ -120,7 +120,7 @@ class OutboxRelay:
                 .scalars()
                 .all()
             )
-        wanted = {topic_for_spec(spec, route) for route in routes}
+        wanted = {topic_for(spec, route) for route in routes}
         if not wanted:
             return []
         present = existing_topics(self._config.bootstrap_servers)

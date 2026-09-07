@@ -58,10 +58,13 @@ class OutboxMessage:
     payload: str
 
 
-def topic_for(
-    pattern: str, route: str | None, *, placeholder: str, upper_case: bool
-) -> str:
+def topic_for(spec: OutboxSpec, route: str | None) -> str:
     """Renders a topic name and makes it legal.
+
+    The pattern, the placeholder it substitutes and whether the route value
+    is upper-cased all travel together on the spec, so they are read from it
+    rather than passed one by one -- three arguments that must agree are
+    three chances for two call sites to disagree.
 
     Sanitising rather than trusting the route value: an exchange code comes
     from `symbols.exchange`, which discovery paths populate, so a value with
@@ -69,23 +72,13 @@ def topic_for(
     produce time, one message at a time.
     """
     label = (route or "").strip()
-    if upper_case:
+    if spec.upper_case_route:
         label = label.upper()
-    name = pattern.replace(placeholder, label or UNKNOWN_EXCHANGE)
+    name = spec.topic_pattern.replace(spec.placeholder, label or UNKNOWN_EXCHANGE)
     # `_` next to `.` triggers Kafka's metric-collision warning, so the
     # separator is normalised to `-`.
     name = _TOPIC_SAFE.sub("-", name).replace("._", ".-").replace("_.", "-.")
     return name[:_TOPIC_MAX]
-
-
-def topic_for_spec(spec: OutboxSpec, route: str | None) -> str:
-    """`topic_for` with the naming rules the spec already carries."""
-    return topic_for(
-        spec.topic_pattern,
-        route,
-        placeholder=spec.placeholder,
-        upper_case=spec.upper_case_route,
-    )
 
 
 class Producer(Protocol):
@@ -202,7 +195,7 @@ def publish(
         if spec.id_header:
             extra["headers"] = [(OUTBOX_ID_HEADER, str(message.id).encode("utf-8"))]
         producer.produce(  # type: ignore[call-arg]
-            topic_for_spec(spec, message.route),
+            topic_for(spec, message.route),
             value=message.payload.encode("utf-8"),
             key=message.key.encode("utf-8"),
             on_delivery=tracker.callback,
@@ -225,5 +218,4 @@ __all__ = [
     "existing_topics",
     "publish",
     "topic_for",
-    "topic_for_spec",
 ]
