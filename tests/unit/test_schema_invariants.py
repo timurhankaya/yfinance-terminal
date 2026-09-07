@@ -261,3 +261,65 @@ def test_no_column_uses_a_reserved_word() -> None:
         and (name := f"{table.name}.{column.name}") not in RESERVED_GRANDFATHERED
     ]
     assert offenders == [], offenders
+
+
+# --- what the migrations actually create ------------------------------------
+#
+# `alembic check` cannot see any of this. Autogenerate does not compare CHECK
+# constraints at all, and it cannot read an expression index back from the
+# database to compare it either -- so both drifted silently for the whole
+# life of the schema, and the test suite hid the drift rather than exposing
+# it: conftest builds its schema with `create_all`, which emits everything
+# the models declare. Every constraint was enforced in tests and absent from
+# a migrated database.
+
+
+def _migration_text() -> str:
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "migrations" / "versions"
+    return "\n".join(path.read_text(encoding="utf-8") for path in root.glob("*.py"))
+
+
+def _declared_checks() -> dict[str, str]:
+    from sqlalchemy import CheckConstraint
+
+    import yfin.api.models  # noqa: F401 - registers the API tables
+
+    found: dict[str, str] = {}
+    for table in Base.metadata.sorted_tables:
+        for constraint in table.constraints:
+            if isinstance(constraint, CheckConstraint) and constraint.name:
+                found[constraint.name] = table.name
+        # Column-level checks do not appear in `table.constraints`, which is
+        # how thirty-nine of them stayed out of sight: a scan that only
+        # walked table constraints reported eight and looked complete.
+        for column in table.columns:
+            for constraint in column.constraints or ():
+                if isinstance(constraint, CheckConstraint) and constraint.name:
+                    found[constraint.name] = table.name
+    return found
+
+
+def test_every_declared_CHECK_is_created_by_a_migration() -> None:
+    text = _migration_text()
+    missing = sorted(
+        f"{table}.{name}" for name, table in _declared_checks().items() if name not in text
+    )
+    assert missing == [], (
+        "these CHECK constraints exist in the models and in every test database, "
+        f"and in no migrated one: {missing}"
+    )
+
+
+def test_every_declared_INDEX_is_created_by_a_migration() -> None:
+    import yfin.api.models  # noqa: F401
+
+    text = _migration_text()
+    missing = sorted(
+        f"{table.name}.{index.name}"
+        for table in Base.metadata.sorted_tables
+        for index in table.indexes
+        if index.name and index.name not in text
+    )
+    assert missing == [], f"declared but never created: {missing}"
