@@ -38,6 +38,7 @@ from yfin.api.storage import catalog, limits
 from yfin.api.storage import cursor as cursors
 from yfin.api.storage.session import session_scope
 from yfin.core.families import META_FAMILY
+from yfin.storage.wire import wire_type
 
 router = APIRouter(prefix="/v1/datasets", tags=["datasets"])
 
@@ -109,7 +110,7 @@ class CatalogEntryOut(BaseModel):
             columns=[
                 ColumnOut(
                     name=column.name,
-                    type=catalog.wire_type(column),
+                    type=wire_type(column),
                     nullable=bool(column.nullable),
                 )
                 for column in entry.served_columns

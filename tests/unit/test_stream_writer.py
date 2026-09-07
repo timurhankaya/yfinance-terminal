@@ -1,4 +1,6 @@
-"""Writer batching, COPY encoding, symbol filtering and reject sampling.
+"""Writer batching, symbol filtering and reject sampling.
+
+The COPY encoding itself moved to `test_storage_copy.py` with `copy_body`.
 
 The database side lives in tests/repo; these cover the parts that decide
 what reaches it.
@@ -14,13 +16,7 @@ from typing import Any
 from yfin.stream.rejects import REJECT_DECODE_FAILED, REJECT_UNKNOWN_SYMBOL, Reject
 from yfin.stream.repository import ScopeEntry
 from yfin.stream.supervisor import StreamSupervisor, SupervisorConfig
-from yfin.stream.writer import (
-    TICK_COLUMNS,
-    RejectSampler,
-    StreamWriter,
-    WriterConfig,
-    copy_body,
-)
+from yfin.stream.writer import TICK_COLUMNS, RejectSampler, StreamWriter, WriterConfig
 
 TS = datetime(2026, 9, 7, 14, 30, tzinfo=UTC)
 
@@ -70,46 +66,6 @@ def _writer(**config: Any) -> tuple[StreamWriter, StreamSupervisor, FakeReposito
         session_id=1,
     )
     return writer, supervisor, repository
-
-
-# --- COPY encoding ---------------------------------------------------------
-
-
-def test_copy_body_writes_one_line_per_row() -> None:
-    body = copy_body([_row("AAPL"), _row("MSFT")])
-    assert body.count("\n") == 2
-
-
-def test_copy_body_uses_the_schema_column_order() -> None:
-    """Taken from the model, so it cannot drift from the table."""
-    body = copy_body([_row()], columns=("symbol", "ts_utc"))
-    assert body.startswith("AAPL\t2026-09-07 14:30:00+00:00")
-
-
-def test_copy_body_encodes_null() -> None:
-    body = copy_body([_row(bid=None)], columns=("symbol", "bid"))
-    assert body == "AAPL\t\\N\n"
-
-
-def test_copy_body_keeps_decimal_precision() -> None:
-    """The whole point of f32_decimal would be lost to a float repr here."""
-    body = copy_body([_row(price=Decimal("232.35"))], columns=("price",))
-    assert body == "232.35\n"
-
-
-def test_copy_body_escapes_structural_characters() -> None:
-    """`unknown_fields` is upstream JSON: a tab or newline in it would
-    otherwise shift every following column by one."""
-    body = copy_body(
-        [_row(unknown_fields='{"a":"x\ty"}')], columns=("symbol", "unknown_fields")
-    )
-    assert body == 'AAPL\t{"a":"x\\ty"}\n'
-    assert body.count("\t") == 1  # the separator, not the payload
-
-
-def test_copy_body_escapes_backslashes() -> None:
-    body = copy_body([_row(unknown_fields="a\\b")], columns=("unknown_fields",))
-    assert body == "a\\\\b\n"
 
 
 def test_tick_columns_match_the_table() -> None:

@@ -566,7 +566,8 @@ def test_every_exposed_column_has_a_published_wire_type() -> None:
     """`wire_type` raises on a type it has not been taught, and this is
     where that raise is meant to happen -- not on the first request to
     /v1/datasets after someone adds a JSONB column."""
-    from yfin.api.storage.catalog import CATALOG, wire_type
+    from yfin.api.storage.catalog import CATALOG
+    from yfin.storage.wire import wire_type
 
     known = {
         "string",
@@ -585,7 +586,7 @@ def test_an_unteachable_column_type_is_refused() -> None:
     """Emitting "unknown" would publish a shape nobody had checked."""
     import sqlalchemy as sa
 
-    from yfin.api.storage.catalog import wire_type
+    from yfin.storage.wire import wire_type
 
     table = sa.Table("t", sa.MetaData(), sa.Column("blob", sa.LargeBinary()))
     with pytest.raises(ValueError, match="no published wire type"):

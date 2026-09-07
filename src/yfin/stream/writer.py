@@ -36,7 +36,6 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from typing import Any, Final
 
 from sqlalchemy import text
@@ -45,6 +44,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from yfin.core.logging_setup import get_logger
 from yfin.models.stream import LiveQuote, LiveTick
 from yfin.storage.contracts import TableWrite, WriteStats, apply_write
+from yfin.storage.copy import copy_body, copy_value, jsonable
 from yfin.storage.persistence import PostgresRowWriter
 from yfin.stream.rejects import REJECT_UNKNOWN_SYMBOL, Reject
 from yfin.stream.repository import StreamRepository
@@ -60,9 +60,6 @@ TICK_COLUMNS: Final[tuple[str, ...]] = tuple(LiveTick.__table__.c.keys())
 #: live_quotes carries the same measurement plus `updated_at`, and is
 #: written by upsert rather than COPY: one row per symbol, guarded.
 QUOTE_COLUMNS: Final[tuple[str, ...]] = tuple(LiveQuote.__table__.c.keys())
-
-#: PostgreSQL's text-format NULL.
-_COPY_NULL: Final = r"\N"
 
 
 @dataclass
@@ -171,47 +168,6 @@ class RejectSampler:
             return False
         self._seen[key] = (window_start, count + 1)
         return True
-
-
-def _copy_value(value: Any) -> str:
-    """One field in PostgreSQL's COPY text format."""
-    if value is None:
-        return _COPY_NULL
-    if isinstance(value, Decimal | datetime):
-        return str(value)
-    if isinstance(value, bool):
-        return "t" if value else "f"
-    text_value = str(value)
-    # Escape what the text format treats as structure. Symbols and
-    # currency codes never contain these, but `unknown_fields` is
-    # upstream JSON and could.
-    return (
-        text_value.replace("\\", "\\\\")
-        .replace("\t", "\\t")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-    )
-
-
-def _jsonable(value: Any) -> Any:
-    """Decimal and datetime as text, so the payload round-trips exactly.
-
-    A float here would undo f32_decimal for every consumer downstream --
-    the artefact this pipeline exists to remove would be reintroduced on
-    the way out.
-    """
-    if isinstance(value, Decimal | datetime):
-        return str(value)
-    return value
-
-
-def copy_body(rows: Sequence[dict[str, Any]], columns: Sequence[str] = TICK_COLUMNS) -> str:
-    """Renders rows as a COPY payload."""
-    buffer = io.StringIO()
-    for row in rows:
-        buffer.write("\t".join(_copy_value(row.get(name)) for name in columns))
-        buffer.write("\n")
-    return buffer.getvalue()
 
 
 class StreamWriter:
@@ -385,7 +341,7 @@ class StreamWriter:
         with raw.cursor().copy(  # type: ignore[union-attr]
             f"COPY stream_stage ({columns}) FROM STDIN"
         ) as copy:
-            copy.write(copy_body(accepted))
+            copy.write(copy_body(accepted, TICK_COLUMNS))
         session.execute(
             text(
                 f"INSERT INTO live_ticks ({columns}) SELECT {columns} FROM stream_stage "
@@ -481,17 +437,17 @@ class StreamWriter:
         buffer = io.StringIO()
         for row in rows:
             payload = json.dumps(
-                {k: _jsonable(v) for k, v in row.items()},
+                {k: jsonable(v) for k, v in row.items()},
                 separators=(",", ":"),
                 ensure_ascii=False,
             )
             buffer.write(
                 "\t".join(
                     (
-                        _copy_value(now),
-                        _copy_value(row["symbol"]),
-                        _copy_value(exchanges.get(row["symbol"])),
-                        _copy_value(payload),
+                        copy_value(now),
+                        copy_value(row["symbol"]),
+                        copy_value(exchanges.get(row["symbol"])),
+                        copy_value(payload),
                     )
                 )
                 + "\n"
