@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CatalogColumn } from "../api/client";
 import { DatasetTable, formatCell, formatDateTime, formatDecimal, formatInteger, rawDecimal } from "./table";
 
@@ -86,6 +86,26 @@ describe("DatasetTable", () => {
     expect(screen.getByRole("region", { name: "row detail" }).textContent).toContain("2026-09-05");
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("region", { name: "row detail" })).toBeNull();
+  });
+
+  it("opens the detail in a right-hand pane and offers Load more when asked", () => {
+    const more = vi.fn();
+    const { container } = render(<DatasetTable columns={COLUMNS} rows={ROWS} onLoadMore={more} />);
+    expect(container.querySelector(".dataset.split")).toBeNull();
+    expect(screen.getByText(/2 rows loaded, more available/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    expect(more).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getAllByRole("row")[1]!);
+    const split = container.querySelector(".dataset.split")!;
+    expect(split).not.toBeNull();
+    const detail = screen.getByRole("region", { name: "row detail" });
+    expect(detail.closest(".split-detail")).not.toBeNull();
+    expect(split.querySelector(".split-list table")).not.toBeNull();
+  });
+
+  it("shows Loading while the next page is in flight", () => {
+    render(<DatasetTable columns={COLUMNS} rows={ROWS} onLoadMore={() => undefined} loadingMore />);
+    expect(screen.getByRole("button", { name: "Loading…" })).toBeDisabled();
   });
 
   it("says when the list was cut at the page cap", () => {

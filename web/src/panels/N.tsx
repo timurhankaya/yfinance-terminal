@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getNews, type NewsItem } from "../api/client";
+import { NEWS_MAX, NEWS_PAGE, getNews, type NewsItem } from "../api/client";
 import type { PanelProps, PanelSpec } from "../commands/types";
 import { EmptyCard, ErrorCard, MissingCard, useListKeys, usePanelData } from "./common";
 
@@ -34,7 +34,7 @@ function Detail({ article }: { article: NewsItem }) {
   );
 }
 
-function NewsList({ rows }: { rows: NewsItem[] }) {
+function NewsList({ rows, onLoadMore }: { rows: NewsItem[]; onLoadMore: (() => void) | null }) {
   const [open, setOpen] = useState<number | null>(null);
   const [selected, setSelected] = useListKeys(rows.length, (index) => setOpen(index));
   const listRef = useRef<HTMLUListElement>(null);
@@ -68,6 +68,13 @@ function NewsList({ rows }: { rows: NewsItem[] }) {
             <span>{row.title}</span>
           </li>
         ))}
+        {onLoadMore && (
+          <li className="load-more">
+            <button type="button" className="fn" onClick={onLoadMore}>
+              Load more
+            </button>
+          </li>
+        )}
       </ul>
       <div className="split-detail">
         {article ? <Detail article={article} /> : <p className="muted">Enter or click opens an article here.</p>}
@@ -77,9 +84,13 @@ function NewsList({ rows }: { rows: NewsItem[] }) {
 }
 
 export function N({ symbol }: PanelProps) {
+  // The news route has no cursor; "Load more" asks for a bigger page,
+  // up to the route's cap.
+  const [limit, setLimit] = useState(NEWS_PAGE);
+  useEffect(() => setLimit(NEWS_PAGE), [symbol]);
   const { state, retry } = usePanelData<NewsItem[]>(
-    symbol ?? "",
-    () => (symbol === null ? Promise.reject(new Error("no symbol")) : getNews(symbol)),
+    `${symbol ?? ""}|${limit}`,
+    () => (symbol === null ? Promise.reject(new Error("no symbol")) : getNews(symbol, limit)),
     (rows) => rows.length === 0,
   );
   if (symbol === null) return null;
@@ -87,7 +98,8 @@ export function N({ symbol }: PanelProps) {
   if (state.kind === "missing") return <MissingCard symbol={symbol} />;
   if (state.kind === "error") return <ErrorCard message={state.message} onRetry={retry} />;
   if (state.kind === "empty") return <EmptyCard what="news" />;
-  return <NewsList rows={state.data} />;
+  const more = state.data.length >= limit && limit < NEWS_MAX;
+  return <NewsList rows={state.data} onLoadMore={more ? () => setLimit(Math.min(NEWS_MAX, limit + NEWS_PAGE)) : null} />;
 }
 
 export const N_PANEL: PanelSpec = {

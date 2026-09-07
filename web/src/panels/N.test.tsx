@@ -27,7 +27,7 @@ afterEach(() => {
 function renderN(rows: unknown[]) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
-    if (url === "/ui/api/symbols/AAPL/news") return json(200, { data: rows, next_cursor: null, as_of: null });
+    if (url.startsWith("/ui/api/symbols/AAPL/news")) return json(200, { data: rows, next_cursor: null, as_of: null });
     throw new Error(`unexpected ${url}`);
   });
   return render(
@@ -66,6 +66,30 @@ describe("N", () => {
     renderN(articles);
     await userEvent.click(await screen.findByText("Apple unveils something"));
     expect(screen.getByText("The newer story.")).toBeInTheDocument();
+  });
+
+  it("loads more by asking for a bigger page, up to the route's cap", async () => {
+    const seen: string[] = [];
+    const many = Array.from({ length: 200 }, (_, i) => ({
+      ...articles[0]!,
+      news_id: `n${i}`,
+      title: `Story ${i}`,
+    }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      seen.push(url);
+      const limit = Number(/limit=(\d+)/.exec(url)?.[1] ?? "50");
+      return json(200, { data: many.slice(0, limit), next_cursor: null, as_of: null });
+    });
+    render(<N symbol="AAPL" args={{}} />);
+    expect(await screen.findByText("Story 49")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("Story 99")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("Story 199")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    expect(seen.at(-1)).toBe("/ui/api/symbols/AAPL/news?limit=200");
   });
 
   it("shows an empty card when there is no news", async () => {

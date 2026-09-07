@@ -202,6 +202,25 @@ async function followPages(base: string, pages: number): Promise<Rows> {
   return { rows, truncated: true };
 }
 
+//: Rows per page for lists the user pages through with "Load more".
+export const PAGE_SIZE = 200;
+
+export interface RowPage {
+  rows: Row[];
+  next_cursor: string | null;
+}
+
+/** One page of a dataset. `cursor` continues the previous page of the
+ *  same query; the caller appends and keeps `next_cursor`. */
+export async function getDatasetPage(
+  name: string, params: Record<string, string> = {}, cursor: string | null = null, limit: number = PAGE_SIZE,
+): Promise<RowPage> {
+  const search = new URLSearchParams({ ...params, limit: String(limit) });
+  if (cursor) search.set("cursor", cursor);
+  const page = await apiFetch<Page<Row>>(`${DATA_BASE}/datasets/${encodeURIComponent(name)}?${search}`);
+  return { rows: page.data, next_cursor: page.next_cursor };
+}
+
 /** Every row of one dataset, following cursors up to `pages` pages.
  *  `params` are the dataset's filters plus, for a symbol-scoped dataset,
  *  `symbol`; the caller decides, because the catalogue says which is which. */
@@ -246,8 +265,12 @@ export async function getBars(symbol: string, interval: string, rows: number, no
   return all.rows.slice(-rows);
 }
 
-export async function getNews(symbol: string): Promise<NewsItem[]> {
+//: The news route pages by size, not by cursor: 50 by default, 200 at most.
+export const NEWS_PAGE = 50;
+export const NEWS_MAX = 200;
+
+export async function getNews(symbol: string, limit: number = NEWS_PAGE): Promise<NewsItem[]> {
   const code = encodeURIComponent(symbol.trim().toUpperCase());
-  const page = await apiFetch<Page<NewsItem>>(`/ui/api/symbols/${code}/news`);
+  const page = await apiFetch<Page<NewsItem>>(`/ui/api/symbols/${code}/news?limit=${limit}`);
   return page.data;
 }

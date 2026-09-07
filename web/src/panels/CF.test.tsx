@@ -60,6 +60,10 @@ describe("CF", () => {
     await userEvent.keyboard("{Enter}");
     expect(screen.getByText("EX-31.1")).toBeInTheDocument();
     expect(screen.getByText("EX-32.1")).toBeInTheDocument();
+    // In the right-hand pane, not inside the row.
+    const pane = screen.getByRole("article", { name: "exhibits" });
+    expect(pane.closest(".split-detail")).not.toBeNull();
+    expect(pane.closest("li")).toBeNull();
 
     // Enter again collapses; j then Enter opens the second filing, which has no exhibits.
     await userEvent.keyboard("{Enter}");

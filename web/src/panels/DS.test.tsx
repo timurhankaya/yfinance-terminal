@@ -106,6 +106,29 @@ describe("DS", () => {
     expect(url).not.toContain("symbol=");
   });
 
+  it("loads the next page with the cursor and appends it", async () => {
+    const seen: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      seen.push(url);
+      if (url === "/ui/api/v1/datasets") return json(200, { data: CATALOG, next_cursor: null });
+      if (url.includes("cursor=c1")) {
+        return json(200, { data: [{ region: "GB", status: "open" }], next_cursor: null });
+      }
+      return json(200, { data: [{ region: "US", status: "closed" }], next_cursor: "c1" });
+    });
+    renderDS(null, { name: "market_status" });
+    expect(await screen.findByText("closed")).toBeInTheDocument();
+    expect(screen.getByText(/1 row loaded, more available/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("open")).toBeInTheDocument();
+    expect(screen.getByText("closed")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    const second = seen.find((u) => u.includes("cursor=c1"))!;
+    expect(second).toContain("/ui/api/v1/datasets/market_status?");
+    expect(second).toContain("limit=200");
+  });
+
   it("names the accepted filters when the API refuses one", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);

@@ -1,7 +1,8 @@
 // One dataset, loaded and shown. Shared by DS (any dataset by name) and
 // the curated tabbed panels (a fixed list of datasets per family).
+import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
-import { ApiError, getCatalog, getDatasetRows, type CatalogEntry, type Rows } from "../api/client";
+import { ApiError, getCatalog, getDatasetPage, type CatalogEntry, type Row } from "../api/client";
 import type { PanelArgs } from "../commands/types";
 import { EmptyCard, ErrorCard, usePanelData } from "./common";
 import { linksFor } from "./links";
@@ -16,9 +17,12 @@ export type SymbolMode = "auto" | "none";
 
 export interface Loaded {
   entry: CatalogEntry;
-  rows: Rows;
+  rows: Row[];
+  next_cursor: string | null;
   /** The symbol the rows were filtered to, if any. */
   symbol: string | null;
+  /** The query the next page continues. */
+  params: Record<string, string>;
 }
 
 export class UnknownDataset extends Error {
@@ -38,8 +42,8 @@ export async function loadDataset(
   const scoped = mode === "auto" && entry.symbol_scoped && symbol !== null;
   if (scoped) params.symbol = symbol;
   try {
-    const rows = await getDatasetRows(entry.name, params);
-    return { entry, rows, symbol: scoped ? symbol : null };
+    const page = await getDatasetPage(entry.name, params);
+    return { entry, rows: page.rows, next_cursor: page.next_cursor, symbol: scoped ? symbol : null, params };
   } catch (err) {
     // The API refuses an unknown filter rather than ignoring it; say
     // which ones this dataset takes so the next attempt is right.
@@ -84,18 +88,47 @@ export function DatasetView(props: {
     .sort()
     .map(([k, v]) => `${k}=${v}`)
     .join("&");
+  const key = `${name}|${symbol ?? ""}|${mode}|${filterKey}`;
   const { state, retry } = usePanelData<Loaded>(
-    `${name}|${symbol ?? ""}|${mode}|${filterKey}`,
+    key,
     () => loadDataset(name, symbol, filters, mode),
-    (loaded) => loaded.rows.rows.length === 0,
+    (loaded) => loaded.rows.length === 0,
   );
+  // Pages after the first live here; a new query drops them.
+  const [extra, setExtra] = useState<{ key: string; rows: Row[]; cursor: string | null; loading: boolean; error: string | null }>({
+    key,
+    rows: [],
+    cursor: null,
+    loading: false,
+    error: null,
+  });
+  useEffect(() => {
+    setExtra({ key, rows: [], cursor: null, loading: false, error: null });
+  }, [key]);
+
   if (state.kind === "loading") return <p className="muted">Loading {name}…</p>;
   if (state.kind === "missing") return <p className="card card-error">No dataset named {name}.</p>;
   if (state.kind === "error") {
     return <ErrorCard message={describeError(state.message, filters)} onRetry={retry} />;
   }
   if (state.kind === "empty") return <EmptyCard what={`${name} rows`} />;
-  const { entry, rows } = state.data;
+  const { entry } = state.data;
+  const current = extra.key === key ? extra : { key, rows: [], cursor: null, loading: false, error: null };
+  const rows = [...state.data.rows, ...current.rows];
+  const cursor = current.rows.length > 0 || current.cursor !== null ? current.cursor : state.data.next_cursor;
+  const loadMore = async () => {
+    if (!cursor || current.loading) return;
+    setExtra({ ...current, loading: true, error: null });
+    try {
+      const page = await getDatasetPage(entry.name, state.data.params, cursor);
+      setExtra((e) =>
+        e.key === key ? { ...e, rows: [...e.rows, ...page.rows], cursor: page.next_cursor, loading: false } : e,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setExtra((e) => (e.key === key ? { ...e, loading: false, error: message } : e));
+    }
+  };
   return (
     <section>
       <p className="detail-meta">
@@ -106,11 +139,13 @@ export function DatasetView(props: {
       <DatasetTable
         key={entry.name}
         columns={entry.columns}
-        rows={rows.rows}
+        rows={rows}
         hide={state.data.symbol !== null ? ["symbol"] : []}
-        truncated={rows.truncated}
         links={linksFor(entry.name, entry.columns.map((c) => c.name))}
+        onLoadMore={cursor ? () => void loadMore() : undefined}
+        loadingMore={current.loading}
       />
+      {current.error && <p className="card card-error">Could not load the next page: {current.error}</p>}
     </section>
   );
 }

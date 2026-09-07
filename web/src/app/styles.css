@@ -71,3 +71,5 @@ dl.des dd { margin: 0; word-break: break-word; }
 .guide h4 { margin: 10px 0 2px; font-size: 13px; color: var(--fg); }
 .guide table { margin: 4px 0 10px; }
 .guide td { vertical-align: top; }
+.load-more { margin: 8px 0; list-style: none; }
+.dataset.split { align-items: start; height: auto; }

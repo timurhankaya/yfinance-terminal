@@ -184,11 +184,15 @@ export interface DatasetTableProps {
   /** Links the rows imply (a report page, a quote page); shown as an
    *  "open" column and in the row detail. */
   links?: LinkRule[];
+  /** Present when another page can be fetched: renders the Load more
+   *  button, which calls it. */
+  onLoadMore?: () => void;
+  loadingMore?: boolean;
 }
 
 /** A dataset as a grid with j/k/Enter and click opening the row detail. */
 export function DatasetTable(props: DatasetTableProps): ReactElement {
-  const { columns, rows: given, hide = [], reverse = false, truncated = false, links = [] } = props;
+  const { columns, rows: given, hide = [], reverse = false, truncated = false, links = [], onLoadMore, loadingMore = false } = props;
   const rows = reverse ? [...given].reverse() : given;
   const [open, setOpen] = useState<number | null>(null);
   const toggle = (index: number) => setOpen((current) => (current === index ? null : index));
@@ -217,25 +221,43 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
   }
   const detail = open === null ? undefined : rows[open];
 
+  const more = onLoadMore !== undefined;
+  // The detail opens on the right, like the news article: the grid keeps
+  // its place and its selection, and the row's fields sit beside it.
   return (
-    <div className="dataset">
-      <p className="detail-meta">
-        {rows.length.toLocaleString(LOCALE)} {rows.length === 1 ? "row" : "rows"}{truncated ? " (more exist: the list was cut at the page cap)" : ""} ·{" "}
-        {shown.length} of {columns.length} columns in the grid; Enter or click a row for every field
-      </p>
-      <div className="scroll-x" ref={tableRef}>
-        <DataTable
-          columns={gridColumns}
-          rows={rows}
-          rowKey={(_row, index) => String(index)}
-          selected={selected}
-          onSelect={(index) => {
-            setSelected(index);
-            toggle(index);
-          }}
-        />
+    <div className={detail ? "dataset split" : "dataset"}>
+      <div className={detail ? "split-list" : undefined}>
+        <p className="detail-meta">
+          {rows.length.toLocaleString(LOCALE)} {rows.length === 1 ? "row" : "rows"}
+          {more ? " loaded, more available" : ""}
+          {truncated ? " (more exist: the list was cut at the page cap)" : ""} ·{" "}
+          {shown.length} of {columns.length} columns in the grid; Enter or click a row for every field
+        </p>
+        <div className="scroll-x" ref={tableRef}>
+          <DataTable
+            columns={gridColumns}
+            rows={rows}
+            rowKey={(_row, index) => String(index)}
+            selected={selected}
+            onSelect={(index) => {
+              setSelected(index);
+              toggle(index);
+            }}
+          />
+        </div>
+        {more && (
+          <p className="load-more">
+            <button type="button" className="fn" disabled={loadingMore} onClick={onLoadMore}>
+              {loadingMore ? "Loading…" : "Load more"}
+            </button>
+          </p>
+        )}
       </div>
-      {detail && <RowDetail row={detail} columns={columns} links={links} onClose={() => setOpen(null)} />}
+      {detail && (
+        <div className="split-detail">
+          <RowDetail row={detail} columns={columns} links={links} onClose={() => setOpen(null)} />
+        </div>
+      )}
     </div>
   );
 }
