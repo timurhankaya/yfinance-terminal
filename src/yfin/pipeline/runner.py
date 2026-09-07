@@ -33,6 +33,7 @@ from yfin.pipeline.contracts import ProxyTracker
 from yfin.pipeline.payload import SymbolPayload
 from yfin.pipeline.persist import mark_unknown, persist_with_retry
 from yfin.pipeline.readers import GapReader, ScopeReader, WatermarkReader
+from yfin.storage.changes import context_for
 from yfin.storage.db import advisory_lock, session_factory
 
 log = get_logger(__name__)
@@ -269,6 +270,12 @@ def run_shard(
             # results.get() (the queue has no timeout).
             results.put(None)
 
+    changes = context_for(
+        enabled=cfg.yf_changes_enabled,
+        run_id=run_id,
+        range_threshold=cfg.yf_changes_range_threshold,
+    )
+
     producer = threading.Thread(target=produce, name=f"yfin-producer-{shard_index}", daemon=True)
     producer.start()
 
@@ -323,6 +330,10 @@ def run_shard(
                     session.commit()
             continue
 
+        # Attached here rather than in the worker: the consumer knows the
+        # run, and a payload that never reaches this point (a crashed
+        # worker) has nothing to publish anyway.
+        payload.changes = changes
         emit(persist_with_retry(factory, payload, cfg.yf_txn_retry_attempts))
 
     producer.join(timeout=5)

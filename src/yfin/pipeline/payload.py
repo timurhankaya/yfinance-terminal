@@ -12,6 +12,7 @@ from typing import Any
 
 from yfin.core.errors import ErrorKind
 from yfin.datasets.base import Dataset, NormalizedResult
+from yfin.storage.changes import ChangeContext
 
 
 @dataclass
@@ -37,6 +38,12 @@ class SymbolPayload:
     # "excluded by content_hash/date_range", out_of_scope means "this
     # symbol was never targeted for this interval".
     out_of_scope: list[tuple[str, str]] = field(default_factory=list)
+    # How this symbol's writes become change events, or None when
+    # `yf_changes_enabled` is off. The CONTEXT travels here because only the
+    # runner knows the run id; the COLLECTOR is built from it per attempt
+    # inside `persist_with_retry`, so a transaction replayed after a lock
+    # conflict produces one set of events rather than two.
+    changes: ChangeContext | None = None
     error: str | None = None
     # For proxy health accounting. Processed on the consumer thread, so no
     # lock is needed on the tracker.

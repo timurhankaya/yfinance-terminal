@@ -95,6 +95,25 @@ class ChangeContext:
     range_threshold: int
 
 
+def context_for(
+    *, enabled: bool, run_id: int | None, range_threshold: int
+) -> ChangeContext | None:
+    """A context, or None when change publishing is off.
+
+    The one place "off means nothing happens" is written down. None travels
+    all the way to `PostgresRowWriter`, which then emits the statements it
+    emitted before any of this existed -- no predicate, no `RETURNING *`, no
+    outbox row -- so the feature costs zero until someone turns it on.
+
+    Takes the two values rather than `Settings`: `storage/persistence.py`
+    imports this module and states that it depends on no configuration, and
+    a `core.config` import here would quietly make that false.
+    """
+    if not enabled:
+        return None
+    return ChangeContext(run_id=run_id, range_threshold=range_threshold)
+
+
 @dataclass(frozen=True)
 class ChangeEvent:
     """One outbox row, rendered but not yet written."""
@@ -325,6 +344,7 @@ __all__ = [
     "ChangeContext",
     "ChangeEvent",
     "ChangeOp",
+    "context_for",
     "BARS_INTERVAL_TABLES",
     "BARS_TIME_COLUMN",
 ]

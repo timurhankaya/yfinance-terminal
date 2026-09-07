@@ -46,6 +46,7 @@ from yfin.pipeline.audit import (
 from yfin.pipeline.contracts import ProxyTracker
 from yfin.pipeline.single_proxy import setup_single_proxy
 from yfin.pipeline.turn import Turn, run_turn
+from yfin.storage.changes import ChangeContext, context_for
 from yfin.storage.db import advisory_lock, session_factory
 
 log = get_logger(__name__)
@@ -176,6 +177,7 @@ def _run_turn(
     key: str,
     symbol: str,
     tracker: ProxyTracker | None = None,
+    changes: ChangeContext | None = None,
 ) -> list[ItemRecord]:
     """One turn: fetch -> normalize -> upsert, in its own transaction.
 
@@ -194,6 +196,7 @@ def _run_turn(
             kind="domain",
             log_context={"domain_key": key, "region": ctx.region},
             region=ctx.region,
+            changes=changes,
         ),
         tracker,
     )
@@ -243,6 +246,12 @@ def run_domain_sync(
         selector=f"regions={','.join(regions)}",
     )
 
+    changes = context_for(
+        enabled=cfg.yf_changes_enabled,
+        run_id=run_id,
+        range_threshold=cfg.yf_changes_range_threshold,
+    )
+
     fetched_at = datetime.now(UTC)
     base_ctx = DomainContext(
         fetched_at=fetched_at,
@@ -264,8 +273,15 @@ def run_domain_sync(
     # 4. Bootstrap: one turn, one transaction.
     for dataset in [d for d in selected if not d.per_key]:
         emit(
-            _run_turn(factory, dataset, base_ctx, TAXONOMY_SCOPE_MARKER,
-                      TAXONOMY_SCOPE_MARKER, tracker)
+            _run_turn(
+                factory,
+                dataset,
+                base_ctx,
+                TAXONOMY_SCOPE_MARKER,
+                TAXONOMY_SCOPE_MARKER,
+                tracker,
+                changes,
+            )
         )
 
     # 5. Keys from the DB. The bootstrap turn runs first on every
@@ -288,7 +304,13 @@ def run_domain_sync(
             for region in turn_regions:
                 emit(
                     _run_turn(
-                        factory, dataset, target_ctx.for_region(region), key, symbol, tracker
+                        factory,
+                        dataset,
+                        target_ctx.for_region(region),
+                        key,
+                        symbol,
+                        tracker,
+                        changes,
                     )
                 )
 

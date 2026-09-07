@@ -378,6 +378,33 @@ class Settings(BaseSettings):
         "stream", "Outbox rows read per relay pass.", default=1000, ge=1
     )
 
+    # Publishing PIPELINE writes, as opposed to ticks. Off by default, and
+    # off means the writer emits exactly the statements it emitted before
+    # this existed: no collector is created, so no predicate, no
+    # `RETURNING *`, no outbox row. The second write path costs zero until
+    # someone turns it on.
+    yf_changes_enabled: bool = _cfg(
+        "stream",
+        "Publish pipeline row changes to Kafka through the pipeline outbox.",
+        default=False,
+    )
+    # Seven topics, one per DataFamily, lining up with the seven
+    # `<family>:read` scopes so a consumer's ACL is one line per family.
+    yf_changes_topic_pattern: str = _cfg(
+        "stream",
+        "Change topic name pattern; {family} is substituted.",
+        default="yfin.changes.{family}",
+    )
+    # Above this many inserted rows, a write to a bars table publishes one
+    # span instead of one event per bar. A first sync writes ~20,000 bars
+    # per symbol; steady-state daily writes are ~390 and stay row-level.
+    yf_changes_range_threshold: int = _cfg(
+        "stream",
+        "Bar inserts above this count publish as one range event.",
+        default=1000,
+        ge=1,
+    )
+
     yf_stream_rescan_seconds: int = _cfg(
         "stream", "How often scope and settings are re-read while running.",
         default=60, ge=5,
