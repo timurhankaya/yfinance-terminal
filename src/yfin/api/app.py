@@ -19,6 +19,7 @@ from yfin.api.core.docs import TAGS, description
 from yfin.api.core.errors import install_error_handlers
 from yfin.api.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
 from yfin.api.ratelimit.dependencies import UsageMiddleware
+from yfin.api.ratelimit.revocation import mark_api_redis
 from yfin.api.routers import meta, oauth
 from yfin.api.routers.v1 import datasets, market
 
@@ -76,6 +77,10 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.add_middleware(UsageMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestContextMiddleware, settings=settings)
+
+    # Claims this Redis as the API's, so `yfin api client disable`
+    # can refuse to publish a revocation into an unrelated one.
+    mark_api_redis(settings)
 
     app.include_router(meta.router)
     app.include_router(oauth.router)

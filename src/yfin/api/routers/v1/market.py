@@ -246,12 +246,17 @@ def list_bars(
         raise ApiProblem(404, TYPE_NOT_FOUND, "No such symbol")
 
     size = paging.page_size(request, limit)
+    # The fingerprint covers what the CALLER sent, not the window we
+    # resolved from it. An open-ended range resolves against `now`, so a
+    # resolved window would differ by milliseconds between one page and
+    # the next and no cursor would ever match its own query -- paging
+    # without an explicit `from` would be impossible.
     identity = {
         "route": "bars",
         "symbol": code,
         "interval": interval,
-        "from": window_start.isoformat(),
-        "to": window_end.isoformat(),
+        "from": start.isoformat() if start else None,
+        "to": end.isoformat() if end else None,
         "session": effective_session,
         "limit": size,
     }
@@ -336,11 +341,12 @@ def list_actions(
         raise ApiProblem(404, TYPE_NOT_FOUND, "No such symbol")
 
     size = paging.page_size(request, limit)
+    # As with bars: the caller's parameters, not the resolved window.
     identity = {
         "route": "actions",
         "symbol": code,
-        "from": window_start.isoformat(),
-        "to": window_end.isoformat(),
+        "from": start.isoformat() if start else None,
+        "to": end.isoformat() if end else None,
         "limit": size,
     }
     after = paging.decode_cursor(cursor, query=identity, arity=2)

@@ -473,3 +473,44 @@ def test_read_path_FAILS_OPEN_without_redis(
     monkeypatch.setattr(deps, "get_redis", broken)
     response = guarded.get("/protected", headers={"Authorization": f"Bearer {_mint()}"})
     assert response.status_code == 200
+
+
+# --- the Redis identity handshake -------------------------------------------
+
+
+def test_publishing_into_an_UNCLAIMED_redis_is_refused(
+    redis: fakeredis.FakeRedis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Measured failure: `yfin api client disable` wrote a revocation to
+    the operator's local Redis while the API read a different one. A Redis
+    answered, so the command reported success -- and the disabled client
+    kept serving. An exit code that proves only "some Redis answered" is
+    the false assurance this design set out to avoid."""
+    from yfin.api.ratelimit import revocation
+
+    monkeypatch.setattr(revocation, "get_redis", lambda _s: redis)
+    with pytest.raises(revocation.WrongRedis):
+        revocation.publish_revocation(settings(), CLIENT_ID, epoch=1, disabled=True)
+
+
+def test_publishing_works_once_an_api_has_claimed_it(
+    redis: fakeredis.FakeRedis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from yfin.api.ratelimit import revocation
+
+    monkeypatch.setattr(revocation, "get_redis", lambda _s: redis)
+    revocation.mark_api_redis(settings())
+    revocation.publish_revocation(settings(), CLIENT_ID, epoch=1, disabled=True)
+    assert redis.get(revocation.disabled_key(CLIENT_ID)) == "1"
+
+
+def test_the_marker_survives_the_api_being_down(
+    redis: fakeredis.FakeRedis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A revocation is most likely to be issued while something is wrong,
+    so the marker must not expire with the process that wrote it."""
+    from yfin.api.ratelimit import revocation
+
+    monkeypatch.setattr(revocation, "get_redis", lambda _s: redis)
+    revocation.mark_api_redis(settings())
+    assert redis.ttl(revocation.MARKER_KEY) == -1

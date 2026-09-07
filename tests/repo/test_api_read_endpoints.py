@@ -435,3 +435,26 @@ def test_a_cancelled_query_is_504_not_500(
     assert response.status_code in (200, 504)
     if response.status_code == 504:
         assert response.json()["type"] == "query_timeout"
+
+
+def test_paging_works_WITHOUT_an_explicit_range(client: TestClient) -> None:
+    """An open-ended range resolves against `now`. If the cursor's
+    fingerprint covered the resolved window, it would differ by
+    milliseconds between one page and the next and no cursor would ever
+    match its own query -- paging without a `from` would be impossible,
+    which is the most common way to call this endpoint."""
+    first = _get(client, f"/v1/symbols/{SYMBOL}/bars", interval="1d", limit=2).json()
+    assert first["next_cursor"], "fixture must produce more than one page"
+
+    second = _get(
+        client,
+        f"/v1/symbols/{SYMBOL}/bars",
+        interval="1d",
+        limit=2,
+        cursor=first["next_cursor"],
+    )
+    assert second.status_code == 200
+    seen = {row["ts_utc"] for row in first["data"]} & {
+        row["ts_utc"] for row in second.json()["data"]
+    }
+    assert seen == set(), "pages must not overlap"

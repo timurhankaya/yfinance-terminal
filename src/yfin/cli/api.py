@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.api.core.config import get_api_settings
 from yfin.api.models.clients import ApiScope
-from yfin.api.ratelimit.revocation import publish_revocation
+from yfin.api.ratelimit.revocation import WrongRedis, publish_revocation
 from yfin.api.storage import clients as repo
 from yfin.core.logging_setup import get_logger
 
@@ -66,6 +66,12 @@ def _propagate(client_id: str, epoch: int, *, disabled: bool | None = None) -> b
     try:
         publish_revocation(get_api_settings(), client_id, epoch=epoch, disabled=disabled)
         return True
+    except WrongRedis as exc:
+        # Distinct from a connection failure: here a Redis answered, and
+        # writing to it would have looked like success while the API
+        # carried on serving the client.
+        typer.echo(f"ERROR: {exc}", err=True)
+        return False
     except Exception as exc:  # noqa: BLE001 - reported, never swallowed
         log.error("revocation_not_propagated", client_id=client_id, error=str(exc))
         return False
