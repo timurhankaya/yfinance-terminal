@@ -45,11 +45,17 @@ export function DES({ symbol }: { symbol: string }) {
   const authenticated = me?.authenticated === true;
   const [state, setState] = useState<State>({ kind: "loading" });
 
-  const load = useCallback(async () => {
+  // `cancelled` guards against a stale response overwriting fresher data:
+  // if `symbol` changes while a fetch is in flight, the effect below marks
+  // the old call cancelled and its `setState`s after the await are skipped.
+  const load = useCallback(async (cancelled: () => boolean) => {
     setState({ kind: "loading" });
     try {
-      setState({ kind: "ready", detail: await getSymbol(symbol) });
+      const detail = await getSymbol(symbol);
+      if (cancelled()) return;
+      setState({ kind: "ready", detail });
     } catch (err) {
+      if (cancelled()) return;
       if (err instanceof UnauthorizedError) requireLogin();
       else if (err instanceof ApiError && err.status === 404) setState({ kind: "missing" });
       else setState({ kind: "error" });
@@ -59,7 +65,12 @@ export function DES({ symbol }: { symbol: string }) {
   // Runs when the symbol changes AND when the session comes back after a
   // login: the spec's "the last command re-runs after a successful login".
   useEffect(() => {
-    if (authenticated) void load();
+    if (!authenticated) return;
+    let cancelled = false;
+    void load(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
   }, [load, authenticated]);
 
   if (state.kind === "loading") return <p className="muted">Loading {symbol}…</p>;
@@ -67,7 +78,7 @@ export function DES({ symbol }: { symbol: string }) {
   if (state.kind === "error")
     return (
       <p className="error">
-        Could not load {symbol}. <button onClick={() => void load()}>Retry</button>
+        Could not load {symbol}. <button onClick={() => void load(() => false)}>Retry</button>
       </p>
     );
 

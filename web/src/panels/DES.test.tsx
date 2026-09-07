@@ -105,6 +105,61 @@ describe("DES", () => {
     expect(await screen.findByText("Apple Inc.")).toBeInTheDocument();
     expect(symbolCalls).toBe(1);
   });
+
+  it("ignores a stale response when the symbol changes mid-flight", async () => {
+    let resolveAapl!: (response: Response) => void;
+    const aaplResponse = new Promise<Response>((resolve) => {
+      resolveAapl = resolve;
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/ui/api/me") return json(200, me);
+      if (url === "/v1/symbols/AAPL") return aaplResponse;
+      if (url === "/v1/symbols/MSFT") {
+        return json(200, { data: {
+          symbol: "MSFT", long_name: "Microsoft Corp.", short_name: null, exchange: null,
+          full_exchange_name: null, currency: null, quote_type: null, timezone: null,
+          is_active: true, info: null,
+        } });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    const { rerender } = render(
+      <SessionProvider>
+        <DES symbol="AAPL" />
+      </SessionProvider>,
+    );
+    rerender(
+      <SessionProvider>
+        <DES symbol="MSFT" />
+      </SessionProvider>,
+    );
+    expect(await screen.findByText("Microsoft Corp.")).toBeInTheDocument();
+    // The AAPL request that was still in flight resolves after MSFT already
+    // rendered; it must not clobber the newer MSFT state.
+    resolveAapl(json(200, { data: {
+      symbol: "AAPL", long_name: "Apple Inc.", short_name: null, exchange: null,
+      full_exchange_name: null, currency: null, quote_type: null, timezone: null,
+      is_active: true, info: null,
+    } }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText("Microsoft Corp.")).toBeInTheDocument();
+    expect(screen.queryByText("Apple Inc.")).not.toBeInTheDocument();
+  });
+});
+
+describe("SessionProvider", () => {
+  it("settles on unauthenticated when the initial /me call rejects", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("network"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <SessionProvider>
+        <SessionProbe />
+      </SessionProvider>,
+    );
+    expect(await screen.findByText("session:false")).toBeInTheDocument();
+    expect(errorSpy).toHaveBeenCalledWith("session refresh failed", expect.any(TypeError));
+  });
 });
 
 // A tiny consumer of useSession so the test can flip the session.

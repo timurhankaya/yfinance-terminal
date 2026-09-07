@@ -14,7 +14,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
 
   const refresh = useCallback(async () => {
-    setMe(await getMe());
+    try {
+      setMe(await getMe());
+    } catch (err) {
+      // A network failure or a non-JSON 5xx must still land the app in a
+      // defined state instead of leaving `me` null ("Connecting…") forever.
+      console.error("session refresh failed", err);
+      setMe({ authenticated: false, expires_at: null, live_enabled: false });
+    }
   }, []);
 
   // A 401 anywhere on the page flips the session to "not authenticated"
