@@ -34,7 +34,7 @@ from yfin.models import (  # noqa: E402
     V_ACTIONS_CREATE,
     V_PRICE_BARS_REGULAR_CREATE,
     Base,
-    timescale_ddl,
+    all_timescale_ddl,
 )
 from yfin.storage.db import create_db_engine  # noqa: E402
 
@@ -123,7 +123,7 @@ def test_engine(
         # autogenerate them either). Without applying the same DDL as the
         # migration, price_bars stays a plain table and chunk behavior
         # can never be verified.
-        for stmt in timescale_ddl():
+        for stmt in all_timescale_ddl():
             conn.execute(text(stmt))
         conn.commit()
     yield engine

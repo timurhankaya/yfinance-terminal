@@ -114,6 +114,19 @@ from yfin.models.snapshots import (
     ticker_info,
     ticker_info_history,
 )
+from yfin.models.stream import (
+    LiveQuote,
+    LiveTick,
+    StreamConnectionHealth,
+    StreamOutbox,
+    StreamReject,
+    StreamRejectReason,
+    StreamRelayOffset,
+    StreamScope,
+    StreamSession,
+    StreamStatus,
+    stream_timescale_ddl,
+)
 from yfin.models.symbols import Symbol
 from yfin.models.sync import ItemStatus, RunScope, RunStatus, SyncRun, SyncRunItem
 from yfin.models.views import (
@@ -257,6 +270,18 @@ __all__ = [
     "READABLE_INTERVALS",
     "bars_table_for",
     "timescale_ddl",
+    "LiveQuote",
+    "LiveTick",
+    "StreamConnectionHealth",
+    "StreamOutbox",
+    "StreamReject",
+    "StreamRejectReason",
+    "StreamRelayOffset",
+    "StreamScope",
+    "StreamSession",
+    "StreamStatus",
+    "all_timescale_ddl",
+    "stream_timescale_ddl",
     "ticker_calendar",
     "ticker_calendar_history",
     "ticker_fast_info",
@@ -264,3 +289,15 @@ __all__ = [
     "ticker_info",
     "ticker_info_history",
 ]
+
+
+def all_timescale_ddl() -> tuple[str, ...]:
+    """Every hypertable in the schema, in creation order.
+
+    Kept separate from the per-module functions because migrations must
+    stay pinned to the tables that existed when they were written: the
+    initial revision calls `timescale_ddl()` and would fail if that ever
+    started returning DDL for tables it does not create. Test fixtures,
+    which build the whole schema at once, use this one.
+    """
+    return (*timescale_ddl(), *stream_timescale_ddl())

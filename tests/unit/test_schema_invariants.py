@@ -165,6 +165,19 @@ def test_child_tables_inherit_their_parent_timestamp() -> None:
         # `settings` is also static identity: written by the operator, not
         # fetched from Yahoo. Carries created_at/updated_at.
         "settings",
+        # The stream tables carry an event time, not a fetch time. A tick
+        # is not "fetched" at a moment we choose -- it arrives, and
+        # `received_at` already records when. The rest are operational:
+        # added_at (scope), created_at (outbox), started_at (sessions),
+        # heartbeat_at (health), updated_at (offset, quotes).
+        "live_ticks",
+        "live_quotes",
+        "stream_scope",
+        "stream_outbox",
+        "stream_relay_offset",
+        "stream_rejects",
+        "stream_sessions",
+        "stream_connection_health",
     }
     for table in Base.metadata.tables.values():
         # The API's own tables (api_*) hold credentials, plans and usage
