@@ -43,7 +43,13 @@ describe("DES", () => {
         symbol: "AAPL", long_name: "Apple Inc.", short_name: "Apple", exchange: "NMS",
         full_exchange_name: "NasdaqGS", currency: "USD", quote_type: "EQUITY",
         timezone: "America/New_York", is_active: true,
-        info: { sector: "Technology", industry: "Consumer Electronics", marketCap: 3500000000000, trailingPE: 33.1, website: "https://apple.com" },
+        // Shaped like the real API: snake_case keys, Decimal numbers as
+        // strings, dividend_yield already a percentage.
+        info: {
+          sector: "Technology", industry: "Consumer Electronics",
+          market_cap: "4669700046848", trailing_pe: "36.609840000000",
+          dividend_yield: "0.340000000000", website: "https://apple.com",
+        },
       } });
       throw new Error(`unexpected ${url}`);
     });
@@ -51,8 +57,9 @@ describe("DES", () => {
     expect(await screen.findByText("Apple Inc.")).toBeInTheDocument();
     expect(screen.getByText("NasdaqGS")).toBeInTheDocument();
     expect(screen.getByText("Technology")).toBeInTheDocument();
-    expect(screen.getByText("3.50T")).toBeInTheDocument();
-    expect(screen.getByText("33.10")).toBeInTheDocument();
+    expect(screen.getByText("4.67T")).toBeInTheDocument();
+    expect(screen.getByText("36.61")).toBeInTheDocument();
+    expect(screen.getByText("0.34%")).toBeInTheDocument();
     expect(screen.queryByText("Beta")).not.toBeInTheDocument();
   });
 

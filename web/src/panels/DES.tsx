@@ -10,16 +10,20 @@ type State =
 
 type Kind = "text" | "big" | "num" | "pct";
 
+// Keys are the API's: the `info` snapshot is normalised to snake_case on
+// the way into the database, not yfinance's camelCase. Numbers arrive as
+// strings (Decimal on the wire), and `dividend_yield` is already a
+// percentage (0.34 means 0.34 %), so `pct` appends the sign without scaling.
 const INFO_ROWS: ReadonlyArray<[key: string, label: string, kind: Kind]> = [
   ["sector", "Sector", "text"],
   ["industry", "Industry", "text"],
-  ["marketCap", "Market cap", "big"],
-  ["trailingPE", "P/E (ttm)", "num"],
-  ["forwardPE", "P/E (fwd)", "num"],
-  ["dividendYield", "Dividend yield", "pct"],
+  ["market_cap", "Market cap", "big"],
+  ["trailing_pe", "P/E (ttm)", "num"],
+  ["forward_pe", "P/E (fwd)", "num"],
+  ["dividend_yield", "Dividend yield", "pct"],
   ["beta", "Beta", "num"],
-  ["fiftyTwoWeekLow", "52w low", "num"],
-  ["fiftyTwoWeekHigh", "52w high", "num"],
+  ["fifty_two_week_low", "52w low", "num"],
+  ["fifty_two_week_high", "52w high", "num"],
   ["website", "Website", "text"],
 ];
 
@@ -31,13 +35,23 @@ export function formatBig(value: number): string {
   return value.toFixed(0);
 }
 
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function format(value: unknown, kind: Kind): string | null {
   if (value === null || value === undefined) return null;
   if (kind === "text") return String(value);
-  if (typeof value !== "number" || Number.isNaN(value)) return null;
-  if (kind === "big") return formatBig(value);
-  if (kind === "pct") return `${(value * 100).toFixed(2)}%`;
-  return value.toFixed(2);
+  const n = asNumber(value);
+  if (n === null) return null;
+  if (kind === "big") return formatBig(n);
+  if (kind === "pct") return `${n.toFixed(2)}%`;
+  return n.toFixed(2);
 }
 
 export function DES({ symbol }: { symbol: string }) {
