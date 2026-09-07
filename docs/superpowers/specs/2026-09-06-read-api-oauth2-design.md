@@ -527,6 +527,29 @@ Bu ucu tasimayan bir dataset genel yuzeyde **gorunmez** (katalogda
 listelenmez, `/v1/datasets/{ad}` 404 doner). Boylece yeni bir dataset
 API'yi yanlislikla acmaz; acilmasi bilincli bir eklemedir.
 
+#### Uygulamadan cikan sinir: dataset okuma birimi DEGILDIR
+
+61 dataset'in tamami isaretlenmeye calisilinca su ortaya cikti ve
+tasarimin kabul edilmis bir sinridir:
+
+- **Bir dataset birden cok tablo yazabilir.** `search` sekiz, `info` uc,
+  `screener` bes tablo yazar. Genel yuzey girdi basina TEK tablo servis
+  eder, dolayisiyla bu dataset'ler icin "dataset" yanlis birimdir.
+  Okunabilir sey **kaynaktir** (tablo ya da kurgulanmis bir gorunum);
+  dataset ise bir YAZMA tarafi kavramidir: bir cekis, bir veya daha cok
+  tablo.
+- **Bir tabloyu birden cok dataset yazabilir.** `institutional_holders` /
+  `mutualfund_holders` ve `earnings_estimate` / `revenue_estimate`
+  boyledir. `ApiExposure.fixed` bunu kapatir, ama varliginin sebebi tam
+  da eksenin dataset olmasidir.
+- **Bazi dataset'lerin okunacak tablosu yoktur** (`sustainability`).
+
+1:1 varsayimi basit ailelerde (holders) tuttugu icin tasarim asamasinda
+gorunmedi. Bugunku karar: cok tablolu dataset'ler genel yuzeye
+**girmez**; onlarin verisi ya elle tasarlanmis bir uc noktadan gelir ya
+da hic gelmez. Ekseni dataset'ten kaynaga tasimak ayri bir karardir ve
+§10'da is olarak durur.
+
 OpenAPI'de genel yol TEK bir parametre semasiyla temsil edilir
 (`dataset` yol parametresi + ortak filtre nesnesi); dataset basina ayri
 sema uretilmez — aksi halde §7.2'deki kilit her yeni dataset'te diff
@@ -980,6 +1003,13 @@ kararlastirilan isler. Kaybolmasinlar diye burada dururlar.
   (`2026-09-06-websocket-streaming-design.md`, K5) transactional outbox
   uzerinden OPSIYONEL yayin yolu. Bu API'nin okuma yuzeyi ona baglanmaz.
 
-- **Dataset'lerin geri kalaninin `ApiExposure` ile isaretlenmesi.**
-  Mekanizma ve dort holders dataset'i yerinde; kalani mekanik bir istir
-  (§5.4).
+- **Kalan dataset'lerin isaretlenmesi.** 19 dataset acik. Kalanlar uc
+  gruba ayrilir ve yalnizca ucuncusu mekanik bir istir: (a) elle
+  tasarlanmis uc noktalarin zaten servis ettikleri -- ikinci bir yol
+  ACILMAMALIDIR, cunku o yol interval yonlendirmesi, seans filtresi ve
+  aralik tavanlari olmadan gelir; (b) cok tablolu olanlar -- §5.4'teki
+  eksen sorunu; (c) o an baska bir oturumun duzenledigi dosyalardakiler.
+
+- **Okuma ekseninin dataset'ten kaynaga tasinmasi.** §5.4'teki sinirin
+  gercek cozumu. Bugun gerekmiyor: cok tablolu dataset'lerin verisine
+  talep olmadan yapilirsa YAGNI ihlalidir.
