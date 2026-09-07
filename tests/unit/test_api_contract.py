@@ -197,3 +197,34 @@ def test_the_documentation_can_be_turned_off() -> None:
         assert client.get("/docs").status_code == 404
         assert client.get("/openapi.json").status_code == 404
         assert client.get("/health").status_code == 200
+
+
+def test_the_document_lists_EVERY_resource(document: dict[str, Any]) -> None:
+    """Fifty-five resources sit behind one path, so a reader opening ReDoc
+    would otherwise see a generic endpoint and no way to learn what is
+    available. The table is generated from the catalogue the API serves
+    from, so it cannot list something that does not exist or miss
+    something that does."""
+    from yfin.api.storage.catalog import CATALOG
+
+    text = document["info"]["description"]
+    missing = [name for name in CATALOG if f"`{name}`" not in text]
+    assert missing == [], f"not documented: {missing}"
+
+
+def test_every_documented_resource_states_its_scope(document: dict[str, Any]) -> None:
+    """A caller has to be able to tell, without trying, which token they
+    need for a given resource."""
+    from yfin.api.storage.catalog import CATALOG
+
+    text = document["info"]["description"]
+    for scope in {entry.scope for entry in CATALOG.values()}:
+        assert f"`{scope}`" in text
+
+
+def test_the_introduction_covers_what_callers_get_wrong(document: dict[str, Any]) -> None:
+    """Cursors, decimal-as-string and the two date columns are the three
+    things a client hits once and then has to be told about."""
+    text = document["info"]["description"]
+    for topic in ("next_cursor", "session_date", "local_date", "client_credentials"):
+        assert topic in text

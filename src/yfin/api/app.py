@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from yfin.api.core.config import ApiSettings, get_api_settings
+from yfin.api.core.docs import TAGS, description
 from yfin.api.core.errors import install_error_handlers
 from yfin.api.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
 from yfin.api.ratelimit.dependencies import UsageMiddleware
@@ -23,10 +24,6 @@ from yfin.api.routers.v1 import datasets, market
 
 TITLE = "yfin Data API"
 VERSION = "1.0.0"
-DESCRIPTION = (
-    "Read-only access to the yfin market data warehouse. "
-    "Authenticate with the OAuth2 client credentials flow."
-)
 
 
 def create_app(settings: ApiSettings | None = None) -> FastAPI:
@@ -35,7 +32,10 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app = FastAPI(
         title=TITLE,
         version=VERSION,
-        description=DESCRIPTION,
+        # Generated from the catalogue, so the document cannot list a
+        # resource the API does not serve or miss one it does.
+        description=description(),
+        openapi_tags=TAGS,
         # Two views of the same document, because they answer different
         # questions. Swagger UI is where a developer pastes a client id
         # and calls an endpoint; ReDoc is where they read the contract
