@@ -7,11 +7,13 @@
 // price that has quietly stopped updating looks exactly like a quiet
 // market, so "the stream is off" and "this tab lost its socket" each get
 // their own words.
+import { useEffect, useRef } from "react";
 import type { ReactElement } from "react";
 import { useDropped, useLinkState, useLiveEnabled, useQuote } from "../live/hooks";
 import { LinkState, MarketHours } from "../live/types";
 import type { Tick } from "../live/types";
 import { formatDecimal } from "../panels/table";
+import { formatPrice } from "../panels/format";
 
 //: Keyed by `number`, not by `MarketHours`: `tick.mh` is whatever code
 //: the wire carried, and asserting it into the enum would make the
@@ -39,14 +41,40 @@ export function direction(change: string | undefined): string | undefined {
   return value > 0 ? "up" : "down";
 }
 
+/** Which way the price moved against the previous tick, as a class
+ *  name; undefined on the first tick and when it did not move. This is
+ *  the flash's direction, distinct from the day's change: a price can
+ *  tick up while still down on the day. */
+export function tickMove(current: string, previous: string | undefined): string | undefined {
+  if (previous === undefined) return undefined;
+  const now = Number(current);
+  const before = Number(previous);
+  if (!Number.isFinite(now) || !Number.isFinite(before) || now === before) return undefined;
+  return now > before ? "up" : "down";
+}
+
 function Price({ tick }: { tick: Tick }): ReactElement {
   const move = direction(tick.c);
+  // The previous tick's price, for the flash. Read during render, written
+  // after it: the comparison must see the tick before this one.
+  const previous = useRef<string | undefined>(undefined);
+  const flash = tickMove(tick.p, previous.current);
+  useEffect(() => {
+    previous.current = tick.p;
+  }, [tick.p]);
   return (
     <>
-      <span className="strip-price">{formatDecimal(tick.p)}</span>
+      <span
+        // Keyed by the tick's instant so every tick remounts the span and
+        // the CSS animation plays again rather than once per page.
+        key={tick.t}
+        className={flash === undefined ? "strip-price" : `strip-price flash-${flash}`}
+      >
+        {formatPrice(tick.p)}
+      </span>
       {tick.c !== undefined && (
         <span className={move === undefined ? "strip-change" : `strip-change ${move}`}>
-          {formatDecimal(tick.c)}
+          {formatPrice(tick.c)}
           {tick.cp !== undefined && ` (${formatDecimal(tick.cp)}%)`}
         </span>
       )}

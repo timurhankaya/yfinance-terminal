@@ -18,7 +18,8 @@ import type { Tick } from "../live/types";
 import type { PanelArgs, PanelProps, PanelSpec } from "../commands/types";
 import { Layout } from "../commands/types";
 import { EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData } from "./common";
-import { formatDecimal, formatInteger } from "./table";
+import { formatInteger } from "./table";
+import { formatPrice } from "./format";
 
 //: One shared empty array, so "no rows yet" keeps its identity.
 const NO_TICKS: Tick[] = [];
@@ -57,6 +58,8 @@ export interface TapeItem {
   tick: Tick;
   /** True when the socket dropped just before this row arrived. */
   breakBefore: boolean;
+  /** True for a row the socket delivered, false for the opening page's. */
+  live: boolean;
 }
 
 /** The tape and the opening page as one list, newest first.
@@ -67,11 +70,12 @@ export interface TapeItem {
 export function mergeTape(tape: Tick[], history: Tick[], breaks: Set<string>): TapeItem[] {
   const seen = new Set<string>();
   const items: TapeItem[] = [];
+  const fromSocket = new Set(tape.map(key));
   for (const tick of [...tape, ...history]) {
     const id = key(tick);
     if (seen.has(id)) continue;
     seen.add(id);
-    items.push({ tick, breakBefore: breaks.has(id) });
+    items.push({ tick, breakBefore: breaks.has(id), live: fromSocket.has(id) });
   }
   return items;
 }
@@ -152,9 +156,9 @@ export function QR({ symbol, args }: PanelProps) {
                 — connection lost; ticks in this window were not delivered —
               </p>
             )}
-            <span className="tape-line">
+            <span className={item.live ? "tape-line tape-new" : "tape-line"}>
               <span>{tapeClock(item.tick.t)}</span>
-              <span className="num">{formatDecimal(item.tick.p)}</span>
+              <span className="num">{formatPrice(item.tick.p)}</span>
               <span className="num">{item.tick.ls === undefined ? "—" : formatInteger(item.tick.ls)}</span>
               <span className="num">{item.tick.v === undefined ? "—" : formatInteger(item.tick.v)}</span>
             </span>

@@ -19,6 +19,14 @@ export function formatBig(value: number): string {
   return value.toFixed(0);
 }
 
+/** A price or a price change: two decimals with thousands separators,
+ *  never scaled. `2.49K` is not a price of ether; `2,487.12` is. */
+export function formatPrice(value: unknown): string {
+  const n = asNumber(value);
+  if (n === null) return "—";
+  return n.toLocaleString(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 /** A wire value as a finite number, or null. Decimals arrive as STRINGS
  *  (NUMERIC on the wire), so a string that parses counts. */
 export function asNumber(value: unknown): number | null {

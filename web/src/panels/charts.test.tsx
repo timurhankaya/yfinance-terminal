@@ -279,4 +279,9 @@ describe("mergeTape", () => {
     const items = mergeTape([tick({ t: 9_000 })], [], new Set(["AAPL|9000"]));
     expect(items[0]?.breakBefore).toBe(true);
   });
+
+  it("knows which rows the socket delivered", () => {
+    const items = mergeTape([tick({ t: 9_000 })], [tick({ t: 1_000 })], new Set());
+    expect(items.map((item) => item.live)).toEqual([true, false]);
+  });
 });

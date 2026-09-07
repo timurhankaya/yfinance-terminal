@@ -3,7 +3,7 @@
 // market, so each reason for stillness gets its own words.
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Strip, clock, direction } from "./Strip";
+import { Strip, clock, direction, tickMove } from "./Strip";
 import { handleFrame, resetLive, setSocketFactory, useLive } from "../live/store";
 import type { SocketLike } from "../live/socket";
 import { LinkState, MarketHours, Op } from "../live/types";
@@ -119,6 +119,49 @@ describe("Strip", () => {
       handleFrame({ op: Op.Dropped, n: 7 });
     });
     expect(screen.getByText(/7 dropped/)).toBeInTheDocument();
+  });
+});
+
+describe("tickMove", () => {
+  it("compares against the previous tick, not the day", () => {
+    expect(tickMove("232.40", "232.35")).toBe("up");
+    expect(tickMove("232.30", "232.35")).toBe("down");
+    expect(tickMove("232.35", "232.35")).toBeUndefined();
+    expect(tickMove("232.35", undefined)).toBeUndefined();
+  });
+});
+
+describe("Strip flash", () => {
+  it("flashes the price in the direction of each tick and never on the first", () => {
+    render(<Strip symbol="AAPL" live />);
+    act(() => {
+      handleFrame({ op: Op.Live, enabled: true });
+      handleFrame({ op: Op.Snap, d: tick({ p: "232.35", c: "-1.00" }) });
+    });
+    paint();
+    expect(screen.getByText("232.35").className).toBe("strip-price");
+    act(() => {
+      handleFrame({ op: Op.Tick, d: tick({ t: 1_788_877_816_000, p: "232.60", c: "-0.75" }) });
+    });
+    paint();
+    // Up against the last tick even though the day's change is still down.
+    expect(screen.getByText("232.60").className).toBe("strip-price flash-up");
+    act(() => {
+      handleFrame({ op: Op.Tick, d: tick({ t: 1_788_877_817_000, p: "232.10", c: "-1.25" }) });
+    });
+    paint();
+    expect(screen.getByText("232.10").className).toBe("strip-price flash-down");
+  });
+
+  it("shows a price as a price, not scaled", () => {
+    render(<Strip symbol="ETH-USD" live />);
+    act(() => {
+      handleFrame({ op: Op.Live, enabled: true });
+      handleFrame({ op: Op.Snap, d: tick({ s: "ETH-USD", p: "2487.123", c: "-27.3" }) });
+    });
+    paint();
+    expect(screen.getByText("2,487.12")).toBeInTheDocument();
+    expect(screen.getByText(/-27\.30/)).toBeInTheDocument();
   });
 });
 

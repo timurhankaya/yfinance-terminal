@@ -163,14 +163,19 @@ describe("AppRoutes", () => {
     expect(within(bar).getByRole("button", { name: "DES" })).toBeEnabled();
   });
 
-  it("redirects /ui to the last visited triple", async () => {
-    localStorage.setItem("yfin.ui.last", "/ui/t/TSLA/DES");
-    mockFetch((url) => {
-      if (url === "/ui/api/v1/symbols/TSLA") return json(200, symbolBody("TSLA", "Tesla"));
-      throw new Error(`unexpected ${url}`);
-    });
+  it("opens /ui on the home rather than an empty symbol page", async () => {
+    // It used to redirect to whatever `localStorage` said was last
+    // visited, which was the terminal's only state outside the URL. With
+    // a landing page that redirect has nothing left to do.
+    mockFetch(() => json(200, { data: [], next_cursor: null }));
     mount("/ui");
-    expect(await screen.findByText("Tesla")).toBeInTheDocument();
+    expect(await screen.findByText(/Type a symbol to open its detail/)).toBeInTheDocument();
+  });
+
+  it("serves a market page from its own root, with no symbol in the path", async () => {
+    mockFetch(() => json(200, { data: [], next_cursor: null }));
+    mount("/ui/m/EQS");
+    expect(await screen.findByText(/None are enabled/)).toBeInTheDocument();
   });
 
   it("runs a mnemonic-only command against the current symbol", async () => {

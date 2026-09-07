@@ -1,7 +1,6 @@
 import { useMemo } from "react";
-import { useNavigate } from "react-router";
 import { getFinancials, type FinancialFact } from "../api/client";
-import { commandToPath } from "../commands/parser";
+import { useGo } from "../commands/go";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import { DataTable, EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData, type Column } from "./common";
 import { asNumber, formatBig } from "./format";
@@ -103,7 +102,7 @@ export function cell(value: unknown): string {
 }
 
 export function FA({ symbol, args }: PanelProps) {
-  const navigate = useNavigate();
+  const go = useGo();
   const statement = statementOf(args.statement);
   const freq = freqOf(args.freq);
   const { state, retry } = usePanelData<FinancialFact[]>(
@@ -115,8 +114,8 @@ export function FA({ symbol, args }: PanelProps) {
 
   if (symbol === null) return null;
 
-  function go(next: PanelArgs) {
-    void navigate(commandToPath({ symbol, code: "FA", args: { statement, freq, ...next } }));
+  function switchTo(next: PanelArgs) {
+    go({ symbol, code: "FA", args: { statement, freq, ...next } });
   }
 
   const columns: Column<PivotRow>[] = table
@@ -140,7 +139,7 @@ export function FA({ symbol, args }: PanelProps) {
             role="tab"
             aria-selected={value === statement}
             className={value === statement ? "tab tab-active" : "tab"}
-            onClick={() => go({ statement: value })}
+            onClick={() => switchTo({ statement: value })}
           >
             {label}
           </button>
@@ -153,7 +152,7 @@ export function FA({ symbol, args }: PanelProps) {
             role="tab"
             aria-selected={value === freq}
             className={value === freq ? "tab tab-active" : "tab"}
-            onClick={() => go({ freq: value })}
+            onClick={() => switchTo({ freq: value })}
           >
             {label}
           </button>

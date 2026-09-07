@@ -88,3 +88,17 @@ dl.des dd { margin: 0; word-break: break-word; }
 .tape-line .num { text-align: right; font-variant-numeric: tabular-nums; }
 .grid td.up, .strip-change.up { color: #4cc38a; }
 .grid td.down, .strip-change.down { color: #ff6b6b; }
+.fn-group { padding: 3px 8px 3px 2px; color: var(--muted); font-size: 11px; text-transform: uppercase; align-self: center; }
+.fn-group:not(:first-child) { border-left: 1px solid var(--line); margin-left: 8px; padding-left: 10px; }
+.home { max-width: 110ch; }
+.home-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 10px; }
+.home-card { border: 1px solid var(--line); padding: 8px 10px; }
+.home-card h3 { margin: 0 0 6px; font-size: 13px; }
+@keyframes flash-up { from { background: rgba(76, 195, 138, .45); } to { background: transparent; } }
+@keyframes flash-down { from { background: rgba(255, 107, 107, .45); } to { background: transparent; } }
+.strip-price { padding: 0 4px; border-radius: 2px; }
+.strip-price.flash-up { animation: flash-up .8s ease-out; }
+.strip-price.flash-down { animation: flash-down .8s ease-out; }
+@keyframes tape-in { from { background: rgba(242, 181, 68, .3); } to { background: transparent; } }
+.tape-line.tape-new { animation: tape-in 1.2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .strip-price, .tape-line { animation: none !important; } }

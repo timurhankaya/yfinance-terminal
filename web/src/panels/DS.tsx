@@ -3,9 +3,8 @@
 // This is the panel that guarantees nothing in the archive is unreachable
 // from the terminal, whether or not a curated panel covers it.
 import { useMemo } from "react";
-import { useNavigate } from "react-router";
 import { getCatalog, type CatalogEntry } from "../api/client";
-import { commandToPath } from "../commands/parser";
+import { useGo } from "../commands/go";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import { ErrorCard, LoadState, useListKeys, usePanelData } from "./common";
 import { DatasetView, SymbolMode, filtersOf, parseFilters } from "./dataset";
@@ -20,7 +19,7 @@ function parseArgs(tokens: string[]): PanelArgs {
 }
 
 function Catalog({ symbol }: { symbol: string | null }) {
-  const navigate = useNavigate();
+  const go = useGo();
   const { state, retry } = usePanelData<CatalogEntry[]>("catalog", getCatalog, (entries) => entries.length === 0);
   const entries = useMemo(() => {
     if (state.kind !== LoadState.Ready) return [];
@@ -28,7 +27,7 @@ function Catalog({ symbol }: { symbol: string | null }) {
   }, [state]);
   const open = (index: number) => {
     const entry = entries[index];
-    if (entry) void navigate(commandToPath({ symbol, code: "DS", args: { name: entry.name } }));
+    if (entry) go({ symbol, code: "DS", args: { name: entry.name } });
   };
   const [selected, setSelected] = useListKeys(entries.length, open);
 

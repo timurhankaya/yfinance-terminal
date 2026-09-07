@@ -8,9 +8,37 @@ import { getPanel, isMnemonic } from "./registry";
 import type { Command, PanelArgs } from "./types";
 
 export const SYMBOL_RE = /^[A-Z0-9.^=-]+$/;
-/** The URL segment that stands for "no symbol": /ui/t/-/HELP. */
+/** The URL segment that stands for "no symbol" on a symbol route:
+ *  `/ui/t/-/FA` is a hand-typed URL for a panel that needs one and has
+ *  not been given it, and the shell says so rather than 404ing. */
 export const NO_SYMBOL = "-";
 export const DEFAULT_CODE = "DES";
+
+/** The two roots, and why there are two.
+ *
+ *  A screener is not a property of a symbol. Serving `EQS` from
+ *  `/ui/t/AAPL/EQS` made every market-wide page read as though it
+ *  belonged to whatever symbol happened to be on the strip, and made
+ *  `/ui/t/-/EQS` -- a placeholder standing in for a slot the page has no
+ *  use for -- the shape of a shareable link.
+ *
+ *  So the URL now says which kind of page it is. `/ui/t/{SYMBOL}/{CODE}`
+ *  is a symbol's detail, where the symbol is part of the identity;
+ *  `/ui/m/{CODE}` is a market-wide page, where it is not.
+ *
+ *  The strip's symbol still follows the reader across a market page --
+ *  `AAPL DES` then `EQS` then `FA` lands back on AAPL -- but it rides in
+ *  the history entry rather than the path (`Shell`). That is what makes
+ *  a shared `/ui/m/EQS` carry no one's symbol, which is the correct
+ *  thing for it to carry. */
+export const SYMBOL_ROOT = "/ui/t";
+export const MARKET_ROOT = "/ui/m";
+
+/** The market root itself. `HOME` is the one page whose path is a root
+ *  rather than a code under one: `/ui` is what a reader types and what a
+ *  bookmark holds. */
+export const HOME_CODE = "HOME";
+export const HOME_PATH = "/ui";
 
 export interface ParseContext {
   symbol: string | null;
@@ -74,17 +102,36 @@ export function parse(input: string, ctx: ParseContext): ParseResult {
   return build(first, second, raw.slice(2));
 }
 
-export function commandToPath(command: Command): string {
-  const symbol = command.symbol === null ? NO_SYMBOL : encodeURIComponent(command.symbol);
-  const query = new URLSearchParams(command.args).toString();
-  return `/ui/t/${symbol}/${command.code}${query ? `?${query}` : ""}`;
+/** True when the code names a page that is not about one symbol.
+ *
+ *  Read from the registry rather than from a list here: `needsSymbol` is
+ *  already the panel's own declaration, and a second list would drift
+ *  the first time a panel changed its mind. An unregistered code is
+ *  treated as symbol-scoped, which is what `DES` -- the default -- is. */
+export function isMarketCode(code: string): boolean {
+  const spec = getPanel(code);
+  return spec !== undefined && !spec.needsSymbol;
 }
 
-/** `symbol` and `code` are the path segments as react-router hands them over: already decoded. */
-export function pathToCommand(symbol: string, code: string, search: string): Command {
+export function commandToPath(command: Command): string {
+  const query = new URLSearchParams(command.args).toString();
+  const suffix = query ? `?${query}` : "";
+  if (command.code === HOME_CODE) return `${HOME_PATH}${suffix}`;
+  if (isMarketCode(command.code)) return `${MARKET_ROOT}/${command.code}${suffix}`;
+  const symbol = command.symbol === null ? NO_SYMBOL : encodeURIComponent(command.symbol);
+  return `${SYMBOL_ROOT}/${symbol}/${command.code}${suffix}`;
+}
+
+/** The command a path denotes.
+ *
+ *  `symbol` is the path segment react-router hands over (already
+ *  decoded), or null on a market route -- where the page has no symbol
+ *  of its own and the caller supplies the strip's context instead. */
+export function pathToCommand(symbol: string | null, code: string, search: string): Command {
   const args: PanelArgs = {};
   new URLSearchParams(search).forEach((value, key) => {
     args[key] = value;
   });
-  return { symbol: symbol === NO_SYMBOL ? null : symbol.toUpperCase(), code: code.toUpperCase(), args };
+  const named = symbol === null || symbol === NO_SYMBOL ? null : symbol.toUpperCase();
+  return { symbol: named, code: code.toUpperCase(), args };
 }

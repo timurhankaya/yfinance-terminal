@@ -2,18 +2,17 @@
 // follow top to bottom: what to type, every function with its usage,
 // every shortcut, and how tables and links behave. The function list is
 // read from the registry so it can never drift from what is installed.
-import { useNavigate } from "react-router";
-import { commandToPath } from "../commands/parser";
+import { useGo } from "../commands/go";
 import { listPanels } from "../commands/registry";
 import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
 
 //: Functions in reading order, grouped. A registered code not named
 //: here still shows, under "Other".
 const GROUPS: ReadonlyArray<[title: string, codes: string[]]> = [
-  ["About one symbol", ["DES", "FA", "ANR", "N", "CF", "CA", "PX", "HDS", "ERN", "FUND", "REF"]],
+  ["About one symbol (these live under /ui/t/SYMBOL/)", ["DES", "FA", "ANR", "N", "CF", "CA", "PX", "HDS", "ERN", "FUND", "REF"]],
   ["Charts and the tape", ["GP", "GIP", "QR"]],
   ["Several symbols at once", ["WLA"]],
-  ["Market-wide", ["EQS", "CAL", "MKT", "SCR", "SRCH", "DOM"]],
+  ["Market-wide (no symbol; these live under /ui/m/)", ["HOME", "EQS", "CAL", "MKT", "SCR", "SRCH", "DOM"]],
   ["Everything in the archive", ["DS"]],
   ["This page", ["HELP"]],
 ];
@@ -54,7 +53,7 @@ const SHORTCUTS: ReadonlyArray<[keys: string, where: string, what: string]> = [
 ];
 
 function FunctionRow({ panel, symbol }: { panel: PanelSpec; symbol: string | null }) {
-  const navigate = useNavigate();
+  const go = useGo();
   const runnable = !panel.needsSymbol || symbol !== null;
   return (
     <li className="list-row">
@@ -62,7 +61,7 @@ function FunctionRow({ panel, symbol }: { panel: PanelSpec; symbol: string | nul
         type="button"
         className="help-fn"
         disabled={!runnable}
-        onClick={() => void navigate(commandToPath({ symbol, code: panel.code, args: {} }))}
+        onClick={() => go(({ symbol, code: panel.code, args: {} }))}
       >
         {panel.code}
       </button>{" "}

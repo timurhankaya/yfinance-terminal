@@ -14,10 +14,9 @@
 // not unexplained.
 import { useMemo, useState } from "react";
 import type { ReactElement } from "react";
-import { useNavigate } from "react-router";
 import { SCREEN_PAGE, getScreen, getScreens } from "../api/client";
 import type { ScreenDetail, ScreenRow, ScreenSummary } from "../api/client";
-import { commandToPath } from "../commands/parser";
+import { useGo } from "../commands/go";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import {
   DataTable,
@@ -78,7 +77,7 @@ export function countLabel(screen: ScreenSummary): string {
 }
 
 function Screens({ symbol }: { symbol: string | null }) {
-  const navigate = useNavigate();
+  const go = useGo();
   const { state, retry } = usePanelData<ScreenSummary[]>(
     "screens",
     getScreens,
@@ -88,7 +87,7 @@ function Screens({ symbol }: { symbol: string | null }) {
   const open = (index: number) => {
     const screen = screens[index];
     if (screen) {
-      void navigate(commandToPath({ symbol, code: "EQS", args: { screen: screen.screen_key } }));
+      go({ symbol, code: "EQS", args: { screen: screen.screen_key } });
     }
   };
   const [selected, setSelected] = useListKeys(screens.length, open);
@@ -157,7 +156,7 @@ function ScreenHead(props: {
   screen: ScreenSummary | null;
   symbol: string | null;
 }): ReactElement {
-  const navigate = useNavigate();
+  const go = useGo();
   const { name, tab, screen, symbol } = props;
   return (
     <>
@@ -181,13 +180,11 @@ function ScreenHead(props: {
             aria-selected={key === tab}
             className={key === tab ? "tab tab-active" : "tab"}
             onClick={() =>
-              void navigate(
-                commandToPath({
-                  symbol,
-                  code: "EQS",
-                  args: key === ScreenTab.Members ? { screen: name } : { screen: name, tab: key },
-                }),
-              )
+              go({
+                symbol,
+                code: "EQS",
+                args: key === ScreenTab.Members ? { screen: name } : { screen: name, tab: key },
+              })
             }
           >
             {label}
@@ -216,7 +213,7 @@ function Runs({ name, symbol }: { name: string; symbol: string | null }): ReactE
 }
 
 function Roster({ name, symbol }: { name: string; symbol: string | null }) {
-  const navigate = useNavigate();
+  const go = useGo();
   const [offset, setOffset] = useState(0);
   const { state, retry } = usePanelData<ScreenDetail>(
     `${name}|${offset}`,
@@ -229,7 +226,7 @@ function Roster({ name, symbol }: { name: string; symbol: string | null }) {
     const row = rows[index];
     // A screener exists to be walked into: Enter opens the symbol's
     // description, which is where every other panel is one key away.
-    if (row) void navigate(commandToPath({ symbol: row.symbol, code: "DES", args: {} }));
+    if (row) go({ symbol: row.symbol, code: "DES", args: {} });
   };
   const [selected, setSelected] = useListKeys(rows.length, open);
 
