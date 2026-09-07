@@ -391,3 +391,52 @@ def test_quotes_skip_unknown_symbols(writer: StreamWriter, db_session: Session) 
         writer._write_quotes(session)
         session.commit()
     assert _quote(db_session) is None
+
+
+def test_verification_is_bounded_to_the_batch_time_range(
+    writer: StreamWriter, db_session: Session
+) -> None:
+    """The range clause is what keeps verification from scanning the whole
+    archive.
+
+    TimescaleDB cannot infer a time bound from a row-constructor IN, so
+    without it every batch touches every chunk -- measured at 200 chunks
+    scanned vs 2, 21.5ms vs 2.2ms. This test pins the clause; the cost
+    itself is in docs/measurements/websocket.md.
+    """
+    _seed(db_session, "AAPL")
+    rows = [_row("AAPL", TS + timedelta(seconds=i), payload_hash=f"{i:016x}") for i in range(3)]
+    with writer._session_factory() as session:
+        writer._write_ticks(session, rows)
+        session.commit()
+
+    plan = db_session.execute(
+        text(
+            "EXPLAIN SELECT count(*) FROM live_ticks "
+            " WHERE ts_utc >= :lo AND ts_utc <= :hi "
+            "   AND (symbol, ts_utc, payload_hash) IN "
+            "       (SELECT * FROM unnest(CAST(:sy AS text[]), "
+            "                             CAST(:ts AS timestamptz[]), "
+            "                             CAST(:ph AS text[])))"
+        ),
+        {
+            "lo": rows[0]["ts_utc"],
+            "hi": rows[-1]["ts_utc"],
+            "sy": [r["symbol"] for r in rows],
+            "ts": [r["ts_utc"] for r in rows],
+            "ph": [r["payload_hash"] for r in rows],
+        },
+    ).scalars().all()
+    # The bound has to reach the plan, not just the SQL text.
+    assert any("ts_utc" in line for line in plan)
+
+
+def test_verification_still_counts_correctly_with_the_range(
+    writer: StreamWriter, db_session: Session
+) -> None:
+    """A bound that excluded a row of the batch would under-report and
+    make a correct write look like a partial failure."""
+    _seed(db_session, "AAPL")
+    rows = [_row("AAPL", TS + timedelta(days=i), payload_hash=f"{i:016x}") for i in range(3)]
+    with writer._session_factory() as session:
+        assert writer._write_ticks(session, rows) == 3
