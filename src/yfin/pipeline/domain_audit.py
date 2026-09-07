@@ -112,6 +112,6 @@ def audit_domains(
         report.cells_by_status = {ItemStatus(status).value: int(count) for status, count in rows}
         report.failed_cells = report.cells_by_status.get(ItemStatus.FAILED.value, 0)
         if report.failed_cells:
-            report.problems.append(f"run #{run_id}: {report.failed_cells} basarisiz hucre")
+            report.problems.append(f"run #{run_id}: {report.failed_cells} failed cells")
 
     return report

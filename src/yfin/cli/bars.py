@@ -253,4 +253,4 @@ def bars_rescale(
             raise typer.Exit(code=1)
         applied = apply_pending(session, nz.normalize_symbol(symbol))
         session.commit()
-        typer.echo(f"{applied} split uygulandi")
+        typer.echo(f"{applied} split(s) applied")
