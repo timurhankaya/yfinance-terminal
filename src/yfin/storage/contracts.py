@@ -41,6 +41,12 @@ class TableWrite:
     # (price_history.is_repaired), a plain upsert would write the
     # information backward; a monotonic column only moves forward.
     monotonic_columns: tuple[str, ...] = ()
+    # Column that must move FORWARD for the update to apply, as a whole.
+    # Distinct from monotonic_columns, which is per-column GREATEST: here
+    # an older row updates NOTHING. The live quote table needs that --
+    # applying it column by column would blend two different instants
+    # into a state that never existed on any exchange.
+    guard_column: str | None = None
 
 
 @dataclass

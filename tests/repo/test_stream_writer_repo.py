@@ -279,3 +279,115 @@ def test_queue_to_table(writer: StreamWriter, db_session: Session) -> None:
     writer._cycle()
     assert _count(db_session) == 5
     assert writer.rows_written == 5
+
+
+# --- live_quotes -----------------------------------------------------------
+
+
+def _quote(session: Session) -> tuple[Any, ...] | None:
+    row = session.execute(
+        text("SELECT symbol, ts_utc, price FROM live_quotes")
+    ).one_or_none()
+    return tuple(row) if row is not None else None
+
+
+def test_quotes_are_written_from_the_last_value_box(
+    writer: StreamWriter, db_session: Session
+) -> None:
+    _seed(db_session, "AAPL")
+    writer._supervisor.latest.put(_row("AAPL"))
+    with writer._session_factory() as session:
+        writer._write_quotes(session)
+        session.commit()
+    assert _quote(db_session) == ("AAPL", TS, Decimal("232.35"))
+
+
+def test_a_newer_tick_moves_the_quote_forward(
+    writer: StreamWriter, db_session: Session
+) -> None:
+    _seed(db_session, "AAPL")
+    for offset in (0, 60):
+        writer._supervisor.latest.put(_row("AAPL", TS + timedelta(seconds=offset)))
+        with writer._session_factory() as session:
+            writer._write_quotes(session)
+            session.commit()
+    stored = _quote(db_session)
+    assert stored is not None
+    assert stored[1] == TS + timedelta(seconds=60)
+
+
+def test_an_older_tick_does_not_roll_the_quote_back(
+    writer: StreamWriter, db_session: Session
+) -> None:
+    """The database half of the guard.
+
+    Out-of-order delivery is normal on a reconnect: the server replays a
+    snapshot. Without the guard the quote would jump backwards in time
+    and disagree with the tick archive it summarises.
+    """
+    _seed(db_session, "AAPL")
+    writer._supervisor.latest.put(_row("AAPL", TS))
+    with writer._session_factory() as session:
+        writer._write_quotes(session)
+        session.commit()
+
+    writer._supervisor.latest.put(_row("AAPL", TS - timedelta(minutes=5)))
+    with writer._session_factory() as session:
+        writer._write_quotes(session)
+        session.commit()
+
+    stored = _quote(db_session)
+    assert stored is not None
+    assert stored[1] == TS  # unchanged
+
+
+def test_a_rejected_update_leaves_every_column_alone(
+    writer: StreamWriter, db_session: Session
+) -> None:
+    """Not a per-column GREATEST: the whole row is refused or applied.
+
+    Otherwise the stored quote would blend two instants -- one tick's
+    price next to another's timestamp.
+    """
+    _seed(db_session, "AAPL")
+    writer._supervisor.latest.put(_row("AAPL", TS))
+    with writer._session_factory() as session:
+        writer._write_quotes(session)
+        session.commit()
+
+    stale = _row("AAPL", TS - timedelta(minutes=5))
+    stale["price"] = Decimal("999.99")
+    writer._supervisor.latest.put(stale)
+    with writer._session_factory() as session:
+        writer._write_quotes(session)
+        session.commit()
+
+    stored = _quote(db_session)
+    assert stored is not None
+    assert stored[2] == Decimal("232.35")  # the stale price did not land
+
+
+def test_draining_the_box_means_unchanged_symbols_are_not_rewritten(
+    writer: StreamWriter, db_session: Session
+) -> None:
+    """The quotes upsert was 34% of the write path; skipping idle symbols
+    is the cheapest saving available."""
+    _seed(db_session, "AAPL")
+    writer._supervisor.latest.put(_row("AAPL"))
+    with writer._session_factory() as session:
+        writer._write_quotes(session)
+        session.commit()
+    assert len(writer._supervisor.latest) == 0
+    with writer._session_factory() as session:
+        writer._write_quotes(session)  # nothing to do
+        session.commit()
+    assert _quote(db_session) is not None
+
+
+def test_quotes_skip_unknown_symbols(writer: StreamWriter, db_session: Session) -> None:
+    """live_quotes carries the same FK live_ticks does."""
+    writer._supervisor.latest.put(_row("NOPE"))
+    with writer._session_factory() as session:
+        writer._write_quotes(session)
+        session.commit()
+    assert _quote(db_session) is None

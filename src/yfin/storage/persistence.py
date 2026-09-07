@@ -67,6 +67,7 @@ def dedupe_rows(
     rows: list[dict[str, Any]],
     key_columns: tuple[str, ...],
     monotonic_columns: tuple[str, ...],
+    guard_column: str | None = None,
 ) -> list[dict[str, Any]]:
     """Keeps one row per key; the last one wins.
 
@@ -80,6 +81,13 @@ def dedupe_rows(
     the database, never two rows of the same batch, so plain last-wins
     would let a monotonic column regress within a chunk.
 
+    guard_column is a second exception, and it decides between whole rows
+    rather than merging them: the row with the highest guard value wins
+    outright. Last-wins would not do, because the database guard only
+    sees the row this function hands it -- an out-of-order tick arriving
+    later in the same batch would be the one compared, and the newer
+    value would already be gone.
+
     First-seen order is preserved.
     """
     if len(rows) < 2:
@@ -89,6 +97,14 @@ def dedupe_rows(
         key = tuple(row.get(name) for name in key_columns)
         current = seen.get(key)
         if current is None:
+            seen[key] = dict(row)
+            continue
+        if guard_column is not None:
+            old_guard = current.get(guard_column)
+            new_guard = row.get(guard_column)
+            if old_guard is not None and new_guard is not None and new_guard < old_guard:
+                # The incoming row is older: keep what we have, whole.
+                continue
             seen[key] = dict(row)
             continue
         merged = {**current, **row}
@@ -135,7 +151,9 @@ class PostgresRowWriter:
         # landing in different chunks means the second overwrites the
         # first -- silent data loss.
         rows = align_rows(write.rows)
-        rows = dedupe_rows(rows, write.key_columns, write.monotonic_columns)
+        rows = dedupe_rows(
+            rows, write.key_columns, write.monotonic_columns, write.guard_column
+        )
         present = set(rows[0])
         chunk = insert_chunk_size(len(present))
         for start in range(0, len(rows), chunk):
@@ -181,6 +199,17 @@ class PostgresRowWriter:
             else:
                 update_map[col] = stmt.excluded[col]
         if update_map:
+            if write.guard_column is not None:
+                # Applies only when the incoming row is newer. Without
+                # this a late-delivered tick would roll the stored quote
+                # backwards, and the row would then disagree with the
+                # tick archive it is supposed to summarise.
+                return stmt.on_conflict_do_update(
+                    index_elements=list(write.key_columns),
+                    set_=update_map,
+                    where=stmt.excluded[write.guard_column]
+                    > table.c[write.guard_column],
+                )
             return stmt.on_conflict_do_update(
                 index_elements=list(write.key_columns), set_=update_map
             )

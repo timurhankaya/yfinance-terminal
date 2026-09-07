@@ -240,3 +240,60 @@ def test_stop_lets_run_finish() -> None:
     writer.stop()
     writer.run()
     assert writer.failed is None
+
+
+# --- the guard, in the batch ------------------------------------------------
+
+
+def test_dedupe_keeps_the_newest_row_whole() -> None:
+    """The batch-level half of the rollback guard.
+
+    The database guard only ever sees the row dedupe hands it. Plain
+    last-wins would hand it the older tick and the guard would then
+    correctly refuse to apply... the wrong row.
+    """
+    from yfin.storage.persistence import dedupe_rows
+
+    newer = {"symbol": "AAPL", "ts_utc": TS, "price": Decimal("10")}
+    older = {"symbol": "AAPL", "ts_utc": TS - timedelta(minutes=5), "price": Decimal("9")}
+    kept = dedupe_rows([newer, older], ("symbol",), (), "ts_utc")
+    assert len(kept) == 1
+    assert kept[0]["ts_utc"] == TS
+    assert kept[0]["price"] == Decimal("10")
+
+
+def test_dedupe_takes_the_newer_row_when_it_arrives_second() -> None:
+    from yfin.storage.persistence import dedupe_rows
+
+    older = {"symbol": "AAPL", "ts_utc": TS - timedelta(minutes=5), "price": Decimal("9")}
+    newer = {"symbol": "AAPL", "ts_utc": TS, "price": Decimal("10")}
+    kept = dedupe_rows([older, newer], ("symbol",), (), "ts_utc")
+    assert kept[0]["price"] == Decimal("10")
+
+
+def test_dedupe_does_not_merge_across_instants() -> None:
+    """A row must never mix fields from two different ticks.
+
+    Column-wise merging would produce a quote that never existed on any
+    exchange -- one instant's price beside another's bid.
+    """
+    from yfin.storage.persistence import dedupe_rows
+
+    newer = {"symbol": "AAPL", "ts_utc": TS, "price": Decimal("10"), "bid": None}
+    older = {
+        "symbol": "AAPL",
+        "ts_utc": TS - timedelta(minutes=5),
+        "price": Decimal("9"),
+        "bid": Decimal("8"),
+    }
+    kept = dedupe_rows([newer, older], ("symbol",), (), "ts_utc")
+    assert kept[0]["bid"] is None  # not backfilled from the older row
+
+
+def test_dedupe_without_a_guard_is_unchanged() -> None:
+    """The existing 57 call sites must behave exactly as before."""
+    from yfin.storage.persistence import dedupe_rows
+
+    first = {"symbol": "AAPL", "value": 1}
+    second = {"symbol": "AAPL", "value": 2}
+    assert dedupe_rows([first, second], ("symbol",), ())[0]["value"] == 2

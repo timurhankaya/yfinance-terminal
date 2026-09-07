@@ -42,7 +42,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.core.logging_setup import get_logger
-from yfin.models.stream import LiveTick
+from yfin.models.stream import LiveQuote, LiveTick
+from yfin.storage.contracts import TableWrite, WriteStats, apply_write
+from yfin.storage.persistence import PostgresRowWriter
 from yfin.stream.protocol import Reject
 from yfin.stream.repository import StreamRepository
 from yfin.stream.supervisor import StreamSupervisor
@@ -53,6 +55,10 @@ log = get_logger(__name__)
 #: from the schema; `protocol.py` produces exactly these keys and a test
 #: holds the two together.
 TICK_COLUMNS: Final[tuple[str, ...]] = tuple(LiveTick.__table__.c.keys())
+
+#: live_quotes carries the same measurement plus `updated_at`, and is
+#: written by upsert rather than COPY: one row per symbol, guarded.
+QUOTE_COLUMNS: Final[tuple[str, ...]] = tuple(LiveQuote.__table__.c.keys())
 
 #: PostgreSQL's text-format NULL.
 _COPY_NULL: Final = r"\N"
@@ -290,6 +296,8 @@ class StreamWriter:
         with self._session_factory() as session:
             written = self._write_ticks(session, rows)
             self._write_rejects(session, rejects)
+            if self._batches % self._config.quotes_every_n_batches == 0:
+                self._write_quotes(session)
             session.commit()
         self.rows_written += written
         self._flush_counters(written=written)
@@ -382,6 +390,46 @@ class StreamWriter:
                 for reject in sampled
             ],
         )
+
+    def _write_quotes(self, session: Session) -> None:
+        """Upserts the latest quote per symbol, guarded on ts_utc.
+
+        Read from the supervisor's last-value box, not from the batch.
+        Two consequences, and both are the point:
+
+          * the quote stays current even when the queue is overflowing and
+            ticks are being dropped -- the box is not behind the queue;
+          * a symbol that has not moved since the last flush is not
+            rewritten. Measured, this upsert was 34% of the write path,
+            and it is the one part of the batch worth skipping.
+
+        Every N batches rather than every batch: live_quotes is a derived
+        view of live_ticks, so a few hundred milliseconds of staleness
+        costs nothing that matters.
+        """
+        rows = self._supervisor.latest.drain()
+        if not rows:
+            return
+
+        known = self._filter.known({row["symbol"] for row in rows})
+        accepted = [
+            {**{name: row.get(name) for name in TICK_COLUMNS}, "updated_at": datetime.now(UTC)}
+            for row in rows
+            if row["symbol"] in known
+        ]
+        if not accepted:
+            return
+
+        write = TableWrite(
+            table="live_quotes",
+            rows=accepted,
+            key_columns=("symbol",),
+            update_columns=tuple(c for c in QUOTE_COLUMNS if c != "symbol"),
+            # An older tick must update NOTHING. A per-column GREATEST
+            # would mix two instants into a row that never existed.
+            guard_column="ts_utc",
+        )
+        apply_write(PostgresRowWriter(session), write, WriteStats())
 
     def _flush_counters(self, *, written: int = 0) -> None:
         """Pushes the supervisor's counters onto the session row.
