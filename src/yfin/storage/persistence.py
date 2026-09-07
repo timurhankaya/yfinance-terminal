@@ -10,12 +10,25 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from sqlalchemy import Table, and_, func, select, tuple_
+from sqlalchemy import (
+    Table,
+    and_,
+    column,
+    func,
+    literal_column,
+    or_,
+    select,
+    tuple_,
+    update,
+    values,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from yfin.models.base import Base
+from yfin.storage.changes import ChangeCollector
 from yfin.storage.contracts import TableWrite
+from yfin.storage.routing import INFRASTRUCTURE_TABLES
 
 # The IN list for multi-column verification can get very long.
 VERIFY_CHUNK = 500
@@ -122,15 +135,60 @@ def dedupe_rows(
     return list(seen.values())
 
 
-class PostgresRowWriter:
-    """PostgreSQL implementation of RowWriter."""
+#: The label `RETURNING` gives the insert/update flag.
+INSERTED_FLAG = "inserted"
 
-    def __init__(self, session: Session) -> None:
+
+def _returning_row(statement: Any) -> Any:
+    """`RETURNING *, xmax = 0 AS inserted`.
+
+    `*` rather than a column list, so what the consumer receives is the row
+    as the DATABASE has it: columns outside the update map, `GREATEST`-merged
+    columns and server defaults included, rather than what the pipeline
+    proposed.
+
+    `xmax` is a system column and is not in `Base.metadata`, so it can only
+    be spelled as a literal -- `table.c.xmax` raises `AttributeError`. A
+    tuple written by the INSERT branch has `xmax = 0`; one rewritten by
+    `DO UPDATE` carries the updating transaction's id. Measured on a plain
+    table, a hypertable chunk and a same-transaction re-upsert; see
+    docs/measurements/database.md.
+    """
+    return statement.returning(
+        literal_column("*"), literal_column("xmax = 0").label(INSERTED_FLAG)
+    )
+
+
+class PostgresRowWriter:
+    """PostgreSQL implementation of RowWriter.
+
+    With no collector -- which is every call site until the runners are
+    wired up, and every call site forever when `yf_changes_enabled` is off
+    -- the statements it emits are byte-for-byte what they have always been.
+    `tests/unit/test_insert_statement.py` compares them as text, because
+    this one statement writes 68 tables and a silent change to it is the
+    most expensive kind this codebase can make.
+    """
+
+    def __init__(
+        self, session: Session, *, collector: ChangeCollector | None = None
+    ) -> None:
         self._session = session
+        self._collector = collector
 
     @staticmethod
     def _table(name: str) -> Table:
         return Base.metadata.tables[name]
+
+    def _collecting(self, table_name: str) -> bool:
+        """Whether this write produces events.
+
+        Infrastructure tables are excluded HERE rather than inside the
+        collector, because the difference has to reach the statement: the
+        gate rows carry `GATE_UPDATE_COLUMNS`, and a predicate plus a
+        `RETURNING *` for a row nobody receives is pure cost.
+        """
+        return self._collector is not None and table_name not in INFRASTRUCTURE_TABLES
 
     def write(self, write: TableWrite) -> int:
         table = self._table(write.table)
@@ -157,11 +215,86 @@ class PostgresRowWriter:
         present = set(rows[0])
         chunk = insert_chunk_size(len(present))
         for start in range(0, len(rows), chunk):
-            self._session.execute(
-                self._insert_stmt(table, rows[start : start + chunk], write, present)
+            chunk_rows = rows[start : start + chunk]
+            result = self._session.execute(
+                self._insert_stmt(table, chunk_rows, write, present)
             )
+            if self._collecting(write.table):
+                self._collect(table, write, chunk_rows, result, present)
 
         return self._verify(write)
+
+    # --- statement construction --------------------------------------------
+
+    def _update_map(
+        self, table: Table, stmt: Any, write: TableWrite, present: set[str]
+    ) -> dict[str, Any]:
+        """Columns the conflict branch writes.
+
+        Narrowed to columns actually present: the column set varies per
+        symbol (a non-fund has no 'Capital Gains').
+        """
+        update_map: dict[str, Any] = {}
+        for col in write.update_columns:
+            if col not in present:
+                continue
+            if col in write.monotonic_columns:
+                # The source can report 1 for a row and 0 the next time
+                # (repair heuristics depend on the window length);
+                # GREATEST never writes the information back out.
+                # PostgreSQL's GREATEST ignores NULL, so a one-off NULL
+                # from the source also leaves the stored value alone.
+                update_map[col] = func.greatest(table.c[col], stmt.excluded[col])
+            else:
+                update_map[col] = stmt.excluded[col]
+        return update_map
+
+    def _changed_predicate(
+        self, table: Table, stmt: Any, write: TableWrite, update_map: dict[str, Any]
+    ) -> Any | None:
+        """`DO UPDATE ... WHERE <the row actually moved>`, or None.
+
+        This is what makes "a row came back" mean "the row changed", with no
+        second read to find out: a `DO UPDATE ... WHERE` whose predicate is
+        false returns nothing at all (measured --
+        docs/measurements/database.md).
+
+        Two kinds of term. Comparable columns are compared row-wise, which is
+        one `IS DISTINCT FROM` rather than one per column and gives NULL the
+        same treatment the rest of the codebase gives it. Monotonic columns
+        get their own term, because `GREATEST` is what decides whether they
+        move: comparing them directly would fire on every downward report the
+        source makes, which is exactly what `GREATEST` exists to absorb.
+
+        Volatile columns are in neither set. A row whose only difference is
+        `fetched_at` did not change, and publishing it would have every
+        consumer rewrite its mirror daily. They are still written -- see
+        `_touch_volatile`.
+
+        Returns None when both sets are empty, which is precisely the hash
+        gate's `UNCHANGED_UPDATE_COLUMNS = ("fetched_at",)` write. No
+        predicate, no `RETURNING`, no event: the statement is today's.
+        """
+        monotonic = [c for c in update_map if c in write.monotonic_columns]
+        comparable = [
+            c
+            for c in update_map
+            if c not in write.monotonic_columns and c not in write.volatile_columns
+        ]
+        terms: list[Any] = []
+        if comparable:
+            terms.append(
+                tuple_(*(table.c[c] for c in comparable)).is_distinct_from(
+                    tuple_(*(stmt.excluded[c] for c in comparable))
+                )
+            )
+        terms.extend(
+            func.greatest(table.c[c], stmt.excluded[c]).is_distinct_from(table.c[c])
+            for c in monotonic
+        )
+        if not terms:
+            return None
+        return or_(*terms) if len(terms) > 1 else terms[0]
 
     def _insert_stmt(
         self,
@@ -181,23 +314,24 @@ class PostgresRowWriter:
         (order does not matter). test_persistence_contract keeps
         key_columns honest.
         """
+        collecting = self._collecting(write.table)
+        if collecting and write.guard_column is not None:
+            raise ValueError(
+                f"{write.table}: guard_column cannot be combined with change "
+                "collection. A guard-rejected row and an unchanged row are "
+                "indistinguishable in RETURNING, so the event would claim a write "
+                "that did not happen. Only the stream writer uses a guard, and it "
+                "has no collector."
+            )
+
         stmt = pg_insert(table).values(rows)
-        # The update scope is narrowed to columns actually present: the
-        # column set varies per symbol (a non-fund has no 'Capital
-        # Gains').
-        update_map: dict[str, Any] = {}
-        for col in write.update_columns:
-            if col not in present:
-                continue
-            if col in write.monotonic_columns:
-                # The source can report 1 for a row and 0 the next time
-                # (repair heuristics depend on the window length);
-                # GREATEST never writes the information back out.
-                # PostgreSQL's GREATEST ignores NULL, so a one-off NULL
-                # from the source also leaves the stored value alone.
-                update_map[col] = func.greatest(table.c[col], stmt.excluded[col])
-            else:
-                update_map[col] = stmt.excluded[col]
+        update_map = self._update_map(table, stmt, write, present)
+        predicate = (
+            self._changed_predicate(table, stmt, write, update_map)
+            if collecting
+            else None
+        )
+
         if update_map:
             if write.guard_column is not None:
                 # Applies only when the incoming row is newer. Without
@@ -210,11 +344,126 @@ class PostgresRowWriter:
                     where=stmt.excluded[write.guard_column]
                     > table.c[write.guard_column],
                 )
-            return stmt.on_conflict_do_update(
-                index_elements=list(write.key_columns), set_=update_map
+            if predicate is None:
+                # No collector, or an all-volatile update map: today's
+                # statement, with no returning clause to pay for.
+                return stmt.on_conflict_do_update(
+                    index_elements=list(write.key_columns), set_=update_map
+                )
+            return _returning_row(
+                stmt.on_conflict_do_update(
+                    index_elements=list(write.key_columns),
+                    set_=update_map,
+                    where=predicate,
+                )
             )
-        # Nothing to update: insert, and leave an existing row alone.
-        return stmt.on_conflict_do_nothing(index_elements=list(write.key_columns))
+
+        # Nothing to update: insert, and leave an existing row alone. The
+        # shape is unchanged; with a collector the rows it DID insert come
+        # back, because those are events.
+        nothing = stmt.on_conflict_do_nothing(index_elements=list(write.key_columns))
+        return _returning_row(nothing) if collecting else nothing
+
+    # --- collecting --------------------------------------------------------
+
+    def _collect(
+        self,
+        table: Table,
+        write: TableWrite,
+        rows: list[dict[str, Any]],
+        result: Any,
+        present: set[str],
+    ) -> None:
+        """Turns one chunk's returned rows into events, then touches the rest.
+
+        What came back is exactly what changed: the predicate suppresses the
+        rows that did not, and `DO NOTHING` returns only what it inserted.
+        There is no matching back against the proposed rows and no second
+        read.
+        """
+        assert self._collector is not None  # guaranteed by `_collecting`
+        returned = [dict(row) for row in result.mappings()]
+        for row in returned:
+            inserted = bool(row.pop(INSERTED_FLAG))
+            self._collector.record(
+                write.table,
+                "insert" if inserted else "update",
+                {name: row[name] for name in write.key_columns},
+                row,
+            )
+        self._touch_volatile(table, write, rows, returned, present)
+
+    def _touch_volatile(
+        self,
+        table: Table,
+        write: TableWrite,
+        rows: list[dict[str, Any]],
+        returned: list[dict[str, Any]],
+        present: set[str],
+    ) -> None:
+        """Writes the volatile columns the predicate stopped the upsert from writing.
+
+        Without this they would freeze. The predicate means a row whose
+        comparable columns are unchanged is not updated AT ALL, so
+        `fetched_at` -- which `HashGate` reads as "last verified at" -- and
+        `as_of_date` -- which `prune_asof` reads -- would keep the value they
+        had on the first write, and both readers would draw the wrong
+        conclusion from it.
+
+        Only the rows the `RETURNING` did NOT report need it: the ones it did
+        report were updated, volatile columns included. Each row is given its
+        OWN proposed values, which is why this is `FROM (VALUES ...)` and not
+        one UPDATE per distinct value.
+
+        It emits no event, which is the whole point: the row did not change.
+
+        Skipped entirely when a volatile column is part of the key -- the
+        `*_history` snapshots, where `fetched_at` identifies the row rather
+        than dating it, so touching it would move the row instead.
+        """
+        assert self._collector is not None
+        volatile = [
+            c
+            for c in write.update_columns
+            if c in present and c in write.volatile_columns and c in table.c
+        ]
+        if not volatile or set(volatile) & set(write.key_columns):
+            return
+        # `DO NOTHING` never updates anything, so there is nothing to keep
+        # current: an existing row keeps the values it already had, exactly
+        # as it does today.
+        if not self._update_columns_present(write, present):
+            return
+
+        changed = {
+            tuple(row[name] for name in write.key_columns) for row in returned
+        }
+        untouched = [
+            row
+            for row in rows
+            if tuple(row[name] for name in write.key_columns) not in changed
+        ]
+        if not untouched:
+            return
+
+        key_cols = list(write.key_columns)
+        source = [
+            column(name, table.c[name].type) for name in (*key_cols, *volatile)
+        ]
+        for start in range(0, len(untouched), VERIFY_CHUNK):
+            batch = untouched[start : start + VERIFY_CHUNK]
+            data = values(*source, name="v").data(
+                [tuple(row[name] for name in (*key_cols, *volatile)) for row in batch]
+            )
+            self._session.execute(
+                update(table)
+                .values({name: data.c[name] for name in volatile})
+                .where(and_(*(table.c[name] == data.c[name] for name in key_cols)))
+            )
+
+    def _update_columns_present(self, write: TableWrite, present: set[str]) -> bool:
+        """Whether the statement was a `DO UPDATE` rather than a `DO NOTHING`."""
+        return any(col in present for col in write.update_columns)
 
     def _delete_scope(self, table: Table, write: TableWrite) -> None:
         """Deletes the replace_scope scope.

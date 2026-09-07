@@ -37,6 +37,7 @@ from typing import Any
 from yfin.core import normalize as nz
 from yfin.datasets.base import Dataset, NormalizedResult
 from yfin.datasets.hash_gated import UNCHANGED_UPDATE_COLUMNS
+from yfin.storage.contracts import VOLATILE_COLUMNS as _VOLATILE_COLUMNS
 from yfin.storage.contracts import RowWriter, TableWrite, WriteStats, apply_write
 
 GATE_TABLE = "asof_state"
@@ -61,7 +62,7 @@ GLOBAL_REGION_MARKER = "*"
 # 13 as-of datasets is unchanged. Without the exclusion,
 # `research_reports.first_seen_at` would change on every run, enter the
 # hash body, and the gate would never match.
-VOLATILE_COLUMNS = frozenset({"as_of_date", "fetched_at", "first_seen_at"})
+VOLATILE_COLUMNS = frozenset(_VOLATILE_COLUMNS)
 
 # Columns updated on the gate row when the hash changes. `first_seen_at` is
 # deliberately excluded: if ON DUPLICATE KEY UPDATE covered it, the rule
