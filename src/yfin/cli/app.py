@@ -16,6 +16,7 @@ from yfin import proxy as px
 from yfin.cli.api import api_app
 from yfin.cli.bars import bars_app, scope_app
 from yfin.cli.settings import config_app
+from yfin.cli.stream import stream_app
 from yfin.core import normalize as nz
 from yfin.core.config import SETTINGS_SOURCE_VAR, bootstrap_settings, get_settings
 from yfin.core.logging_setup import configure_logging, get_logger
@@ -66,6 +67,7 @@ app.add_typer(domain_app, name="domain")
 # price_bars commands live in their own module: cli.py was already 630 lines and
 # none of them share state with the existing commands.
 app.add_typer(bars_app, name="bars")
+app.add_typer(stream_app, name="stream")
 app.add_typer(scope_app, name="scope")
 # DB-backed configuration lives in its own module: none of its commands share
 # state with the existing ones, and cli.py had already passed 1000 lines.

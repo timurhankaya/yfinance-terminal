@@ -344,3 +344,19 @@ def test_websockets_is_a_direct_dependency() -> None:
     """It arrives transitively via yfinance too; this module uses it
     directly, so it is declared directly."""
     assert websockets.__version__
+
+
+async def test_a_canary_that_is_also_in_scope_is_still_archived(server: Server) -> None:
+    """Being the health probe must not make a symbol unstreamable.
+
+    An operator who puts BTC-USD in scope should get its ticks; the canary
+    role is something we add on top, not a claim on the symbol.
+    """
+    plan = ConnectionPlan(key="CRY", exchange="CRY", symbols=("BTC-USD", "AAPL"))
+    recorder = Recorder()
+    connection = StreamConnection(
+        plan, on_result=recorder.on_result, url=server.url, canary=["BTC-USD"]
+    )
+    await _run_until(connection, lambda: len(recorder.symbols) >= 2)
+    assert "BTC-USD" in recorder.symbols
+    assert connection.health.last_canary_at is not None

@@ -37,7 +37,7 @@ log = get_logger(__name__)
 # `os.getenv`.
 SETTINGS_SOURCE_VAR = "YF_SETTINGS_SOURCE"
 
-# The 11 groups the admin panel organizes by. Adding a new group name is a
+# The 12 groups the admin panel organizes by. Adding a new group name is a
 # deliberate decision; `tests/unit/test_settings_split.py` rejects unknown
 # groups.
 SETTING_GROUPS: tuple[str, ...] = (
@@ -52,6 +52,7 @@ SETTING_GROUPS: tuple[str, ...] = (
     "discovery",
     "bars",
     "maintenance",
+    "stream",
 )
 
 
@@ -288,6 +289,75 @@ class Settings(BaseSettings):
     # so deletion never runs unless explicitly enabled.
     yf_prune_enabled: bool = _cfg(
         "maintenance", "Master switch for pruning; defaults to OFF.", default=False
+    )
+
+    # --- live WebSocket stream --------------------------------------------
+    #
+    # None of these is a secret, so they all live in the settings table
+    # alongside yf_max_shards rather than in a separate BaseSettings the
+    # way the API's signing key does.
+
+    yf_stream_enabled: bool = _cfg(
+        "stream", "Master switch for the live tick stream; defaults to OFF.", default=False
+    )
+    # Yahoo subscribes a connection to exactly 100 symbols and discards the
+    # rest with no error (measured). 95 leaves room for the canary plus a
+    # margin for a scope edit landing mid-rebalance; the penalty for
+    # exceeding the quota is silent data loss, so the margin is cheap.
+    yf_stream_max_symbols_per_connection: int = _cfg(
+        "stream",
+        "Symbols per upstream connection. Yahoo's hard limit is 100 including the canary.",
+        default=95,
+        ge=1,
+        le=99,
+    )
+    # Not a safety valve but a capacity: 10,000 symbols need ~106
+    # connections. Exceeding it raises rather than dropping symbols.
+    yf_stream_max_connections: int = _cfg(
+        "stream", "Ceiling on upstream connections; exceeding it is an error.",
+        default=256, ge=1,
+    )
+    yf_stream_canary_symbols: str = _cfg(
+        "stream",
+        "Comma-separated 24/7 symbols appended to every subscription to detect silence.",
+        default="BTC-USD",
+    )
+    # ~40 seconds of the projected load. Deeper buffers do not help: a
+    # writer that is minutes behind has a problem no queue depth fixes.
+    yf_stream_queue_maxsize: int = _cfg(
+        "stream", "Bounded tick queue; overflow drops ticks and counts them.",
+        default=10_000, ge=100,
+    )
+    # 500 rows: going to 5,000 buys 6% (measured), and a smaller batch keeps
+    # latency down and narrows what a crash can lose.
+    yf_stream_batch_size: int = _cfg(
+        "stream", "Rows per write batch.", default=500, ge=1
+    )
+    yf_stream_batch_interval_ms: int = _cfg(
+        "stream", "Flush a partial batch after this long.", default=250, ge=10
+    )
+    # live_quotes is the most expensive part of the batch (34% measured), and
+    # it is a derived view -- a few hundred ms of staleness costs nothing.
+    yf_stream_quotes_every_n_batches: int = _cfg(
+        "stream", "Write live_quotes every Nth batch.", default=4, ge=1
+    )
+    yf_stream_idle_timeout_seconds: int = _cfg(
+        "stream", "Reconnect a connection that has gone silent this long.",
+        default=300, ge=10,
+    )
+    yf_stream_reconnect_max_seconds: float = _cfg(
+        "stream", "Backoff ceiling for reconnects.", default=60.0, gt=0
+    )
+    yf_stream_archive_default: bool = _cfg(
+        "stream", "Whether new scope rows archive ticks by default.", default=True
+    )
+    yf_stream_reject_sample_per_hour: int = _cfg(
+        "stream", "Reject rows kept per (symbol, reason) per hour; counts are never sampled.",
+        default=100, ge=0,
+    )
+    yf_stream_rescan_seconds: int = _cfg(
+        "stream", "How often scope and settings are re-read while running.",
+        default=60, ge=5,
     )
 
     log_level: str = "INFO"

@@ -30,10 +30,10 @@ import asyncio
 import contextlib
 import json
 import random
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Final, Protocol
+from typing import Any, Final, Protocol
 
 from yfin.core.logging_setup import get_logger
 from yfin.stream.protocol import DecodeResult, Reject, decode_envelope, validate_subscription
@@ -138,6 +138,7 @@ class StreamConnection:
         self._on_health = on_health
         self._canary = tuple(canary)
         self._canary_set = frozenset(canary)
+        self._plan_symbols = frozenset(plan.symbols)
         self._url = url
         self._idle_timeout = idle_timeout
         self._backoff = _Backoff(ceiling=reconnect_max_seconds)
@@ -220,20 +221,20 @@ class StreamConnection:
         loop-top check alone would leave a stop request waiting out the
         idle timeout -- five minutes by default -- on a quiet connection.
         """
-        stop_wait = asyncio.ensure_future(self._stopping.wait())
+        stop_wait = _spawn(self._stopping.wait())
         try:
             while not self._stopping.is_set():
-                read = asyncio.ensure_future(ws.recv())
+                read = _spawn(ws.recv())
                 done, _ = await asyncio.wait(
                     {read, stop_wait},
                     timeout=self._idle_timeout,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 if stop_wait in done:
-                    read.cancel()
+                    await _discard(read)
                     return
                 if read not in done:
-                    read.cancel()
+                    await _discard(read)
                     # A connection that has never delivered anything is
                     # not evidence of a problem -- it is a closed market.
                     # Cycling it would mean an endless reconnect loop
@@ -246,7 +247,7 @@ class StreamConnection:
                 # can record it and reconnect.
                 self._handle(read.result())
         finally:
-            stop_wait.cancel()
+            await _discard(stop_wait)
 
     def _handle(self, raw: str | bytes) -> None:
         now = datetime.now(UTC)
@@ -255,13 +256,19 @@ class StreamConnection:
 
         symbol = result.row.get("symbol") if result.row else None
         if symbol is not None and symbol in self._canary_set:
-            # The canary is an instrument, not data: it is never archived
-            # and never appears in stream_scope. Its only job is to go
-            # quiet when the subscription is truncated or dropped, which
-            # is the only way to notice either.
+            # The canary's job is to go quiet when the subscription is
+            # truncated or dropped -- the only way to notice either, since
+            # the server never reports it.
             self.health.last_canary_at = now
             self._emit_health()
-            return
+            if symbol not in self._plan_symbols:
+                # Pure instrument: appended by us, not asked for, so it is
+                # not data and is not archived.
+                return
+            # ...but if the operator also put this symbol in scope, it is
+            # BOTH. Returning here would make a canary symbol impossible to
+            # stream, which is a strange thing for the health probe to
+            # decide.
 
         self._report(result)
 
@@ -289,6 +296,36 @@ class StreamConnection:
     def _emit_health(self) -> None:
         if self._on_health is not None:
             self._on_health(self.health)
+
+
+def _consume_result(task: asyncio.Future[Any]) -> None:
+    """Reads a finished task's exception so asyncio does not log it.
+
+    A `recv()` that lost the race to the stop signal usually finishes
+    with ConnectionClosedOK a moment later. Nobody awaits it by then, and
+    asyncio reports "Task exception was never retrieved" -- a traceback
+    in the operator's log for the most ordinary event there is, a socket
+    closing at the end of a session.
+
+    A done-callback rather than an await in `finally`: when the
+    supervisor cancels the whole connection task, `finally` never gets to
+    reach the pending read, but the callback still fires.
+    """
+    if not task.cancelled():
+        task.exception()
+
+
+def _spawn(coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
+    task = asyncio.ensure_future(coro)
+    task.add_done_callback(_consume_result)
+    return task
+
+
+async def _discard(task: asyncio.Future[Any]) -> None:
+    """Cancels a task and waits for it to finish unwinding."""
+    task.cancel()
+    with contextlib.suppress(BaseException):
+        await task
 
 
 async def _default_connector(url: str) -> WebSocketLike:
