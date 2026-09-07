@@ -11,7 +11,7 @@ from yfin.datasets.common import data_columns, snapshot_rows, warn_unmapped
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import InfoPayload
 from yfin.datasets.registry import register
-from yfin.datasets.snapshot_base import SnapshotDataset
+from yfin.datasets.snapshot_base import SnapshotDataset, snapshot_writes
 from yfin.ingest.client import call_yahoo
 from yfin.models.fields import INFO_FIELDS, INFO_NESTED_KEYS
 from yfin.storage.contracts import TableWrite
@@ -111,23 +111,11 @@ class InfoDataset(SnapshotDataset[InfoPayload]):
         nz.warn_unmapped_epoch_like(payload, nz.EPOCH_SEC_FIELDS | nz.EPOCH_MS_FIELDS)
 
         row, _ = snapshot_rows(symbol, payload, INFO_FIELDS, raw.fetched_at)
-        history_row = dict(row)
         officers = _officer_rows(symbol, payload.get("companyOfficers"))
 
-        writes = [
-            TableWrite(
-                table="ticker_info",
-                rows=[row],
-                key_columns=("symbol",),
-                update_columns=_SNAPSHOT_UPDATE,
-            ),
-            TableWrite(
-                table="ticker_info_history",
-                rows=[history_row],
-                key_columns=("symbol", "fetched_at"),
-                update_columns=_HISTORY_UPDATE,
-            ),
-        ]
+        writes = snapshot_writes(
+            self, [row], snapshot_update=_SNAPSHOT_UPDATE, history_update=_HISTORY_UPDATE
+        )
         if officers:
             writes.append(
                 TableWrite(

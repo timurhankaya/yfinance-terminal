@@ -23,8 +23,9 @@ from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.market.base import MarketContext, SnapshotGlobalDataset
 from yfin.datasets.payloads import MarketStatusPayload, MarketSummaryPayload
 from yfin.datasets.registry import register_market
+from yfin.datasets.snapshot_base import snapshot_writes
 from yfin.ingest.client import call_yahoo
-from yfin.storage.contracts import RowWriter, TableWrite, WriteStats
+from yfin.storage.contracts import RowWriter, WriteStats
 
 log = get_logger(__name__)
 
@@ -151,20 +152,7 @@ class MarketStatusDataset(SnapshotGlobalDataset[MarketStatusPayload]):
         row["fetched_at"] = raw.fetched_at
 
         return NormalizedResult(
-            writes=[
-                TableWrite(
-                    table="market_status",
-                    rows=[dict(row)],
-                    key_columns=("region",),
-                    update_columns=STATUS_COLUMNS,
-                ),
-                TableWrite(
-                    table="market_status_history",
-                    rows=[dict(row)],
-                    key_columns=("region", "fetched_at"),
-                    update_columns=STATUS_COLUMNS,
-                ),
-            ]
+            writes=snapshot_writes(self, [row], snapshot_update=STATUS_COLUMNS)
         )
 
 
@@ -263,20 +251,7 @@ class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
             )
 
         return NormalizedResult(
-            writes=[
-                TableWrite(
-                    table="market_summary",
-                    rows=[dict(r) for r in rows],
-                    key_columns=("region", "board_code"),
-                    update_columns=SUMMARY_TYPED,
-                ),
-                TableWrite(
-                    table="market_summary_history",
-                    rows=[dict(r) for r in rows],
-                    key_columns=("region", "board_code", "fetched_at"),
-                    update_columns=SUMMARY_TYPED,
-                ),
-            ]
+            writes=snapshot_writes(self, rows, snapshot_update=SUMMARY_TYPED)
         )
 
     def upsert(

@@ -257,7 +257,13 @@ def test_every_declared_key_matches_a_real_unique_constraint() -> None:
     # 1wk/1mo -> periodic_bars). That call cannot be resolved statically;
     # instead, the test below proves the two tables share an identical PK,
     # so `key_columns` stays valid whichever branch routing takes.
-    assert checked >= 38, f"number of audited calls DROPPED: {checked}"
+    # Was 38 before the four snapshot datasets stopped writing their
+    # TableWrite pairs out by hand. Those eight calls are not unaudited --
+    # `test_every_snapshot_pair_matches_a_real_unique_constraint` below
+    # checks the same thing about them, and does it against the class
+    # attributes the writes are now built from, which is the pair that has
+    # to agree for the gate to look at the right table at all.
+    assert checked >= 30, f"number of audited calls DROPPED: {checked}"
     assert len(unresolved) <= 34, f"number of unresolved calls GREW: {unresolved}"
 
 
@@ -301,3 +307,44 @@ def test_an_unknown_interval_RAISES_instead_of_guessing() -> None:
 
     with pytest.raises(ValueError, match="unknown interval"):
         bars_table_for("3mo")
+
+
+def test_every_snapshot_pair_matches_a_real_unique_constraint() -> None:
+    """The other half of the audit above, for writes built by `snapshot_writes`.
+
+    Those four datasets used to spell their table names and key columns out
+    as literals inside `normalize`, where the static scan could read them.
+    They now come from the class attributes instead -- which is the point,
+    since `snapshot_upsert` looks the content hash up in
+    `dataset.snapshot_table` and a literal that drifted from it would leave
+    the gate comparing against a table nobody writes.
+
+    So the check moves with them: the snapshot key must be a real
+    constraint on the snapshot table, and the same key plus `fetched_at` a
+    real constraint on the history table. That second one is the rule the
+    helper encodes, and it is worth proving rather than trusting.
+    """
+    import yfin.datasets  # noqa: F401  - registers everything
+    from yfin.datasets.market.base import SnapshotGlobalDataset
+    from yfin.datasets.registry import MARKET_DATASETS, SYMBOL_DATASETS
+    from yfin.datasets.snapshot_base import SnapshotDataset
+
+    checked = 0
+    for registry in (SYMBOL_DATASETS, MARKET_DATASETS):
+        for name in registry:
+            dataset = registry[name]
+            # The two concrete bases, not `SnapshotSpec`: making the
+            # Protocol runtime-checkable just so a test can ask would be
+            # changing production typing to suit the test.
+            if not isinstance(dataset, SnapshotDataset | SnapshotGlobalDataset):
+                continue
+            checked += 1
+            snapshot, history = dataset.snapshot_table, dataset.history_table
+            keys = set(dataset.key_columns)
+            assert keys in _valid_key_sets(snapshot), (name, snapshot, sorted(keys))
+            assert keys | {"fetched_at"} in _valid_key_sets(history), (
+                name,
+                history,
+                sorted(keys | {"fetched_at"}),
+            )
+    assert checked >= 4, f"snapshot datasets audited DROPPED: {checked}"
