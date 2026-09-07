@@ -24,7 +24,8 @@ from yfin.core.config import Settings, get_settings
 from yfin.core.logging_setup import get_logger
 from yfin.core.metrics import Accumulator, use_accumulator
 from yfin.core.text import comma_list
-from yfin.datasets.market.base import GlobalDataset, MarketContext
+from yfin.datasets.axis import DatasetAxis
+from yfin.datasets.market.base import GlobalDataset, MarketContext, MarketScope
 from yfin.datasets.registry import MARKET_DATASETS
 from yfin.models import RunScope
 from yfin.pipeline import run_metrics
@@ -99,7 +100,7 @@ def _run_turn(
             upsert=dataset.upsert,
             audit_key=scope_label,
             registry=MARKET_DATASETS,
-            kind="market",
+            kind=DatasetAxis.MARKET,
             log_context={"scope": scope_label},
             changes=changes,
         ),
@@ -169,7 +170,7 @@ def run_market_sync(
         write_items(factory, run_id, records, proxy_id=proxy_id, proxy_label=proxy_label)
 
     for dataset in datasets:
-        if dataset.scope == "region":
+        if dataset.scope == MarketScope.REGION:
             # Region loop is outside the dataset: sync_run_items
             # granularity naturally becomes (dataset x table x region)
             for region in regions:
@@ -183,7 +184,7 @@ def run_market_sync(
                         changes,
                     )
                 )
-        elif dataset.scope == "variant":
+        elif dataset.scope == MarketScope.VARIANT:
             # Screen loop is outside for the same reason as the region
             # loop. The variant list is read in its own short-lived
             # session and materialized: turn transactions (`_run_turn`)

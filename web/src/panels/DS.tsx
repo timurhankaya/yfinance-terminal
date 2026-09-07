@@ -43,15 +43,24 @@ function Catalog({ symbol }: { symbol: string | null }) {
       <p className="detail-meta">
         {entries.length} datasets. Enter or click opens one; add <code>filter=value</code> tokens to narrow it.
       </p>
-      <ul className="list" role="listbox" aria-label="datasets">
+      {/* Focusable, with the active option named: the j/k/Enter model
+          lives on a window listener, so without these the whole keyboard
+          interaction is unreachable by Tab and invisible to a reader. */}
+      <ul
+        className="list"
+        role="listbox"
+        aria-label="datasets"
+        tabIndex={0}
+        aria-activedescendant={entries.length > 0 ? `ds-entry-${selected}` : undefined}
+      >
         {entries.map((entry, index) => {
           const heading = entry.family !== family;
           family = entry.family;
           return (
             <li
               key={entry.name}
+              id={`ds-entry-${index}`}
               role="option"
-              tabIndex={-1}
               className={index === selected ? "list-row row-selected" : "list-row"}
               aria-selected={index === selected}
               data-family={heading ? entry.family : undefined}

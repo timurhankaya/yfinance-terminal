@@ -16,7 +16,14 @@ export function Shell() {
   const { symbol: rawSymbol = NO_SYMBOL, code: rawCode = DEFAULT_CODE } = useParams();
   const { search } = useLocation();
   const navigate = useNavigate();
-  const command = useMemo(() => pathToCommand(rawSymbol, rawCode, search), [rawSymbol, rawCode, search]);
+  // The URL is the one input a panel gets that `parseArgs` never saw, so
+  // the panel's own rules are applied to it here -- once, for every
+  // panel, rather than in each panel that remembered to.
+  const command = useMemo(() => {
+    const fromPath = pathToCommand(rawSymbol, rawCode, search);
+    const normalize = getPanel(fromPath.code)?.normalizeArgs;
+    return normalize === undefined ? fromPath : { ...fromPath, args: normalize(fromPath.args) };
+  }, [rawSymbol, rawCode, search]);
   const spec = getPanel(command.code);
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState("");

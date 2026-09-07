@@ -125,7 +125,7 @@ def sync(
     configure_logging(settings.log_level, settings.log_format, "sync")
     engine = create_db_engine(settings)
 
-    selected = SYMBOL_DATASETS.resolve(None if datasets.strip() == "all" else comma_list(datasets))
+    selected = SYMBOL_DATASETS.resolve(comma_list(datasets))
 
     start_date = parse_day(start, option="--start")
     end_date = parse_day(end, option="--end")

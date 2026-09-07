@@ -13,7 +13,10 @@ import { LinkState, MarketHours } from "../live/types";
 import type { Tick } from "../live/types";
 import { formatDecimal } from "../panels/table";
 
-const SESSION_LABEL: Record<MarketHours, string> = {
+//: Keyed by `number`, not by `MarketHours`: `tick.mh` is whatever code
+//: the wire carried, and asserting it into the enum would make the
+//: fallback below dead code that TypeScript believes can never run.
+const SESSION_LABEL: Record<number, string> = {
   [MarketHours.PreMarket]: "pre-market",
   [MarketHours.Regular]: "open",
   [MarketHours.PostMarket]: "after hours",
@@ -47,7 +50,7 @@ function Price({ tick }: { tick: Tick }): ReactElement {
           {tick.cp !== undefined && ` (${formatDecimal(tick.cp)}%)`}
         </span>
       )}
-      <span className="muted">{SESSION_LABEL[tick.mh as MarketHours] ?? "unknown session"}</span>
+      <span className="muted">{SESSION_LABEL[tick.mh] ?? "unknown session"}</span>
       <span className="muted">{clock(tick.t)}</span>
     </>
   );

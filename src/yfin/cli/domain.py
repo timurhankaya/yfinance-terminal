@@ -49,7 +49,7 @@ def domain_sync(
     configure_logging(settings.log_level, settings.log_format)
     engine = create_db_engine(settings)
 
-    selected = DOMAIN_DATASETS.resolve(None if datasets.strip() == "all" else comma_list(datasets))
+    selected = DOMAIN_DATASETS.resolve(comma_list(datasets))
 
     try:
         summary = run_domain_sync(engine, selected, settings=settings)

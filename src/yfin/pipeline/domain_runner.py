@@ -33,6 +33,7 @@ from yfin.core.logging_setup import get_logger
 from yfin.core.metrics import Accumulator, use_accumulator
 from yfin.core.text import comma_list
 from yfin.datasets.asof_base import GLOBAL_REGION_MARKER
+from yfin.datasets.axis import DatasetAxis
 from yfin.datasets.domain.base import DomainContext, DomainDataset
 from yfin.datasets.domain.common import as_of_day, fetch_domain
 from yfin.datasets.registry import DOMAIN_DATASETS
@@ -195,7 +196,7 @@ def _run_turn(
             upsert=dataset.upsert,
             audit_key=symbol,
             registry=DOMAIN_DATASETS,
-            kind="domain",
+            kind=DatasetAxis.DOMAIN,
             log_context={"domain_key": key, "region": ctx.region},
             region=ctx.region,
             changes=changes,
@@ -292,15 +293,17 @@ def run_domain_sync(
     # 5. Keys from the DB. The bootstrap turn runs first on every
     #    resolution, so the list is always fresh.
     base_ctx.parents.update(domain_parents(factory))
+    # Keyed by the enum `dataset.scope` is typed with, so the lookup
+    # below cannot miss because the key was hand-typed.
     targets = {
-        "sector": domain_targets(factory, DomainType.SECTOR),
-        "industry": domain_targets(factory, DomainType.INDUSTRY),
+        DomainType.SECTOR: domain_targets(factory, DomainType.SECTOR),
+        DomainType.INDUSTRY: domain_targets(factory, DomainType.INDUSTRY),
     }
 
     # 6. Sectors first, then industries.
     per_key = [d for d in selected if d.per_key]
-    ordered = [d for d in per_key if d.scope == "sector"] + [
-        d for d in per_key if d.scope == "industry"
+    ordered = [d for d in per_key if d.scope == DomainType.SECTOR] + [
+        d for d in per_key if d.scope == DomainType.INDUSTRY
     ]
     for dataset in ordered:
         turn_regions = regions if dataset.regional else [GLOBAL_REGION_MARKER]

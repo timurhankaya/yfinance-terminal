@@ -1,7 +1,7 @@
 import { getDataset } from "../api/client";
 import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
-import { asNumber } from "./DES";
 import { DataTable, EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData, type Column } from "./common";
+import { asNumber, text } from "./format";
 
 type Row = Record<string, unknown>;
 type Section = { rows: Row[] } | { error: string };
@@ -22,19 +22,27 @@ const SOURCES: Array<[key: keyof Sections, dataset: string]> = [
   ["trend", "eps_trend"],
 ];
 
+function sectionOf(result: PromiseSettledResult<Row[]> | undefined): Section {
+  if (result === undefined) return { error: "missing" };
+  if (result.status === "rejected") {
+    const reason: unknown = result.reason;
+    return { error: reason instanceof Error ? reason.message : String(reason) };
+  }
+  return { rows: result.value };
+}
+
 async function loadSections(symbol: string): Promise<Sections> {
   const settled = await Promise.allSettled(SOURCES.map(([, dataset]) => getDataset(dataset, symbol)));
-  const sections = {} as Sections;
-  SOURCES.forEach(([key], index) => {
-    const result = settled[index];
-    if (result === undefined || result.status === "rejected") {
-      const reason: unknown = result?.status === "rejected" ? result.reason : "missing";
-      sections[key] = { error: reason instanceof Error ? reason.message : String(reason) };
-    } else {
-      sections[key] = { rows: result.value };
-    }
-  });
-  return sections;
+  // Named one by one rather than built into an empty object and cast:
+  // the five fields are the type, and a loop over them can only be typed
+  // by asserting the result is complete before it is.
+  return {
+    targets: sectionOf(settled[0]),
+    recommendations: sectionOf(settled[1]),
+    grades: sectionOf(settled[2]),
+    estimates: sectionOf(settled[3]),
+    trend: sectionOf(settled[4]),
+  };
 }
 
 function allEmpty(sections: Sections): boolean {
@@ -44,11 +52,6 @@ function allEmpty(sections: Sections): boolean {
 function num(row: Row, key: string): string {
   const n = asNumber(row[key]);
   return n === null ? "—" : n.toFixed(2);
-}
-
-function text(row: Row, key: string): string {
-  const v = row[key];
-  return v === null || v === undefined ? "—" : String(v);
 }
 
 function newestOnly(rows: Row[]): Row[] {

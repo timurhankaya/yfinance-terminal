@@ -12,9 +12,10 @@
 // beyond a list of tickers, which is the order the screen put them in,
 // and the header says what that order is sorted by so the sequence is
 // not unexplained.
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import type { ReactElement } from "react";
 import { useNavigate } from "react-router";
-import { getScreen, getScreens } from "../api/client";
+import { SCREEN_PAGE, getScreen, getScreens } from "../api/client";
 import type { ScreenDetail, ScreenRow, ScreenSummary } from "../api/client";
 import { commandToPath } from "../commands/parser";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
@@ -28,15 +29,32 @@ import {
   usePanelData,
   type Column,
 } from "./common";
+import { DatasetView, SymbolMode } from "./dataset";
 import { formatDateTime, formatDecimal, formatInteger } from "./table";
 
-export const EQS_USAGE = "Usage: EQS [screen]  (EQS alone lists every screen)";
+/** A screen's sub-pages. `Members` is the roster; `Runs` is the same
+ *  screen's history, which is the only place the roster's size over time
+ *  and Yahoo's echoed criteria are visible. */
+export enum ScreenTab {
+  Members = "members",
+  Runs = "runs",
+}
+
+const TABS: ReadonlyArray<[ScreenTab, string]> = [
+  [ScreenTab.Members, "Members"],
+  [ScreenTab.Runs, "Runs"],
+];
+
+export const EQS_USAGE = `Usage: EQS [screen] [${TABS.map(([key]) => key).join("|")}]`;
 
 function parseArgs(tokens: string[]): PanelArgs {
-  const [first, ...rest] = tokens;
+  const [first, second, ...rest] = tokens;
   if (first === undefined) return {};
   if (rest.length > 0) throw new Error(EQS_USAGE);
-  return { screen: first.toLowerCase() };
+  if (second === undefined) return { screen: first.toLowerCase() };
+  const tab = TABS.find(([key]) => key === second.toLowerCase());
+  if (tab === undefined) throw new Error(EQS_USAGE);
+  return { screen: first.toLowerCase(), tab: tab[0] };
 }
 
 /** `2026-09-08 20:05 UTC`, or the run date alone, or why there is neither. */
@@ -129,9 +147,81 @@ function percent(value: string | null): string {
   return value === null ? "—" : `${formatDecimal(value)}%`;
 }
 
-function Roster({ name }: { name: string }) {
+/** The tab row, and the screen's own header above it.
+ *
+ *  Drawn from whichever tab loaded the screen, so switching tabs does
+ *  not blank the line that says which screen this is. */
+function ScreenHead(props: {
+  name: string;
+  tab: ScreenTab;
+  screen: ScreenSummary | null;
+  symbol: string | null;
+}): ReactElement {
   const navigate = useNavigate();
-  const { state, retry } = usePanelData<ScreenDetail>(name, () => getScreen(name));
+  const { name, tab, screen, symbol } = props;
+  return (
+    <>
+      <p className="detail-meta">
+        <span className="ds-name">{screen?.title ?? name}</span>
+        {screen !== null && (
+          <>
+            {" "}
+            · {countLabel(screen)} · {runLabel(screen)} · sorted by {screen.sort_field}{" "}
+            {screen.sort_asc ? "ascending" : "descending"}
+            {screen.description !== null && <> — {screen.description}</>}
+          </>
+        )}
+      </p>
+      <div className="tabs" role="tablist" aria-label="screen">
+        {TABS.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={key === tab}
+            className={key === tab ? "tab tab-active" : "tab"}
+            onClick={() =>
+              void navigate(
+                commandToPath({
+                  symbol,
+                  code: "EQS",
+                  args: key === ScreenTab.Members ? { screen: name } : { screen: name, tab: key },
+                }),
+              )
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+/** This screen's run history, through the generic dataset surface.
+ *
+ *  `screen_runs` is already a catalogue entry filtered by `screen_key`,
+ *  so the typed table draws every column of it -- the roster's size over
+ *  time, the page count, and Yahoo's echoed criteria. A hand-written
+ *  route here would be a second way to read one table. */
+function Runs({ name, symbol }: { name: string; symbol: string | null }): ReactElement {
+  return (
+    <DatasetView
+      name="screen_runs"
+      symbol={symbol}
+      filters={{ screen_key: name }}
+      mode={SymbolMode.None}
+    />
+  );
+}
+
+function Roster({ name, symbol }: { name: string; symbol: string | null }) {
+  const navigate = useNavigate();
+  const [offset, setOffset] = useState(0);
+  const { state, retry } = usePanelData<ScreenDetail>(
+    `${name}|${offset}`,
+    () => getScreen(name, offset),
+  );
   const detail = state.kind === LoadState.Ready ? state.data : null;
   const rows = detail?.rows ?? EMPTY_ROWS;
 
@@ -195,15 +285,11 @@ function Roster({ name }: { name: string }) {
   if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
   if (detail === null) return null;
 
-  const screen = detail.screen;
+  const first = detail.offset + 1;
+  const last = detail.offset + rows.length;
   return (
     <section>
-      <p className="detail-meta">
-        <span className="ds-name">{screen.title}</span> · {countLabel(screen)} ·{" "}
-        {runLabel(screen)} · sorted by {screen.sort_field}{" "}
-        {screen.sort_asc ? "ascending" : "descending"}
-        {screen.description !== null && <> — {screen.description}</>}
-      </p>
+      <ScreenHead name={name} tab={ScreenTab.Members} screen={detail.screen} symbol={symbol} />
       {rows.length === 0 ? (
         <EmptyCard what={`rows for ${name}`} />
       ) : (
@@ -220,14 +306,33 @@ function Roster({ name }: { name: string }) {
           />
         </div>
       )}
+      {(detail.offset > 0 || detail.truncated) && (
+        <p className="load-more">
+          <button
+            type="button"
+            disabled={detail.offset === 0}
+            onClick={() => setOffset(Math.max(0, detail.offset - SCREEN_PAGE))}
+          >
+            Previous
+          </button>{" "}
+          <button
+            type="button"
+            disabled={!detail.truncated}
+            onClick={() => setOffset(detail.offset + SCREEN_PAGE)}
+          >
+            Next
+          </button>{" "}
+          <span className="muted">
+            {first}–{last}
+            {detail.screen.row_count === null ? "" : ` of ${formatInteger(detail.screen.row_count)}`}
+          </span>
+        </p>
+      )}
       <p className="chart-legend">
         <span className="muted">
           Enter opens the selected symbol. Every column of the quote snapshot is in{" "}
           <code className="usage">DS screen_quotes</code>.
         </span>
-        {detail.truncated && (
-          <span className="muted">The roster is longer than this page shows.</span>
-        )}
         {rows.some((row) => !row.is_known) && (
           <span className="muted">
             Rows without a price are symbols outside this deployment&apos;s universe; the screen
@@ -242,7 +347,17 @@ function Roster({ name }: { name: string }) {
 export function EQS({ symbol, args }: PanelProps) {
   const name = args.screen;
   if (name === undefined) return <Screens symbol={symbol} />;
-  return <Roster name={name} />;
+  // Args reach a panel from a hand-edited URL too, so an unknown tab
+  // falls back to the roster rather than rendering nothing.
+  if (args.tab === ScreenTab.Runs) {
+    return (
+      <section>
+        <ScreenHead name={name} tab={ScreenTab.Runs} screen={null} symbol={symbol} />
+        <Runs name={name} symbol={symbol} />
+      </section>
+    );
+  }
+  return <Roster name={name} symbol={symbol} />;
 }
 
 export const EQS_PANEL: PanelSpec = {

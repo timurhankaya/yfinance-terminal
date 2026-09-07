@@ -27,6 +27,7 @@ from yfin.datasets.domain.common import (
 from yfin.datasets.domain.payloads import TaxonomyPayload
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.registry import register_domain
+from yfin.models.domains import DomainType
 from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
@@ -59,7 +60,7 @@ DOMAIN_UPDATE_COLUMNS = ("symbol", "parent_key", "name", "fetched_at")
 
 class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
     name = "domain_taxonomy"
-    scope = "sector"
+    scope = DomainType.SECTOR
     regional = False
     per_key = False
     produces = (SYMBOLS_TABLE, DOMAINS_TABLE)

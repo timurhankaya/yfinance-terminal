@@ -48,17 +48,6 @@ export interface ActionMarker {
   text: string;
 }
 
-/** Seconds one bar of each interval covers. */
-export const INTERVAL_SECONDS: Record<string, number> = {
-  "1m": 60,
-  "5m": 300,
-  "15m": 900,
-  "60m": 3600,
-  "1d": 86_400,
-  "1wk": 604_800,
-  "1mo": 2_592_000,
-};
-
 export const UP_COLOR = "#4cc38a";
 export const DOWN_COLOR = "#ff6b6b";
 

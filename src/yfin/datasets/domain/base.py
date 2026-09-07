@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Any
 
 from yfin.datasets.asof_base import (
     DOMAIN_GATE_KEY_COLUMNS,
@@ -27,9 +27,14 @@ from yfin.datasets.asof_base import (
 )
 from yfin.datasets.base import NormalizedResult
 from yfin.datasets.exposure import ApiExposure
+from yfin.models.domains import DomainType
 from yfin.storage.contracts import RowWriter, WriteStats, apply_write
 
-DomainType = Literal["sector", "industry"]
+#: `DomainType` is the SAME enum the `domains` table is typed with
+#: (`models.domains`). It used to be a second, Literal-typed declaration
+#: of the same two values under the same name, and the domain runner
+#: imported both -- the enum for its queries, the Literal (via
+#: `dataset.scope`) for its target lookup, four lines apart.
 
 
 @dataclass
@@ -113,7 +118,7 @@ class DomainDataset[RawT](ABC):
     # Declared, not read reflectively -- see the note on GlobalDataset.
     api: tuple[ApiExposure, ...] = ()
     # Which key set it iterates over
-    scope: DomainType = "sector"
+    scope: DomainType = DomainType.SECTOR
     # True enters the region loop; False runs a single pass (`region='*'`)
     regional: bool = False
     # False means the dataset does not enter the key loop and runs once.

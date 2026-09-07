@@ -1,10 +1,23 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { getDataset, getDatasetPage, type Row as ApiRow } from "../api/client";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
-import { EmptyCard, ErrorCard, LoadState, MissingCard, useListKeys, usePanelData } from "./common";
+import {
+  EmptyCard,
+  ErrorCard,
+  LoadState,
+  MissingCard,
+  NextPageError,
+  useListKeys,
+  usePagedRows,
+  usePanelData,
+} from "./common";
+import { text } from "./format";
 import { edgarUrl } from "./links";
 
 type Row = ApiRow;
+
+export const CF_ARGS = "CF [filing type]";
+export const CF_USAGE = `Usage: ${CF_ARGS}`;
 
 interface Filings {
   filings: Row[];
@@ -38,11 +51,6 @@ async function loadFilings(symbol: string, filingType: string | undefined): Prom
     else exhibits.set(id, [row]);
   }
   return { filings, next_cursor: page.next_cursor, exhibits };
-}
-
-function text(row: Row, key: string): string {
-  const v = row[key];
-  return v === null || v === undefined ? "—" : String(v);
 }
 
 function Exhibits({ row, attached }: { row: Row; attached: Row[] }) {
@@ -80,7 +88,13 @@ function Exhibits({ row, attached }: { row: Row; attached: Row[] }) {
   );
 }
 
-function FilingList({ data, onLoadMore }: { data: Filings; onLoadMore: (() => void) | null }) {
+function FilingList(props: {
+  data: Filings;
+  onLoadMore: (() => void) | null;
+  loadingMore: boolean;
+  pageError: string | null;
+}) {
+  const { data, onLoadMore, loadingMore, pageError } = props;
   const { filings, exhibits } = data;
   const [open, setOpen] = useState<number | null>(null);
   const toggle = (index: number) => setOpen((current) => (current === index ? null : index));
@@ -89,7 +103,16 @@ function FilingList({ data, onLoadMore }: { data: Filings; onLoadMore: (() => vo
 
   return (
     <div className="split">
-      <ul className="list split-list" role="listbox" aria-label="filings">
+      {/* Focusable, with the active option named: the j/k/Enter model
+          lives on a window listener, so without these the whole keyboard
+          interaction is unreachable by Tab and invisible to a reader. */}
+      <ul
+        className="list split-list"
+        role="listbox"
+        aria-label="filings"
+        tabIndex={0}
+        aria-activedescendant={filings.length > 0 ? `cf-filing-${selected}` : undefined}
+      >
         {filings.map((row, index) => {
           const id = String(row.filing_id ?? index);
           // Yahoo's archived filing page (edgar_url) answers 404 today; the
@@ -98,8 +121,8 @@ function FilingList({ data, onLoadMore }: { data: Filings; onLoadMore: (() => vo
           return (
             <li
               key={id}
+              id={`cf-filing-${index}`}
               role="option"
-              tabIndex={-1}
               className={index === selected ? "list-row row-selected" : "list-row"}
               aria-selected={index === selected}
               onClick={() => {
@@ -123,9 +146,14 @@ function FilingList({ data, onLoadMore }: { data: Filings; onLoadMore: (() => vo
         })}
         {onLoadMore && (
           <li className="load-more">
-            <button type="button" className="fn" onClick={onLoadMore}>
-              Load more
+            <button type="button" className="fn" disabled={loadingMore} onClick={onLoadMore}>
+              {loadingMore ? "Loading…" : "Load more"}
             </button>
+          </li>
+        )}
+        {pageError !== null && (
+          <li>
+            <NextPageError message={pageError} />
           </li>
         )}
       </ul>
@@ -148,27 +176,31 @@ export function CF({ symbol, args }: PanelProps) {
     () => (symbol === null ? Promise.reject(new Error("no symbol")) : loadFilings(symbol, filingType)),
     (data) => data.filings.length === 0,
   );
-  const [extra, setExtra] = useState<{ key: string; rows: Row[]; cursor: string | null }>({ key, rows: [], cursor: null });
-  useEffect(() => setExtra({ key, rows: [], cursor: null }), [key]);
+  const paged = usePagedRows<Row>(key, state.kind === LoadState.Ready ? state.data.next_cursor : null, (cursor) =>
+    symbol === null
+      ? Promise.reject(new Error("no symbol"))
+      : getDatasetPage("sec_filings", filingParams(symbol, filingType), cursor),
+  );
   if (symbol === null) return null;
   if (state.kind === LoadState.Loading) return <p className="muted">Loading {symbol}…</p>;
   if (state.kind === LoadState.Missing) return <MissingCard symbol={symbol} />;
   if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
   if (state.kind === LoadState.Empty) return <EmptyCard what="filings" />;
-  const current = extra.key === key ? extra : { key, rows: [], cursor: null };
-  const cursor = current.rows.length > 0 ? current.cursor : state.data.next_cursor;
-  const data: Filings = { ...state.data, filings: [...state.data.filings, ...current.rows] };
-  const loadMore = async () => {
-    if (!cursor) return;
-    const page = await getDatasetPage("sec_filings", filingParams(symbol, filingType), cursor);
-    setExtra((e) => (e.key === key ? { ...e, rows: [...e.rows, ...page.rows], cursor: page.next_cursor } : e));
-  };
-  return <FilingList data={data} onLoadMore={cursor ? () => void loadMore() : null} />;
+  const data: Filings = { ...state.data, filings: [...state.data.filings, ...paged.rows] };
+  return (
+    <FilingList
+      data={data}
+      onLoadMore={paged.cursor === null ? null : paged.loadMore}
+      loadingMore={paged.loadingMore}
+      pageError={paged.error}
+    />
+  );
 }
 
 export const CF_PANEL: PanelSpec = {
   code: "CF",
   title: "SEC filings",
+  usage: CF_ARGS,
   needsSymbol: true,
   layout: Layout.Single,
   parseArgs,

@@ -69,6 +69,98 @@ def test_wrong_secret_is_401_and_five_misses_become_429(monkeypatch: pytest.Monk
     assert client.get("/admin/settings", auth=AUTH).status_code == 429
 
 
+class TestCrossSiteWrites:
+    """Basic auth says WHO; nothing in a cross-site form POST says the
+    operator asked for it. The browser attaches the cached credential
+    automatically -- there is no cookie, so `SameSite` applies to
+    nothing, and the CSP's `form-action 'self'` restricts where OUR
+    forms may post, not where another origin's may post to us.
+
+    The concrete write it stops: a page anywhere posting
+    `url=http://attacker:secret@evil/` to /admin/proxies, after which
+    `yfin sync` routes Yahoo traffic through a host the attacker owns
+    and the operator sees nothing but their own settings page.
+    """
+
+    def _post(self, client: TestClient, **headers: str) -> Any:
+        return client.post(
+            "/admin/settings/yf_max_shards",
+            data={"value": "6"},
+            auth=AUTH,
+            headers=headers,
+            follow_redirects=False,
+        )
+
+    @pytest.fixture
+    def client(self, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+        monkeypatch.setattr(ops, "set_setting", lambda key, value, *, settings: key.lower())
+        monkeypatch.setattr(ops, "fetch_rows", lambda _settings: {})
+        return make_client(monkeypatch)
+
+    def test_a_cross_site_post_is_refused(self, client: TestClient) -> None:
+        response = self._post(client, **{"sec-fetch-site": "cross-site"})
+        assert response.status_code == 403
+        assert response.json()["type"] == "cross_site_request"
+
+    def test_a_same_site_post_is_refused_too(self, client: TestClient) -> None:
+        """A sibling subdomain is not the admin page, and a subdomain is
+        the easiest origin for an attacker to end up holding."""
+        assert self._post(client, **{"sec-fetch-site": "same-site"}).status_code == 403
+
+    def test_the_page_own_form_still_posts(self, client: TestClient) -> None:
+        response = self._post(client, **{"sec-fetch-site": "same-origin"})
+        assert response.status_code == 303
+
+    def test_a_foreign_origin_is_refused_without_fetch_metadata(
+        self, client: TestClient
+    ) -> None:
+        """Older browsers send no `Sec-Fetch-Site`; `Origin` is then what
+        there is, compared the way `/ui/ws` compares it."""
+        response = self._post(client, origin="https://evil.example")
+        assert response.status_code == 403
+
+    def test_the_deployments_own_origin_is_accepted(self, client: TestClient) -> None:
+        response = self._post(client, origin="http://testserver")
+        assert response.status_code == 303
+
+    def test_a_client_that_is_not_a_browser_is_untouched(self, client: TestClient) -> None:
+        """`curl` and the operator's own scripts send neither header, and
+        refusing them would break every one while stopping no attack: a
+        program that sets its own headers is not what this defends
+        against."""
+        assert self._post(client).status_code == 303
+
+    def test_reads_are_not_affected(self, client: TestClient) -> None:
+        """A GET changes nothing, so nothing has to establish intent."""
+        response = client.get(
+            "/admin/settings", auth=AUTH, headers={"sec-fetch-site": "cross-site"}
+        )
+        assert response.status_code == 200
+
+    def test_every_write_route_is_covered(self, client: TestClient) -> None:
+        """The guard is in `require_admin`, the one dependency all four
+        share, so a new write route cannot acquire auth and miss it."""
+        cross_site = {"sec-fetch-site": "cross-site"}
+        for path, payload in (
+            ("/admin/settings/yf_max_shards", {"value": "6"}),
+            ("/admin/settings/yf_max_shards/unset", {}),
+            ("/admin/proxies", {"url": "http://h:1"}),
+            ("/admin/proxies/7/remove", {}),
+            ("/admin/screens/day_gainers/disable", {}),
+        ):
+            response = client.post(path, data=payload, auth=AUTH, headers=cross_site)
+            assert response.status_code == 403, path
+
+    def test_a_cross_site_post_does_not_spend_the_login_window(
+        self, client: TestClient
+    ) -> None:
+        """It is not a failed login, and counting it as one would let a
+        cross-site page lock the operator out of their own admin."""
+        for _ in range(auth.FAILURES_PER_MINUTE + 1):
+            assert self._post(client, **{"sec-fetch-site": "cross-site"}).status_code == 403
+        assert client.get("/admin/settings", auth=AUTH).status_code == 200
+
+
 def test_root_redirects_to_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     response = make_client(monkeypatch).get("/admin", auth=AUTH, follow_redirects=False)
     assert response.status_code == 302

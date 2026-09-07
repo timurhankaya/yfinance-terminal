@@ -69,6 +69,24 @@ describe("FA_PANEL.parseArgs", () => {
     expect(FA_PANEL.layout).toBe(Layout.Single);
     expect(FA_PANEL.needsSymbol).toBe(true);
   });
+
+  it("publishes its argument syntax so HELP can show it", () => {
+    // The two most argument-rich panels were the two whose arguments
+    // were undiscoverable.
+    expect(FA_PANEL.usage).toBe("FA [income|balance|cash] [annual|quarterly|ttm]");
+  });
+
+  it("brings a hand-edited URL back to a statement the API serves", () => {
+    expect(FA_PANEL.normalizeArgs?.({ statement: "nonsense", freq: "monthly" })).toEqual({
+      statement: "income",
+      freq: "annual",
+    });
+    expect(FA_PANEL.normalizeArgs?.({})).toEqual({ statement: "income", freq: "annual" });
+    expect(FA_PANEL.normalizeArgs?.({ statement: "cash_flow", freq: "ttm" })).toEqual({
+      statement: "cash_flow",
+      freq: "ttm",
+    });
+  });
 });
 
 describe("FA", () => {

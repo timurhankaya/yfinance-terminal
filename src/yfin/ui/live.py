@@ -6,10 +6,26 @@ looking at. One `redis.asyncio` pub/sub per connection: the synchronous
 client the rate limiter uses is untouched, and a page watching two
 symbols does not read the other nine thousand.
 
-No identity. The terminal is public, so what guards this is the same
-`RequestBrake` in front of `/ui/api` plus an Origin check -- a socket
-opened from another site would otherwise read this archive with the
-visitor's own network access.
+No identity. The terminal is public, so what guards this is an Origin
+check -- a socket opened from another site would otherwise read this
+archive with the visitor's own network access -- plus this module's own
+limits, because `RequestBrake` is a `BaseHTTPMiddleware` and a WebSocket
+never passes through one.
+
+**Close codes are the protocol's other half.** The socket is accepted
+before it is closed precisely so the browser is handed a code, and each
+one means a different thing to the page:
+
+- `4403` (`WsClose.BadOrigin`): the Origin is not this deployment. This
+  will never work -- a wrong `public_base_url`, or a proxy rewriting
+  `Host` -- so the page must NOT reconnect; it should surface the
+  misconfiguration instead of retrying forever behind "connecting".
+- `4429` (`WsClose.TooBusy`): this process is at its socket ceiling, or
+  this address opened too many too fast. Temporary: reconnect, with
+  backoff.
+
+Anything else (a normal `1000`, `1006` from a dropped connection) is an
+ordinary outage and reconnects as before.
 
 Three things here are ordering decisions rather than plumbing:
 
@@ -35,13 +51,15 @@ import contextlib
 import json
 from enum import IntEnum, StrEnum
 from typing import TYPE_CHECKING, Any, Final
-from urllib.parse import urlparse
 from uuid import uuid4
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.concurrency import run_in_threadpool
 
 from yfin.api.core.config import ApiSettings
+from yfin.api.core.middleware import resolve_client_ip, trusted_networks
+from yfin.api.core.origin import origin_allowed
+from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.api.storage import session as api_session
 from yfin.core.config import get_settings
 from yfin.core.logging_setup import get_logger
@@ -64,9 +82,17 @@ WS_PATH: Final = "/ui/ws"
 #: Yahoo. It exists so one tab cannot ask the API to hold ten thousand.
 MAX_SYMBOLS: Final = 200
 
-#: ~40 seconds of a single busy symbol. Deeper does not help: a page that
-#: is minutes behind has a problem no buffer fixes, and the `dropped`
-#: frame is the honest answer.
+#: An ESTIMATE, not a measurement: roughly 40 seconds of one busy symbol
+#: IF a busy symbol ticks about twice a second. The tick rate for US
+#: equities is one of the numbers `docs/measurements/websocket.md` marks
+#: as not measured -- the stream capture was taken on a Sunday -- and it
+#: "must be repeated during open market hours before any capacity claim
+#: about equities is made". This constant is that claim, so it stands as
+#: an estimate pending that run.
+#:
+#: What does not depend on the rate: deeper does not help. A page minutes
+#: behind has a problem no buffer fixes, and the `dropped` frame is the
+#: honest answer.
 QUEUE_MAXSIZE: Final = 1000
 
 #: How long the bus reader blocks on a read before yielding the lock a
@@ -97,32 +123,33 @@ class WsError(StrEnum):
 
 
 class WsClose(IntEnum):
-    """Application close codes, in the 4000-4999 private range."""
+    """Application close codes, in the 4000-4999 private range.
 
-    BadOrigin = 4403
-
-
-def origin_allowed(origin: str | None, host: str | None, settings: ApiSettings) -> bool:
-    """Whether a socket from `origin` may read this archive.
-
-    A WebSocket is not subject to the same-origin policy the way `fetch`
-    is: any page anywhere can open one, and it would then be reading
-    through the visitor's network. So the header is checked here.
-
-    Scheme-independent on purpose. `public_base_url` is what the operator
-    published and is authoritative when set; without it the request's own
-    `Host` is the only thing that knows what this deployment is called,
-    and a deployment behind a TLS-terminating proxy sees `http` on the
-    inside while the browser sends `https`.
+    4000-4999 is what a browser hands back to the page unchanged;
+    anything below is reserved and some browsers rewrite it. The module
+    docstring says what each one asks the page to do -- the point of a
+    code is that "never retry" and "retry later" are different states,
+    and a page that cannot tell them apart shows "connecting" forever.
     """
-    if not origin:
-        # No Origin at all is not a browser. `wscat` and the test client
-        # send none; a page always does.
-        return True
-    expected = settings.public_base_url or (f"//{host}" if host else "")
-    if not expected:
-        return False
-    return urlparse(origin).netloc == urlparse(expected).netloc
+
+    #: The Origin is not this deployment. Permanent: do not reconnect.
+    BadOrigin = 4403
+    #: The process is at its socket ceiling, or this address opened too
+    #: many too quickly. Temporary: reconnect with backoff.
+    TooBusy = 4429
+
+
+#: New sockets per address per minute, and how many are open right now.
+#: Both are per PROCESS and in-process, the same kind of crude brake
+#: `RequestBrake` is rather than a cluster-wide limit: what they protect
+#: is this worker's threadpool and database pool, which are also `/v1`'s.
+#:
+#: A plain int is enough for the count: every socket is admitted, run and
+#: released on the one event loop, and the check and the increment happen
+#: with no await between them, so two handshakes cannot both pass a
+#: ceiling that only one of them fits under.
+_handshakes = FixedWindow()
+_open_sessions = 0
 
 
 def connect_bus(url: str) -> redis.asyncio.Redis:
@@ -169,6 +196,11 @@ class LiveSession:
         self._dropped = 0
         self._client: redis.asyncio.Redis | None = None
         self._pubsub: Any = None
+        #: False once the bus has failed. The pub/sub object is kept so
+        #: `_close_bus` can still close it; this is what every user of it
+        #: checks, so one failure takes the whole live path down together
+        #: rather than leaving half of it running.
+        self._bus_ok = False
         #: `get_message` and `subscribe` share one connection, so they
         #: cannot both be in flight. Held for at most BUS_POLL_SECONDS.
         self._bus = asyncio.Lock()
@@ -223,9 +255,36 @@ class LiveSession:
             return False
         self._client = client
         self._pubsub = client.pubsub(ignore_subscribe_messages=True)
+        self._bus_ok = True
         return True
 
+    def _go_dark(self, error: Exception) -> None:
+        """The bus failed mid-session: say so, and stop using it.
+
+        Fail-open is the rule on every layer of the live path -- the
+        publisher applies it, and open time applies it -- and this is the
+        third place it has to hold. Without it the page keeps the
+        `live.enabled=true` it was told when the socket opened, keeps
+        showing the last tick it received, and never falls back to the
+        periodic `snap` refresh: a price that stopped moving looks
+        exactly like a quiet market.
+
+        Synchronous, because it is called from inside the pub/sub lock
+        and must not await there. The connection is closed once, in
+        `_close_bus`.
+        """
+        if not self._bus_ok:
+            return
+        self._bus_ok = False
+        log.warning(
+            "live bus lost; the terminal falls back to snapshots",
+            error=str(error),
+            request_id=self._request_id,
+        )
+        self._offer({"op": Op.Live, "enabled": False})
+
     async def _close_bus(self) -> None:
+        self._bus_ok = False
         if self._pubsub is not None:
             with contextlib.suppress(Exception):
                 await self._pubsub.aclose()
@@ -247,16 +306,33 @@ class LiveSession:
         with contextlib.suppress(asyncio.QueueEmpty):
             self._out.get_nowait()
             self._dropped += 1
-        with contextlib.suppress(asyncio.QueueFull):
-            self._out.put_nowait(frame)
+        # Bare, not suppressed: the `get_nowait` above just freed a slot
+        # and one task owns this queue, so a QueueFull here would mean
+        # that invariant broke. Suppressing it would drop the frame
+        # WITHOUT counting it -- a hole in the one counter that exists to
+        # make holes visible.
+        self._out.put_nowait(frame)
+
+    def _take_dropped(self) -> int:
+        """The drop count, zeroed in the same breath.
+
+        Its own method because read-and-reset must not straddle an
+        `await`: a drop that lands while the `dropped` frame is being
+        sent belongs to the NEXT report, and if the reset happened after
+        the send it would be lost instead. Nothing here awaits, so the
+        two halves cannot be separated by a later edit without deleting
+        this paragraph.
+        """
+        count, self._dropped = self._dropped, 0
+        return count
 
     async def _sender(self) -> None:
         """The only writer. Reports drops just before the next frame, so
         the page learns about them without a timer of its own."""
         while True:
             frame = await self._out.get()
-            if self._dropped:
-                dropped, self._dropped = self._dropped, 0
+            dropped = self._take_dropped()
+            if dropped:
                 await self._ws.send_json({"op": Op.Dropped, "n": dropped})
             await self._ws.send_json(frame)
 
@@ -276,13 +352,27 @@ class LiveSession:
         raw = message.get("symbols")
         if not isinstance(raw, list):
             return
+        if len(raw) > MAX_SYMBOLS:
+            # Refused BEFORE the list is walked. uvicorn's `ws_max_size`
+            # is 16 MB, so one frame from an unauthenticated client can
+            # carry on the order of a million tokens; normalising all of
+            # them only to refuse the frame afterwards is exactly the
+            # work that makes such a frame worth sending.
+            self._offer({"op": Op.Error, "code": WsError.TooMany})
+            return
         symbols: list[str] = []
+        rejected = False
         for token in raw:
             code = _valid_symbol(token) if isinstance(token, str) else None
             if code is None:
-                self._offer({"op": Op.Error, "code": WsError.BadSymbol})
+                rejected = True
                 continue
             symbols.append(code)
+        if rejected:
+            # One frame per received frame, not one per bad token: ten
+            # identical frames tell the page nothing the first did not,
+            # and it cannot tell them apart anyway.
+            self._offer({"op": Op.Error, "code": WsError.BadSymbol})
         if op == Op.Sub:
             await self._subscribe(symbols)
         elif op == Op.Unsub:
@@ -298,9 +388,16 @@ class LiveSession:
             self._offer({"op": Op.Error, "code": WsError.TooMany})
             return
         fresh = [code for code in symbols if code not in self._symbols]
-        if fresh and self._pubsub is not None:
+        if fresh and self._bus_ok and self._pubsub is not None:
             async with self._bus:
-                await self._pubsub.subscribe(*(channel(code) for code in fresh))
+                try:
+                    await self._pubsub.subscribe(*(channel(code) for code in fresh))
+                except Exception as error:  # noqa: BLE001 - fail-open, like the publisher
+                    # Redis went away since `_open_bus`. Unguarded, this
+                    # left `_handle` and `run`'s handler catches only
+                    # WebSocketDisconnect and RuntimeError, so it killed
+                    # the socket -- taking the archive down with the bus.
+                    self._go_dark(error)
         self._symbols |= set(fresh)
         # After the subscribe, so no tick can land in the gap between the
         # read and the channel; the page drops any tick older than this.
@@ -311,9 +408,12 @@ class LiveSession:
         gone = [code for code in symbols if code in self._symbols]
         if not gone:
             return
-        if self._pubsub is not None:
+        if self._bus_ok and self._pubsub is not None:
             async with self._bus:
-                await self._pubsub.unsubscribe(*(channel(code) for code in gone))
+                try:
+                    await self._pubsub.unsubscribe(*(channel(code) for code in gone))
+                except Exception as error:  # noqa: BLE001 - fail-open, like the publisher
+                    self._go_dark(error)
         self._symbols -= set(gone)
 
     async def _quotes(self, symbols: list[str]) -> list[dict[str, Any]]:
@@ -338,7 +438,11 @@ class LiveSession:
     # --- the bus -----------------------------------------------------------
 
     async def _bus_reader(self) -> None:
-        while True:
+        # `_bus_ok` rather than True: a subscribe that failed elsewhere
+        # has already told the page the feed is off, and a reader still
+        # polling a dead pub/sub would be the only part of the session
+        # that had not heard.
+        while self._bus_ok:
             message = None
             if self._symbols and self._pubsub is not None:
                 async with self._bus:
@@ -347,11 +451,10 @@ class LiveSession:
                             ignore_subscribe_messages=True, timeout=BUS_POLL_SECONDS
                         )
                     except Exception as error:  # noqa: BLE001 - the page keeps its snapshot
-                        log.warning(
-                            "live bus read failed",
-                            error=str(error),
-                            request_id=self._request_id,
-                        )
+                        # Returning quietly used to leave the page
+                        # believing `live.enabled=true` with no reader
+                        # behind it; the frame is what lets it fall back.
+                        self._go_dark(error)
                         return
             if message is None:
                 # Either nothing arrived or nothing is subscribed yet.
@@ -367,21 +470,58 @@ class LiveSession:
             self._offer({"op": Op.Tick, "d": body})
 
 
+def _refusal(websocket: WebSocket, settings: ApiSettings, request_id: str) -> WsClose | None:
+    """The close code this socket is refused with, or None to serve it.
+
+    The Origin check answers "may this page read the archive"; the two
+    limits answer "can this process afford another socket". Origin is
+    not a limit on its own -- a client that sends no Origin is admitted
+    by design, so a loop of them would otherwise be admitted without
+    end.
+    """
+    if not origin_allowed(
+        websocket.headers.get("origin"), websocket.headers.get("host"), settings
+    ):
+        return WsClose.BadOrigin
+    # The networks are parsed per connection rather than cached: it is a
+    # handful of `ip_network` calls against the cost of a socket, and a
+    # cache here would be a second place `trusted_proxies` is resolved.
+    client_ip = resolve_client_ip(websocket, trusted_networks(settings))
+    if not _handshakes.allow(client_ip, settings.ui_ws_connections_per_minute):
+        log.warning("ui_ws_handshake_limited", client_ip=client_ip, request_id=request_id)
+        return WsClose.TooBusy
+    if _open_sessions >= settings.ui_ws_max_connections:
+        # The casualty of an exhausted threadpool or database pool is not
+        # this free terminal but `/v1`, in the same worker.
+        log.warning("ui_ws_at_capacity", open_sessions=_open_sessions, request_id=request_id)
+        return WsClose.TooBusy
+    return None
+
+
 @router.websocket(WS_PATH)
 async def live_socket(websocket: WebSocket) -> None:
+    global _open_sessions
+
     settings: ApiSettings = websocket.app.state.api_settings
     # Generated here rather than read from request.state: a WebSocket
     # does not pass through BaseHTTPMiddleware, so RequestContextMiddleware
     # never ran and there is no id to inherit.
     request_id = uuid4().hex
-    if not origin_allowed(
-        websocket.headers.get("origin"), websocket.headers.get("host"), settings
-    ):
+    refused = _refusal(websocket, settings, request_id)
+    if refused is not None:
         # Accepted first so the browser sees the close CODE. A refused
         # handshake surfaces as a bare "connection failed" and the page
-        # cannot tell a misconfiguration from an outage.
+        # cannot tell a misconfiguration from an outage, nor a permanent
+        # refusal from a temporary one.
         await websocket.accept()
-        await websocket.close(code=WsClose.BadOrigin)
+        await websocket.close(code=refused)
         return
-    await websocket.accept()
-    await LiveSession(websocket, request_id).run()
+    # Counted BEFORE the handshake is completed: `accept()` awaits, and
+    # a ceiling checked on one side of an await while the count is taken
+    # on the other is a ceiling every concurrent handshake passes.
+    _open_sessions += 1
+    try:
+        await websocket.accept()
+        await LiveSession(websocket, request_id).run()
+    finally:
+        _open_sessions -= 1

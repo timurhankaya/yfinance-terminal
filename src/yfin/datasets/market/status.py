@@ -20,7 +20,7 @@ from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult
 from yfin.datasets.common import mark_known
 from yfin.datasets.exposure import ApiExposure
-from yfin.datasets.market.base import MarketContext, SnapshotGlobalDataset
+from yfin.datasets.market.base import MarketContext, MarketScope, SnapshotGlobalDataset
 from yfin.datasets.payloads import MarketStatusPayload, MarketSummaryPayload
 from yfin.datasets.registry import register_market
 from yfin.datasets.snapshot_base import snapshot_writes
@@ -95,7 +95,7 @@ def _market(mctx: MarketContext, region: str) -> Any:
 class MarketStatusDataset(SnapshotGlobalDataset[MarketStatusPayload]):
     name = "market_status"
     produces = ("market_status", "market_status_history")
-    scope = "region"
+    scope = MarketScope.REGION
     snapshot_table = "market_status"
     history_table = "market_status_history"
     key_columns = ("region",)
@@ -159,7 +159,7 @@ class MarketStatusDataset(SnapshotGlobalDataset[MarketStatusPayload]):
 class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
     name = "market_summary"
     produces = ("market_summary", "market_summary_history")
-    scope = "region"
+    scope = MarketScope.REGION
     snapshot_table = "market_summary"
     history_table = "market_summary_history"
     key_columns = ("region", "board_code")

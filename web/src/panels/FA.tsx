@@ -3,41 +3,66 @@ import { useNavigate } from "react-router";
 import { getFinancials, type FinancialFact } from "../api/client";
 import { commandToPath } from "../commands/parser";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
-import { asNumber, formatBig } from "./DES";
 import { DataTable, EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData, type Column } from "./common";
+import { asNumber, formatBig } from "./format";
 
-// The command word -> the API's statement kind. "valuation" exists on the
-// API too but is not a statement a terminal user reads as one; it stays
-// reachable through /v1 and out of the FA tabs.
-const STATEMENTS: Record<string, string> = {
-  income: "income",
-  balance: "balance_sheet",
-  cash: "cash_flow",
-};
-const FREQS = ["annual", "quarterly", "ttm"];
-const USAGE = "Usage: FA [income|balance|cash] [annual|quarterly|ttm]";
+/** The API's statement kind. "valuation" exists on the API too but is not
+ *  a statement a terminal user reads as one; it stays reachable through
+ *  /v1 and out of the FA tabs. */
+export enum Statement {
+  Income = "income",
+  Balance = "balance_sheet",
+  Cash = "cash_flow",
+}
 
-const STATEMENT_TABS: Array<[value: string, label: string]> = [
-  ["income", "Income"],
-  ["balance_sheet", "Balance sheet"],
-  ["cash_flow", "Cash flow"],
+export enum Freq {
+  Annual = "annual",
+  Quarterly = "quarterly",
+  Ttm = "ttm",
+}
+
+//: One table per discriminator: the wire value, the word typed on the
+//: command line, and the tab's label. Adding a statement is one line.
+const STATEMENTS: Array<[value: Statement, word: string, label: string]> = [
+  [Statement.Income, "income", "Income"],
+  [Statement.Balance, "balance", "Balance sheet"],
+  [Statement.Cash, "cash", "Cash flow"],
 ];
-const FREQ_TABS: Array<[value: string, label: string]> = [
-  ["annual", "Annual"],
-  ["quarterly", "Quarterly"],
-  ["ttm", "TTM"],
+const FREQS: Array<[value: Freq, label: string]> = [
+  [Freq.Annual, "Annual"],
+  [Freq.Quarterly, "Quarterly"],
+  [Freq.Ttm, "TTM"],
 ];
+
+const STATEMENT_BY_WORD = new Map<string, Statement>(STATEMENTS.map(([value, word]) => [word, value]));
+const STATEMENT_BY_VALUE = new Map<string, Statement>(STATEMENTS.map(([value]) => [value, value]));
+const STATEMENT_LABEL = new Map<Statement, string>(STATEMENTS.map(([value, , label]) => [value, label]));
+const FREQ_BY_VALUE = new Map<string, Freq>(FREQS.map(([value]) => [value, value]));
+const FREQ_LABEL = new Map<Freq, string>(FREQS);
+
+const DEFAULT_STATEMENT = Statement.Income;
+const DEFAULT_FREQ = Freq.Annual;
+
+export const FA_ARGS = `FA [${STATEMENTS.map(([, word]) => word).join("|")}] [${FREQS.map(([value]) => value).join("|")}]`;
+export const FA_USAGE = `Usage: ${FA_ARGS}`;
+
+function statementOf(value: string | undefined): Statement {
+  return STATEMENT_BY_VALUE.get(value ?? "") ?? DEFAULT_STATEMENT;
+}
+
+function freqOf(value: string | undefined): Freq {
+  return FREQ_BY_VALUE.get(value ?? "") ?? DEFAULT_FREQ;
+}
 
 //: At most this many periods are shown; older ones are still fetched but
 //: would only widen the table past what fits on one screen.
 const MAX_PERIODS = 8;
 
 function parseArgs(tokens: string[]): PanelArgs {
-  const s = (tokens[0] ?? "income").toLowerCase();
-  const f = (tokens[1] ?? "annual").toLowerCase();
-  const statement = STATEMENTS[s];
-  if (statement === undefined || !FREQS.includes(f)) throw new Error(USAGE);
-  return { statement, freq: f };
+  const statement = STATEMENT_BY_WORD.get((tokens[0] ?? "income").toLowerCase());
+  const freq = FREQ_BY_VALUE.get((tokens[1] ?? "annual").toLowerCase());
+  if (statement === undefined || freq === undefined) throw new Error(FA_USAGE);
+  return { statement, freq };
 }
 
 interface PivotRow extends Record<string, unknown> {
@@ -79,8 +104,8 @@ export function cell(value: unknown): string {
 
 export function FA({ symbol, args }: PanelProps) {
   const navigate = useNavigate();
-  const statement = args.statement ?? "income";
-  const freq = args.freq ?? "annual";
+  const statement = statementOf(args.statement);
+  const freq = freqOf(args.freq);
   const { state, retry } = usePanelData<FinancialFact[]>(
     `${symbol ?? ""}|${statement}|${freq}`,
     () => (symbol === null ? Promise.reject(new Error("no symbol")) : getFinancials(symbol, statement, freq)),
@@ -109,7 +134,7 @@ export function FA({ symbol, args }: PanelProps) {
   return (
     <section>
       <div className="tabs" role="tablist" aria-label="statement">
-        {STATEMENT_TABS.map(([value, label]) => (
+        {STATEMENTS.map(([value, , label]) => (
           <button
             key={value}
             role="tab"
@@ -122,7 +147,7 @@ export function FA({ symbol, args }: PanelProps) {
         ))}
       </div>
       <div className="tabs" role="tablist" aria-label="frequency">
-        {FREQ_TABS.map(([value, label]) => (
+        {FREQS.map(([value, label]) => (
           <button
             key={value}
             role="tab"
@@ -141,8 +166,7 @@ export function FA({ symbol, args }: PanelProps) {
       {table && (
         <>
           <p className="muted">
-            {symbol} · {STATEMENT_TABS.find(([v]) => v === statement)?.[1] ?? statement} ·{" "}
-            {FREQ_TABS.find(([v]) => v === freq)?.[1] ?? freq}
+            {symbol} · {STATEMENT_LABEL.get(statement)} · {FREQ_LABEL.get(freq)}
             {table.currency ? ` · ${table.currency}` : ""}
           </p>
           <DataTable columns={columns} rows={table.rows} rowKey={(row) => row.item} />
@@ -155,8 +179,15 @@ export function FA({ symbol, args }: PanelProps) {
 export const FA_PANEL: PanelSpec = {
   code: "FA",
   title: "Financial statements",
+  usage: FA_ARGS,
   needsSymbol: true,
   layout: Layout.Single,
   parseArgs,
+  // Args can arrive from a hand-edited URL, not only from parseArgs.
+  normalizeArgs: (args) => ({
+    ...args,
+    statement: statementOf(args.statement),
+    freq: freqOf(args.freq),
+  }),
   component: FA,
 };

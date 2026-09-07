@@ -36,6 +36,7 @@ from yfin.datasets.domain.common import (
 from yfin.datasets.domain.payloads import DomainPayload
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.registry import register_domain
+from yfin.models.domains import DomainType
 from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
@@ -259,7 +260,7 @@ class _DomainProfileDataset(DomainAsOfDataset[DomainPayload]):
 class SectorProfileDataset(_DomainProfileDataset):
     name = "sector_profile"
     depends_on = ("domain_taxonomy",)
-    scope = "sector"
+    scope = DomainType.SECTOR
     # Four tables: bootstrap already populates the sector's
     # `description`/`message_board_id` fields, since they exist in the
     # sector response's `overview` block.
@@ -303,7 +304,7 @@ class SectorProfileDataset(_DomainProfileDataset):
 class IndustryProfileDataset(_DomainProfileDataset):
     name = "industry_profile"
     depends_on = ("domain_taxonomy",)
-    scope = "industry"
+    scope = DomainType.INDUSTRY
     # Five tables: includes `domains`
     produces = asof_produces(
         METRICS_TABLE,

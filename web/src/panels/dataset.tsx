@@ -1,10 +1,9 @@
 // One dataset, loaded and shown. Shared by DS (any dataset by name) and
 // the curated tabbed panels (a fixed list of datasets per family).
-import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
 import { ApiError, getCatalog, getDatasetPage, type CatalogEntry, type Row } from "../api/client";
 import type { PanelArgs } from "../commands/types";
-import { EmptyCard, ErrorCard, LoadState, usePanelData } from "./common";
+import { EmptyCard, ErrorCard, LoadState, NextPageError, usePagedRows, usePanelData } from "./common";
 import { linksFor } from "./links";
 import { DatasetTable } from "./table";
 
@@ -18,7 +17,7 @@ export enum SymbolMode {
   None = "none",
 }
 
-export interface Loaded {
+export interface DatasetPage {
   entry: CatalogEntry;
   rows: Row[];
   next_cursor: string | null;
@@ -28,19 +27,12 @@ export interface Loaded {
   params: Record<string, string>;
 }
 
-export class UnknownDataset extends Error {
-  constructor(readonly name: string) {
-    super(`No dataset named ${name}`);
-    this.name = "UnknownDataset";
-  }
-}
-
-export async function loadDataset(
+async function loadDataset(
   name: string, symbol: string | null, filters: PanelArgs, mode: SymbolMode,
-): Promise<Loaded> {
+): Promise<DatasetPage> {
   const catalog = await getCatalog();
   const entry = catalog.find((e) => e.name === name);
-  if (entry === undefined) throw new UnknownDataset(name);
+  if (entry === undefined) throw new Error(`No dataset named ${name}`);
   const params: Record<string, string> = { ...filters };
   const scoped = mode === SymbolMode.Auto && entry.symbol_scoped && symbol !== null;
   if (scoped) params.symbol = symbol;
@@ -92,22 +84,17 @@ export function DatasetView(props: {
     .map(([k, v]) => `${k}=${v}`)
     .join("&");
   const key = `${name}|${symbol ?? ""}|${mode}|${filterKey}`;
-  const { state, retry } = usePanelData<Loaded>(
+  const { state, retry } = usePanelData<DatasetPage>(
     key,
     () => loadDataset(name, symbol, filters, mode),
     (loaded) => loaded.rows.length === 0,
   );
-  // Pages after the first live here; a new query drops them.
-  const [extra, setExtra] = useState<{ key: string; rows: Row[]; cursor: string | null; loading: boolean; error: string | null }>({
-    key,
-    rows: [],
-    cursor: null,
-    loading: false,
-    error: null,
-  });
-  useEffect(() => {
-    setExtra({ key, rows: [], cursor: null, loading: false, error: null });
-  }, [key]);
+  const first = state.kind === LoadState.Ready ? state.data : null;
+  const paged = usePagedRows<Row>(key, first?.next_cursor ?? null, (cursor) =>
+    first === null
+      ? Promise.reject(new Error("no first page"))
+      : getDatasetPage(first.entry.name, first.params, cursor),
+  );
 
   if (state.kind === LoadState.Loading) return <p className="muted">Loading {name}…</p>;
   if (state.kind === LoadState.Missing) return <p className="card card-error">No dataset named {name}.</p>;
@@ -116,22 +103,7 @@ export function DatasetView(props: {
   }
   if (state.kind === LoadState.Empty) return <EmptyCard what={`${name} rows`} />;
   const { entry } = state.data;
-  const current = extra.key === key ? extra : { key, rows: [], cursor: null, loading: false, error: null };
-  const rows = [...state.data.rows, ...current.rows];
-  const cursor = current.rows.length > 0 || current.cursor !== null ? current.cursor : state.data.next_cursor;
-  const loadMore = async () => {
-    if (!cursor || current.loading) return;
-    setExtra({ ...current, loading: true, error: null });
-    try {
-      const page = await getDatasetPage(entry.name, state.data.params, cursor);
-      setExtra((e) =>
-        e.key === key ? { ...e, rows: [...e.rows, ...page.rows], cursor: page.next_cursor, loading: false } : e,
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setExtra((e) => (e.key === key ? { ...e, loading: false, error: message } : e));
-    }
-  };
+  const rows = [...state.data.rows, ...paged.rows];
   return (
     <section>
       <p className="detail-meta">
@@ -145,10 +117,10 @@ export function DatasetView(props: {
         rows={rows}
         hide={state.data.symbol !== null ? ["symbol"] : []}
         links={linksFor(entry.name, entry.columns.map((c) => c.name))}
-        onLoadMore={cursor ? () => void loadMore() : undefined}
-        loadingMore={current.loading}
+        onLoadMore={paged.cursor === null ? undefined : paged.loadMore}
+        loadingMore={paged.loadingMore}
       />
-      {current.error && <p className="card card-error">Could not load the next page: {current.error}</p>}
+      {paged.error !== null && <NextPageError message={paged.error} />}
     </section>
   );
 }
@@ -156,10 +128,4 @@ export function DatasetView(props: {
 function describeError(message: string, filters: PanelArgs): string {
   const keys = Object.keys(filters);
   return keys.length > 0 ? `${message} (filters: ${keys.join(", ")})` : message;
-}
-
-/** Whether an error is the API refusing a symbol-less request for a
- *  symbol-scoped dataset, so the panel can say "type a symbol" instead. */
-export function needsSymbol(err: unknown): boolean {
-  return err instanceof ApiError && err.status === 422;
 }

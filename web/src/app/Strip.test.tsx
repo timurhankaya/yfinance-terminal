@@ -75,6 +75,19 @@ describe("Strip", () => {
     expect(screen.getByText("after hours")).toBeInTheDocument();
   });
 
+  it("says so for a session code it does not know", () => {
+    // The wire can carry a code this page has no name for; the label
+    // table is keyed by number so that fallback is reachable rather than
+    // asserted away.
+    render(<Strip symbol="AAPL" live />);
+    act(() => {
+      handleFrame({ op: Op.Live, enabled: true });
+      handleFrame({ op: Op.Snap, d: tick({ mh: 9 }) });
+    });
+    paint();
+    expect(screen.getByText("unknown session")).toBeInTheDocument();
+  });
+
   it("says the stream is off rather than showing a still price", () => {
     render(<Strip symbol="AAPL" live />);
     act(() => {

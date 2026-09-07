@@ -23,18 +23,23 @@ import { formatDecimal, formatInteger } from "./table";
 //: One shared empty array, so "no rows yet" keeps its identity.
 const NO_TICKS: Tick[] = [];
 
-export const QR_USAGE = `Usage: QR [rows 1-2000]`;
 const MAX_ROWS = 2000;
+export const QR_ARGS = `QR [rows 1-${MAX_ROWS}]`;
+export const QR_USAGE = `Usage: ${QR_ARGS}`;
 //: Rows on screen at once. The tape holds up to 2,000; this is what is
 //: rendered, and Enter or the button grows it. A tape is read at the
 //: top -- the rest is scrollback, and paying to lay out 2,000 rows for
 //: the twenty anyone looks at is what makes a terminal feel slow.
 const PAGE = 300;
 
+function rowsInRange(rows: number): boolean {
+  return Number.isInteger(rows) && rows >= 1 && rows <= MAX_ROWS;
+}
+
 function parseArgs(tokens: string[]): PanelArgs {
   if (tokens.length === 0) return {};
   const rows = Number(tokens[0]);
-  if (!Number.isInteger(rows) || rows < 1 || rows > MAX_ROWS) throw new Error(QR_USAGE);
+  if (!rowsInRange(rows)) throw new Error(QR_USAGE);
   return { rows: String(rows) };
 }
 
@@ -72,8 +77,7 @@ export function mergeTape(tape: Tick[], history: Tick[], breaks: Set<string>): T
 }
 
 export function QR({ symbol, args }: PanelProps) {
-  const asked = Number(args.rows ?? TICKS_DEFAULT);
-  const rows = Number.isInteger(asked) && asked >= 1 && asked <= MAX_ROWS ? asked : TICKS_DEFAULT;
+  const rows = Number(args.rows ?? TICKS_DEFAULT);
   const tape = useTape(symbol);
   const link = useLinkState();
   const enabled = useLiveEnabled();
@@ -174,9 +178,14 @@ export function QR({ symbol, args }: PanelProps) {
 export const QR_PANEL: PanelSpec = {
   code: "QR",
   title: "Time and sales, live",
-  usage: QR_USAGE.slice(7),
+  usage: QR_ARGS,
   needsSymbol: true,
   layout: Layout.Headed,
   parseArgs,
+  // Args can arrive from a hand-edited URL, not only from parseArgs.
+  normalizeArgs: (args) => {
+    const rows = Number(args.rows ?? TICKS_DEFAULT);
+    return { ...args, rows: String(rowsInRange(rows) ? rows : TICKS_DEFAULT) };
+  },
   component: QR,
 };

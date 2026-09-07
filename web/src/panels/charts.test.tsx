@@ -5,15 +5,15 @@
 // here is the contract between the panel and the chart -- which series
 // it hands over, and what it says around them. The transforms themselves
 // are `chart-data.test.ts`, where they are ordinary functions.
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChartProps } from "./Chart";
 import { GIP, GIP_PANEL, GIP_USAGE } from "./GIP";
 import { GP, GP_PANEL, GP_USAGE } from "./GP";
 import { QR, QR_PANEL, QR_USAGE, mergeTape, tapeClock } from "./QR";
-import { MarketHours } from "../live/types";
+import { LinkState, MarketHours } from "../live/types";
 import type { Tick } from "../live/types";
-import { resetLive, setSocketFactory } from "../live/store";
+import { resetLive, setSocketFactory, useLive } from "../live/store";
 import type { SocketLike } from "../live/socket";
 
 const drawn: ChartProps[] = [];
@@ -130,11 +130,15 @@ describe("GP", () => {
     expect(await screen.findByText(/No daily bars/)).toBeInTheDocument();
   });
 
-  it("falls back to the default when the URL carries nonsense", async () => {
-    // Args reach a panel from a hand-edited URL too, not only parseArgs.
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () => page([bar("2026-09-03T13:30:00Z")]));
-    render(<GP symbol="AAPL" args={{ years: "900" }} />);
-    expect(await screen.findByText(/2 years/)).toBeInTheDocument();
+  it("falls back to the default when the URL carries nonsense", () => {
+    // Args reach a panel from a hand-edited URL too, not only parseArgs,
+    // and `normalizeArgs` is where that is settled -- once, before the
+    // component runs, so the panel body has one contract instead of
+    // re-validating every arg it reads.
+    expect(GP_PANEL.normalizeArgs?.({ years: "900" })).toEqual({ years: "2" });
+    expect(GP_PANEL.normalizeArgs?.({ years: "zero" })).toEqual({ years: "2" });
+    expect(GP_PANEL.normalizeArgs?.({})).toEqual({ years: "2" });
+    expect(GP_PANEL.normalizeArgs?.({ years: "5" })).toEqual({ years: "5" });
   });
 });
 
@@ -144,6 +148,14 @@ describe("GIP parseArgs", () => {
     expect(GIP_PANEL.parseArgs(["1m"])).toEqual({ interval: "1m" });
     expect(() => GIP_PANEL.parseArgs(["1d"])).toThrow(GIP_USAGE);
     expect(() => GIP_PANEL.parseArgs(["15M"])).toThrow(GIP_USAGE);
+  });
+
+  it("brings a hand-edited URL back to an intraday interval", () => {
+    // `1d` is a real interval and still not one this panel serves.
+    expect(GIP_PANEL.normalizeArgs?.({ interval: "1d" })).toEqual({ interval: "5m" });
+    expect(GIP_PANEL.normalizeArgs?.({ interval: "nonsense" })).toEqual({ interval: "5m" });
+    expect(GIP_PANEL.normalizeArgs?.({})).toEqual({ interval: "5m" });
+    expect(GIP_PANEL.normalizeArgs?.({ interval: "1m" })).toEqual({ interval: "1m" });
   });
 });
 
@@ -180,6 +192,30 @@ describe("GIP", () => {
     expect(screen.getByText(/1 open gap/)).toBeInTheDocument();
   });
 
+  it("refreshes after a reconnect without unmounting the chart", async () => {
+    // `Chart` builds its canvas once on purpose -- rebuilding it would
+    // lose the reader's pan and zoom. A roll or a reconnect refetches the
+    // SAME window, so that refresh must not pass through "Loading…".
+    let barFetches = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).includes("/gaps")) return page([]);
+      barFetches += 1;
+      return page([bar("2026-09-08T13:30:00Z")]);
+    });
+    render(<GIP symbol="AAPL" args={{ interval: "5m" }} />);
+    const node = await screen.findByTestId("chart");
+    expect(barFetches).toBe(1);
+
+    // The socket comes back after a drop: what arrived while it was down
+    // was never delivered, so the archive is asked again.
+    act(() => {
+      useLive.setState({ link: LinkState.Open });
+    });
+    await waitFor(() => expect(barFetches).toBe(2));
+    expect(screen.queryByText(/Loading/)).toBeNull();
+    expect(screen.getByTestId("chart")).toBe(node);
+  });
+
   it("says so when the window is clean", async () => {
     // Silence would read as "no gaps here" and as "this panel does not
     // check" alike.
@@ -196,6 +232,11 @@ describe("QR", () => {
     expect(QR_PANEL.parseArgs([])).toEqual({});
     expect(QR_PANEL.parseArgs(["100"])).toEqual({ rows: "100" });
     expect(() => QR_PANEL.parseArgs(["2001"])).toThrow(QR_USAGE);
+  });
+
+  it("clamps a hand-edited row count back to the default", () => {
+    expect(QR_PANEL.normalizeArgs?.({ rows: "9999" })).toEqual({ rows: "500" });
+    expect(QR_PANEL.normalizeArgs?.({ rows: "100" })).toEqual({ rows: "100" });
   });
 
   it("shows the archive's ticks newest first", async () => {

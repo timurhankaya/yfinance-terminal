@@ -22,6 +22,21 @@ describe("PX parseArgs", () => {
     expect(() => PX_PANEL.parseArgs(["1d", "1001"])).toThrow(PX_USAGE);
     expect(() => PX_PANEL.parseArgs(["1d", "ten"])).toThrow(PX_USAGE);
   });
+
+  it("brings a hand-edited URL back into range before the panel runs", () => {
+    // Args reach a panel from a bookmarked URL too, and `normalizeArgs`
+    // is the one place that is settled -- the panel body reads them as
+    // given rather than re-checking each one.
+    expect(PX_PANEL.normalizeArgs?.({ interval: "2m", rows: "9999" })).toEqual({
+      interval: "1d",
+      rows: "250",
+    });
+    expect(PX_PANEL.normalizeArgs?.({})).toEqual({ interval: "1d", rows: "250" });
+    expect(PX_PANEL.normalizeArgs?.({ interval: "5m", rows: "50" })).toEqual({
+      interval: "5m",
+      rows: "50",
+    });
+  });
 });
 
 describe("PX", () => {

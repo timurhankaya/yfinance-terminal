@@ -12,6 +12,7 @@ import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
 const GROUPS: ReadonlyArray<[title: string, codes: string[]]> = [
   ["About one symbol", ["DES", "FA", "ANR", "N", "CF", "CA", "PX", "HDS", "ERN", "FUND", "REF"]],
   ["Charts and the tape", ["GP", "GIP", "QR"]],
+  ["Several symbols at once", ["WLA"]],
   ["Market-wide", ["EQS", "CAL", "MKT", "SCR", "SRCH", "DOM"]],
   ["Everything in the archive", ["DS"]],
   ["This page", ["HELP"]],
@@ -29,8 +30,10 @@ const EXAMPLES: ReadonlyArray<[command: string, what: string]> = [
   ["AAPL GIP 5m", "Five-minute candles for the last few sessions, with the archive's gaps shaded."],
   ["QR", "Time and sales: the last few hundred ticks, then live as they arrive."],
   ["CAL economic region=US", "A market-wide panel with a tab and a filter."],
+  ["WLA AAPL MSFT NVDA", "A live watchlist. The list is the URL, so it is shareable."],
   ["EQS", "Every screen this deployment runs; Enter opens one."],
   ["EQS day_gainers", "What that screen matched today, in its own order; Enter opens a symbol."],
+  ["EQS day_gainers runs", "That screen's history: how big the roster was each day, and why."],
   ["DS", "The catalogue: every dataset the archive holds, by family."],
   ["DS earnings_calendar", "Any dataset by name, filtered to the strip's symbol when it has one."],
   ["CF DES", "CF Industries' description: two function codes in a row mean the first is a symbol."],

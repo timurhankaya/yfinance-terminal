@@ -4,7 +4,7 @@
 // last bar from the newest tick alone, is what makes the high and low
 // honest -- a bar that spiked to 233 and came back to 232 has to keep
 // the 233.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuote } from "../live/hooks";
 import { BucketMode, applyTick } from "./chart-data";
 import type { Candle } from "./chart-data";
@@ -28,32 +28,38 @@ export function useLiveSeries(
   symbol: string | null,
   intervalSeconds: number,
   mode: BucketMode,
-  live: boolean,
 ): LiveSeries {
-  const quote = useQuote(live ? symbol : null);
+  const quote = useQuote(symbol);
   const [bar, setBar] = useState<Candle | null>(null);
   const [rolledAt, setRolledAt] = useState<number | null>(null);
+  // A mirror of `bar`, so the effect below can read the running candle
+  // without reading state inside a `setBar` updater. React requires
+  // updaters to be pure and double-invokes them in StrictMode to prove
+  // it; a `setRolledAt` in there fired twice per boundary, and the
+  // caller turns every roll into a window refetch.
+  const barRef = useRef<Candle | null>(bar);
+  barRef.current = bar;
 
   // A fresh REST load supersedes whatever was folded on top of the old
   // one: those ticks are in the bars now, and keeping the running bar
   // would show a candle built from a stale open.
   useEffect(() => {
     setBar(null);
+    barRef.current = null;
   }, [base]);
 
   useEffect(() => {
-    if (!live || quote === undefined) return;
-    setBar((current) => {
-      const anchor = current ?? base[base.length - 1];
-      const applied = applyTick(anchor, quote, intervalSeconds, mode);
-      if (applied === null) return current;
-      if (applied.isNew && anchor !== undefined && applied.candle.time !== anchor.time) {
-        const opened = applied.candle.time;
-        setRolledAt((previous) => (previous === null || opened > previous ? opened : previous));
-      }
-      return applied.candle;
-    });
-  }, [quote, base, intervalSeconds, mode, live]);
+    if (quote === undefined) return;
+    const anchor = barRef.current ?? base[base.length - 1];
+    const applied = applyTick(anchor, quote, intervalSeconds, mode);
+    if (applied === null) return;
+    if (applied.isNew && anchor !== undefined && applied.candle.time !== anchor.time) {
+      const opened = applied.candle.time;
+      setRolledAt((previous) => (previous === null || opened > previous ? opened : previous));
+    }
+    barRef.current = applied.candle;
+    setBar(applied.candle);
+  }, [quote, base, intervalSeconds, mode]);
 
   const candles = useMemo(() => {
     if (bar === null) return base;

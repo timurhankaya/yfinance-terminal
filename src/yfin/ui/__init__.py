@@ -27,9 +27,19 @@ def install(app: FastAPI, settings: ApiSettings, dist_dir: Path | None = None) -
 
     `/ui/ws` sits outside all of that: it is a different scope type, so
     no HTTP route can shadow it and the `RequestBrake` below never sees
-    it (a WebSocket does not pass through BaseHTTPMiddleware). Its own
-    guard is the Origin check in `live.py`."""
+    it (a WebSocket does not pass through BaseHTTPMiddleware). Its guards
+    are its own: the Origin check in `live.py`, plus the per-address and
+    per-process connection limits there, which are what the brake would
+    otherwise have provided."""
+    from yfin.core.config import get_settings
     from yfin.ui import data, live, pages, public
+
+    # Warmed here, at startup, and not for the value. `get_settings()`
+    # lazily opens a database connection and reads the `settings` table
+    # under a lock; `/ui/ws` calls it from an `async` handler, so the
+    # FIRST handshake after startup would otherwise run that blocking
+    # read on the event loop and stall every other request in the worker.
+    get_settings()
 
     app.include_router(data.router)
     app.include_router(live.router)

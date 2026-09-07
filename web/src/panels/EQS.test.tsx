@@ -104,6 +104,7 @@ describe("the roster", () => {
         data: {
           screen: summary(),
           rows: [row(), row({ rank_index: 1, symbol: "AAA", short_name: "Aaa Inc" })],
+          offset: 0,
           truncated: false,
         },
         as_of: "2026-09-08T20:05:00Z",
@@ -126,6 +127,7 @@ describe("the roster", () => {
         data: {
           screen: summary(),
           rows: [row({ symbol: "BBB", is_known: false, short_name: null, price: null })],
+          offset: 0,
           truncated: false,
         },
         as_of: null,
@@ -135,19 +137,63 @@ describe("the roster", () => {
     expect(await screen.findByText(/outside this deployment/)).toBeInTheDocument();
   });
 
-  it("says the roster was cut rather than implying it ended", async () => {
+  it("offers a way forward rather than saying the roster is longer", async () => {
+    // A roster is 1,000 rows at the default `yf_screen_size` x
+    // `yf_screen_max_pages`, so "there is more" without a Next button
+    // is a dead end on most screens.
     vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      json({ data: { screen: summary(), rows: [row()], truncated: true }, as_of: null }),
+      json({
+        data: { screen: summary(), rows: [row()], offset: 0, truncated: true },
+        as_of: null,
+      }),
     );
     draw({ screen: "day_gainers" });
-    expect(await screen.findByText(/longer than this page shows/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Next" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    expect(screen.getByText("1–1 of 100")).toBeInTheDocument();
+  });
+
+  it("walks forward and back through the roster", async () => {
+    const asked: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      asked.push(url);
+      const offset = url.includes("offset=250") ? 250 : 0;
+      return json({
+        data: {
+          screen: summary(),
+          rows: [row({ symbol: offset === 0 ? "CCC" : "ZZZ" })],
+          offset,
+          truncated: offset === 0,
+        },
+        as_of: null,
+      });
+    });
+    draw({ screen: "day_gainers" });
+    const next = await screen.findByRole("button", { name: "Next" });
+    next.click();
+    expect(await screen.findByText("ZZZ")).toBeInTheDocument();
+    expect(asked.some((url) => url.includes("offset=250"))).toBe(true);
+    expect(screen.getByText("251–251 of 100")).toBeInTheDocument();
+  });
+
+  it("shows no paging control on a roster that fits", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      json({
+        data: { screen: summary(), rows: [row()], offset: 0, truncated: false },
+        as_of: null,
+      }),
+    );
+    draw({ screen: "day_gainers" });
+    await screen.findByText("CCC");
+    expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
   });
 
   it("tells the reader where the other ninety-odd columns are", async () => {
     // The terminal's rule is that nothing in the archive is unreachable;
     // a curated grid has to name the way to the rest.
     vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      json({ data: { screen: summary(), rows: [row()], truncated: false }, as_of: null }),
+      json({ data: { screen: summary(), rows: [row()], offset: 0, truncated: false }, as_of: null }),
     );
     draw({ screen: "day_gainers" });
     expect(await screen.findByText(/DS screen_quotes/)).toBeInTheDocument();
@@ -159,6 +205,59 @@ describe("the roster", () => {
     );
     draw({ screen: "nope" });
     expect(await screen.findByText(/No such symbol: nope/)).toBeInTheDocument();
+  });
+});
+
+describe("sub-pages", () => {
+  it("takes a tab name after the screen", () => {
+    expect(EQS_PANEL.parseArgs(["day_gainers", "RUNS"])).toEqual({
+      screen: "day_gainers",
+      tab: "runs",
+    });
+    expect(() => EQS_PANEL.parseArgs(["day_gainers", "nope"])).toThrow(EQS_USAGE);
+  });
+
+  it("offers both tabs on a screen", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      json({
+        data: { screen: summary(), rows: [row()], offset: 0, truncated: false },
+        as_of: null,
+      }),
+    );
+    draw({ screen: "day_gainers" });
+    await screen.findByText("CCC");
+    expect(screen.getByRole("tab", { name: "Members" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("tab", { name: "Runs" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("reads the run history through the catalogue, not a second route", async () => {
+    // `screen_runs` is already a catalogue entry filtered by
+    // `screen_key`; a hand-written route would be a second way to read
+    // one table.
+    const asked: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      asked.push(url);
+      if (url.includes("/datasets?")) return json({ data: [], next_cursor: null });
+      return json({ data: [], next_cursor: null });
+    });
+    draw({ screen: "day_gainers", tab: "runs" });
+    await screen.findByRole("tab", { name: "Runs" });
+    expect(screen.getByRole("tab", { name: "Runs" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("falls back to the roster when the URL names no such tab", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      json({
+        data: { screen: summary(), rows: [row()], offset: 0, truncated: false },
+        as_of: null,
+      }),
+    );
+    draw({ screen: "day_gainers", tab: "nonsense" });
+    expect(await screen.findByText("CCC")).toBeInTheDocument();
   });
 });
 
