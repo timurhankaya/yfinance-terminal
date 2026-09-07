@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from typing import Any, Literal
 
@@ -62,17 +62,16 @@ class DomainContext:
         return self._cache[key]
 
     def _clone(self, **changes: Any) -> DomainContext:
-        clone = DomainContext(
-            fetched_at=self.fetched_at,
-            as_of_date=self.as_of_date,
-            primary_region=self.primary_region,
-            region=changes.get("region", self.region),
-            key=changes.get("key", self.key),
-            domain_type=changes.get("domain_type", self.domain_type),
-            parents=self.parents,
-        )
-        clone._cache = self._cache
-        return clone
+        """A copy that SHARES the cache and the parent map.
+
+        This used to honour three of the seven fields and pass the rest
+        straight from `self`, so `_clone(fetched_at=...)` returned the
+        original value with no error, and a misspelled key did nothing at
+        all. `dataclasses.replace` honours every field, refuses a name that
+        is not one, and carries `_cache` and `parents` across by identity
+        because both are init fields holding the same object.
+        """
+        return replace(self, **changes)
 
     def for_target(self, key: str, domain_type: DomainType) -> DomainContext:
         return self._clone(key=key, domain_type=domain_type)

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from typing import Any, Literal
 
@@ -55,21 +55,20 @@ class MarketContext:
     def _clone(self, **changes: Any) -> MarketContext:
         """A copy that SHARES the cache -- the single cloning point.
 
-        `for_region` used to enumerate fields BY HAND. When `variant` was
-        added without also listing it there, it would SILENTLY drop on the
-        region branch; every future field would set the same trap.
-        `DomainContext._clone` (domain/base.py) solves the same problem the
-        same way.
+        `for_region` used to enumerate fields BY HAND, so when `variant` was
+        added without also being listed there it SILENTLY dropped on the
+        region branch. Collecting that into one method did not remove the
+        trap, it only moved it: a hand-written constructor call here sets it
+        again for the next field anyone adds.
+
+        `dataclasses.replace` removes it for real. It copies every init
+        field, so a new one is carried without this method being touched,
+        and it raises on a name that is not a field instead of ignoring the
+        change. `_cache` is an init field, so the copy is handed the same
+        dict object and the cache stays shared.
+        `DomainContext._clone` (domain/base.py) does the same.
         """
-        clone = MarketContext(
-            fetched_at=changes.get("fetched_at", self.fetched_at),
-            start=changes.get("start", self.start),
-            end=changes.get("end", self.end),
-            region=changes.get("region", self.region),
-            variant=changes.get("variant", self.variant),
-        )
-        clone._cache = self._cache
-        return clone
+        return replace(self, **changes)
 
     def for_region(self, region: str) -> MarketContext:
         """A context with region set, sharing the same cache."""
