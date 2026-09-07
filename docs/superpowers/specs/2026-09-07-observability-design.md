@@ -2,7 +2,7 @@
 
 Status: approved, not yet implemented
 Date: 2026-09-07
-Revised 2026-09-07 after independent review (see "Revisions" at the end).
+Revised 2026-09-07 after two rounds of independent review (see "Revisions" at the end).
 Sibling of `2026-09-07-pipeline-change-events-design.md` ("the changes
 design"). The dependencies between the two are listed under
 "Implementation order"; everything else here stands on its own.
@@ -31,8 +31,12 @@ and freshness are visible without opening `psql`.
 | yfinance's stdlib logs go through a private `_ScrubbingHandler` with `propagate = False` | `core/logging_setup.py:87-113` |
 | `run_id`, `shard`, `proxy` bound as contextvars, rebound in worker threads; `shard_main` calls `configure_logging(level)` | `core/logging_setup.py:116-126`, `pipeline/shard.py:133` |
 | API logs one line per request with `request_id`, route template, status, duration; never the query string | `api/core/middleware.py:100-125` |
-| `/health` and `/health/ready`, unauthenticated, a module-private per-IP window and a readiness cache | `api/routers/meta.py:45-88,117-149` |
+| `/health` and `/health/ready`, unauthenticated, a module-private `_FixedWindow` (`_limiter`) sized by `health_rate_limit_per_minute`, and a readiness cache | `api/routers/meta.py:45-88,117-153` |
 | The API image runs `uvicorn --workers 4`; `HEALTHCHECK` probes `/health` on 8000; `WORKDIR /app` is root-owned and only `.venv` and `src` are `chown`ed | `Dockerfile` |
+| `prometheus_client` picks its value class from `PROMETHEUS_MULTIPROC_DIR` **at import time**, process-wide | `prometheus_client/values.py` (0.26.0) |
+| APScheduler 3.11 counts `max_instances` per job id; a job on a busy single-thread executor is queued, and misfire is evaluated when it is dequeued | `apscheduler/executors/base.py` (3.11.3) |
+| `validate_pair` builds a `Settings` from the candidate, so pydantic validators are what reject a value | `storage/settings_store.py:293-307` |
+| The OTel SDK reads `OTEL_TRACES_SAMPLER*` only when no sampler is passed in code | `opentelemetry-sdk` 1.44.0 `TracerProvider.__init__` |
 | `yf_tz_cache_dir` defaults to the relative `.cache/yfinance`, created on first request | `core/config.py:154-157`, `ingest/client.py:157-165` |
 | No Prometheus, OpenTelemetry or Sentry anywhere; no `/metrics` | grep |
 | No scheduler; cron is assumed in comments | `cli/app.py:536`, `storage/settings_store.py:336`, `models/bars.py:233-234` |
@@ -42,8 +46,13 @@ and freshness are visible without opening `psql`.
 | Shards are separate processes (`spawn`); `finalize_run` runs in the parent | `pipeline/shard.py:122,280` |
 | `sync_run_items` has no timestamp; age comes from `sync_runs.started_at`; index `(symbol, dataset)` only; nothing prunes the audit tables | `models/sync.py:67-149`, `pipeline/prune.py` |
 | `sync_run_items` keeps `error` text; `SymbolPayload.failures` is `(dataset, message)` and the kinds are a separate flat list | `models/sync.py:103-149`, `pipeline/payload.py:24,37`, `pipeline/runner.py:140-141` |
-| Bar datasets record `out_of_scope` for symbols outside `intraday_scope`; opt-in datasets never run under `all` | `pipeline/runner.py:125-130`, `datasets/registry.py:65` |
-| Market items use a scope label as `symbol`; domain items carry `region` | `pipeline/market_runner.py:95`, `pipeline/audit.py:48-52` |
+| Bar datasets record `out_of_scope` for symbols outside `intraday_scope`; opt-in datasets never run under `all`; `not_attempted` is written only for the bootstrap dataset when a shard is pulled | `pipeline/runner.py:125-130`, `datasets/registry.py:78-101`, `pipeline/audit.py:277-299` |
+| Market items use a scope label as `symbol`; domain items carry `region`; a multi-table dataset writes one item per table, each with its own status | `pipeline/market_runner.py:96`, `pipeline/audit.py:48-52,55-108` |
+| `run_turn` classifies fetch errors but `failed_records` cannot carry the kind | `pipeline/turn.py:88-101`, `pipeline/audit.py:109` |
+| `yfin config export` and `config schema --json` print JSON to **stdout**; `scripts/dump_openapi.py` too | `cli/settings.py:273-278,292` |
+| The API configures logging lazily, through `get_settings()` on the first engine | `api/storage/session.py:22`, `core/config.py:498` |
+| With `LOG_LEVEL=DEBUG` yfinance installs its own unredacted `StreamHandler` if its logger has none | `ingest/client.py:138-143`, `core/logging_setup.py:88-93` |
+| No `ENTRYPOINT` in the Dockerfile; `apply_write` lives in `storage/contracts.py` | `Dockerfile`, `storage/contracts.py:140` |
 | Yahoo retention per interval: 1m 29 d, 5m/15m 59 d, 60m 729 d | `datasets/bars.py:43-56` (`BAR_LIMITS`) |
 | Proxy state is `is_enabled` × `health ∈ unknown|healthy|cooldown|dead` | `models/proxies.py:50-54,98-99` |
 | The settings table is read once; `SETTING_GROUPS` is a closed tuple enforced by a test; DB-managed fields are everything not in `ENV_ONLY_FIELDS` | `core/config.py:45-58,442,605-611`, `tests/unit/test_settings_split.py` |
@@ -117,7 +126,8 @@ not from memory. Image tags are re-checked when pinned.
    the metrics ports and the JSON log format are set only by the
    observability override, so `docker compose up -d` brings up the four
    services it does today with no exporter trying to reach a collector
-   that is not there.
+   that is not there. The override is a second compose file loaded
+   with `-f`; a profile selects services, it does not select files.
 
 8. **Thresholds are starting values, not measurements.** Alert `for`
    windows, the freshness factor, sampling ratios and retention days are
@@ -133,17 +143,30 @@ not from memory. Image tags are re-checked when pinned.
 `yahoo` (`ThreadPoolExecutor(1)`) for `sync`, `market`, `domain` and
 `stream_reconcile`, which all talk to Yahoo or take the sync lock; and
 `default` for `prune`, `usage_flush` and `bars_maintain`. `max_instances=1`
-and `coalesce=True` per job. A firing that finds its job already
-running is recorded as `skipped` through the `EVENT_JOB_MAX_INSTANCES`
-listener; a missed one through `EVENT_JOB_MISSED` as `misfired`.
+and `coalesce=True` per job.
+
+What the single-thread `yahoo` executor actually does, verified against
+3.11.3: `max_instances` is counted per job id, so a *different* job
+fired while `sync` runs is **queued**, not rejected, and its misfire
+grace is evaluated when it is dequeued. So while a three-hour `sync`
+runs, an hourly `stream_reconcile` waits in the queue; if it waits
+longer than its grace it is dropped as `misfired`
+(`EVENT_JOB_MISSED`), otherwise it runs late, and the lateness is
+`started_at - scheduled_at` in `scheduler_runs`, shown on the Freshness
+dashboard. A second firing of a job that is itself still running or
+queued is `skipped` (`EVENT_JOB_MAX_INSTANCES`). `coalesce` only merges
+firings the scheduler process itself missed, for instance across a
+restart.
 
 Each firing spawns `yfin <command>` in its own process group with the
 scheduler's environment plus `YF_JOB_RUN_ID`. On SIGTERM the scheduler
 stops firing, forwards SIGTERM to the running process groups, waits up
 to `yf_schedule_stop_grace_seconds` (default 600), then SIGKILLs and
 records `terminated`. Compose sets `init: true` and
-`stop_grace_period` to the same value, so Docker's 10-second default
-cannot orphan a shard that holds the sync lock.
+`stop_grace_period: ${SCHEDULER_STOP_GRACE:-620s}` -- a literal, since a
+compose file cannot read the settings table -- and the scheduler's own
+wait must stay below it, so Docker's 10-second default cannot orphan a
+shard that holds the sync lock.
 
 `stream run` and the relays are not scheduled; they are compose services
 (see Compose).
@@ -156,9 +179,13 @@ state and next fire time.
 All new settings are `int` or `str`, following the `_seconds` / `_days`
 convention; `SETTING_GROUPS` gains `scheduler` and `monitoring`, and
 `tests/unit/test_settings_split.py` is updated with them. Cron strings
-are validated in `settings_store.validate_pair` with
-`CronTrigger.from_crontab`, so `yfin config set` rejects a bad
-expression instead of the scheduler failing at reload.
+are validated by a pydantic `field_validator` on the `yf_schedule_*`
+fields, which is what `validate_pair` and the loader both go through;
+the validator imports `CronTrigger.from_crontab` lazily and falls back
+to a five-field syntax check when the `[scheduler]` extra is not
+installed, so `core/config.py` never imports APScheduler at module
+level and `yfin config set` rejects a bad expression instead of the
+scheduler failing at reload.
 
 | setting | default | command | executor |
 | --- | --- | --- | --- |
@@ -215,8 +242,10 @@ run it produced are joinable without touching any command signature.
 `yfin_job_last_success_timestamp{job}` (seeded from `scheduler_runs` at
 start-up, so a restart does not fire `JobOverdue`),
 `yfin_job_last_duration_seconds{job}`, `yfin_job_interval_seconds{job}`
-(the cron's mean period, what the freshness and overdue rules divide
-by), `yfin_job_runs_total{job,result}`, `yfin_job_running{job}`,
+(the cron's mean period: the trigger is advanced with
+`get_next_fire_time` over at least 400 days and the span is divided by
+the number of firings; the same value feeds the per-job misfire grace
+and the freshness and overdue rules), `yfin_job_runs_total{job,result}`, `yfin_job_running{job}`,
 `yfin_job_next_run_timestamp{job}`. Served on the scheduler's
 `/metrics` together with the exporter gauges.
 
@@ -248,23 +277,40 @@ label by type). `METRICS_PORT` is an **env-only** `Settings` field
 would bind five services to one port. The observability override sets
 9101 for the scheduler, 9102 for `stream run`, 9103 and 9104 for the
 two relays. A port that cannot be bound is logged as a warning and the
-process carries on. `yfin_build_info{version}` everywhere.
+process carries on. `yfin_build_info{version}` everywhere, declared as a
+`Gauge` with value 1 and `multiprocess_mode="max"` -- not `Info`, which
+does not work in multiprocess mode. `core/metrics.py` imports
+`prometheus_client` lazily, after the environment is final, because the
+library chooses its value class from `PROMETHEUS_MULTIPROC_DIR` at
+import time.
 
-**API.** `prometheus-fastapi-instrumentator` with `metric_namespace="yfin"`,
-`should_group_status_codes=False`, exposed on the uvicorn port with
-`include_in_schema=False`, so `openapi.json` does not change;
-`test_api_contract.py` gains an assertion that `/metrics` is not in
-`paths`, and the openapi-finalisation design's list of routes outside
-the contract gains `/metrics`. The instrumentator's default `handler`
+**API.** `prometheus-fastapi-instrumentator`:
+`Instrumentator(should_group_status_codes=False,
+should_instrument_requests_inprogress=False,
+excluded_handlers=["/metrics", "/health"]).instrument(app,
+metric_namespace="yfin").expose(app, include_in_schema=False,
+dependencies=[Depends(metrics_window)])`. `include_in_schema=False`
+keeps `/metrics` out of `openapi.json`; what keeps it out of the
+contract tests is the `("/v1", "/oauth", "/health")` prefix filter in
+`test_api_contract.py`, which gains an explicit assertion that
+`/metrics` is not in `paths`. The instrumentator's default `handler`
 label is the route template, which is why `handler` is in the closed
-set. `PROMETHEUS_MULTIPROC_DIR` is set in the image and cleared by the
-entrypoint, and the instrumentator builds a `MultiProcessCollector`
-when it sees it; API metrics are therefore counters and histograms
-only. `/metrics` sits behind the same per-IP fixed window
-`/health/ready` uses, moved out of `meta.py` into `api/core/window.py`
-so both can import it. `RequestContextMiddleware` no longer logs
-`/metrics` and `/health*` requests: at a 15-second scrape that is
-5,760 lines a day of nothing. Custom counters:
+set. `PROMETHEUS_MULTIPROC_DIR` is set **only for the `api` service** in
+compose and emptied by the entrypoint before `uvicorn` starts; it must
+not be an image-wide `ENV`, or every other service would switch to
+multiprocess mode too. The instrumentator builds a
+`MultiProcessCollector` when it sees the variable; API metrics are
+therefore counters and histograms only, no in-progress gauge and no
+`mark_process_dead` hook. The API never calls `serve_metrics`, and the
+override does not set `METRICS_PORT` for it. `metrics_window` is the
+per-IP fixed window `/health/ready` already uses
+(`health_rate_limit_per_minute`), moved out of `meta.py` into
+`api/core/window.py` so both can import it. `RequestContextMiddleware`
+no longer logs `/metrics` and `/health*` requests: at a 15-second
+scrape that is 5,760 lines a day of nothing. `create_app` calls
+`configure_logging` explicitly instead of relying on the first engine
+to do it, or the module-level loggers would be cached before the
+format is set. Custom counters:
 
 - `yfin_api_ratelimit_decisions_total{reason="allowed"|"rate"|"quota"}`
   -- the integer codes 0/1/2 mapped to these strings at the metering
@@ -317,7 +363,7 @@ for the latest run per scope, summed over shards:
   read a fixed number of times per symbol, so its ratio carries no
   signal. yfinance's own SQLite cache offers no hook and is not counted.
 - `proxy_turns{result}` -- `ProxyTracker` in `pipeline/contracts.py`
-- `write_rows{table,op="attempted"|"verified"|"skipped"}` -- `apply_write`;
+- `write_rows{table,op="attempted"|"verified"|"skipped"}` -- `apply_write` in `storage/contracts.py`;
   `attempted` is the distinct-key count the writer proposes, and keeps
   that meaning after the changes design's distinctness predicate
 
@@ -334,23 +380,29 @@ database. Self-health: `yfin_exporter_query_seconds{query}` and
 previous values and leaves the timestamp behind, which the
 `ExporterStale` alert catches.
 
-**Freshness.** A *cell* is a `(symbol, dataset)` for symbol runs, a
-`(scope_label, dataset)` for market runs and a `(symbol, region,
-dataset)` for domain runs -- exactly the identity `sync_run_items`
-already records. The query takes each cell's **latest** item (by
-`run_id`), joined to `sync_runs.started_at` for its age. A cell is in
-the universe when that latest item's status is not `out_of_scope`,
-`not_attempted` or `unknown_symbol`; it is stale when the latest
-`ok|empty|skipped` item is older than `yf_freshness_factor` (default 2)
-× the writing job's interval (`sync` for symbol cells, `market`,
-`domain`). Opt-in datasets that never ran are simply not in the
-universe; bar datasets for symbols outside the intraday scope are
-excluded by their `out_of_scope` status. Gauges:
-`yfin_cells_stale{scope,dataset}` and `yfin_cells_total{scope,dataset}`
--- 61 datasets, no family mapping needed. The query needs a new index
-`ix_sync_run_items_cell_run (symbol, dataset, run_id DESC)`; whether
-`asof_state.fetched_at` answers the same question more cheaply for the
-as-of datasets is on the measurement list.
+**Freshness.** A *cell* is `(symbol, region, dataset)` -- exactly the
+identity `sync_run_items` records, with `region` `NULL` outside domain
+runs and `symbol` the scope label for market runs. A multi-table
+dataset writes one item per table per run, each with its own status,
+so the query first reduces a cell's items **per run** to the worst
+status (`failed` beats `ok`), then takes the latest run, joined to
+`sync_runs.started_at` for its age. A cell is in the universe when that
+latest status is not `out_of_scope` or `unknown_symbol`;
+`not_attempted` stays in the universe and is not good, so a shard that
+was pulled shows as a gap instead of vanishing. A cell is stale when
+its latest `ok|empty|skipped` run is older than `yf_freshness_factor`
+(default 2) × the writing job's interval (`sync` for symbol cells,
+`market`, `domain`). `skipped` counts as good because a content-hash
+skip is a verification; the `--start/--end` date-range skip shares the
+status and slightly flatters a manual ranged run, which is accepted.
+Opt-in datasets that never ran are simply not in the universe; bar
+datasets for symbols outside the intraday scope are excluded by their
+`out_of_scope` status. Gauges: `yfin_cells_stale{scope,dataset}` and
+`yfin_cells_total{scope,dataset}` -- 61 datasets, no family mapping
+needed. The query needs a new index
+`ix_sync_run_items_cell_run (symbol, region, dataset, run_id DESC)`;
+whether `asof_state.fetched_at` answers the same question more cheaply
+for the as-of datasets is on the measurement list.
 
 `yfin_intraday_scope_stale{interval}`: symbols in `intraday_scope`
 whose newest bar for that interval is within
@@ -369,10 +421,12 @@ from `is_enabled` and `health`.
 
 `sync_run_items` gains a nullable `error_kind` column
 (`AsciiKeyType(16)`). `SymbolPayload.failures` becomes `(dataset,
-message, kind)` so fetch failures carry their `ErrorKind`; write
-failures in `persist_with_retry` and `run_turn` record `write`, a
-crashed worker records `crash`, and the column is `NULL` where no kind
-is known.
+message, kind)` so symbol-run fetch failures carry their `ErrorKind`;
+`audit.failed_records` gains a `kind` parameter, which `run_turn`
+fills from the `classify_error` result it already computes on the
+fetch path and with `write` on the write path; `persist_with_retry`
+records `write`, a crashed worker `crash`, and the column is `NULL`
+where no kind is known.
 
 **Bars.** `yfin_bar_gaps_open{interval,reason}`,
 `yfin_bar_gaps_oldest_age_seconds{interval}`,
@@ -405,8 +459,9 @@ Alloy `prometheus.exporter.postgres` (default collectors) and
 `prometheus.exporter.redis`; `kafka-exporter` as its own container for
 external consumers' group lag. The read-only role is created by a new
 command, `yfin db monitor-role --password-env MONITOR_DB_PASSWORD`
-(idempotent: `CREATE ROLE IF NOT EXISTS` via `DO $$`, `GRANT pg_monitor`,
-`GRANT SELECT` on the schema), not by an Alembic migration: a role is
+(idempotent: `CREATE ROLE IF NOT EXISTS` via `DO $$`, `GRANT pg_monitor`
+-- enough for Alloy's default collectors, and no `SELECT` on the data
+tables until a custom query needs one), not by an Alembic migration: a role is
 cluster-wide, migrations run in parallel per-process schemas in the
 repo tests, a password in a migration lands in `log_statement`, and
 rotation would need a new revision. No TimescaleDB-specific queries and
@@ -418,12 +473,18 @@ Logging is re-plumbed onto the standard-library pipeline so both
 structlog and stdlib records share one formatter:
 `structlog.stdlib.LoggerFactory` and `BoundLogger`, a processor chain
 ending in `ProcessorFormatter.wrap_for_formatter`, and one root
-`StreamHandler(sys.stdout)` whose `ProcessorFormatter` carries the
-shared processors as `foreign_pre_chain`. `_ScrubbingHandler` is
-removed; the yfinance logger propagates to root and is redacted by the
-same chain. `configure_logging(level, fmt, service)`; `shard_main`
-passes `fmt` and `service` through. The move from stderr to stdout is
-a deliberate change, made so Alloy sees one stream.
+`StreamHandler(sys.stderr)` whose `ProcessorFormatter` carries the
+shared processors as `foreign_pre_chain`. Logs **stay on stderr**:
+`yfin config export`, `config schema --json` and `dump_openapi.py`
+print machine-readable JSON to stdout and logging is configured before
+they run, so a log line on stdout would corrupt them; Alloy's
+`loki.source.docker` reads both streams and labels them, so nothing is
+lost. `_ScrubbingHandler` is removed; the yfinance logger keeps a
+`NullHandler` -- otherwise, at `LOG_LEVEL=DEBUG`, yfinance installs its
+own unredacted `StreamHandler` on a handler-less logger -- and
+propagates to root, where the same chain redacts it; `ingest/client.py`
+is where that bridge is called. `configure_logging(level, fmt,
+service)`; `shard_main` passes `fmt` and `service` through.
 
 `fmt` is `console` (default on a TTY) or `json` (default otherwise);
 `LOG_FORMAT` is an env-only `Settings` field. The JSON chain:
@@ -457,13 +518,16 @@ traceback is readable in Grafana.
 
 ## Traces
 
-New `core/tracing.py`: `configure_tracing(service, sample_ratio)` sets
+New `core/tracing.py`: `configure_tracing(service)` sets
 `OTEL_SEMCONV_STABILITY_OPT_IN=http,database` **before** importing any
-`opentelemetry.instrumentation` module (the value is read once at
-import), then sets up the SDK with `OTEL_EXPORTER_OTLP_ENDPOINT` (Alloy,
-gRPC 4317) and a `ParentBased(TraceIdRatioBased(sample_ratio))`
-sampler; an empty endpoint installs a no-op provider. Instrumentation:
-fastapi and sqlalchemy. Manual spans:
+`opentelemetry.instrumentation` module (the value is read once, when
+the first instrumentor initialises), then sets up the SDK with
+`OTEL_EXPORTER_OTLP_ENDPOINT` (Alloy, gRPC 4317) and **no sampler
+argument**, so the SDK honours `OTEL_TRACES_SAMPLER` and
+`OTEL_TRACES_SAMPLER_ARG` from the environment -- a sampler built in
+code would silently override them. An empty endpoint installs a no-op
+provider. Instrumentation: fastapi and sqlalchemy (which recognises the
+psycopg 3 engine through `engine.name == "postgresql"`). Manual spans:
 
 | span | where | attributes |
 | --- | --- | --- |
@@ -472,8 +536,9 @@ fastapi and sqlalchemy. Manual spans:
 | `relay.pass` | `OutboxRelay.publish_once` | `outbox`, `messages` |
 | `scheduler.job` | around the subprocess | `job`, `result` |
 
-Sampling: 0.1 in the API, 1.0 in the pipeline, set by the observability
-override through `OTEL_TRACES_SAMPLER_ARG`. Alloy `otelcol.receiver.otlp`
+Sampling: the override sets `OTEL_TRACES_SAMPLER=parentbased_traceidratio`
+everywhere and `OTEL_TRACES_SAMPLER_ARG` to 0.1 for the API and 1.0 for
+the pipeline services. Alloy `otelcol.receiver.otlp`
 → `otelcol.exporter.otlp` → Tempo, 7-day retention. `BatchSpanProcessor`
 with a 5-second export timeout drops on backlog; the application never
 waits.
@@ -499,27 +564,31 @@ is new: `apscheduler`, `prometheus-client`; `prometheus-client` and
 `prometheus-fastapi-instrumentator` join `[api]`), sets
 `YF_TZ_CACHE_DIR=/var/cache/yfin` on a volume owned by the `yfin` user
 (the relative default is under the root-owned `WORKDIR`, and a sync
-subprocess would die on its first request), and sets
-`PROMETHEUS_MULTIPROC_DIR=/run/yfin-metrics`, which the entrypoint
-empties before `uvicorn` starts. The `HEALTHCHECK` stays in the
-Dockerfile for the API; non-API services override it in compose with a
-probe on their own `/metrics` port.
+subprocess would die on its first request), and adds a
+`docker/entrypoint.sh` (there is none today) that, when the command is
+the API, empties `PROMETHEUS_MULTIPROC_DIR` before `exec`ing `uvicorn`.
+The variable itself comes from the `api` service's compose environment,
+never from an image `ENV`. The `HEALTHCHECK` stays in the Dockerfile
+for the API; non-API services override it in compose with a probe on
+their own `/metrics` port.
 
 ### Services
 
-Base compose is unchanged apart from the image. Two profiles:
+The base file gains one profile and is otherwise unchanged apart from
+the image. Two profiles:
 
-`stream` (not new work here, but the targets below need them to exist):
-`stream` (`yfin stream run`), `stream-relay` (`yfin stream relay`), and,
-once the changes design lands, `changes-relay`. Their metrics targets
-are scraped when present; `up == 0` for them is shown on Overview and
-**not** alerted, because the profile may legitimately be off.
+`stream`, **added by this design** in `docker-compose.yml`: `stream`
+(`yfin stream run`) and `stream-relay` (`yfin stream relay`), both on
+the project image with the `YF_*` block; the changes design adds
+`changes-relay` next to them. Their metrics targets are scraped when
+present; `up == 0` for them is shown on Overview and **not** alerted,
+because the profile may legitimately be off.
 
 `observability`:
 
 | service | image | note |
 | --- | --- | --- |
-| `scheduler` | the project image, `yfin scheduler run` | `/metrics` 9101; `init: true`; `stop_grace_period` = `yf_schedule_stop_grace_seconds`; needs the `YFAPI_*` block for `usage flush` |
+| `scheduler` | the project image, `yfin scheduler run` | `/metrics` 9101; `init: true`; `stop_grace_period: ${SCHEDULER_STOP_GRACE:-620s}`; needs the `YFAPI_*` block for `usage flush` |
 | `prometheus` | `prom/prometheus:v3.14.0` | retention 30d, scrape 15s |
 | `grafana` | `grafana/grafana:13.2.1` | provisioning mounted; anonymous access off |
 | `loki` | `grafana/loki:3.7.7` | single binary |
@@ -527,16 +596,33 @@ are scraped when present; `up == 0` for them is shown on Overview and
 | `alloy` | `grafana/alloy:v1.19.2` | `docker.sock` read-only; OTLP 4317; postgres and redis exporters |
 | `kafka-exporter` | `danielqsj/kafka-exporter:v1.9.0` | `kafka:9092` |
 
-`docker-compose.observability.yml` is an override loaded with the
-profile: it adds `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_TRACES_SAMPLER_ARG`,
-`METRICS_PORT` and `LOG_FORMAT=json` to the base services, so none of
-them tries to reach a collector when the profile is off. Variables that
+`docker-compose.observability.yml` is a second compose file, loaded
+explicitly:
+
+```
+docker compose -f docker-compose.yml -f docker-compose.observability.yml \
+  --profile observability up -d
+```
+
+It adds `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_TRACES_SAMPLER`,
+`OTEL_TRACES_SAMPLER_ARG`, `METRICS_PORT` and `LOG_FORMAT=json` to the
+base services and `PROMETHEUS_MULTIPROC_DIR` to `api`, so none of them
+tries to reach a collector when the file is not loaded. Variables that
 belong only to the stack -- `GF_SECURITY_ADMIN_PASSWORD`,
-`MONITOR_DB_PASSWORD`, `GRAFANA_ALERT_WEBHOOK` -- live in
-`deploy/observability/.env.example`, read through `env_file`, so the
-root `.env.example` keeps documenting exactly the `Settings` fields and
-its test keeps passing. `METRICS_PORT` and `LOG_FORMAT` are `Settings`
-fields and do appear in the root example.
+`MONITOR_DB_PASSWORD`, `GRAFANA_ALERT_WEBHOOK`, `SCHEDULER_STOP_GRACE`
+-- live in `deploy/observability/.env` (copied from the committed
+`.env.example` next to it) and reach the containers through
+`env_file`. `env_file` does not feed compose's own `${...}`
+interpolation, so the compose files never reference these names with
+`${}` except `SCHEDULER_STOP_GRACE`, which is read from the shell
+environment or the root `.env`: Grafana reads `GF_*` from its
+environment, the alerting provisioning file reads
+`$GRAFANA_ALERT_WEBHOOK` at Grafana's load time, and Alloy reads
+`sys.env("MONITOR_DB_PASSWORD")`. The root `.env.example` keeps
+documenting exactly the `Settings` fields and its test keeps passing;
+`METRICS_PORT` and `LOG_FORMAT` are `Settings` fields and do appear
+there, and `SNAPSHOT_ENV_ONLY` and the "eight env-only fields" notes in
+`cli/settings.py` and `test_env_example.py` become ten.
 
 ### Files
 
@@ -647,7 +733,9 @@ Unit:
   on a synthetic `sync_run_items`, including `out_of_scope`, opt-in and
   market/domain cells.
 - `/metrics` is not in `openapi.json`; `/metrics` and `/health*` are
-  not request-logged; problem counter labels equal `ALL_TYPES`.
+  not request-logged; problem counter labels equal `ALL_TYPES`; the
+  cron `field_validator` rejects a bad expression with and without
+  APScheduler installed.
 - Dashboard JSON and alert YAML rules; `SETTING_GROUPS` and
   `.env.example` tests updated.
 
@@ -656,9 +744,11 @@ Repo:
 - Migration: `scheduler_runs`, `run_metrics`, `sync_runs.job_run_id`,
   `sync_run_items.error_kind`, `ix_sync_run_items_cell_run`;
   `alembic check` empty.
-- `yfin db monitor-role` is idempotent and the role can `SELECT` but
-  not write.
-- Freshness, gap and stream queries against seeded rows.
+- `yfin db monitor-role` is idempotent; the role can read `pg_stat_*`
+  views and cannot read or write data tables.
+- Freshness, gap and stream queries against seeded rows, including a
+  multi-table dataset with one failed table, a `not_attempted` cell and
+  a domain cell with two regions.
 - `YF_JOB_RUN_ID` lands in `sync_runs.job_run_id`; a shard's
   `run_metrics` rows appear after `shard_main` exits.
 - `--audit-days` prunes runs, items, `run_metrics` and
@@ -694,6 +784,7 @@ New:
 - `src/yfin/scheduler/{__init__,service,jobs,exporter,queries}.py`
 - `src/yfin/cli/scheduler.py` -- `yfin scheduler run|jobs`
 - `src/yfin/api/core/window.py` -- the per-IP window shared by `/health/ready` and `/metrics`
+- `docker/entrypoint.sh`
 - `src/yfin/models/ops.py` -- `scheduler_runs`, `run_metrics`
 - `migrations/versions/<ts>_observability.py`
 - `deploy/observability/**`, `docker-compose.observability.yml`, dashboards JSON
@@ -702,21 +793,23 @@ New:
 
 Changed:
 
-- `core/logging_setup.py` -- stdlib pipeline, JSON format, `service`, trace-context processor, stdout
-- `core/config.py` -- groups `scheduler`, `monitoring`; env-only `metrics_port`, `log_format`; `.env.example`; `tests/unit/test_settings_split.py`, `test_env_example.py`
-- `storage/settings_store.py` -- cron validation
-- `pipeline/audit.py` -- `job_run_id`, `error_kind`, `run_metrics` write helper
+- `core/logging_setup.py` -- stdlib pipeline, JSON format, `service`, trace-context processor
+- `ingest/client.py` -- the yfinance logger bridge (`NullHandler`, propagate)
+- `cli/settings.py` -- env-only count note
+- `core/config.py` -- groups `scheduler`, `monitoring`; env-only `metrics_port`, `log_format`; the cron `field_validator`; `.env.example`; `tests/unit/test_settings_split.py`, `test_env_example.py`
+- `pipeline/audit.py` -- `job_run_id`, `error_kind`, `failed_records(kind=...)`, `run_metrics` write helper
 - `pipeline/payload.py` -- `failures` carry the kind
 - `pipeline/shard.py`, `pipeline/runner.py`, `pipeline/market_runner.py`, `pipeline/domain_runner.py` -- accumulator flush, `fmt`/`service` to `configure_logging`
-- `pipeline/turn.py`, `pipeline/readers.py`, `pipeline/contracts.py`, `pipeline/persist.py` -- counter increments, `error_kind`, `sync.symbol` span
+- `pipeline/turn.py`, `pipeline/readers.py`, `pipeline/contracts.py`, `storage/contracts.py`, `pipeline/persist.py` -- counter increments, `error_kind`, `sync.symbol` span
 - `pipeline/prune.py`, `cli/app.py` -- `--audit-days`; `service` binding
 - `cli/app.py` (`db`) -- `monitor-role`
-- `api/app.py`, `api/core/middleware.py`, `api/core/errors.py`, `api/ratelimit/*`, `api/routers/meta.py` -- instrumentator, request-log skip, counters, shared window
+- `api/app.py`, `api/core/middleware.py`, `api/core/errors.py`, `api/ratelimit/*`, `api/routers/meta.py` -- instrumentator, explicit `configure_logging`, request-log skip, counters, shared window
+- `tests/unit/test_api_contract.py` -- `/metrics` assertion
 - `stream/runner.py`, `stream/writer.py`, `stream/relay.py` (or `outbox/relay.py`) -- counters, spans, metrics port
 - `models/sync.py` -- two columns, one index
-- `docker-compose.yml`, `Dockerfile`, `.env.example`, `pyproject.toml`
-- `README.md` -- Architecture diagram (`scheduler/`), Layout table, Common commands, Infrastructure table (compose services, CI line), Planned table, settings and table counts, the "starting values" note
-- `docs/superpowers/specs/2026-09-07-openapi-finalization-design.md` -- `/metrics` added to the routes outside the contract
+- `docker-compose.yml` (`stream` profile, image), `Dockerfile`, `.env.example`, `pyproject.toml`
+- `docs/measurements/README.md` -- index row for `observability.md`
+- `README.md` -- Architecture diagram (`scheduler/`), Layout table, Common commands (the two-file compose invocation), Infrastructure table (compose services, CI line), Planned table, settings and table counts, the "starting values" note
 
 ## Implementation order
 
@@ -789,7 +882,7 @@ Changes made after the independent review of the first draft:
   `deploy/observability/.env.example`.
 - **Monitor role** created by a CLI command, not a migration.
 - **Logs.** Re-plumbed on the stdlib pipeline; `show_locals=False`;
-  `service` bound at entry points; stdout.
+  `service` bound at entry points.
 - **Traces.** psycopg instrumentation dropped; opt-in set before import;
   sampler argument; `tracesToLogsV2`; `matcherRegex`.
 - **Alerts** only in Grafana provisioning; CI checks through pinned
@@ -797,5 +890,28 @@ Changes made after the independent review of the first draft:
   `JobPartial`; `StreamStale` on the canary.
 - Proxy states, `BAR_LIMITS` per interval, usage gauge day, fail-open
   `where`, problem counter tied to `ALL_TYPES`, `SyncContext.cached`
-  counter dropped, line references and the stderr claim corrected;
-  audit retention added.
+  counter dropped, line references corrected; audit retention added.
+
+After the second review:
+
+- **`PROMETHEUS_MULTIPROC_DIR` only on the `api` service**, never an
+  image `ENV`; `prometheus_client` imported lazily; `yfin_build_info` as
+  a `Gauge`, not `Info`.
+- **Logs stay on stderr**: stdout carries machine-readable output for
+  `config export`, `config schema --json` and `dump_openapi.py`.
+- **Executor semantics** stated as verified: queued, misfire on dequeue,
+  lateness recorded, `skipped` per job id.
+- **Cron validation** as a pydantic `field_validator` with a lazy
+  APScheduler import; `stop_grace_period` a compose literal above the
+  scheduler's own wait.
+- **Compose** as a second `-f` file; `env_file` semantics and the
+  `.env` copy stated; the `stream` profile added here.
+- **Sampler from the environment**; the semconv variable read at the
+  first instrumentor.
+- **Freshness cell** `(symbol, region, dataset)` with per-run worst
+  status; `not_attempted` kept in the universe; index widened.
+- `failed_records(kind=...)`, yfinance `NullHandler`, explicit
+  `configure_logging` in `create_app`, instrumentator parameters and
+  the prefix-filter fact, entrypoint file, grant narrowed, interval
+  computation, `apply_write` location, env-only count, measurements
+  index, line references.
