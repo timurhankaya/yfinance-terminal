@@ -1,6 +1,6 @@
 """The scheduler: what runs, when, and what it recorded.
 
-Three modules, split by what changes for what reason. `jobs.py` is the fixed
+Five modules, split by what changes for what reason. `jobs.py` is the fixed
 set of commands and the queue each waits in; `runs.py` is the
 `scheduler_runs` lifecycle; `service.py` is the process that owns
 APScheduler and the subprocesses.

@@ -47,7 +47,7 @@ The three words that carry the differentiation, in order:
 - **incremental** -- watermarks and content-hash gates, so a daily run
   costs a day.
 
-Everything else the project has -- 61 datasets, 87 tables, TimescaleDB
+Everything else the project has -- 61 datasets, 91 tables, TimescaleDB
 hypertables, the proxy pool, the read API, the tick stream, the Kafka
 outbox -- is evidence for those three, not a separate claim. A launch that
 leads with "61 datasets" competes on a number anyone can inflate. A launch

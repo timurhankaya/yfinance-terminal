@@ -1,6 +1,6 @@
 # Publishing pipeline writes as change events
 
-Status: approved, not yet implemented
+Status: implemented, 2026-09-07
 Date: 2026-09-07
 Revised 2026-09-07 after two rounds of independent review (see
 "Revisions" at the end).

@@ -32,10 +32,17 @@ def _declared_keys() -> set[str]:
 
 
 def _setting_names() -> set[str]:
-    # Include both pipeline Settings (YF_*) and API settings (YFAPI_*).
-    pipeline_names = {name.upper() for name in Settings.model_fields}
-    api_names = {f"YFAPI_{name.upper()}" for name in ApiSettings.model_fields}
-    return pipeline_names | api_names
+    """Every key that reaches a settings object, from BOTH of them.
+
+    `ApiSettings` was missing here, and the gap was not academic: all
+    twelve `YFAPI_*` keys were absent from the file, `YFAPI_JWT_SIGNING_KEY`
+    among them -- without which the API refuses to sign a token -- and no
+    test could notice, because this function only knew about `Settings`.
+    """
+    prefix = ApiSettings.model_config["env_prefix"]
+    return {name.upper() for name in Settings.model_fields} | {
+        f"{prefix}{name}".upper() for name in ApiSettings.model_fields
+    }
 
 
 def test_every_key_is_a_real_setting() -> None:
@@ -57,6 +64,37 @@ def test_every_env_only_setting_is_documented() -> None:
     """
     missing = sorted({name.upper() for name in ENV_ONLY_FIELDS} - _declared_keys())
     assert not missing, f"env-only settings missing from .env.example: {', '.join(missing)}"
+
+
+def test_every_api_setting_is_documented() -> None:
+    """`ApiSettings` is env-only in its entirety.
+
+    It has no `settings` table behind it and no `yfin config` command --
+    that separation is the point of the class (`api/core/config.py`: an
+    operator changing `yf_max_shards` has no business changing the JWT
+    audience). So the file a new operator copies is the ONLY place these
+    twelve can be learned from, and an omission here is not documentation
+    drift, it is a key nobody can find.
+    """
+    prefix = ApiSettings.model_config["env_prefix"]
+    expected = {f"{prefix}{name}".upper() for name in ApiSettings.model_fields}
+    missing = sorted(expected - _declared_keys())
+    assert not missing, f"API settings missing from .env.example: {', '.join(missing)}"
+
+
+def test_the_signing_key_is_documented_as_mandatory() -> None:
+    """It has a default (`""`) so that commands which never sign a token
+    still run, so nothing fails at import to announce it. The API refuses
+    to mint a token without it, and the file is where an operator finds
+    that out before deploying rather than after."""
+    text = ENV_EXAMPLE.read_text()
+    assert "YFAPI_JWT_SIGNING_KEY=" in text
+    line = next(ln for ln in text.splitlines() if ln.startswith("YFAPI_JWT_SIGNING_KEY="))
+    index = text.splitlines().index(line)
+    comment = "\n".join(text.splitlines()[max(0, index - 6) : index]).lower()
+    assert "required" in comment or "zorunlu" in comment, (
+        "YFAPI_JWT_SIGNING_KEY carries no note saying it is mandatory"
+    )
 
 
 def test_no_mysql_left_in_the_setup_file() -> None:

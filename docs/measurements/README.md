@@ -23,6 +23,8 @@ keeping them in design documents would tie them to a design that changes.
 | [`yahoo-api.md`](yahoo-api.md) | Upstream limits, request cost per symbol, which datasets legitimately return empty |
 | [`volume.md`](volume.md) | Row-count and storage projections per interval |
 | [`database.md`](database.md) | PostgreSQL and TimescaleDB behaviours the schema depends on |
+| [`websocket.md`](websocket.md) | Yahoo's live quote socket: subscription and connection limits, message cadence, field coverage, the float32 artefact, snapshot lag, envelope format, write-path ceiling |
+| [`observability.md`](observability.md) | What watching the pipeline costs it: the freshness query against audit retention, log/span/scrape overhead, and why `asof_state` cannot answer the freshness question |
 
 ## Reproducing a measurement
 
