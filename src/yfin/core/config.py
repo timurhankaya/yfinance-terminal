@@ -26,7 +26,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -55,6 +55,20 @@ SETTING_GROUPS: tuple[str, ...] = (
     "bars",
     "maintenance",
     "stream",
+    "scheduler",
+    "monitoring",
+)
+
+#: Every setting whose value is a cron expression. Listed once, so the
+#: validator and any future reader cannot disagree about which they are.
+_SCHEDULE_FIELDS = (
+    "yf_schedule_sync",
+    "yf_schedule_market",
+    "yf_schedule_domain",
+    "yf_schedule_stream_reconcile",
+    "yf_schedule_bars_maintain",
+    "yf_schedule_prune",
+    "yf_schedule_usage_flush",
 )
 
 
@@ -405,12 +419,134 @@ class Settings(BaseSettings):
         ge=1,
     )
 
+    # --- scheduler ---------------------------------------------------------
+    #
+    # Job definitions are SETTINGS, not code: an operator retimes a run with
+    # `yfin config set` and the scheduler picks it up on its next reload,
+    # with no deployment. The SET of jobs is fixed in code -- each one maps
+    # to a command -- so what is configurable is when, not what.
+    #
+    # An empty expression means the job is not registered at all. That is
+    # how `prune` ships: off, because a deleted row cannot be recovered.
+    yf_schedule_sync: str = _cfg(
+        "scheduler", "Cron for `yfin sync`. Empty disables the job.", default="0 2 * * *"
+    )
+    yf_schedule_market: str = _cfg(
+        "scheduler", "Cron for `yfin market sync`.", default="30 1 * * *"
+    )
+    yf_schedule_domain: str = _cfg(
+        "scheduler", "Cron for `yfin domain sync`.", default="0 3 * * 0"
+    )
+    yf_schedule_stream_reconcile: str = _cfg(
+        "scheduler", "Cron for `yfin stream reconcile`.", default="15 * * * *"
+    )
+    yf_schedule_bars_maintain: str = _cfg(
+        "scheduler", "Cron for `yfin bars maintain`.", default="0 4 1 * *"
+    )
+    yf_schedule_prune: str = _cfg(
+        "scheduler",
+        "Cron for `yfin prune`. Empty by default: pruning is irreversible.",
+        default="",
+    )
+    yf_schedule_usage_flush: str = _cfg(
+        "scheduler", "Cron for `yfin api usage flush`.", default="5 0 * * *"
+    )
+    yf_schedule_timezone: str = _cfg(
+        "scheduler", "Timezone every cron expression is read in.", default="UTC"
+    )
+    # The EFFECTIVE grace per job is min(cadence / 2, this), so an hourly
+    # job does not accept a firing fifty minutes late.
+    yf_schedule_misfire_grace_seconds: int = _cfg(
+        "scheduler",
+        "How late a firing may still run before it counts as missed.",
+        default=3600,
+        ge=0,
+    )
+    # Must stay BELOW compose's `stop_grace_period`, or Docker's own timeout
+    # kills the scheduler before it can wait for a shard that holds the sync
+    # advisory lock.
+    yf_schedule_stop_grace_seconds: int = _cfg(
+        "scheduler",
+        "How long SIGTERM waits for a running job before SIGKILL.",
+        default=600,
+        ge=0,
+    )
+
+    # --- monitoring --------------------------------------------------------
+    yf_exporter_interval_seconds: int = _cfg(
+        "monitoring",
+        "How often the exporter refreshes its gauges from the database.",
+        default=300,
+        ge=10,
+    )
+    # A cell is stale when its last good write is older than this many times
+    # the interval of the job that writes it. One factor, not a cadence per
+    # family: the schedule already says how often each job runs.
+    yf_freshness_factor: int = _cfg(
+        "monitoring",
+        "A cell is stale past this multiple of its job's interval.",
+        default=2,
+        ge=1,
+    )
+    yf_intraday_retention_warn_days: int = _cfg(
+        "monitoring",
+        "Warn when an intraday gap is within this many days of Yahoo's limit.",
+        default=3,
+        ge=0,
+    )
+
     yf_stream_rescan_seconds: int = _cfg(
         "stream", "How often scope and settings are re-read while running.",
         default=60, ge=5,
     )
 
     log_level: str = "INFO"
+    # `console` on a TTY, `json` otherwise. Env-only for the same reason as
+    # log_level: the format is decided before the first line, which is
+    # before any database exists.
+    log_format: str = ""
+    # 0 = off, which is the default for every process. The observability
+    # compose override gives each service its own port; one value in the
+    # settings table would bind five services to the same one.
+    metrics_port: int = 0
+
+    @field_validator(*_SCHEDULE_FIELDS)
+    @classmethod
+    def _validate_cron(cls, value: str) -> str:
+        """Rejects a bad cron expression where the operator can see it.
+
+        A `field_validator` rather than a check in the scheduler, because
+        `validate_pair` builds a `Settings` from the candidate: this is what
+        makes `yfin config set yf_schedule_sync "not a cron"` fail at the
+        command instead of at the scheduler's next reload, hours later and
+        in a different process's logs.
+
+        APScheduler is imported LAZILY and inside the function. `core/config`
+        is imported by everything, and a module-level import would make the
+        whole CLI depend on the `[scheduler]` extra. Without the extra the
+        check falls back to counting fields, which catches the typo that
+        actually happens and is honest about what it cannot catch.
+        """
+        expression = value.strip()
+        if not expression:
+            # Empty is how a job is switched off, and `prune` ships that way.
+            return expression
+        try:
+            from apscheduler.triggers.cron import CronTrigger
+        except ImportError:
+            if len(expression.split()) != 5:
+                raise ValueError(
+                    "a cron expression has five fields "
+                    "(minute hour day month day-of-week); "
+                    f"got {len(expression.split())} in {expression!r}"
+                ) from None
+            return expression
+        try:
+            CronTrigger.from_crontab(expression)
+        except Exception as exc:
+            raise ValueError(f"invalid cron expression {expression!r}: {exc}") from None
+        return expression
+
 
     def db_url(self, database: str | None = None) -> URL:
         """SQLAlchemy URL object; credentials are never embedded in a string."""
@@ -458,6 +594,13 @@ ENV_ONLY_FIELDS = frozenset(
         # loader's warnings -- including the security boundary one -- must
         # land in the configured logger.
         "log_level",
+        # Same ordering argument as log_level: the format has to be decided
+        # before the first log line, which is before any database exists.
+        "log_format",
+        # Cannot be a database setting: one value would bind five services
+        # to one port. Each service is given its own in the compose
+        # override, and 0 means off, which is the default everywhere else.
+        "metrics_port",
     }
 )
 

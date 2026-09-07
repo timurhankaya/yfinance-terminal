@@ -74,6 +74,14 @@ dev = [
     # `license` pair or a malformed header object; this does.
     "openapi-spec-validator>=0.7",
 ]
+# The scheduler that replaces cron. 3.11 rather than 4.0: 4.0 is still
+# alpha and says it "should NOT be used in production", and `schedule` has
+# no misfire handling, which is the one thing a nightly pipeline needs.
+# Pinned exactly -- executor and misfire semantics are what this depends on.
+scheduler = [
+    "apscheduler==3.11.3",
+    "prometheus-client==0.26.0",
+]
 
 [project.urls]
 # Upstream: yfin builds on the `yfinance` library, which owns every call
@@ -130,5 +138,15 @@ strict = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["yfinance.*", "pandas.*", "numpy.*", "curl_cffi.*", "scipy.*", "sklearn.*"]
+# Third-party packages that ship no `py.typed`. APScheduler 3.11 is one of
+# them, so installing it does not help and the override is the only way.
+module = [
+    "yfinance.*",
+    "pandas.*",
+    "numpy.*",
+    "curl_cffi.*",
+    "scipy.*",
+    "sklearn.*",
+    "apscheduler.*",
+]
 ignore_missing_imports = true

@@ -22,9 +22,9 @@ from yfin.core.config import (
 # Numbers are a 2026-09-07 snapshot (the live stream added 17 fields in the
 # new `stream` group) and the mechanism does not depend on them; they are
 # kept so that adding a field forces this file to be read.
-SNAPSHOT_TOTAL = 66
-SNAPSHOT_ENV_ONLY = 8
-SNAPSHOT_DB_MANAGED = 58
+SNAPSHOT_TOTAL = 81
+SNAPSHOT_ENV_ONLY = 10
+SNAPSHOT_DB_MANAGED = 71
 
 SECRET_NAME_RE = re.compile(r"secret|password|token|credential")
 

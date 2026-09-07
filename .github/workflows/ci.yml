@@ -26,8 +26,14 @@ jobs:
 
       # requires-python = ">=3.13"; uv provides the interpreter.
       # The api extra is needed too: the OpenAPI check imports the app.
+      # The scheduler extra brings APScheduler, without which the cron
+      # validator falls back to counting fields and its strict path --
+      # the one that catches `99 2 * * *` -- would never run here.
+      # The kafka extra is for mypy: `outbox/kafka.py` imports
+      # confluent_kafka, and without it installed the module is checked
+      # against nothing.
       - name: Dependencies
-        run: uv sync --extra dev --extra api
+        run: uv sync --extra dev --extra api --extra scheduler --extra kafka
 
       - name: ruff
         run: uv run ruff check .
@@ -97,7 +103,7 @@ jobs:
           enable-cache: true
 
       - name: Dependencies
-        run: uv sync --extra dev --extra api
+        run: uv sync --extra dev --extra api --extra scheduler --extra kafka
 
       # No `yfin db create` step: this image ships the extension in
       # template1, so every database it creates already has timescaledb
