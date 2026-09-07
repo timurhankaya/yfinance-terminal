@@ -27,6 +27,7 @@ from yfin.datasets.asof_base import (
     first_row,
 )
 from yfin.datasets.base import NormalizedResult
+from yfin.datasets.exposure import ApiExposure
 from yfin.storage.contracts import RowWriter, WriteStats, apply_write
 
 DomainType = Literal["sector", "industry"]
@@ -111,6 +112,8 @@ class DomainDataset[RawT](ABC):
     name: str
     depends_on: tuple[str, ...] = ()
     produces: tuple[str, ...] = ()  # table names it writes
+    # Declared, not read reflectively -- see the note on GlobalDataset.
+    api: tuple[ApiExposure, ...] = ()
     # Which key set it iterates over
     scope: DomainType = "sector"
     # True enters the region loop; False runs a single pass (`region='*'`)

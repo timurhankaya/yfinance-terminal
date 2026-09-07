@@ -46,4 +46,4 @@ class RecommendationsDataset(PeriodFrameDataset):
     )
 
 
-register(RecommendationsDataset())
+register(RecommendationsDataset(), family="analysis")

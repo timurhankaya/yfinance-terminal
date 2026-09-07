@@ -19,7 +19,11 @@ from yfin.storage.contracts import RowWriter, TableWrite, WriteStats
 
 class _Dataset:
     name = "probe"
+    depends_on = ()
     produces = ("dividends", "splits")
+    #: The registry reads this through the protocol now, not with a
+    #: `getattr` default, so a stand-in has to carry it too.
+    api = ()
 
 
 class _Tracker:

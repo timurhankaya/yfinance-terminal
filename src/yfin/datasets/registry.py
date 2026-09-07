@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
+from yfin.datasets.exposure import ApiExposure
 from yfin.models.bars import BAR_INTERVALS, INTRADAY_INTERVALS
 
 if TYPE_CHECKING:
@@ -22,10 +23,23 @@ if TYPE_CHECKING:
 
 
 class Registrable(Protocol):
-    """The only interface the registry sees."""
+    """The only interface the registry sees.
+
+    All four fields, because the registry reads all four. It used to
+    declare two and reach for the other two with `getattr(ds, ..., ())`,
+    on the argument that market and domain datasets were registrable
+    without being exposable. That stopped being true: five of seven market
+    datasets and four of five domain ones declare `api`. What the
+    reflective read bought was a typo that compiled -- `apis = (...)`
+    instead of `api = (...)` created a new attribute, passed mypy, skipped
+    `validate()` entirely and left the resource out of the catalogue with
+    nothing anywhere to say why.
+    """
 
     name: str
     depends_on: tuple[str, ...]
+    produces: tuple[str, ...]
+    api: tuple[ApiExposure, ...]
 
 
 class UnknownDatasetError(ValueError):
@@ -52,7 +66,13 @@ class Registry[D: Registrable]:
         aliases: Mapping[str, tuple[str, ...]] | None = None,
     ) -> None:
         self.bootstrap = bootstrap
-        self.aliases: dict[str, tuple[str, ...]] = dict(aliases or {})
+        #: Aliases whose members are genuinely arbitrary -- a rename, a
+        #: convenience grouping, a pair of names that happen to belong
+        #: together. A family that is simply "every dataset of this kind"
+        #: is NOT written here; see `register(family=...)`.
+        self.explicit_aliases: dict[str, tuple[str, ...]] = dict(aliases or {})
+        #: Families, collected from the registration sites.
+        self._families: dict[str, list[str]] = {}
         self._items: dict[str, D] = {}
         # Datasets that never run UNLESS NAMED EXPLICITLY. The opposite of
         # `bootstrap`: that one gets ADDED to every resolution, these get
@@ -61,9 +81,31 @@ class Registry[D: Registrable]:
 
     # --- registration -------------------------------------------------
 
-    def register(self, ds: D, *, opt_in: bool = False) -> D:
-        """`opt_in=True`: registered but NOT INCLUDED in the `all` expansion.
+    @property
+    def aliases(self) -> dict[str, tuple[str, ...]]:
+        """Every name that expands to several: explicit ones and families.
 
+        A family cannot shadow a dataset or an explicit alias -- that is
+        checked at registration -- so merging them is unambiguous.
+        """
+        return {
+            **{name: tuple(members) for name, members in self._families.items()},
+            **self.explicit_aliases,
+        }
+
+    def register(self, ds: D, *, opt_in: bool = False, family: str | None = None) -> D:
+        """Both flags are declared here, at the registration site.
+
+        `family="financials"` puts the dataset in the `--datasets financials`
+        group. Declared here rather than listed in this module, for the
+        reason the `bars` alias already gives: a hand-written list that
+        misses a new member registers it and then silently skips it. `bars`
+        derived its members and three neighbouring families did not, so
+        adding a ninth statement would have registered it, made it reachable
+        by name, included it in `all`, and left `--datasets financials`
+        quietly without it -- no error, no log.
+
+        `opt_in=True`: registered but NOT INCLUDED in the `all` expansion.
         The reasoning is a measured trap. `search` and `lookup` each add one
         request per symbol; across 4,500 symbols that's +9,000 requests/day.
         If registered unconditionally, a bare `yfin sync` would pull them too.
@@ -77,22 +119,24 @@ class Registry[D: Registrable]:
         `all` expansion. The declaration stays at the dataset's
         REGISTRATION SITE, not in a name list embedded in the registry.
         """
-        # Read reflectively rather than through the protocol: the market
-        # and domain dataset hierarchies are registrable without being
-        # exposable, and widening the protocol would force both to carry
-        # fields they never use.
-        for exposure in getattr(ds, "api", ()):
+        for exposure in ds.api:
             # Validated here, at import time. A misdeclared dataset should
             # stop the process from starting rather than surface as a 500
             # to whoever calls it first.
-            exposure.validate(
-                dataset_name=ds.name, produces=tuple(getattr(ds, "produces", ()))
-            )
+            exposure.validate(dataset_name=ds.name, produces=ds.produces)
         self._items[ds.name] = ds
         if opt_in:
             self._opt_in.add(ds.name)
         else:
             self._opt_in.discard(ds.name)
+        if family is not None:
+            if family in self.explicit_aliases:
+                raise ValueError(
+                    f"{ds.name}: family {family!r} is already an explicit alias"
+                )
+            members = self._families.setdefault(family, [])
+            if ds.name not in members:
+                members.append(ds.name)
         return ds
 
     def is_opt_in(self, name: str) -> bool:
@@ -212,43 +256,17 @@ SYMBOL_DATASETS: Registry[Dataset[Any]] = Registry(
         # source its body is `return self.get_recommendations(as_dict=as_dict)`
         # (base.py:220).
         "recommendations_summary": ("recommendations",),
-        # `sustainability` is NOT INCLUDED: it's a monitoring dataset with
-        # no table, and is never registered by default.
-        "analysis": (
-            "recommendations",
-            "upgrades_downgrades",
-            "analyst_price_targets",
-            "earnings_estimate",
-            "revenue_estimate",
-            "eps_trend",
-            "eps_revisions",
-            "earnings_history",
-            "growth_estimates",
-        ),
-        "holders": (
-            "major_holders",
-            "institutional_holders",
-            "mutualfund_holders",
-            "insider_purchases",
-            "insider_transactions",
-            "insider_roster_holders",
-        ),
+        # `analysis`, `holders` and `financials` are FAMILIES now, declared
+        # at each dataset's registration site rather than listed here.
+        # `sustainability` simply declares none: it is a monitoring dataset
+        # with no table, and its exclusion is now visible where it is
+        # registered instead of by its absence from a list in this file.
         "funds": ("funds_data",),
         # `valuation` is a SEPARATE alias, NOT part of `financials`: it does
         # not appear under the source docs' Financials section and is a
         # separate HTTP request; folding it into `financials` would silently
         # double that name's existing cost.
         "valuation": ("valuation_measures", "quarterly_valuation_measures"),
-        "financials": (
-            "income_stmt",
-            "quarterly_income_stmt",
-            "ttm_income_stmt",
-            "balance_sheet",
-            "quarterly_balance_sheet",
-            "cashflow",
-            "quarterly_cashflow",
-            "ttm_cashflow",
-        ),
     },
 )
 
@@ -277,19 +295,26 @@ DOMAIN_DATASETS: Registry[DomainDataset[Any]] = Registry(
 )
 
 
-def register(ds: Dataset[Any], *, opt_in: bool = False) -> Dataset[Any]:
+def register(
+    ds: Dataset[Any], *, opt_in: bool = False, family: str | None = None
+) -> Dataset[Any]:
     """Registers a symbol-scoped dataset (used as a decorator in dataset modules).
 
-    `opt_in=True` -> excluded from the `all` expansion; see `Registry.register`.
+    `opt_in=True` -> excluded from the `all` expansion; `family=` puts it in
+    a `--datasets <family>` group. See `Registry.register`.
     """
-    return SYMBOL_DATASETS.register(ds, opt_in=opt_in)
+    return SYMBOL_DATASETS.register(ds, opt_in=opt_in, family=family)
 
 
-def register_market(ds: GlobalDataset[Any], *, opt_in: bool = False) -> GlobalDataset[Any]:
+def register_market(
+    ds: GlobalDataset[Any], *, opt_in: bool = False, family: str | None = None
+) -> GlobalDataset[Any]:
     """Registers a market-scoped dataset."""
-    return MARKET_DATASETS.register(ds, opt_in=opt_in)
+    return MARKET_DATASETS.register(ds, opt_in=opt_in, family=family)
 
 
-def register_domain(ds: DomainDataset[Any]) -> DomainDataset[Any]:
+def register_domain(
+    ds: DomainDataset[Any], *, family: str | None = None
+) -> DomainDataset[Any]:
     """Registers a sector / industry-scoped dataset."""
-    return DOMAIN_DATASETS.register(ds)
+    return DOMAIN_DATASETS.register(ds, family=family)

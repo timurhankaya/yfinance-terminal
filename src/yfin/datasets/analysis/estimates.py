@@ -90,5 +90,5 @@ class RevenueEstimateDataset(_EstimateDataset):
     )
 
 
-register(EarningsEstimateDataset())
-register(RevenueEstimateDataset())
+register(EarningsEstimateDataset(), family="analysis")
+register(RevenueEstimateDataset(), family="analysis")

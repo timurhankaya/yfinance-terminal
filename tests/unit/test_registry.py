@@ -202,3 +202,72 @@ def test_new_datasets_are_registered() -> None:
     for name in ("calendar", "earnings_dates", "sec_filings"):
         assert name in REGISTRY
         assert REGISTRY[name].depends_on == (BOOTSTRAP,)
+
+
+def test_a_dataset_that_MISSPELLS_api_is_refused() -> None:
+    """The registry read `api` reflectively, so `apis = (...)` created a new
+    attribute instead: mypy silent, `validate()` skipped, and the resource
+    simply absent from the catalogue with nothing to say why. The protocol
+    declares every field the registry reads, so the type checker sees it --
+    and an exposure naming a table the dataset does not produce is refused
+    at registration, which is what proves validation ran at all."""
+    from yfin.core.families import DataFamily
+    from yfin.datasets.exposure import ApiExposure
+    from yfin.datasets.registry import Registry
+
+    class Misdeclared:
+        name = "misdeclared"
+        depends_on = ()
+        produces = ("symbols",)
+        api = (
+            ApiExposure(
+                family=DataFamily.REFERENCE,
+                table="not_a_table_it_writes",
+                sort_key=("symbol",),
+            ),
+        )
+
+    registry: Registry[Misdeclared] = Registry()
+    with pytest.raises(ValueError, match="not among the tables"):
+        registry.register(Misdeclared())
+
+
+def test_a_family_grows_with_its_MEMBERS() -> None:
+    """`bars` derived its alias from the interval set and said why: a
+    hand-written list that misses a new member registers it and then
+    silently skips it. `financials`, `holders` and `analysis` were written
+    by hand anyway, so a ninth statement would have been reachable by name,
+    included in `all`, and quietly absent from `--datasets financials`."""
+    from yfin.datasets.registry import Registry
+
+    class _Member:
+        depends_on = ()
+        produces = ()
+        api = ()
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    registry: Registry[_Member] = Registry()
+    registry.register(_Member("first"), family="things")
+    assert registry.aliases["things"] == ("first",)
+
+    registry.register(_Member("second"), family="things")
+    assert registry.aliases["things"] == ("first", "second")
+    assert [d.name for d in registry.resolve(["things"])] == ["first", "second"]
+
+
+def test_a_family_cannot_shadow_an_explicit_alias() -> None:
+    """Two names for one group, resolving differently depending on which
+    won, is the ambiguity the merge has to be free of."""
+    from yfin.datasets.registry import Registry
+
+    class _Member:
+        name = "member"
+        depends_on = ()
+        produces = ()
+        api = ()
+
+    registry: Registry[_Member] = Registry(aliases={"things": ("other",)})
+    with pytest.raises(ValueError, match="already an explicit alias"):
+        registry.register(_Member(), family="things")

@@ -20,6 +20,7 @@ from typing import Any, Literal
 
 from yfin.core.config import Settings
 from yfin.datasets.base import NormalizedResult
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.snapshot_base import snapshot_upsert
 from yfin.storage.contracts import RowWriter, VariantState, WriteStats, apply_write
 
@@ -86,6 +87,13 @@ class GlobalDataset[RawT](ABC):
     name: str
     depends_on: tuple[str, ...] = ()
     produces: tuple[str, ...] = ()
+    # Declared here rather than read off whatever the subclass happens to
+    # have. Market datasets DO expose resources -- the screener alone
+    # declares four -- and while the registry read this with
+    # `getattr(ds, "api", ())`, misspelling the attribute created a new
+    # one instead: mypy silent, validation skipped, resource missing from
+    # the catalogue with nothing anywhere to say why.
+    api: tuple[ApiExposure, ...] = ()
     scope: MarketScope = "global"
 
     def variants(self, settings: Settings, state: VariantState | None) -> Sequence[str]:

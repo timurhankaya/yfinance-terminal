@@ -157,5 +157,5 @@ class MutualFundHoldersDataset(_HolderListDataset):
     )
 
 
-register(InstitutionalHoldersDataset())
-register(MutualFundHoldersDataset())
+register(InstitutionalHoldersDataset(), family="holders")
+register(MutualFundHoldersDataset(), family="holders")

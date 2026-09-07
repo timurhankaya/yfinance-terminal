@@ -147,4 +147,4 @@ class InsiderRosterDataset(AsOfDataset[AsOfFramePayload]):
         )
 
 
-register(InsiderRosterDataset())
+register(InsiderRosterDataset(), family="holders")

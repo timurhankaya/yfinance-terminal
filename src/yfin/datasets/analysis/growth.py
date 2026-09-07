@@ -43,4 +43,4 @@ class GrowthEstimatesDataset(PeriodFrameDataset):
     )
 
 
-register(GrowthEstimatesDataset())
+register(GrowthEstimatesDataset(), family="analysis")
