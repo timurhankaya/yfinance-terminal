@@ -17,6 +17,7 @@ import re
 
 import pytest
 
+from yfin.api.core.config import ApiSettings
 from yfin.core.config import Settings
 from yfin.storage.settings_store import ENV_ONLY_FIELDS
 
@@ -31,7 +32,10 @@ def _declared_keys() -> set[str]:
 
 
 def _setting_names() -> set[str]:
-    return {name.upper() for name in Settings.model_fields}
+    # Include both pipeline Settings (YF_*) and API settings (YFAPI_*).
+    pipeline_names = {name.upper() for name in Settings.model_fields}
+    api_names = {f"YFAPI_{name.upper()}" for name in ApiSettings.model_fields}
+    return pipeline_names | api_names
 
 
 def test_every_key_is_a_real_setting() -> None:
