@@ -19,11 +19,16 @@ def test_enabled_without_a_password_is_REFUSED() -> None:
     """A UI with an empty password is not "no auth", it is a lie: the login
     form would accept the empty string. Refuse at startup instead."""
     with pytest.raises(ValueError, match="YFAPI_UI_PASSWORD"):
-        ApiSettings(_env_file=None, ui_enabled=True, ui_password="").validate_ui()
+        ApiSettings(_env_file=None, ui_enabled=True, ui_public=False, ui_password="").validate_ui()
 
 
 def test_enabled_with_a_password_validates() -> None:
     ApiSettings(_env_file=None, ui_enabled=True, ui_password=PW).validate_ui()
+
+
+def test_public_mode_needs_no_password() -> None:
+    ApiSettings(_env_file=None, ui_enabled=True, ui_public=True, ui_password="").validate_ui()
+    assert ApiSettings(_env_file=None).ui_public is True
 
 
 def test_disabled_never_validates_the_password() -> None:

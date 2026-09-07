@@ -23,6 +23,11 @@ a { color: var(--accent); }
 .list-row:focus-visible, .list-row[aria-selected="true"] { outline: none; }
 .detail-meta { color: var(--muted); margin: 0 0 8px; }
 .thumb { max-width: 100%; height: auto; display: block; margin-bottom: 8px; border: 1px solid var(--line); }
+.credits { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.credits a { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); text-decoration: none; }
+.credits a:hover { color: var(--accent); }
+.credit-logo { width: 14px; height: 14px; }
+.credit-logo-wide { width: auto; height: 14px; }
 .help-fn { color: var(--accent); background: none; border: 0; font: inherit; cursor: pointer; padding: 0; }
 .help-fn:disabled { color: var(--muted); cursor: default; }
 .modal { background: #12171d; border: 1px solid var(--line); padding: 20px 24px; display: grid; gap: 10px; min-width: 280px; }

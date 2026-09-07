@@ -78,7 +78,9 @@ def symbol_news(
     size = limit if limit is not None else NEWS_DEFAULT_LIMIT
     if size > NEWS_MAX_LIMIT:
         raise ApiProblem(
-            422, TYPE_INVALID_PARAMETER, "Page size above the maximum",
+            422,
+            TYPE_INVALID_PARAMETER,
+            "Page size above the maximum",
             detail=f"limit must not exceed {NEWS_MAX_LIMIT}",
         )
     limits.apply_statement_timeout(session)

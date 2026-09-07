@@ -96,10 +96,13 @@ services:
       YFAPI_TRUSTED_PROXIES: ${YFAPI_TRUSTED_PROXIES:-}
       YFAPI_CORS_ORIGINS: ${YFAPI_CORS_ORIGINS:-}
       YFAPI_DOCS_ENABLED: ${YFAPI_DOCS_ENABLED:-true}
-      # The browser UI under /ui. Off unless both are set; with the UI on
-      # and the password empty the API refuses to start.
+      # The browser UI under /ui, public (no login) by default. With
+      # YFAPI_UI_PUBLIC=false a password is required, and the API refuses
+      # to start without one.
       YFAPI_UI_ENABLED: ${YFAPI_UI_ENABLED:-false}
+      YFAPI_UI_PUBLIC: ${YFAPI_UI_PUBLIC:-true}
       YFAPI_UI_PASSWORD: ${YFAPI_UI_PASSWORD:-}
+      YFAPI_UI_REQUESTS_PER_MINUTE: ${YFAPI_UI_REQUESTS_PER_MINUTE:-600}
       # Needed for the Secure cookie flag and, in 1c, the WebSocket
       # Origin check. Leave empty on plain-HTTP localhost.
       YFAPI_PUBLIC_BASE_URL: ${YFAPI_PUBLIC_BASE_URL:-}

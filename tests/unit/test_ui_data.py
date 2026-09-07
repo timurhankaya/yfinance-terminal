@@ -17,8 +17,13 @@ PW = "hunter2"
 
 def settings() -> ApiSettings:
     return ApiSettings(
-        _env_file=None, jwt_signing_key=KEY, jwt_kid="k1", jwt_issuer="yfin-api",
-        ui_enabled=True, ui_password=PW,
+        _env_file=None,
+        jwt_signing_key=KEY,
+        jwt_kid="k1",
+        jwt_issuer="yfin-api",
+        ui_enabled=True,
+        ui_public=False,
+        ui_password=PW,
     )
 
 

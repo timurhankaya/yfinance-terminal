@@ -21,8 +21,14 @@ FIELD = ui_router.LOGIN_FIELD
 
 def make_client(monkeypatch: pytest.MonkeyPatch, *, public_base_url: str = "") -> TestClient:
     settings = ApiSettings(
-        _env_file=None, jwt_signing_key=KEY, jwt_kid="k1", jwt_issuer="yfin-api",
-        ui_enabled=True, ui_password=PW, public_base_url=public_base_url,
+        _env_file=None,
+        jwt_signing_key=KEY,
+        jwt_kid="k1",
+        jwt_issuer="yfin-api",
+        ui_enabled=True,
+        ui_public=False,
+        ui_password=PW,
+        public_base_url=public_base_url,
     )
     app = FastAPI()
     app.state.api_settings = settings
@@ -47,7 +53,12 @@ def do_login(client: TestClient, value: str = PW):  # type: ignore[no-untyped-de
 def test_me_without_a_cookie_is_200_and_unauthenticated(monkeypatch: pytest.MonkeyPatch) -> None:
     response = make_client(monkeypatch).get("/ui/api/me")
     assert response.status_code == 200
-    assert response.json() == {"authenticated": False, "expires_at": None, "live_enabled": False}
+    assert response.json() == {
+        "authenticated": False,
+        "expires_at": None,
+        "live_enabled": False,
+        "public": False,
+    }
 
 
 def test_login_sets_an_httponly_lax_cookie(monkeypatch: pytest.MonkeyPatch) -> None:

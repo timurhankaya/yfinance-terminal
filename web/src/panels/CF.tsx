@@ -87,7 +87,7 @@ function FilingList({ data }: { data: Filings }) {
                     {attached.map((ex) => (
                       <li key={String(ex.url_hash ?? ex.url)} className="list-row">
                         <span>{text(ex, "exhibit_type")}</span>{" "}
-                        {typeof ex.url === "string" && (
+                        {typeof ex.url === "string" && /^https?:\/\//i.test(ex.url) && (
                           <a href={ex.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
                             {ex.url}
                           </a>

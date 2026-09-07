@@ -64,7 +64,7 @@ describe("CommandPalette", () => {
 
   it("searches symbols once the query reaches the minimum prefix, and picking one calls onPick", async () => {
     mockFetch((url) => {
-      if (url.startsWith("/v1/symbols?q=MS")) {
+      if (url.startsWith("/ui/api/v1/symbols?q=MS")) {
         return json(200, {
           data: [{ symbol: "MSFT", long_name: "Microsoft", short_name: null, exchange: null, quote_type: null }],
           next_cursor: null,
@@ -76,7 +76,7 @@ describe("CommandPalette", () => {
     render(<Harness onPick={onPick} onClose={() => {}} />);
     await userEvent.type(screen.getByLabelText("palette"), "MS");
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/v1/symbols?q=MS&limit=20"),
+      expect.stringContaining("/ui/api/v1/symbols?q=MS&limit=20"),
       expect.anything(),
     ));
     const item = await screen.findByText("MSFT — Microsoft");

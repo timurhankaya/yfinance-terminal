@@ -171,6 +171,23 @@ export function Shell() {
         </div>
       )}
       <main className="panel">{body}</main>
+      <footer className="credits" aria-label="credits">
+        <span>Data</span>
+        <a href="https://finance.yahoo.com/" target="_blank" rel="noopener noreferrer">
+          <img className="credit-logo" src="https://s.yimg.com/rz/l/favicon.ico" alt="" />
+          Yahoo Finance
+        </a>
+        <span>via</span>
+        <a href="https://github.com/ranaroussi/yfinance" target="_blank" rel="noopener noreferrer">
+          <img
+            className="credit-logo credit-logo-wide"
+            src="https://raw.githubusercontent.com/ranaroussi/yfinance/main/doc/yfinance-gh-logo-dark.webp"
+            alt=""
+          />
+          yfinance
+        </a>
+        <span className="muted">Not affiliated with, endorsed by or connected to Yahoo.</span>
+      </footer>
       <CommandPalette
         open={palette.open}
         query={palette.query}

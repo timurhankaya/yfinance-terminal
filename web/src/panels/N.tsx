@@ -14,7 +14,9 @@ function isHttpUrl(value: string | null): value is string {
 
 function Detail({ article }: { article: NewsItem }) {
   const link = isHttpUrl(article.link) ? article.link : null;
-  const thumb = isHttpUrl(article.thumbnail_url) ? article.thumbnail_url : null;
+  // https only: the page's CSP allows img-src https:, so an http:// thumbnail
+  // would render as a broken image rather than being skipped.
+  const thumb = article.thumbnail_url?.startsWith("https://") ? article.thumbnail_url : null;
   return (
     <article className="detail" aria-label="article">
       {thumb && <img className="thumb" src={thumb} alt="" />}

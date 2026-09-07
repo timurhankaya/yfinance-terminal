@@ -16,3 +16,4 @@ build/
 .claude/
 .DS_Store
 web/node_modules/
+.playwright-mcp/

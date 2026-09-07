@@ -38,7 +38,7 @@ describe("DES", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/ui/api/me") return json(200, me);
-      if (url === "/v1/symbols/AAPL") return json(200, { data: {
+      if (url === "/ui/api/v1/symbols/AAPL") return json(200, { data: {
         symbol: "AAPL", long_name: "Apple Inc.", short_name: "Apple", exchange: "NMS",
         full_exchange_name: "NasdaqGS", currency: "USD", quote_type: "EQUITY",
         timezone: "America/New_York", is_active: true,

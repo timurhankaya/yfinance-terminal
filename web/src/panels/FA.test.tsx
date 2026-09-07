@@ -11,8 +11,8 @@ function json(status: number, body: unknown): Response {
 
 const me = { authenticated: true, expires_at: 1, live_enabled: false };
 
-const INCOME_URL = "/v1/symbols/AAPL/financials?statement=income&freq=annual&limit=1000";
-const BALANCE_URL = "/v1/symbols/AAPL/financials?statement=balance_sheet&freq=annual&limit=1000";
+const INCOME_URL = "/ui/api/v1/symbols/AAPL/financials?statement=income&freq=annual&limit=1000";
+const BALANCE_URL = "/ui/api/v1/symbols/AAPL/financials?statement=balance_sheet&freq=annual&limit=1000";
 
 const incomeRows = [
   { period_end: "2025-09-30", item_key: "TotalRevenue", value: "391035000000", currency: "USD" },

@@ -35,14 +35,14 @@ describe("apiFetch", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       respond(401, { type: "unauthenticated", title: "x" }, "application/problem+json"),
     );
-    await expect(apiFetch("/v1/symbols/AAPL")).rejects.toBeInstanceOf(UnauthorizedError);
+    await expect(apiFetch("/ui/api/v1/symbols/AAPL")).rejects.toBeInstanceOf(UnauthorizedError);
   });
 
   it("turns another problem into ApiError with the type", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       respond(404, { type: "not_found", title: "No such symbol" }, "application/problem+json"),
     );
-    const err = await apiFetch("/v1/symbols/NOPE").catch((e: unknown) => e);
+    const err = await apiFetch("/ui/api/v1/symbols/NOPE").catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).status).toBe(404);
     expect((err as ApiError).type).toBe("not_found");
@@ -80,7 +80,7 @@ describe("endpoints", () => {
       respond(200, { data: { symbol: "AAPL", is_active: true, info: null } }),
     );
     const detail = await getSymbol("aapl");
-    expect(spy.mock.calls[0]![0]).toBe("/v1/symbols/AAPL");
+    expect(spy.mock.calls[0]![0]).toBe("/ui/api/v1/symbols/AAPL");
     expect(detail.symbol).toBe("AAPL");
   });
 

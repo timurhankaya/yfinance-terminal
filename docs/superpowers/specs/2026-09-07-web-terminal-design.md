@@ -17,8 +17,9 @@ arşivine tarayıcıdan, Bloomberg alışkanlıklarıyla (`AAPL GP`, `FA`,
 `QR`) bakmasını sağlar ve bunu yaparken tarayıcıya canlı tick yayınını
 başlatır.
 
-Kapsam bilinçli olarak dar: tek kullanıcı, tek şifre, tek sembol
-derinliği. Watchlist, screener, sürükle-bırak yerleşim ve hosted çok
+Kapsam bilinçli olarak dar: herkese açık (public) tek terminal, tek
+sembol derinliği. Şifreli mod (`YFAPI_UI_PUBLIC=false`) opsiyon olarak
+kalır; varsayılan giriş istemez. Watchlist, screener, sürükle-bırak yerleşim ve hosted çok
 kiracılılık dışarıda; "Kapsam dışı" bölümü bu spec'in onları
 engellemediğini garanti eder.
 
@@ -139,12 +140,28 @@ edilmez. `install`:
   yoksa (`vite build` koşmamış geliştirme, unit testler) uyarı loglar ve
   yalnızca API/WS rotaları kalır.
 
-**Ayarlar.** `ApiSettings` (`YFAPI_` prefix), ikisi de env-only:
-`ui_enabled: bool = False`, `ui_password: str = ""`. `ui_enabled` açık
-ve şifre boşsa `create_app` `ValueError` atar. İki anahtar
-`YFAPI_UI_ENABLED` ve `YFAPI_UI_PASSWORD` olarak `.env.example`'a girer;
-oradaki test her `ApiSettings` alanının belgelenmesini zorunlu kılar.
+**Ayarlar.** `ApiSettings` (`YFAPI_` prefix), hepsi env-only:
+`ui_enabled: bool = False`, `ui_public: bool = True`,
+`ui_password: str = ""`, `ui_requests_per_minute: int = 600`.
+`ui_enabled` açık, `ui_public` kapalı ve şifre boşsa `create_app`
+`ValueError` atar; public modda şifre gerekmez. Anahtarlar
+`YFAPI_UI_ENABLED`, `YFAPI_UI_PUBLIC`, `YFAPI_UI_PASSWORD`,
+`YFAPI_UI_REQUESTS_PER_MINUTE` olarak `.env.example`'a girer; oradaki
+test her `ApiSettings` alanının belgelenmesini zorunlu kılar.
 `docker-compose.yml` ve README de belgeler.
+
+**Veri yolu: `/ui/api/v1` aynası.** Tarayıcının Bearer token'ı yoktur
+ve `/v1` sözleşmesi (`openapi.json`, plan ölçümü) değişmez. Bunun için
+`yfin/ui/public.py` `market` ve `datasets` router'larını `/ui/api`'ye
+mount edilmiş ikinci bir FastAPI alt uygulamasında yeniden sunar; yollar
+`/ui/api/v1/...` olur. Fark yalnızca iki noktadır: `current_principal`
+`ui_principal` ile override edilir (public modda sabit `ui` principal,
+şifreli modda çerezden) ve `RequestBrake` istemci IP'si başına dakikada
+`ui_requests_per_minute` isteği geçirir (aşımı 429 + `Retry-After: 60`).
+Alt uygulama OpenAPI belgesi yayınlamaz; `/ui/api` altında
+eşleşmeyen her yol onun 404 problem gövdesiyle biter, SPA sayfasına
+düşmez. SPA yalnızca bu aynayı ve `/ui/api/*` rotalarını çağırır;
+`/v1`'i doğrudan hiç çağırmaz.
 
 **API'ye entegrasyon.** `current_principal`: `Authorization` başlığı
 varsa yalnızca o değerlendirilir, geçersizse 401; başlık yoksa ve UI
@@ -228,12 +245,16 @@ faz 2'de dockview grup harflerine bağlanmanın ön koşulu.
 
 **Şablonlar.** `single`: komut satırı altında tek panel. `headed`: üstte
 ince canlı fiyat şeridi (son tick, değişim, seans durumu), altında
-panel. Şablon `PanelSpec`'te sabit; sürükleme yok.
+panel. Şablon `PanelSpec`'te sabit; sürükleme yok. 1b'de `layout`
+alanı yalnızca tanımlıdır; `Shell` onu 1c'de (canlı şerit gelince)
+okumaya başlar.
 
 **Gezinme.** Yığın tarayıcı history'sidir: her komut
 `history.pushState`; `Esc` = `back()`, `Shift+Esc` = `forward()`. Komut
 kutusu odaktayken `Esc` önce kutuyu kapatır. URL `/ui/t/{SYMBOL}/{CODE}?
-{args}`; sembolsüz panel için `/ui/t/-/HELP`. Kök `/ui` isteği
+{args}`; sembolsüz panel için `/ui/t/-/HELP`, bağlamda sembol varsa
+sembol korunur (`AAPL` açıkken `HELP` → `/ui/t/AAPL/HELP`, `Esc` ile
+geri dönülünce sembol kaybolmaz). Kök `/ui` isteği
 `localStorage["yfin.ui.last"]`'taki üçlüye yönlendirir; yoksa boş DES ve
 odak kutuda. `localStorage` yalnız bu yönlendirme içindir; ikinci bir
 durum kaynağı değildir.
@@ -341,6 +362,18 @@ gösterir.
 
 ## Kimlik doğrulama ve oturum
 
+**Public mod (varsayılan, `YFAPI_UI_PUBLIC=true`).** Giriş yoktur:
+`/ui/api/login` ve `/ui/api/logout` 404 döner, `GET /ui/api/me`
+`{"authenticated": true, "expires_at": null, "live_enabled": false,
+"public": true}` verir ve SPA giriş modalını hiç göstermez. Aşağıdaki
+çerez mekanizması yalnızca `YFAPI_UI_PUBLIC=false` iken devrededir; o
+modda `me` gövdesi `"public": false` taşır.
+
+**Künye.** Sayfa altbilgisi Yahoo Finance'e (`https://finance.yahoo.com/`)
+ve `yfinance` paketine (`https://github.com/ranaroussi/yfinance`)
+logolarıyla bağlantı verir ve Yahoo ile bağlantısızlık notunu taşır;
+logolar CSP'nin `img-src https:` iznine dayanır.
+
 - `POST /ui/api/login`: form alanı `password`, sabit zamanlı
   karşılaştırma; başarı 204 + `Set-Cookie: yfin_ui`; hata mevcut
   problem gövdesi.
@@ -356,7 +389,7 @@ gösterir.
   sahip olduğu tek olay müdahalesi budur); `jwt_signing_key`
   rotasyonu ise ayrıca her `/v1` token'ını da öldürür.
 - `POST /ui/api/logout` çerezi siler. `GET /ui/api/me` her zaman 200:
-  `{"authenticated": bool, "expires_at": <UNIX epoch saniye>|null, "live_enabled": bool}`.
+  `{"authenticated": bool, "expires_at": <UNIX epoch saniye>|null, "live_enabled": bool, "public": bool}`.
 - Çerez: `HttpOnly`, `SameSite=Lax`, `Path=/`; `Secure` yalnız
   `public_base_url` https ise. `public_base_url` boşken çerez düz HTTP'de
   gider; self-host tek kullanıcı için kabul edilir ve README'de yazar.

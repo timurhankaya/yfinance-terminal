@@ -20,14 +20,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // A network failure or a non-JSON 5xx must still land the app in a
       // defined state instead of leaving `me` null ("Connecting…") forever.
       console.error("session refresh failed", err);
-      setMe({ authenticated: false, expires_at: null, live_enabled: false });
+      setMe({ authenticated: false, expires_at: null, live_enabled: false, public: false });
     }
   }, []);
 
   // A 401 anywhere on the page flips the session to "not authenticated"
   // so the modal appears; the caller retries after login.
   const requireLogin = useCallback(() => {
-    setMe({ authenticated: false, expires_at: null, live_enabled: false });
+    setMe({ authenticated: false, expires_at: null, live_enabled: false, public: false });
   }, []);
 
   useEffect(() => {

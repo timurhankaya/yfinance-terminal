@@ -28,8 +28,8 @@ function renderCF(args: Record<string, string> = {}) {
   const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
     if (url === "/ui/api/me") return json(200, me);
-    if (url.startsWith("/v1/datasets/sec_filings?")) return json(200, { data: filings, next_cursor: null, as_of: null });
-    if (url.startsWith("/v1/datasets/sec_filing_exhibits?")) return json(200, { data: exhibits, next_cursor: null, as_of: null });
+    if (url.startsWith("/ui/api/v1/datasets/sec_filings?")) return json(200, { data: filings, next_cursor: null, as_of: null });
+    if (url.startsWith("/ui/api/v1/datasets/sec_filing_exhibits?")) return json(200, { data: exhibits, next_cursor: null, as_of: null });
     throw new Error(`unexpected ${url}`);
   });
   render(
@@ -74,7 +74,7 @@ describe("CF", () => {
   it("passes the filing type filter through to the API", async () => {
     const spy = renderCF({ filing_type: "10-K" });
     await screen.findByText("Annual report");
-    const filingsUrl = spy.mock.calls.map(([u]) => String(u)).find((u) => u.startsWith("/v1/datasets/sec_filings?"));
+    const filingsUrl = spy.mock.calls.map(([u]) => String(u)).find((u) => u.startsWith("/ui/api/v1/datasets/sec_filings?"));
     expect(filingsUrl).toContain("filing_type=10-K");
     expect(filingsUrl).toContain("symbol=AAPL");
   });
@@ -83,7 +83,7 @@ describe("CF", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/ui/api/me") return json(200, me);
-      if (url.startsWith("/v1/datasets/")) return json(200, { data: [], next_cursor: null, as_of: null });
+      if (url.startsWith("/ui/api/v1/datasets/")) return json(200, { data: [], next_cursor: null, as_of: null });
       throw new Error(`unexpected ${url}`);
     });
     render(

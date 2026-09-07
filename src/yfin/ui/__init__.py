@@ -18,19 +18,17 @@ log = get_logger(__name__)
 
 
 def install(app: FastAPI, settings: ApiSettings, dist_dir: Path | None = None) -> None:
-    """Mounts the UI. Order matters: three layers, in this order: the
-    data routes, then the API router (which ends with a catch-all 404 for
-    /ui/api/*), then the pages. Starlette matches in registration order,
-    so a data route must be registered before the catch-all would swallow
-    it, and the catch-all before the pages so /ui/api/* can never fall
-    through to index.html."""
-    from yfin.ui import data, pages, router
+    """Mounts the UI. Order matters: the terminal's own /ui/api routes
+    first, then the `/v1` mirror mounted at /ui/api (it answers
+    /ui/api/v1/* and is the 404 for every other /ui/api path), then the
+    pages. Starlette matches in registration order, so the mount must
+    come after the routes it would otherwise swallow, and before the pages
+    so /ui/api/* can never fall through to index.html."""
+    from yfin.ui import data, pages, public, router
 
-    # Three layers, in this order: the data routes, then the API router
-    # (which ends with a catch-all 404 for /ui/api/*), then the pages.
-    # Starlette matches in registration order.
     app.include_router(data.router)
     app.include_router(router.router)
+    app.mount(public.MOUNT_PATH, public.build_data_api(settings), name="ui-data")
 
     dist = dist_dir if dist_dir is not None else pages.default_dist_dir()
     # Both halves, because StaticFiles raises in its constructor when the

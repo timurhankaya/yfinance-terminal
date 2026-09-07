@@ -21,11 +21,11 @@ function page(rows: unknown[]) {
 }
 
 const URLS = {
-  targets: "/v1/datasets/analyst_price_targets?symbol=AAPL&limit=200",
-  recommendations: "/v1/datasets/recommendations?symbol=AAPL&limit=200",
-  grades: "/v1/datasets/upgrades_downgrades?symbol=AAPL&limit=200",
-  estimates: "/v1/datasets/earnings_estimate?symbol=AAPL&limit=200",
-  trend: "/v1/datasets/eps_trend?symbol=AAPL&limit=200",
+  targets: "/ui/api/v1/datasets/analyst_price_targets?symbol=AAPL&limit=200",
+  recommendations: "/ui/api/v1/datasets/recommendations?symbol=AAPL&limit=200",
+  grades: "/ui/api/v1/datasets/upgrades_downgrades?symbol=AAPL&limit=200",
+  estimates: "/ui/api/v1/datasets/earnings_estimate?symbol=AAPL&limit=200",
+  trend: "/ui/api/v1/datasets/eps_trend?symbol=AAPL&limit=200",
 };
 
 const targets = [{ symbol: "AAPL", as_of_date: "2026-09-01", current: "319.97", low: "200", high: "400", mean: "310.5", median: "312" }];
@@ -95,7 +95,7 @@ describe("ANR", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/ui/api/me") return json(200, me);
-      if (url.startsWith("/v1/datasets/")) return page([]);
+      if (url.startsWith("/ui/api/v1/datasets/")) return page([]);
       throw new Error(`unexpected ${url}`);
     });
     renderANR();
@@ -107,7 +107,7 @@ describe("ANR", () => {
       const url = String(input);
       if (url === "/ui/api/me") return json(200, me);
       if (url === URLS.grades) return problem(401, "unauthenticated");
-      if (url.startsWith("/v1/datasets/")) return page([]);
+      if (url.startsWith("/ui/api/v1/datasets/")) return page([]);
       throw new Error(`unexpected ${url}`);
     });
     renderANR();

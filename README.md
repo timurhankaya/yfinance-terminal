@@ -71,18 +71,26 @@ yfin config list                  # effective settings and their source
 
 ```bash
 cd web && npm ci && npm run build   # writes src/yfin/ui/static/dist
-YFAPI_UI_ENABLED=true YFAPI_UI_PASSWORD=<choose one> \
-  uvicorn yfin.api.app:app --port 8000
+YFAPI_UI_ENABLED=true uvicorn yfin.api.app:app --port 8000
 open http://localhost:8000/ui
 ```
 
-One password, one operator. Behind a reverse proxy set
-`YFAPI_TRUSTED_PROXIES`, or every login attempt in the world shares one
-rate-limit bucket. Set `YFAPI_PUBLIC_BASE_URL` to the `https://` origin
-so the session cookie is marked `Secure`; with it empty the cookie
-travels over plain HTTP, which is acceptable on localhost and nowhere
-else. Changing `YFAPI_UI_PASSWORD` signs every browser session out;
-changing `YFAPI_JWT_SIGNING_KEY` does that AND revokes every API token.
+The terminal is public by default: no login, and the page reads the
+archive through its own mirror of the `/v1` routers at `/ui/api/v1`
+(no Bearer token, no plan metering, a per-address brake of
+`YFAPI_UI_REQUESTS_PER_MINUTE` requests instead). `/v1` itself and its
+`openapi.json` do not change. Behind a reverse proxy set
+`YFAPI_TRUSTED_PROXIES`, or every browser in the world shares one
+brake bucket. The footer credits Yahoo Finance, where the data comes
+from, and the `yfinance` package that fetches it.
+
+To put the terminal behind a password instead, set
+`YFAPI_UI_PUBLIC=false` and `YFAPI_UI_PASSWORD=<choose one>`. Then set
+`YFAPI_PUBLIC_BASE_URL` to the `https://` origin so the session cookie
+is marked `Secure`; with it empty the cookie travels over plain HTTP,
+which is acceptable on localhost and nowhere else. Changing
+`YFAPI_UI_PASSWORD` signs every browser session out; changing
+`YFAPI_JWT_SIGNING_KEY` does that AND revokes every API token.
 
 Use `npm ci` in `web/`; plain `npm install` crashes on the npm that
 ships with Node 22 (an npm 10.9 resolver bug) -- the committed
@@ -141,7 +149,7 @@ HELP                  # every function and shortcut; Esc goes back
 |---|---|---|
 | **Kafka producer** | **TODO** | Publish each verified write as an event so downstream consumers do not poll the database. Open questions: topic per table vs per dataset, and whether the outbox lives in `sync_run_items` or a dedicated table. |
 | **WebSocket streaming** | **TODO** | Yahoo's live quote socket for intraday updates between scheduled runs, plus an outbound socket so clients can subscribe to symbols instead of polling. Needs a decision on how live ticks reconcile with the bar archive. |
-| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Phase 1a ships login and `DES`; the command language, live ticks and charts follow (`docs/superpowers/specs/2026-09-07-web-terminal-design.md`). |
+| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default; `DES`, `FA`, `ANR`, `N`, `CF` and `HELP` ship, live ticks and charts follow (`docs/superpowers/specs/2026-09-07-web-terminal-design.md`). |
 
 ---
 

@@ -64,7 +64,15 @@ class ApiSettings(BaseSettings):
     # a hash would protect (see the web terminal design, "Kimlik
     # doğrulama").
     ui_enabled: bool = False
+    #: Public by default: the terminal shows the same data the read API
+    #: serves, without a login, through its own unmetered, rate-limited
+    #: mount (`/ui/api/v1`). Set to false to put it behind the one-operator
+    #: password instead; the password is then required.
+    ui_public: bool = True
     ui_password: str = ""
+    #: Per client IP, per process, on the public data mount only. A crude
+    #: brake on one browser's worth of traffic, not the API's limiter.
+    ui_requests_per_minute: int = Field(default=600, ge=1)
 
     # --- health -----------------------------------------------------------
     health_cache_seconds: int = Field(default=5, ge=0)
@@ -97,8 +105,10 @@ class ApiSettings(BaseSettings):
         as `signing_key_bytes`: a CLI command that never serves the UI
         must not fail because the UI is misconfigured.
         """
-        if self.ui_enabled and not self.ui_password:
-            raise ValueError("YFAPI_UI_ENABLED is on but YFAPI_UI_PASSWORD is empty")
+        if self.ui_enabled and not self.ui_public and not self.ui_password:
+            raise ValueError(
+                "YFAPI_UI_ENABLED is on with YFAPI_UI_PUBLIC=false but YFAPI_UI_PASSWORD is empty"
+            )
 
     def ui_cookie_secure(self) -> bool:
         """`Secure` only when the deployment says it is behind TLS. An empty

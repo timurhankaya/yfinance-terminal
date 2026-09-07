@@ -2,6 +2,11 @@
 // API's Vary header names Authorization, not Cookie, so a cached /v1
 // response could outlive a logout.
 
+// The page reads through the terminal's own mirror of /v1: same routers,
+// no OAuth2, a per-IP brake instead of plan metering. /v1 itself stays the
+// contracted, metered API for Bearer clients.
+export const DATA_BASE = "/ui/api/v1";
+
 export class UnauthorizedError extends Error {
   constructor() {
     super("unauthorized");
@@ -49,6 +54,8 @@ export interface Me {
   authenticated: boolean;
   expires_at: number | null;
   live_enabled: boolean;
+  /** No login on this terminal; the page never shows the modal. */
+  public: boolean;
 }
 
 export interface SymbolDetail {
@@ -79,7 +86,7 @@ export async function logout(): Promise<void> {
 
 export async function getSymbol(symbol: string): Promise<SymbolDetail> {
   const code = encodeURIComponent(symbol.trim().toUpperCase());
-  const envelope = await apiFetch<{ data: SymbolDetail }>(`/v1/symbols/${code}`);
+  const envelope = await apiFetch<{ data: SymbolDetail }>(`${DATA_BASE}/symbols/${code}`);
   return envelope.data;
 }
 
@@ -118,7 +125,7 @@ export const SEARCH_MIN_PREFIX = 2;
 export async function searchSymbols(prefix: string): Promise<SymbolSummary[]> {
   const q = prefix.trim().toUpperCase();
   if (q.length < SEARCH_MIN_PREFIX) return [];
-  const page = await apiFetch<Page<SymbolSummary>>(`/v1/symbols?q=${encodeURIComponent(q)}&limit=20`);
+  const page = await apiFetch<Page<SymbolSummary>>(`${DATA_BASE}/symbols?q=${encodeURIComponent(q)}&limit=20`);
   return page.data;
 }
 
@@ -129,7 +136,7 @@ const FINANCIALS_MAX_PAGES = 5;
 
 export async function getFinancials(symbol: string, statement: string, freq: string): Promise<FinancialFact[]> {
   const code = encodeURIComponent(symbol.trim().toUpperCase());
-  const base = `/v1/symbols/${code}/financials?statement=${statement}&freq=${freq}&limit=${FINANCIALS_PAGE}`;
+  const base = `${DATA_BASE}/symbols/${code}/financials?statement=${encodeURIComponent(statement)}&freq=${encodeURIComponent(freq)}&limit=${FINANCIALS_PAGE}`;
   const rows: FinancialFact[] = [];
   let cursor: string | null = null;
   for (let i = 0; i < FINANCIALS_MAX_PAGES; i += 1) {
@@ -146,7 +153,7 @@ export async function getDataset(
   name: string, symbol: string, params: Record<string, string> = {},
 ): Promise<Record<string, unknown>[]> {
   const search = new URLSearchParams({ ...params, symbol: symbol.trim().toUpperCase(), limit: "200" });
-  const page = await apiFetch<Page<Record<string, unknown>>>(`/v1/datasets/${name}?${search}`);
+  const page = await apiFetch<Page<Record<string, unknown>>>(`${DATA_BASE}/datasets/${encodeURIComponent(name)}?${search}`);
   return page.data;
 }
 

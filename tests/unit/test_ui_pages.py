@@ -16,10 +16,18 @@ KEY = "k" * 32
 PW = "hunter2"
 
 
-def settings(*, ui_enabled: bool = True, ui_password: str = PW) -> ApiSettings:
+def settings(
+    *, ui_enabled: bool = True, ui_password: str = PW, ui_public: bool = True
+) -> ApiSettings:
     return ApiSettings(
-        _env_file=None, jwt_signing_key=KEY, jwt_kid="k1", jwt_issuer="yfin-api",
-        ui_enabled=ui_enabled, ui_password=ui_password, docs_enabled=True,
+        _env_file=None,
+        jwt_signing_key=KEY,
+        jwt_kid="k1",
+        jwt_issuer="yfin-api",
+        ui_enabled=ui_enabled,
+        ui_public=ui_public,
+        ui_password=ui_password,
+        docs_enabled=True,
     )
 
 
@@ -57,6 +65,10 @@ def test_index_carries_the_csp_and_frame_headers(
     assert response.headers["Content-Security-Policy"] == pages.CSP
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["Cache-Control"] == "no-store"
+    # Set by the API's SecurityHeadersMiddleware for every response, the
+    # page included: an outbound article or EDGAR link must not carry the
+    # terminal's URL (and with it the symbol being looked at) as a referrer.
+    assert response.headers["Referrer-Policy"] == "no-referrer"
 
 
 def test_assets_are_served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -65,9 +77,7 @@ def test_assets_are_served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert "console.log" in response.text
 
 
-def test_a_missing_asset_is_404_not_index(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_missing_asset_is_404_not_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     response = make_client(build_dist(tmp_path), monkeypatch).get("/ui/assets/nope.js")
     assert response.status_code == 404
 
@@ -82,9 +92,7 @@ def test_ui_api_is_never_answered_with_html(
     assert response.headers["content-type"] == "application/problem+json"
 
 
-def test_v1_404s_are_untouched_by_the_spa(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_v1_404s_are_untouched_by_the_spa(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     response = make_client(build_dist(tmp_path), monkeypatch).get(
         "/v1/typo", headers={"Accept": "text/html"}
     )
@@ -145,7 +153,7 @@ def test_create_app_refuses_enabled_without_a_password() -> None:
     from yfin.api.app import create_app
 
     with pytest.raises(ValueError, match="YFAPI_UI_PASSWORD"):
-        create_app(settings(ui_password=""))
+        create_app(settings(ui_password="", ui_public=False))
 
 
 def test_the_openapi_document_has_no_ui_routes(

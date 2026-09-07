@@ -1,6 +1,7 @@
-"""The UI's own endpoints: login, logout, who-am-I, and a 404 for
-everything else under /ui/api so the SPA fallback can never answer an
-API path with HTML.
+"""The UI's own endpoints: login, logout and who-am-I. Everything else
+under /ui/api is answered by the `/v1` mirror mounted after this router
+(see `yfin.ui.public`), whose own 404 keeps the SPA fallback from ever
+answering an API path with HTML.
 
 None of this is in the OpenAPI document. The public contract is `/v1`
 and `/oauth`; these routes exist for one browser page and are versioned
@@ -43,6 +44,14 @@ class Me(BaseModel):
     expires_at: int | None
     #: Filled in by 1c (the live tick path). Always false until then.
     live_enabled: bool
+    #: True when the terminal needs no login; the page then never shows
+    #: the login modal and `login`/`logout` answer 404.
+    public: bool
+
+
+#: What `current_session` returns in public mode: a fixed identity, no
+#: expiry (0 is "never" for the page, which only reads it for display).
+PUBLIC_CLAIMS = UiClaims(jti="public", expires_at=0)
 
 
 def _settings(request: Request) -> ApiSettings:
@@ -65,7 +74,10 @@ def current_session(request: Request) -> UiClaims:
 
     Cookie only. A Bearer token is not a session, and accepting one here
     would let an API client reach UI-only routes that bypass metering.
+    In public mode there is nothing to check.
     """
+    if _settings(request).ui_public:
+        return PUBLIC_CLAIMS
     raw = request.cookies.get(COOKIE_NAME)
     if not raw:
         raise ApiProblem(401, TYPE_UNAUTHENTICATED, "Login required")
@@ -113,6 +125,7 @@ def login(
     submitted: Annotated[str, Form(alias=LOGIN_FIELD)],
 ) -> Response:
     settings = _settings(request)
+    _refuse_when_public(settings)
     client_ip = getattr(request.state, "client_ip", "unknown")
     if not _login_limiter.allow(client_ip, LOGIN_ATTEMPTS_PER_MINUTE):
         raise ApiProblem(
@@ -129,33 +142,26 @@ def login(
 
 @router.post("/logout", status_code=204)
 def logout(request: Request, response: Response) -> Response:
+    settings = _settings(request)
+    _refuse_when_public(settings)
     response.status_code = 204
-    clear_session_cookie(response, _settings(request))
+    clear_session_cookie(response, settings)
     return response
+
+
+def _refuse_when_public(settings: ApiSettings) -> None:
+    """There is no session to open or close on a public terminal."""
+    if settings.ui_public:
+        raise ApiProblem(404, TYPE_NOT_FOUND, "No such route")
 
 
 @router.get("/me", response_model=Me)
 def me(request: Request) -> Me:
     """Always 200: the SPA asks this first and a 401 here would be
     indistinguishable from an expired session mid-use."""
+    if _settings(request).ui_public:
+        return Me(authenticated=True, expires_at=None, live_enabled=False, public=True)
     claims = _claims_from_cookie(request)
     if claims is None:
-        return Me(authenticated=False, expires_at=None, live_enabled=False)
-    return Me(authenticated=True, expires_at=claims.expires_at, live_enabled=False)
-
-
-@router.api_route(
-    "/{path:path}", methods=["GET", "HEAD", "OPTIONS", "POST", "PUT", "DELETE", "PATCH"]
-)
-def not_found(path: str) -> None:
-    """Registered last in this router, and this router before the SPA
-    pages, so an unknown /ui/api path is a problem document, never
-    index.html.
-
-    This catch-all also answers a wrong method on a real route (e.g.
-    `GET /ui/api/login`) with 404 rather than 405, since FastAPI only
-    tries the next matching route, not a method-mismatch handler,
-    before falling through to this one. Deliberate: one operator does
-    not need Allow-header precision here, and 404 keeps the same "no
-    such route" story for both cases."""
-    raise ApiProblem(404, TYPE_NOT_FOUND, "No such route")
+        return Me(authenticated=False, expires_at=None, live_enabled=False, public=False)
+    return Me(authenticated=True, expires_at=claims.expires_at, live_enabled=False, public=False)

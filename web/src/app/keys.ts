@@ -28,13 +28,13 @@ export function useGlobalKeys({ inputRef, paletteOpen, openHelp }: GlobalKeysArg
       if (paletteOpen) return;
       const onCommandBox = document.activeElement === inputRef.current;
 
-      if (event.key === "Escape" && event.shiftKey) {
-        void navigate(1);
-        return;
-      }
       if (event.key === "Escape") {
         if (onCommandBox) return; // the command box handles its own Escape
-        void navigate(-1);
+        // Any other text field (the login password box, a palette input)
+        // keeps its Escape: navigating history from behind a modal would
+        // move the page the user cannot see.
+        if (isTextInput(document.activeElement)) return;
+        void navigate(event.shiftKey ? 1 : -1);
         return;
       }
 

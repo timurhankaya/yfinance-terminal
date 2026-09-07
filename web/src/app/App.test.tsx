@@ -97,7 +97,7 @@ describe("AppRoutes", () => {
       }
       // Like the real API: no session, no data. This is what proves DES
       // loads AFTER login rather than before the modal appeared.
-      if (url === "/v1/symbols/AAPL") return authed ? json(200, symbolBody("AAPL", "Apple Inc.")) : unauthorized();
+      if (url === "/ui/api/v1/symbols/AAPL") return authed ? json(200, symbolBody("AAPL", "Apple Inc.")) : unauthorized();
       throw new Error(`unexpected ${url}`);
     });
     mount("/ui/t/AAPL/DES");
@@ -109,7 +109,7 @@ describe("AppRoutes", () => {
   it("navigates to DES of the typed symbol on Enter", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
-      if (url.startsWith("/v1/symbols/")) {
+      if (url.startsWith("/ui/api/v1/symbols/")) {
         const symbol = url.split("/").pop()!;
         return json(200, symbolBody(symbol, `${symbol} Corp`));
       }
@@ -123,7 +123,7 @@ describe("AppRoutes", () => {
   it("hands focus to the panel after a command so j/k reach the list, and refocuses on '/'", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
-      if (url.startsWith("/v1/symbols/")) {
+      if (url.startsWith("/ui/api/v1/symbols/")) {
         const symbol = url.split("/").pop()!;
         return json(200, symbolBody(symbol, `${symbol} Corp`));
       }
@@ -144,7 +144,7 @@ describe("AppRoutes", () => {
   it("offers every function in a bar; clicking one runs it on the current symbol", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
-      if (url.startsWith("/v1/symbols/")) {
+      if (url.startsWith("/ui/api/v1/symbols/")) {
         const symbol = url.split("/").pop()!;
         return json(200, symbolBody(symbol, `${symbol} Corp`));
       }
@@ -189,7 +189,7 @@ describe("AppRoutes", () => {
     localStorage.setItem("yfin.ui.last", "/ui/t/TSLA/DES");
     mockFetch((url) => {
       if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
-      if (url === "/v1/symbols/TSLA") return json(200, symbolBody("TSLA", "Tesla"));
+      if (url === "/ui/api/v1/symbols/TSLA") return json(200, symbolBody("TSLA", "Tesla"));
       throw new Error(`unexpected ${url}`);
     });
     mount("/ui");
@@ -199,7 +199,7 @@ describe("AppRoutes", () => {
   it("runs a mnemonic-only command against the current symbol", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
-      if (url === "/v1/symbols/MSFT") return json(200, symbolBody("MSFT", "Microsoft Corp"));
+      if (url === "/ui/api/v1/symbols/MSFT") return json(200, symbolBody("MSFT", "Microsoft Corp"));
       throw new Error(`unexpected ${url}`);
     });
     mount("/ui/t/MSFT/DES");
@@ -212,10 +212,10 @@ describe("AppRoutes", () => {
   it("warns and opens the palette when a symbol is not found, and lets the palette pick resolve it", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
-      if (url === "/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
-      if (url === "/v1/symbols/NOPE") return new Response("{}", { status: 404, headers: { "content-type": "application/problem+json" } });
-      if (url === "/v1/symbols/NOPES") return json(200, symbolBody("NOPES", "Nopes Inc."));
-      if (url.startsWith("/v1/symbols?q=NOPE")) return json(200, searchBody([{ symbol: "NOPES", long_name: "Nopes Inc.", short_name: null }]));
+      if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      if (url === "/ui/api/v1/symbols/NOPE") return new Response("{}", { status: 404, headers: { "content-type": "application/problem+json" } });
+      if (url === "/ui/api/v1/symbols/NOPES") return json(200, symbolBody("NOPES", "Nopes Inc."));
+      if (url.startsWith("/ui/api/v1/symbols?q=NOPE")) return json(200, searchBody([{ symbol: "NOPES", long_name: "Nopes Inc.", short_name: null }]));
       throw new Error(`unexpected ${url}`);
     });
     mount("/ui/t/AAPL/DES");
@@ -226,7 +226,7 @@ describe("AppRoutes", () => {
     const palette = await screen.findByLabelText("palette");
     expect(palette).toBeInTheDocument();
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/v1/symbols?q=NOPE&limit=20"),
+      expect.stringContaining("/ui/api/v1/symbols?q=NOPE&limit=20"),
       expect.anything(),
     ));
     const item = await screen.findByText(/NOPES/);
@@ -237,7 +237,7 @@ describe("AppRoutes", () => {
   it("reports a bad panel argument without changing the URL", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
-      if (url === "/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
       throw new Error(`unexpected ${url}`);
     });
     mount("/ui/t/AAPL/DES");
@@ -250,8 +250,8 @@ describe("AppRoutes", () => {
   it("Esc first clears the focused command box, then navigates back", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
-      if (url === "/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
-      if (url === "/v1/symbols/MSFT") return json(200, symbolBody("MSFT", "Microsoft Corp"));
+      if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      if (url === "/ui/api/v1/symbols/MSFT") return json(200, symbolBody("MSFT", "Microsoft Corp"));
       throw new Error(`unexpected ${url}`);
     });
     mount("/ui/t/AAPL/DES");
@@ -270,7 +270,7 @@ describe("AppRoutes", () => {
   it("opens HELP on '?' when the command box is not focused", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
-      if (url === "/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
       throw new Error(`unexpected ${url}`);
     });
     mount("/ui/t/AAPL/DES");
@@ -284,7 +284,7 @@ describe("AppRoutes", () => {
   it("focuses the command box on '/' when it is not already focused", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
-      if (url === "/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
       throw new Error(`unexpected ${url}`);
     });
     mount("/ui/t/AAPL/DES");
