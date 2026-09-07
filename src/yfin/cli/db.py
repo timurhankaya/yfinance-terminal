@@ -27,7 +27,8 @@ def db_upgrade(
     from alembic import command
     from alembic.config import Config
 
-    configure_logging(get_settings().log_level)
+    settings = get_settings()
+    configure_logging(settings.log_level, settings.log_format)
     cfg = Config("alembic.ini")
     command.upgrade(cfg, revision)
     typer.echo(f"migration uygulandi: {revision}")

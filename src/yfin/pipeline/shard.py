@@ -129,10 +129,11 @@ def shard_main(spec: ShardSpec, queue: MPQueue[str]) -> None:
     settings = settings_from_overrides(spec.settings_overrides)
     install_settings(settings, spec.settings_overrides)
 
-    # First step: structlog runs with cache_logger_on_first_use=True, and
-    # module-level loggers cache configuration on first use. Logging before
-    # this silently falls back to an unconfigured PrintLogger in the child.
-    configure_logging(settings.log_level)
+    # First step, and the child names ITSELF: a shard's lines are `sync`,
+    # not the `scheduler` that started the process it was forked from.
+    # `spawn` gives the child no logging configuration at all, so anything
+    # logged before this would go to an unconfigured logger.
+    configure_logging(settings.log_level, settings.log_format, "sync")
 
     datasets = SYMBOL_DATASETS.resolve(list(spec.dataset_names))
     configure_yfinance(spec.proxy_dsn, proxy_key=spec.proxy_key, settings=settings)

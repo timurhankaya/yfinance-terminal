@@ -227,7 +227,7 @@ def discover_term(
     from yfin.storage.db import LockNotAcquired, create_db_engine
 
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_format)
 
     term = query.strip()
     if not term:

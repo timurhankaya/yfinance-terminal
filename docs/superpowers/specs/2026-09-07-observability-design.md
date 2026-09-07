@@ -975,3 +975,46 @@ While implementing step 6 (the exporter):
   it is per query rather than global, so a failing query cannot wipe
   numbers another one filled in the same pass. A test asserts no two
   queries own the same gauge.
+
+While implementing step 7 (logging):
+
+- **`service` is a processor, not a contextvar.** The design says it is
+  bound with `bind_contextvars` at each entry point. It cannot be:
+  `ThreadPoolExecutor` does not copy the context into its workers -- which
+  is why `bind_shard_context` exists and is called again in every thread --
+  so a `service` bound that way would be missing from exactly the fetch and
+  normalise lines a dashboard filters by service to find. It is module
+  state written by `configure_logging(service=...)` and added by
+  `_add_service`, which puts it on every line including foreign records and
+  worker threads. A test submits a log call to a pool and asserts the field
+  survives.
+- **`cache_logger_on_first_use=False`.** A cached logger keeps the chain it
+  was built with, and `configure_logging` is deliberately called more than
+  once per process -- by a CLI command, then by `create_app`, then by a
+  shard once it has read its settings. The design worked around this by
+  requiring `create_app` to configure first; the explicit call is still
+  there, for the uvicorn access log rather than for the cache.
+- **Exception rendering lives in the formatter, not the shared chain.** The
+  two renderers want it in different shapes -- `ConsoleRenderer` formats
+  `exc_info` itself, `JSONRenderer` needs it already turned into data -- and
+  `ProcessorFormatter` has moved `record.exc_info` into the event dict by
+  then, so a stdlib record's traceback is still rendered by the same code
+  as a structlog one's. `show_locals=False` on BOTH sides rather than only
+  the JSON one: a console traceback on a terminal is one `2>` away from a
+  file. Two tests raise inside a function holding a DSN local and assert
+  neither rendering leaks it.
+- **The `[otel]` extra lands here rather than in step 9.**
+  `_add_trace_context` is step 7's, and it has to type-check; the extra is
+  also the repo's existing answer to an optional dependency (the `kafka`
+  pattern), where the alternative would have been a mypy override claiming
+  a package with `py.typed` has none. `configure_tracing` and the manual
+  spans stay in step 9.
+- **`_add_trace_context` imports the FUNCTION**, `from
+  opentelemetry.trace import get_current_span`, not the module:
+  `opentelemetry` is a namespace package and importing `trace` from it
+  leaves mypy resolving the name against the namespace rather than against
+  `opentelemetry-api`. The miss is latched in a module flag so a process
+  without the extra pays one `ImportError`, not one per line.
+- **A missing span adds nothing, not zeros.** An all-zero id is what
+  OpenTelemetry returns for the invalid span, and Grafana's
+  `derivedFields` would turn it into a link to a trace that does not exist.

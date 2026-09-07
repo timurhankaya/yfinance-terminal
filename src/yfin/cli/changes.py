@@ -63,10 +63,14 @@ def changes_relay(
     from sqlalchemy import Engine
 
     from yfin.core.config import get_settings
+    from yfin.core.logging_setup import configure_logging
     from yfin.outbox.relay import OutboxRelay, RelayConfig
     from yfin.storage.db import advisory_lock
 
     settings = get_settings()
+    # Both relays are `relay`; `outbox` is the label that tells them apart,
+    # and it is already on every metric and every span they produce.
+    configure_logging(settings.log_level, settings.log_format, "relay")
     if not settings.yf_changes_enabled:
         _disabled()
 

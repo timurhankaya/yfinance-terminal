@@ -122,7 +122,7 @@ def sync(
     from yfin.storage.db import session_factory as session_factory_for
 
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_format, "sync")
     engine = create_db_engine(settings)
 
     selected = SYMBOL_DATASETS.resolve(None if datasets.strip() == "all" else comma_list(datasets))

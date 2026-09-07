@@ -135,11 +135,13 @@ def configure_yfinance(
     """
     cfg = settings or get_settings()
 
-    # Order matters: the bridge handler attaches before the
-    # debug.logging assignment. That assignment triggers
-    # _enable_debug_mode(), and yfinance adds its own StreamHandler and
-    # forces DEBUG level if the logger has no handler yet -- every line
-    # would print twice.
+    # Order matters: the bridge attaches BEFORE the debug.logging
+    # assignment. That assignment triggers _enable_debug_mode(), which
+    # installs yfinance's own StreamHandler on a handler-less logger -- a
+    # second, unredacted route to stderr for exactly the records most
+    # likely to carry the DSN set two lines below. The bridge's NullHandler
+    # makes that check pass without adding an output, and propagation
+    # carries the records to the root chain instead.
     bridge_yfinance_logging()
 
     yf.config.network.proxy = proxy_dsn

@@ -46,7 +46,7 @@ def domain_sync(
         # same way. Same pattern as `--shards` overriding YF_MAX_SHARDS; the
         # difference is that value has nothing to validate.
         settings = settings.model_copy(update={"yf_domain_regions": regions})
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_format)
     engine = create_db_engine(settings)
 
     selected = DOMAIN_DATASETS.resolve(None if datasets.strip() == "all" else comma_list(datasets))

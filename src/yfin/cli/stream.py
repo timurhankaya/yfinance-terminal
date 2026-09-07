@@ -51,11 +51,15 @@ def stream_run() -> None:
     from sqlalchemy import Engine
 
     from yfin.core.config import get_settings
+    from yfin.core.logging_setup import configure_logging
     from yfin.stream.runner import StreamDisabled, run_stream
 
     engine = _engine()
     assert isinstance(engine, Engine)
     settings = get_settings()
+    # `_engine()` already configured logging; this renames the process now
+    # that it is known to be the stream rather than any other command.
+    configure_logging(settings.log_level, settings.log_format, "stream")
     try:
         result = run_stream(engine, settings)
     except StreamDisabled as exc:
@@ -332,12 +336,14 @@ def stream_relay(
     from sqlalchemy import Engine
 
     from yfin.core.config import get_settings
+    from yfin.core.logging_setup import configure_logging
     from yfin.outbox.relay import OutboxRelay, RelayConfig
     from yfin.outbox.spec import TICK_OUTBOX
     from yfin.storage.db import advisory_lock
     from yfin.storage.db import session_factory as session_factory_for
 
     settings = get_settings()
+    configure_logging(settings.log_level, settings.log_format, "relay")
     if not settings.yf_kafka_enabled:
         typer.echo(
             "yf_kafka_enabled is off; enable it with "
