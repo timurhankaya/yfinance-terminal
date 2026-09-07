@@ -1,6 +1,6 @@
 # Finalising the published OpenAPI contract
 
-Status: approved, not yet implemented
+Status: implemented, 2026-09-07 (see "As built")
 Date: 2026-09-07
 Supersedes nothing. Extends `2026-09-06-read-api-oauth2-design.md`; the
 places where it revises that document are listed under "Revisions to the
@@ -691,3 +691,53 @@ extended in three.
   Decision 7.
 - Any change to authentication, rate limiting, quota accounting or the
   data itself.
+
+## As built
+
+Implemented in three commits, in the planned order. Six things were
+decided differently while building, each because the code said so.
+
+**The `304` marker is a set, not an extension.** The design proposed
+`openapi_extra={"x-conditional": True}` on the five routes plus a strip
+step. `core/openapi.CONDITIONAL` is a frozenset of operation ids instead:
+it sits beside every other per-operation table, needs no strip, and the
+routes stay free of document plumbing.
+
+**The token endpoint's error shape moved into plan 1.** Plan 1 publishes
+`OAuthError` on `/oauth/token`'s 422; leaving the runtime fix for plan 2
+would have published a body the code did not yet send, which is the
+failure this whole exercise exists to remove. The fix is one check in
+`errors.problem_response`, so it also covers the 500 and 504 the endpoint
+can reach through the app-wide handlers -- a case the design missed.
+
+**The `ETag` had to change, not just be honoured.** The design said the
+validator was computable before the query. It was, because it was derived
+from the request alone -- which meant it never changed when the data did.
+Honouring `If-None-Match` against such a validator pins a client to one
+page forever, so `_respond` now derives it from the serialised body. The
+saving is bandwidth, not a query, and a repo test mutates the data and
+asserts the validator follows.
+
+**`interval` needed a spelled-out Literal.** `Literal[*READABLE_INTERVALS]`
+runs but does not type check. `models/bars.ReadableInterval` writes the
+values out, and a test asserts the two stay equal.
+
+**The examples ship inside the package,** at `yfin/api/core/examples/`,
+not under `docs/`. An installation from a wheel would not carry `docs/`,
+so production would have published a document without the examples the
+committed `openapi.json` has. They are also a curated set --
+`REQUIRED_EXAMPLES` -- rather than every operation crossed with every
+status: sixty near-identical bodies are noise, and what a reader needs is
+one of each shape plus the failures they will actually hit.
+
+**The capture harness is its own fixture,** not the moved
+`seeded`/`client` from `test_api_read_endpoints.py`. Those seed
+`TESTCO` with arbitrary values, and these bodies end up in the published
+contract; the capture seeds a fictional company with round numbers, and
+adds the constrained plan a real `429` needs. The two existing API
+harnesses were left alone.
+
+One thing is still missing: `info.contact` carries a name and a URL but
+no e-mail address, because the tooling in the environment this was built
+in refuses to write one into a file. Add it to `app.CONTACT` and
+regenerate.
