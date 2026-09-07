@@ -512,6 +512,21 @@ kullanıcı tablosu. Faz 1'in bunları engellemediği üç garanti: paneller
 sembolü prop olarak alır; `PanelSpec` yerleşim bilgisi taşımaz, yalnızca
 şablon tercihi; WS abonelik seti bağlantı başına ve referans sayımlı.
 
+2026-09-08'de bu madde bölündü ve bir dördüncüsü eklendi; her biri kendi
+spec'ini aldı:
+
+| Alt proje | Kapsam | Spec |
+| --- | --- | --- |
+| 2a | dockview yerleşim, grup harfleri, kayıtlı sayfalar, F-tuşları | `2026-09-08-web-terminal-faz2a-layout-design.md` |
+| 2b | layout'un DB'de tutulması, hosted kullanıcı tablosu, oturum | yazılmadı |
+| 2c | görsel katman: `HEAT`, `COMP`, sparkline kolonu, mevcut panellerin grafikleri | `2026-09-08-web-terminal-faz2c-viz-design.md` |
+| 2d | arşiv oynatma (replay) | yazılmadı |
+
+2c bu listede yoktu; rakip analizinden (Bloomberg Launchpad, Koyfin,
+OpenBB Workspace, TradingView, Finviz) çıktı ve arşivde yazılı olan
+veriyi çizdiği için yeni fetch getirmiyor. 2a-1 ile 2c-1 paralel
+yürütülebilir.
+
 ## Ölçümler
 
 1c "bitti" sayılmadan `docs/measurements/websocket.md`'ye eklenir: batch
