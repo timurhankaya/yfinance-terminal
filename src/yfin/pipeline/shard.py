@@ -32,8 +32,10 @@ from yfin.core.config import (
     settings_from_overrides,
 )
 from yfin.core.logging_setup import configure_logging, get_logger
+from yfin.core.metrics import Accumulator, use_accumulator
 from yfin.datasets import SYMBOL_DATASETS
 from yfin.ingest.client import configure_yfinance
+from yfin.pipeline import run_metrics
 from yfin.pipeline.audit import RunTally, finalize_run, open_run, record_not_attempted
 from yfin.pipeline.proxy_plan import (
     ProxyPlan,
@@ -137,6 +139,12 @@ def shard_main(spec: ShardSpec, queue: MPQueue[str]) -> None:
 
     engine = create_db_engine(settings, spec.database, pool_size=CHILD_POOL_SIZE)
     tracker = tracker_for(spec.proxy_id, settings)
+
+    # From here on every `metrics.inc` in this process lands in memory. A
+    # shard exits long before any scrape could reach it, so the counters go
+    # to `run_metrics` on the way out and the exporter reads the table.
+    accumulator = Accumulator()
+    use_accumulator(accumulator)
     try:
         counters = run_shard(
             engine,
@@ -161,6 +169,16 @@ def shard_main(spec: ShardSpec, queue: MPQueue[str]) -> None:
             withdrawn=counters.withdrawn,
         )
     finally:
+        # In `finally`, so a shard that crashed still leaves the counters it
+        # managed to collect -- those are the ones worth having. `flush`
+        # swallows its own errors, so this cannot turn a failed run into a
+        # failed process.
+        run_metrics.flush(
+            sessionmaker(bind=engine, expire_on_commit=False, future=True),
+            spec.run_id,
+            spec.shard_index,
+            accumulator,
+        )
         engine.dispose()
 
 

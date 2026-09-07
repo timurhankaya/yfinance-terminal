@@ -14,6 +14,7 @@ import time
 from sqlalchemy import update
 from sqlalchemy.orm import Session, sessionmaker
 
+from yfin.core import metrics
 from yfin.core.logging_setup import get_logger
 from yfin.models import Symbol
 from yfin.pipeline.audit import ItemRecord, channel_records, failed_records, record_items
@@ -159,6 +160,7 @@ def persist_with_retry(
                 session.rollback()
                 last_error = f"{type(exc).__name__}: {exc}"
                 if attempt < attempts and is_lock_conflict(exc):
+                    metrics.inc("yfin_sync_retries_total", kind="lock_conflict")
                     delay = 0.05 * attempt + random.uniform(0, 0.05)
                     log.warning(
                         "lock conflict; retrying",

@@ -22,10 +22,12 @@ from sqlalchemy.orm import sessionmaker
 
 from yfin.core.config import Settings, get_settings
 from yfin.core.logging_setup import get_logger
+from yfin.core.metrics import Accumulator, use_accumulator
 from yfin.core.text import comma_list
 from yfin.datasets.market.base import GlobalDataset, MarketContext
 from yfin.datasets.registry import MARKET_DATASETS
 from yfin.models import RunScope
+from yfin.pipeline import run_metrics
 from yfin.pipeline.audit import (
     ItemRecord,
     RunTally,
@@ -131,6 +133,9 @@ def run_market_sync(
     # Market datasets aren't symbol-oriented: queueing and sharding are
     # meaningless here (each dataset is already a single global call).
     # A proxy is still used -- one process, one proxy from the pool.
+    # One process, so one shard: `shard_index=0`, and the exporter's
+    # sum over shards is a sum of one.
+    use_accumulator(Accumulator())
     proxy_id, proxy_label, tracker = setup_single_proxy(factory, cfg, label="market")
 
     # symbol_count=0 is required: exit_code() only produces code 1 when
@@ -203,6 +208,7 @@ def run_market_sync(
     if tracker is not None:
         with factory() as session:
             tracker.flush(session)
+    run_metrics.flush(factory, run_id, shard_index=0)
     return finalize_run(factory, run_id, symbol_count=0, dataset_count=len(datasets))
 
 

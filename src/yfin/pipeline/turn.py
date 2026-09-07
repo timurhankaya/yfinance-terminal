@@ -21,6 +21,7 @@ from typing import Any
 
 from sqlalchemy.orm import sessionmaker
 
+from yfin.core import metrics
 from yfin.core.errors import classify_error
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult
@@ -95,6 +96,10 @@ def run_turn(
         result = turn.normalize(turn.fetch())
     except Exception as exc:  # noqa: BLE001 - this IS the error boundary
         kind = classify_error(exc)
+        metrics.inc(
+            "yfin_sync_yahoo_requests_total", dataset=turn.dataset.name, outcome="failed"
+        )
+        metrics.inc("yfin_sync_yahoo_errors_total", kind=kind.value)
         log.warning(
             f"{turn.kind} dataset failed",
             dataset=turn.dataset.name,
@@ -109,6 +114,15 @@ def run_turn(
         tracker.record_success()
 
     fetched = sum(len(w.rows) for w in result.writes)
+    metrics.inc(
+        "yfin_sync_yahoo_requests_total",
+        dataset=turn.dataset.name,
+        # `empty` is not a failure -- a market with no IPOs this week
+        # legitimately returns nothing -- and the audit already keeps the
+        # two apart. The counter has to as well, or a healthy quiet week
+        # would look like an outage.
+        outcome="ok" if fetched else "empty",
+    )
     duration = int((time.perf_counter() - started) * 1000)
 
     with factory() as session:

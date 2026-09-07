@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from yfin.core import metrics
 from yfin.models import GAP_FETCH_FAILED, Base
 
 
@@ -69,7 +70,9 @@ class ScopeReader:
         symbols.
         """
         if interval in self._cache:
+            metrics.inc("yfin_sync_cache_ops_total", cache="scope_reader", result="hit")
             return self._cache[interval]
+        metrics.inc("yfin_sync_cache_ops_total", cache="scope_reader", result="miss")
         table = Base.metadata.tables["intraday_scope"]
         with self._lock, self._factory() as session:
             any_row = session.execute(

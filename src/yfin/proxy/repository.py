@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from sqlalchemy import case, select, update
 from sqlalchemy.orm import Session
 
+from yfin.core import metrics
 from yfin.core.errors import ErrorKind
 from yfin.core.logging_setup import get_logger, scrub
 from yfin.models import Proxy, ProxyHealth
@@ -145,11 +146,16 @@ class ShardProxyTracker:
         return self.proxy_id is not None
 
     def record_success(self) -> None:
+        # Counted whether or not a proxy is active: a direct run's turns are
+        # still turns, and a `proxy_turns` series that vanished when the
+        # pool was empty would read as "nothing happened".
+        metrics.inc("yfin_sync_proxy_turns_total", result="success")
         if not self.active:
             return
         self._append(HealthEvent.SUCCESS, None)
 
     def record_error(self, kind: ErrorKind, message: str | None = None) -> None:
+        metrics.inc("yfin_sync_proxy_turns_total", result=kind.value)
         if not self.active:
             return
         event = event_for(kind)

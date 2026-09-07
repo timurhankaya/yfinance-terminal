@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import threading
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -68,6 +69,10 @@ ALLOWED_LABELS: frozenset[str] = frozenset(
 )
 
 MetricKind = Literal["counter", "gauge", "histogram"]
+
+#: Prometheus objects, created on first use. Creating one twice in a process
+#: raises "Duplicated timeseries in CollectorRegistry".
+_COUNTERS: dict[str, Any] = {}
 
 
 @dataclass(frozen=True)
@@ -216,6 +221,72 @@ class Accumulator:
             self._values.clear()
 
 
+#: The accumulator this process counts into, if it is the kind of process
+#: that cannot be scraped. A module-level handle rather than a parameter
+#: threaded through five layers: `storage/contracts.apply_write` counts rows
+#: and has no business knowing what a shard is, and `core/config` is exactly
+#: the dependency `storage/persistence.py` states it does not have.
+_accumulator: Accumulator | None = None
+
+
+def use_accumulator(accumulator: Accumulator | None) -> None:
+    """Routes `inc` into this accumulator for the rest of the process.
+
+    Called once by a shard, or by the single-process path, right after the
+    settings are known. `None` puts the process back on the Prometheus
+    counters, which is what a long-lived service uses.
+    """
+    global _accumulator  # noqa: PLW0603 - one handle per process, by design
+    _accumulator = accumulator
+
+
+def current_accumulator() -> Accumulator | None:
+    return _accumulator
+
+
+def inc(name: str, amount: int = 1, **labels: str) -> None:
+    """Counts one thing, wherever this process keeps its counters.
+
+    The same call in a shard and in the API. A shard accumulates in memory
+    and flushes to `run_metrics` on the way out; a long-lived service
+    increments a Prometheus counter that a scrape will read.
+
+    Never raises. Instrumentation that can fail is instrumentation that
+    turns a working sync into a broken one, and the numbers are worth less
+    than the run.
+    """
+    accumulator = _accumulator
+    # `suppress` rather than a bare except: see the docstring. Every failure
+    # here -- an undeclared metric, a missing extra, a registry clash -- is
+    # worth less than the run it would otherwise take down.
+    if accumulator is not None:
+        with suppress(Exception):
+            accumulator.inc(name, amount, **labels)
+        return
+    with suppress(Exception):
+        counter = _counter(name)
+        if counter is not None:
+            (counter.labels(**labels) if labels else counter).inc(amount)
+
+
+def _counter(name: str) -> Any:
+    """The Prometheus counter for a declared metric, created on first use.
+
+    Creating one twice in a process raises "Duplicated timeseries in
+    CollectorRegistry", so they are cached. Returns None when the extra is
+    not installed, which is not an error: metrics are optional everywhere.
+    """
+    existing = _COUNTERS.get(name)
+    if existing is not None:
+        return existing
+    spec = METRICS[name]
+    from prometheus_client import Counter
+
+    counter = Counter(spec.name, spec.documentation, spec.labelnames)
+    _COUNTERS[name] = counter
+    return counter
+
+
 def serve_metrics(port: int, addr: str = "0.0.0.0") -> bool:  # noqa: S104
     """Starts the `/metrics` endpoint in a daemon thread. Returns whether it
     is listening.
@@ -241,11 +312,6 @@ def serve_metrics(port: int, addr: str = "0.0.0.0") -> bool:  # noqa: S104
     return True
 
 
-#: Prometheus objects, created on first use. Creating one twice in a process
-#: raises "Duplicated timeseries in CollectorRegistry".
-_COUNTERS: dict[str, Any] = {}
-
-
 def count_exception(exc: BaseException) -> None:
     """Increments `yfin_exceptions_total{type}` with the exception's class.
 
@@ -255,17 +321,7 @@ def count_exception(exc: BaseException) -> None:
     It runs inside exception handlers, so it swallows its own failures: a
     metric that raised there would replace the real error with itself.
     """
-    try:
-        from prometheus_client import Counter
-
-        spec = METRICS["yfin_exceptions_total"]
-        counter = _COUNTERS.get(spec.name)
-        if counter is None:
-            counter = Counter(spec.name, spec.documentation, spec.labelnames)
-            _COUNTERS[spec.name] = counter
-        counter.labels(type=type(exc).__name__).inc()
-    except Exception:  # noqa: BLE001,S110 - see the docstring
-        pass
+    inc("yfin_exceptions_total", type=type(exc).__name__)
 
 
 __all__ = [
@@ -275,6 +331,9 @@ __all__ = [
     "CounterRow",
     "MetricSpec",
     "count_exception",
+    "current_accumulator",
+    "inc",
     "label_key",
     "serve_metrics",
+    "use_accumulator",
 ]
