@@ -76,6 +76,7 @@ class InsiderRosterDataset(AsOfDataset[AsOfFramePayload]):
     )
     depends_on = ("symbols",)
     produces = asof_produces(TABLE)
+    gate_source_tables = (TABLE,)
 
     def fetch(self, ctx: SyncContext) -> AsOfFramePayload:
         frame = call_optional(

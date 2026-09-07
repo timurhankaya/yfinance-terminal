@@ -13,20 +13,23 @@ Does two things:
    points -- no new gate class is written.
 
 2. Splits the gate scope. `AsOfGate._gate_write` reads the gate row's
-   `as_of_date` and `fetched_at` from `first_row(result)`, i.e. the first
-   populated row in `writes`; the `gate_identity` override expects
-   `query_term` from that same row. Four tables do not satisfy this
-   contract (see below). "Just being careful about ordering" is not
-   enough: `search_quotes` can be empty while `news` or `research_reports`
-   is populated (measured for "Turkish Airlines") -- in that case the
-   first populated write is one of those, and ordering discipline does not help.
+   `as_of_date` and `fetched_at` from `gate_row(result)`, and the
+   `gate_identity` override expects `query_term` from that same row. Four
+   tables do not satisfy this contract (see below), so they are kept out
+   of the gated side entirely.
+
+   That split is what makes the DECLARATION possible, not a substitute for
+   it: even among the gated tables no single one is guaranteed to carry
+   rows -- `search_quotes` is empty while `research_reports` has three for
+   "Turkish Airlines" -- which is why `gate_source_tables` is a tuple in
+   declared order rather than one table name.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from yfin.datasets.asof_base import AsOfDataset, first_row
+from yfin.datasets.asof_base import AsOfDataset
 from yfin.datasets.base import NormalizedResult, merge_stats
 from yfin.storage.contracts import RowWriter, WriteStats, apply_write
 
@@ -43,7 +46,7 @@ DISCOVERY_GATE_KEY_COLUMNS = ("query_term", "dataset")
 #
 # All four share one technical trait: no `query_term` column (the first
 # three also lack `as_of_date`/`fetched_at`). Inside the gated side,
-# `first_row` would return the wrong row and the gate write would raise
+# `gate_row` would return the wrong row and the gate write would raise
 # KeyError.
 UNGATED_TABLES = frozenset({"symbols", "news", "news_symbols", "research_reports"})
 
@@ -55,13 +58,15 @@ class DiscoveryDataset[RawT](AsOfDataset[RawT]):
     def gate_identity(self, result: NormalizedResult) -> dict[str, Any]:
         """Gate key: (query_term, dataset).
 
-        The default would read `first_row(result)["symbol"]`; here the
+        The default would read `gate_row(result)["symbol"]`; here the
         scope is the search term, not a symbol -- one search term's result
         can carry multiple symbols.
         """
-        return {"query_term": first_row(result)["query_term"], "dataset": self.name}
+        return {"query_term": self.gate_row(result)["query_term"], "dataset": self.name}
 
-    def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
+    def upsert(
+        self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
+    ) -> WriteStats:
         ungated = [w for w in result.writes if w.table in UNGATED_TABLES]
         gated = [w for w in result.writes if w.table not in UNGATED_TABLES]
 
@@ -76,7 +81,9 @@ class DiscoveryDataset[RawT](AsOfDataset[RawT]):
         #        double the `rows_skipped` count.
         #    (b) `NormalizedResult.is_empty` means "no rows AND skipped is
         #        empty" (base.py). If `gated` has no rows but `skipped` is
-        #        populated, `is_empty` is False, `first_row` raises
+        #        populated, `is_empty` is False, `gate_row` raises
         #        ValueError, and the cell would be wrongly marked `failed`.
         gated_result = NormalizedResult(writes=gated, skipped={})
-        return merge_stats(stats, super().upsert(writer, gated_result))
+        return merge_stats(
+            stats, super().upsert(writer, gated_result, full_refresh=full_refresh)
+        )

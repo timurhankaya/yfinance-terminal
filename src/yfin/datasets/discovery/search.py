@@ -140,6 +140,11 @@ class SearchDataset(DiscoveryDataset[SearchPayload]):
         "search_report_hits",
         gate=DISCOVERY_GATE_TABLE,
     )
+    # All three, because none of them alone is guaranteed: "Turkish
+    # Airlines" comes back with no quotes and three research reports, so
+    # `search_report_hits` is the only gated table with a row. The four
+    # ungated tables are never sources -- they carry no `query_term`.
+    gate_source_tables = ("search_quotes", "search_report_hits", "search_lists")
     api = (
         ApiExposure(
             name="search_quotes",

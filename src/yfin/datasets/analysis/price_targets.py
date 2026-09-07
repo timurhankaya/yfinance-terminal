@@ -33,6 +33,7 @@ class AnalystPriceTargetsDataset(AsOfDataset[AsOfMappingPayload]):
     name = "analyst_price_targets"
     depends_on = ("symbols",)
     produces = asof_produces(TABLE)
+    gate_source_tables = (TABLE,)
     api = (
         ApiExposure(
             family=DataFamily.FUNDAMENTALS,

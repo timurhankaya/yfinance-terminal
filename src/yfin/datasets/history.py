@@ -14,7 +14,7 @@ from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.common import date_range_kwargs
 from yfin.datasets.payloads import FramePayload
-from yfin.datasets.registry import register
+from yfin.datasets.registry import SYMBOL_DATASETS, register
 from yfin.ingest.client import call_yahoo
 from yfin.storage.contracts import TableWrite
 
@@ -37,16 +37,6 @@ _COLUMN_MAP: dict[str, str] = {
     "Dividends": "dividend",
     "Stock Splits": "split_ratio",
     "Capital Gains": "capital_gain",
-}
-
-# (dataset -> table, date column) mapping of consumers of the shared frame.
-# `start` is the MINIMUM of their watermarks: if price_history is current but
-# dividends is empty, a narrow incremental window would miss old dividends.
-FRAME_CONSUMERS: dict[str, tuple[str, str]] = {
-    "history": ("price_history", "session_date"),
-    "dividends": ("dividends", "ex_date"),
-    "splits": ("splits", "split_date"),
-    "capital_gains": ("capital_gains", "gain_date"),
 }
 
 UPDATE_COLUMNS = (
@@ -96,15 +86,30 @@ def repair_enabled() -> bool:
     return _REPAIR_AVAILABLE
 
 
+def frame_consumers() -> dict[str, tuple[str, str]]:
+    """(dataset -> table, date column) for every consumer of the shared frame.
+
+    Collected from the registry, not from a list kept here: a dataset that
+    starts consuming the frame declares `shared_frame_watermark` on itself
+    and is picked up with nothing else to remember.
+    """
+    return {
+        name: mark
+        for name in SYMBOL_DATASETS
+        if (mark := SYMBOL_DATASETS[name].shared_frame_watermark) is not None
+    }
+
+
 def _shared_watermark(ctx: SyncContext) -> date | datetime | None:
     """Minimum watermark across the SELECTED tables consuming the frame.
 
     Returns None if any of them is empty (period="max"): that table needs
     its full history fetched.
     """
-    names = ctx.selected if ctx.selected is not None else set(FRAME_CONSUMERS)
+    consumers = frame_consumers()
+    names = ctx.selected if ctx.selected is not None else set(consumers)
     marks: list[date | datetime] = []
-    for name, (table, column) in FRAME_CONSUMERS.items():
+    for name, (table, column) in consumers.items():
         if name not in names:
             continue
         mark = ctx.watermark(table, column)
@@ -159,6 +164,7 @@ class HistoryDataset(Dataset[FramePayload]):
     name = "history"
     depends_on = ("symbols",)
     produces = ("price_history",)
+    shared_frame_watermark = ("price_history", "session_date")
     # The range passes into the yfinance CALL -> a REAL backfill, not
     # "row filtering".
     date_range = "api"

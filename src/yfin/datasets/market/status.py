@@ -279,13 +279,15 @@ class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
             ]
         )
 
-    def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
+    def upsert(
+        self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
+    ) -> WriteStats:
         # Board symbols (ES=F, ^GSPC) may be outside the universe: no FK,
         # the is_known flag is marked instead (same pattern as news_symbols).
         marked = NormalizedResult(
             writes=mark_known(writer, result.writes), skipped=dict(result.skipped)
         )
-        return super().upsert(writer, marked)
+        return super().upsert(writer, marked, full_refresh=full_refresh)
 
 
 register_market(MarketStatusDataset())

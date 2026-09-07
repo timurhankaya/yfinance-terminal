@@ -132,6 +132,10 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
     produces = asof_produces(
         "symbols", "lookup_results", "lookup_totals", gate=DISCOVERY_GATE_TABLE
     )
+    # `lookup_totals` is the fallback and not merely a second choice: a term
+    # whose totals are all zero produces a `lookup_totals` row per type and
+    # no result rows at all. `symbols` is ungated, so it is never a source.
+    gate_source_tables = ("lookup_results", "lookup_totals")
     api = (
         ApiExposure(
             name="lookup_results",

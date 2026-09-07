@@ -18,6 +18,7 @@ from yfin.datasets.payloads import (
     MarketStatusPayload,
     MarketSummaryPayload,
 )
+from yfin.datasets.snapshot_base import snapshot_upsert
 from yfin.storage.contracts import TableWrite
 
 FETCHED_AT = datetime(2026, 9, 4, 10, 0, 0, 500000)
@@ -228,6 +229,24 @@ class TestHashGate:
         assert stats.attempted.get("financial_facts", 0) == 0
         assert not [w for w in writer.written if w.table == "financial_facts"]
 
+    def test_full_refresh_writes_the_facts_even_when_the_hash_matches(self) -> None:
+        """A period whose `financial_facts` were lost while its
+        `financial_periods` header survived was unrepairable: the header
+        hash still matched, the facts were reported `skipped`, and
+        `--full-refresh` -- which only zeroed the watermark -- changed
+        nothing about that."""
+        key = ("financial_periods", "AAPL", "income", "annual", date(2025, 9, 30))
+        writer = _FakeWriter({key: "h1"})
+        stats = _GatedDataset().upsert(writer, _gated_result("h1"), full_refresh=True)
+
+        facts_write = next(w for w in writer.written if w.table == "financial_facts")
+        assert facts_write.mode == "replace_scope"
+        assert stats.attempted["financial_facts"] == 1
+        assert "financial_facts" not in stats.skipped
+        # The header is rewritten in full, not touched on `fetched_at` only.
+        period_write = next(w for w in writer.written if w.table == "financial_periods")
+        assert period_write.update_columns == ("content_hash", "fetched_at", "item_count")
+
     def test_hash_read_before_any_write(self) -> None:
         order: list[str] = []
 
@@ -243,3 +262,54 @@ class TestHashGate:
         _GatedDataset().upsert(OrderingWriter(), _gated_result())
         assert order[0] == "read:financial_periods"
         assert order.index("read:financial_periods") < order.index("write:financial_periods")
+
+
+class TestSnapshotGate:
+    """`snapshot_upsert` compares the history row against the snapshot row.
+
+    The comparison is what `--full-refresh` has to be able to bypass: the
+    snapshot row is exactly the one that survives when the _history rows
+    are lost, so it keeps matching and the repair never writes anything.
+    """
+
+    @staticmethod
+    def _result() -> NormalizedResult:
+        row = {"region": "US", "content_hash": "h1", "fetched_at": FETCHED_AT}
+        return NormalizedResult(
+            writes=[
+                TableWrite(
+                    table="market_status",
+                    rows=[row],
+                    key_columns=("region",),
+                    update_columns=("content_hash", "fetched_at"),
+                ),
+                TableWrite(
+                    table="market_status_history",
+                    rows=[row],
+                    key_columns=("region", "fetched_at"),
+                    update_columns=(),
+                ),
+            ]
+        )
+
+    def _upsert(self, writer: Any, **kwargs: Any) -> Any:
+        return snapshot_upsert(
+            writer,
+            self._result(),
+            snapshot_table="market_status",
+            history_table="market_status_history",
+            key_columns=("region",),
+            **kwargs,
+        )
+
+    def test_matching_hash_skips_the_history_row(self) -> None:
+        writer = _FakeWriter({("market_status", "US"): "h1"})
+        stats = self._upsert(writer)
+        assert stats.skipped["market_status_history"] == 1
+        assert not [r for w in writer.written if w.table == "market_status_history" for r in w.rows]
+
+    def test_full_refresh_keeps_the_history_row(self) -> None:
+        writer = _FakeWriter({("market_status", "US"): "h1"})
+        stats = self._upsert(writer, full_refresh=True)
+        assert "market_status_history" not in stats.skipped
+        assert stats.attempted["market_status_history"] == 1

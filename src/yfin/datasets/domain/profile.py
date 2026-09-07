@@ -266,6 +266,10 @@ class SectorProfileDataset(_DomainProfileDataset):
     produces = asof_produces(
         METRICS_TABLE, REPORTS_TABLE, REPORT_LINKS_TABLE, gate=DOMAIN_GATE_TABLE
     )
+    # `domain_metrics` always carries exactly one row when the response
+    # parses at all; `research_reports` has no `domain_key`, so it could
+    # never be a source.
+    gate_source_tables = (METRICS_TABLE,)
     api = (
         ApiExposure(
             name="domain_metrics",
@@ -308,6 +312,7 @@ class IndustryProfileDataset(_DomainProfileDataset):
         DOMAINS_TABLE,
         gate=DOMAIN_GATE_TABLE,
     )
+    gate_source_tables = (METRICS_TABLE,)
 
     def _domains_write(self, raw: DomainPayload, key: str) -> TableWrite | None:
         """`description` + `message_board_id`; does not touch identity fields.

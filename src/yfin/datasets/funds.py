@@ -166,6 +166,10 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
     name = "funds_data"
     depends_on = ("symbols",)
     produces = asof_produces(PROFILE_TABLE, METRICS_TABLE, WEIGHTINGS_TABLE, HOLDINGS_TABLE)
+    # `_profile_write` returns exactly one row whenever `normalize` returns
+    # anything, and it is the only one of the four with that property:
+    # BND's `fund_top_holdings` is empty while its three siblings are not.
+    gate_source_tables = (PROFILE_TABLE,)
     # Four resources from one dataset. Before exposures could be named,
     # every one of these was unreachable.
     api = (
@@ -475,7 +479,9 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
 
     # --- write --------------------------------------------------------
 
-    def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
+    def upsert(
+        self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
+    ) -> WriteStats:
         """`is_known` is filled from the DB, THEN the as-of gate runs.
 
         Order matters: the flag enters the hash body, so when the universe
@@ -491,7 +497,9 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
         marked = {id(w): m for w, m in zip(targets, flagged, strict=True)}
         writes = [marked.get(id(write), write) for write in result.writes]
         return super().upsert(
-            writer, NormalizedResult(writes=writes, skipped=dict(result.skipped))
+            writer,
+            NormalizedResult(writes=writes, skipped=dict(result.skipped)),
+            full_refresh=full_refresh,
         )
 
 

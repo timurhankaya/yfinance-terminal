@@ -47,7 +47,9 @@ class HashGate:
     def _key(self, row: dict[str, Any]) -> tuple[Any, ...]:
         return tuple(row[name] for name in self.gate_key_columns)
 
-    def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
+    def upsert(
+        self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
+    ) -> WriteStats:
         stats = WriteStats(skipped=dict(result.skipped))
         gate_writes = [w for w in result.writes if w.table == self.gate_table]
         child_writes = [w for w in result.writes if w.table == self.child_table]
@@ -55,11 +57,18 @@ class HashGate:
             w for w in result.writes if w.table not in (self.gate_table, self.child_table)
         ]
 
-        # 1. Hash queries, before ANY write.
+        # 1. Hash queries, before ANY write. `--full-refresh` skips them:
+        #    every period counts as changed, so the child rows are written
+        #    even when the header hash still matches. Without this the flag
+        #    cannot repair a period whose `financial_facts` were lost while
+        #    its `financial_periods` header survived.
         unchanged: set[tuple[Any, ...]] = set()
         changed: list[dict[str, Any]] = []
         for write in gate_writes:
             for row in write.rows:
+                if full_refresh:
+                    changed.append(row)
+                    continue
                 key = {name: row[name] for name in self.gate_key_columns}
                 current = writer.current_hash(self.gate_table, key)
                 if current == row["content_hash"]:

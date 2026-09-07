@@ -62,6 +62,19 @@ class PeriodFrameDataset(AsOfDataset[AsOfFramePayload]):
     # would drop the whole symbol, since each symbol writes in one transaction.
     required: tuple[str, ...] = ()
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Names the one table this family writes as its gate source.
+
+        Set BEFORE delegating, because the delegate is `AsOfGate`'s check
+        for exactly this declaration. Derived from `table` rather than
+        spelled out again in seven subclasses: the two would drift, and a
+        `gate_source_tables` naming a table the dataset does not write
+        fails every run of it.
+        """
+        if "table" in cls.__dict__:
+            cls.gate_source_tables = (cls.__dict__["table"],)
+        super().__init_subclass__(**kwargs)
+
     @property
     def key_columns(self) -> tuple[str, ...]:
         return ("symbol", "as_of_date", *(name for name, _ in self.constants), "period")

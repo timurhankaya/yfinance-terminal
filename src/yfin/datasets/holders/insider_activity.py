@@ -66,6 +66,7 @@ class InsiderPurchasesDataset(AsOfDataset[AsOfFramePayload]):
     name = "insider_purchases"
     depends_on = ("symbols",)
     produces = asof_produces(TABLE)
+    gate_source_tables = (TABLE,)
     api = (
         ApiExposure(
             family=DataFamily.HOLDERS,

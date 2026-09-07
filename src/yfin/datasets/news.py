@@ -215,7 +215,10 @@ class NewsDataset(Dataset[NewsPayload]):
             ]
         )
 
-    def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
+    def upsert(
+        self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
+    ) -> WriteStats:
+        """`full_refresh` is accepted and ignored: this dataset has no gate."""
         stats = WriteStats(skipped=dict(result.skipped))
         for write in result.writes:
             if write.table == "news_symbols" and write.rows:

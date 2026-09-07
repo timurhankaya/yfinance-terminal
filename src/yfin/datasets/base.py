@@ -219,6 +219,19 @@ class Dataset[RawT](ABC):
     # single value because a dataset can write several tables and each is
     # its own resource.
     api: tuple[ApiExposure, ...] = ()
+    # (table, date column) when this dataset feeds from the shared history
+    # frame -- the single daily `history()` call several datasets consume
+    # through `ctx.cached`. That call's `start` is the MINIMUM of the
+    # watermarks declared here, so a dataset that consumes the frame and
+    # does NOT declare one silently fills from a window narrowed by its
+    # siblings: `price_history` current while `dividends` is empty would
+    # fetch a few days and miss every old dividend.
+    #
+    # Declared by the dataset rather than listed centrally on purpose. A
+    # central list is only ever wrong in the direction nobody checks --
+    # adding a consumer and forgetting the list is exactly the case that
+    # has to fail, and it cannot fail if the list is somewhere else.
+    shared_frame_watermark: tuple[str, str] | None = None
 
     @abstractmethod
     def fetch(self, ctx: SyncContext) -> RawT:
@@ -234,9 +247,19 @@ class Dataset[RawT](ABC):
     @abstractmethod
     def normalize(self, raw: RawT, symbol: str) -> NormalizedResult: ...
 
-    def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
+    def upsert(
+        self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
+    ) -> WriteStats:
         """Default implementation: idempotent upsert plus key-existence
-        verification for each TableWrite."""
+        verification for each TableWrite.
+
+        `full_refresh` is accepted and ignored here -- an ungated dataset
+        writes everything it normalized either way. It is part of the base
+        signature rather than the gated subclasses' alone because
+        `persist_symbol` passes it to whatever dataset it holds, and a
+        keyword only some of them accept is the kind of contract that is
+        discovered by a TypeError in production.
+        """
         stats = WriteStats(skipped=dict(result.skipped))
         for write in result.writes:
             apply_write(writer, write, stats)

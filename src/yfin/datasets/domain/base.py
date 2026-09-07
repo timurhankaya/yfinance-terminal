@@ -24,7 +24,6 @@ from yfin.datasets.asof_base import (
     DOMAIN_GATE_TABLE,
     GLOBAL_REGION_MARKER,
     AsOfGate,
-    first_row,
 )
 from yfin.datasets.base import NormalizedResult
 from yfin.datasets.exposure import ApiExposure
@@ -130,7 +129,11 @@ class DomainDataset[RawT](ABC):
     @abstractmethod
     def normalize(self, raw: RawT, key: str) -> NormalizedResult: ...
 
-    def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
+    def upsert(
+        self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
+    ) -> WriteStats:
+        """`full_refresh` is accepted and ignored: an ungated domain dataset
+        writes everything it normalized either way."""
         stats = WriteStats(skipped=dict(result.skipped))
         for write in result.writes:
             apply_write(writer, write, stats)
@@ -158,7 +161,7 @@ class DomainAsOfDataset[RawT](AsOfGate, DomainDataset[RawT]):
         into rows and read back from there. Region-less datasets have no
         `region` column in their rows -> defaults to `'*'`.
         """
-        first = first_row(result)
+        first = self.gate_row(result)
         return {
             "domain_key": first["domain_key"],
             "dataset": self.name,

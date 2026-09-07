@@ -135,7 +135,10 @@ class CalendarDatasetBase(GlobalDataset[CalendarFramePayload]):
             ]
         )
 
-    def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
+    def upsert(
+        self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
+    ) -> WriteStats:
+        """`full_refresh` is accepted and ignored: this dataset has no gate."""
         stats = WriteStats(skipped=dict(result.skipped))
         writes = mark_known(writer, result.writes) if self.has_symbol else result.writes
         for write in writes:

@@ -35,7 +35,7 @@ def persist_symbol(session: Session, payload: SymbolPayload) -> list[ItemRecord]
     # would muddy the accounting even if not reapplied.
     rescale_before_bars(session, payload)
     for dataset, result, fetched, duration in payload.results:
-        stats = dataset.upsert(writer, result)
+        stats = dataset.upsert(writer, result, full_refresh=payload.full_refresh)
         records.extend(record_items(dataset, payload.symbol, stats, fetched, duration))
     records.extend(channel_records(payload))
     return records

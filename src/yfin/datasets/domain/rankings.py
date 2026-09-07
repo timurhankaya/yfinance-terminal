@@ -119,7 +119,9 @@ class _DomainRankingsDataset(DomainAsOfDataset[DomainPayload]):
 
     # --- write ------------------------------------------------------------
 
-    def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
+    def upsert(
+        self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
+    ) -> WriteStats:
         """`is_known` is populated from the DB, then the as-of gate runs.
 
         Order matters, and the flag enters the hash body (mirrors the
@@ -135,7 +137,9 @@ class _DomainRankingsDataset(DomainAsOfDataset[DomainPayload]):
         marked = {id(w): m for w, m in zip(targets, mark_known(writer, targets), strict=True)}
         writes = [marked.get(id(write), write) for write in result.writes]
         return super().upsert(
-            writer, NormalizedResult(writes=writes, skipped=dict(result.skipped))
+            writer,
+            NormalizedResult(writes=writes, skipped=dict(result.skipped)),
+            full_refresh=full_refresh,
         )
 
 
@@ -144,6 +148,9 @@ class SectorRankingsDataset(_DomainRankingsDataset):
     depends_on = ("domain_taxonomy",)
     scope = "sector"
     produces = asof_produces(TOP_COMPANIES_TABLE, TOP_FUNDS_TABLE, gate=DOMAIN_GATE_TABLE)
+    # Either block can come back empty on its own; the pair cannot, or
+    # the result is empty and no gate row is written at all.
+    gate_source_tables = (TOP_COMPANIES_TABLE, TOP_FUNDS_TABLE)
     api = (
         ApiExposure(
             name="domain_top_companies",
@@ -214,6 +221,7 @@ class IndustryRankingsDataset(_DomainRankingsDataset):
     depends_on = ("domain_taxonomy",)
     scope = "industry"
     produces = asof_produces(TOP_MOVERS_TABLE, TOP_COMPANIES_TABLE, gate=DOMAIN_GATE_TABLE)
+    gate_source_tables = (TOP_MOVERS_TABLE, TOP_COMPANIES_TABLE)
     api = (
         ApiExposure(
             name="domain_top_movers",

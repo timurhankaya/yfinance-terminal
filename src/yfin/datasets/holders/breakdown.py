@@ -39,6 +39,7 @@ class MajorHoldersDataset(AsOfDataset[AsOfFramePayload]):
     name = "major_holders"
     depends_on = ("symbols",)
     produces = asof_produces(TABLE)
+    gate_source_tables = (TABLE,)
     api = (
         ApiExposure(
             family=DataFamily.HOLDERS,

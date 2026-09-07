@@ -150,7 +150,9 @@ class _FlakyDataset:
     def __init__(self) -> None:
         self.calls = 0
 
-    def upsert(self, writer: Any, result: NormalizedResult) -> WriteStats:
+    def upsert(
+        self, writer: Any, result: NormalizedResult, *, full_refresh: bool = False
+    ) -> WriteStats:
         self.calls += 1
         if self.calls == 1:
             raise _FakeDbapiError("40P01")
@@ -189,7 +191,13 @@ class TestTransactionRetry:
         factory = sessionmaker(bind=test_engine, expire_on_commit=False, future=True)
 
         class _Broken(_FlakyDataset):
-            def upsert(self, writer: Any, result: NormalizedResult) -> WriteStats:
+            def upsert(
+                self,
+                writer: Any,
+                result: NormalizedResult,
+                *,
+                full_refresh: bool = False,
+            ) -> WriteStats:
                 self.calls += 1
                 raise RuntimeError("(1054, \"Unknown column 'nope'\")")
 
@@ -212,7 +220,7 @@ class TestFailedTransactionAudit:
         name = "boom"
         produces = ("price_history",)
 
-        def upsert(self, writer, result):  # type: ignore[no-untyped-def]
+        def upsert(self, writer, result, *, full_refresh=False):  # type: ignore[no-untyped-def]
             raise RuntimeError("write failed")
 
     def test_failures_and_skipped_survive_a_failed_transaction(

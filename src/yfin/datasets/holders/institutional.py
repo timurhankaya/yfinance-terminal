@@ -51,6 +51,7 @@ MAPPED_SOURCES = frozenset({"Date Reported", "Holder", "pctHeld", "pctChange", "
 class _HolderListDataset(AsOfDataset[AsOfFramePayload]):
     depends_on = ("symbols",)
     produces = asof_produces(TABLE)
+    gate_source_tables = (TABLE,)
     holder_type: HolderType
     api_method: str
 

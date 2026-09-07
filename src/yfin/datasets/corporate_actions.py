@@ -44,6 +44,17 @@ class _SeriesDataset(Dataset[FramePayload]):
     value_column: str
     frame_column: str
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Declares this subclass as a consumer of the shared history frame.
+
+        Derived from `table`/`date_column` rather than spelled out a second
+        time: the two would drift, and a `shared_frame_watermark` pointing
+        at the wrong column reads a watermark that is always None and
+        refetches the full history on every run.
+        """
+        super().__init_subclass__(**kwargs)
+        cls.shared_frame_watermark = (cls.table, cls.date_column)
+
     def fetch(self, ctx: SyncContext) -> FramePayload:
         return fetch_history_frame(ctx)
 

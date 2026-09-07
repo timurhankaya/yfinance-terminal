@@ -20,6 +20,12 @@ class SymbolPayload:
 
     symbol: str
     resolved: bool
+    # Carried to the write step: `--full-refresh` has to reach the gates,
+    # not stop at the watermark. Zeroing the watermark alone refetched the
+    # data and then let the hash gate call it unchanged, so the one failure
+    # the flag exists for -- data rows lost, gate row intact -- was the one
+    # it could not repair.
+    full_refresh: bool = False
     results: list[tuple[Dataset[Any], NormalizedResult, int, int]] = field(default_factory=list)
     failures: list[tuple[str, str]] = field(default_factory=list)
     # Datasets excluded before running (name, reason). A third channel is

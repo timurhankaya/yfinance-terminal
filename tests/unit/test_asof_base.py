@@ -7,7 +7,9 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-from yfin.datasets.asof_base import GATE_TABLE, AsOfDataset
+import pytest
+
+from yfin.datasets.asof_base import GATE_TABLE, GATE_UPDATE_COLUMNS, AsOfDataset
 from yfin.datasets.base import NormalizedResult, SyncContext
 from yfin.storage.contracts import TableWrite
 
@@ -41,6 +43,7 @@ class FakeWriter:
 class Holders(AsOfDataset[None]):
     name = "institutional_holders"
     produces = ("institutional_holders", GATE_TABLE)
+    gate_source_tables = ("institutional_holders",)
 
     def fetch(self, ctx: SyncContext) -> None:
         return None
@@ -225,3 +228,104 @@ def test_gate_row_is_counted_even_when_data_is_skipped() -> None:
     stats = Holders().upsert(writer, _result(rows))
     assert stats.attempted[GATE_TABLE] == 1
     assert stats.skipped["institutional_holders"] == 1
+
+
+class TestGateSource:
+    """The gate row's stamp has a declared origin, not a positional one."""
+
+    def test_the_declared_table_is_used_even_when_another_comes_first(self) -> None:
+        """The bug this replaced.
+
+        `_gate_write` took the first row in `writes` order, so a dataset
+        that put another table first produced its gate row from the wrong
+        one -- a wrong `as_of_date` written silently, after which the gate
+        compares against it forever and reports "unchanged".
+        """
+        dataset = Holders()
+        result = NormalizedResult(
+            writes=[
+                TableWrite(
+                    table="some_other_table",
+                    rows=[
+                        {
+                            "symbol": "AAPL",
+                            "as_of_date": date(1999, 1, 1),
+                            "fetched_at": LATER,
+                        }
+                    ],
+                    key_columns=("symbol",),
+                    update_columns=(),
+                ),
+                *_result(_rows("Vanguard")).writes,
+            ]
+        )
+        writer = FakeWriter()
+        dataset.upsert(writer, result)
+        gate = writer.rows_for(GATE_TABLE)[0]
+        assert gate["as_of_date"] == AS_OF
+        assert gate["fetched_at"] == NOW
+
+    def test_a_declaration_naming_no_populated_table_raises(self) -> None:
+        """Louder than the alternative, and deliberately so: falling back to
+        whatever row exists is the silent corruption above."""
+        class Misdeclared(Holders):
+            name = "misdeclared"
+            gate_source_tables = ("a_table_it_never_writes",)
+
+        with pytest.raises(ValueError, match="gate source tables"):
+            Misdeclared().upsert(FakeWriter(), _result(_rows("Vanguard")))
+
+    def test_a_concrete_gated_dataset_cannot_omit_the_declaration(self) -> None:
+        """Import time, not first write: the alternative surfaces on the
+        first symbol of a live run, after the Yahoo call is paid for."""
+        with pytest.raises(TypeError, match="gate_source_tables"):
+
+            class Undeclared(AsOfDataset[None]):
+                name = "undeclared"
+                produces = ("undeclared", GATE_TABLE)
+
+                def fetch(self, ctx: SyncContext) -> None:
+                    return None
+
+                def normalize(self, raw: None, symbol: str) -> NormalizedResult:
+                    return NormalizedResult()
+
+
+def test_every_registered_asof_dataset_declares_tables_it_writes() -> None:
+    """A source naming a table the dataset does not write is a declaration
+    that fails on every single run of it."""
+    import yfin.datasets  # noqa: F401  - registers everything
+    from yfin.datasets.asof_base import AsOfGate
+    from yfin.datasets.registry import DOMAIN_DATASETS, SYMBOL_DATASETS
+
+    seen = 0
+    for registry in (SYMBOL_DATASETS, DOMAIN_DATASETS):
+        for name in registry:
+            dataset = registry[name]
+            if not isinstance(dataset, AsOfGate):
+                continue
+            seen += 1
+            assert dataset.gate_source_tables, name
+            for table in dataset.gate_source_tables:
+                assert table in dataset.produces, (name, table)
+                assert table != dataset.asof_gate_table, (name, table)
+    assert seen >= 15
+
+
+def test_full_refresh_writes_the_data_even_when_the_hash_matches() -> None:
+    """What `--full-refresh` could not do before.
+
+    The flag only zeroed the watermark, and `asof_base` never looked at it:
+    a symbol whose data rows were lost while its `asof_state` row survived
+    refetched from Yahoo, matched the stored hash, reported `skipped`, and
+    wrote nothing -- run after run, with the flag on.
+    """
+    rows = _rows("Vanguard")
+    writer = FakeWriter({(GATE_TABLE, "AAPL|institutional_holders"): _hash(rows)})
+    stats = Holders().upsert(writer, _result(rows), full_refresh=True)
+
+    assert writer.rows_for("institutional_holders") == rows
+    assert "institutional_holders" not in stats.skipped
+    # The gate row is rewritten in full, not touched on `fetched_at` only:
+    # a stale `as_of_date` left behind would survive the repair.
+    assert writer.write_for(GATE_TABLE).update_columns == GATE_UPDATE_COLUMNS

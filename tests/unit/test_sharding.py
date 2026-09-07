@@ -248,9 +248,41 @@ class TestRepairExtra:
 
 
 class TestFrameConsumers:
-    def test_all_action_tables_are_consumers(self) -> None:
-        """The minimum watermark among tables consuming the shared frame's
-        `start`; if one were missing, a narrow window would miss data."""
-        from yfin.datasets.history import FRAME_CONSUMERS
+    def test_every_consumer_of_the_shared_frame_declares_its_watermark(self) -> None:
+        """Guards the direction that actually goes wrong.
 
-        assert set(FRAME_CONSUMERS) == {"history", "dividends", "splits", "capital_gains"}
+        The shared frame's `start` is the MINIMUM of the watermarks its
+        consumers declare. A dataset that starts feeding from the frame and
+        does not declare one is filled from a window narrowed by its
+        siblings -- permanently, and silently.
+
+        Asserting a fixed set of names caught the opposite case: ADDING a
+        consumer broke the test, FORGETTING to broke nothing. Here the
+        source of truth is which datasets actually call
+        `fetch_history_frame`, so the omission is what fails.
+        """
+        from yfin.datasets.history import fetch_history_frame, frame_consumers
+        from yfin.datasets.registry import SYMBOL_DATASETS
+
+        def reads_the_frame(dataset: Any) -> bool:
+            # Up the MRO: the three corporate-action datasets inherit one
+            # `fetch` from `_SeriesDataset`.
+            for klass in type(dataset).__mro__:
+                fetch = klass.__dict__.get("fetch")
+                if fetch is not None:
+                    return fetch_history_frame.__name__ in fetch.__code__.co_names
+            return False
+
+        consumers = frame_consumers()
+        for name in SYMBOL_DATASETS:
+            if reads_the_frame(SYMBOL_DATASETS[name]):
+                assert name in consumers, (
+                    f"{name} feeds from the shared history frame but declares no "
+                    "`shared_frame_watermark`, so the frame's start is decided "
+                    "without it"
+                )
+        # The declaration is worthless if it names a table the dataset does
+        # not write: the watermark would always be None or belong to
+        # someone else.
+        for name, (table, _column) in consumers.items():
+            assert table in SYMBOL_DATASETS[name].produces, (name, table)

@@ -84,7 +84,7 @@ def _worker(
     gaps: GapReader | None = None,
 ) -> SymbolPayload:
     """fetch + normalize (network and pure transform). DB writes happen on the main thread."""
-    payload = SymbolPayload(symbol=symbol, resolved=False)
+    payload = SymbolPayload(symbol=symbol, resolved=False, full_refresh=full_refresh)
     ctx = SyncContext(
         symbol,
         make_ticker(symbol),

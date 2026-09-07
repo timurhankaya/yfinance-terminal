@@ -24,8 +24,14 @@ def snapshot_upsert(
     snapshot_table: str,
     history_table: str,
     key_columns: tuple[str, ...],
+    full_refresh: bool = False,
 ) -> WriteStats:
-    """Snapshot + history write; works keyed on symbol or region."""
+    """Snapshot + history write; works keyed on symbol or region.
+
+    `full_refresh` keeps every history row instead of comparing it against
+    the snapshot: the flag exists to repair history that went missing, and
+    the snapshot row it would be compared against is still there.
+    """
     stats = WriteStats(skipped=dict(result.skipped))
     history_writes: list[TableWrite] = []
     other_writes: list[TableWrite] = []
@@ -41,6 +47,9 @@ def snapshot_upsert(
         kept: list[dict[str, Any]] = []
         skipped = 0
         for row in write.rows:
+            if full_refresh:
+                kept.append(row)
+                continue
             key = {name: row[name] for name in key_columns}
             current = writer.current_hash(snapshot_table, key)
             if current == row["content_hash"]:
@@ -72,11 +81,14 @@ class SnapshotDataset[RawT](Dataset[RawT]):
     # for market_status, ("region", "board_code") for market_summary.
     key_columns: tuple[str, ...] = ("symbol",)
 
-    def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
+    def upsert(
+        self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
+    ) -> WriteStats:
         return snapshot_upsert(
             writer,
             result,
             snapshot_table=self.snapshot_table,
             history_table=self.history_table,
             key_columns=self.key_columns,
+            full_refresh=full_refresh,
         )
