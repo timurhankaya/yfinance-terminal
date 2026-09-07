@@ -18,11 +18,18 @@ log = get_logger(__name__)
 
 
 def install(app: FastAPI, settings: ApiSettings, dist_dir: Path | None = None) -> None:
-    """Mounts the UI. Order matters: the API router, with its catch-all
-    404, goes in before the pages so /ui/api/* can never fall through to
-    index.html."""
-    from yfin.ui import pages, router
+    """Mounts the UI. Order matters: three layers, in this order: the
+    data routes, then the API router (which ends with a catch-all 404 for
+    /ui/api/*), then the pages. Starlette matches in registration order,
+    so a data route must be registered before the catch-all would swallow
+    it, and the catch-all before the pages so /ui/api/* can never fall
+    through to index.html."""
+    from yfin.ui import data, pages, router
 
+    # Three layers, in this order: the data routes, then the API router
+    # (which ends with a catch-all 404 for /ui/api/*), then the pages.
+    # Starlette matches in registration order.
+    app.include_router(data.router)
     app.include_router(router.router)
 
     dist = dist_dir if dist_dir is not None else pages.default_dist_dir()
