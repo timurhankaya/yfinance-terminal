@@ -65,6 +65,13 @@ ALLOWED_LABELS: frozenset[str] = frozenset(
         "family",
         "measure",
         "resolved_by",
+        # The exporter's own three. `error_kind` rather than `kind`, which
+        # the audit gauges already spend on the scheduled/manual split;
+        # `query` for the exporter's self-health; `version` for
+        # `yfin_build_info`.
+        "error_kind",
+        "query",
+        "version",
     }
 )
 
@@ -72,7 +79,7 @@ MetricKind = Literal["counter", "gauge", "histogram"]
 
 #: Prometheus objects, created on first use. Creating one twice in a process
 #: raises "Duplicated timeseries in CollectorRegistry".
-_COUNTERS: dict[str, Any] = {}
+_OBJECTS: dict[str, Any] = {}
 
 
 @dataclass(frozen=True)
@@ -93,13 +100,8 @@ def _declare(*specs: MetricSpec) -> dict[str, MetricSpec]:
     return {spec.name: spec for spec in specs}
 
 
-#: Everything this codebase counts.
-#:
-#: The `yfin_sync_` prefix marks a counter a SHARD accumulates and the
-#: exporter republishes from `run_metrics`; `yfin_audit_` marks a gauge the
-#: exporter reads from the audit tables. The two prefixes are separate so no
-#: name is ever registered twice with two different label sets.
-METRICS: dict[str, MetricSpec] = _declare(
+#: What a long-lived process counts about ITSELF, wherever it runs.
+_PROCESS_METRICS: dict[str, MetricSpec] = _declare(
     MetricSpec(
         name="yfin_exceptions_total",
         documentation="Exceptions caught at a boundary, by class name.",
@@ -110,9 +112,17 @@ METRICS: dict[str, MetricSpec] = _declare(
         name="yfin_build_info",
         documentation="Always 1; carries the running version as a label.",
         kind="gauge",
-        labelnames=("type",),
+        labelnames=("version",),
     ),
-    # --- what a sync shard accumulates ------------------------------------
+)
+
+
+#: What a sync SHARD accumulates in memory and flushes into `run_metrics`.
+#:
+#: Every one of these is republished by the exporter as a gauge -- see
+#: `_republished` below -- so the list is written once and the two names
+#: cannot drift apart.
+_SHARD_COUNTERS: dict[str, MetricSpec] = _declare(
     MetricSpec(
         name="yfin_sync_yahoo_requests_total",
         documentation="Upstream requests, by dataset and how they ended.",
@@ -153,6 +163,294 @@ METRICS: dict[str, MetricSpec] = _declare(
         labelnames=("table", "op"),
     ),
 )
+
+
+def exported_name(counter: str) -> str:
+    """The gauge the exporter republishes a shard counter under.
+
+    `yfin_sync_retries_total` -> `yfin_sync_retries`. The suffix goes
+    because the published value is not a monotonic total of the scheduler
+    process at all -- it is the latest run's count, summed over that run's
+    shards, and it drops back when the next run does less work. Keeping
+    `_total` would also register one name twice with two label sets, since
+    the exported gauge carries `scope` and the counter does not.
+    """
+    return counter.removesuffix("_total")
+
+
+def _republished(counters: dict[str, MetricSpec]) -> dict[str, MetricSpec]:
+    """A gauge per shard counter, with `scope` in front of its labels."""
+    return _declare(
+        *(
+            MetricSpec(
+                name=exported_name(spec.name),
+                documentation=(
+                    f"{spec.documentation} Latest run per scope, summed over its shards."
+                ),
+                kind="gauge",
+                labelnames=("scope", *spec.labelnames),
+            )
+            for spec in counters.values()
+        )
+    )
+
+
+#: What the exporter reads out of the database every
+#: `yf_exporter_interval_seconds` and republishes on the scheduler's
+#: `/metrics`. All gauges: a scrape reads the last refresh's value and
+#: never touches the database.
+_EXPORTER_GAUGES: dict[str, MetricSpec] = _declare(
+    # --- freshness --------------------------------------------------------
+    MetricSpec(
+        name="yfin_cells_total",
+        documentation=(
+            "Cells -- (symbol, region, dataset) -- in the universe, by scope "
+            "and dataset. A cell leaves the universe when its latest status "
+            "is out_of_scope or unknown_symbol."
+        ),
+        kind="gauge",
+        labelnames=("scope", "dataset"),
+    ),
+    MetricSpec(
+        name="yfin_cells_stale",
+        documentation=(
+            "Cells whose latest ok/empty/skipped run is older than "
+            "yf_freshness_factor times the interval of the job that writes them."
+        ),
+        kind="gauge",
+        labelnames=("scope", "dataset"),
+    ),
+    MetricSpec(
+        name="yfin_intraday_scope_stale",
+        documentation=(
+            "Symbols in intraday_scope whose newest bar is within "
+            "yf_intraday_retention_warn_days of that interval's Yahoo limit."
+        ),
+        kind="gauge",
+        labelnames=("interval",),
+    ),
+    # --- correctness ------------------------------------------------------
+    MetricSpec(
+        name="yfin_audit_items",
+        documentation="Items of the latest run per scope and kind, by status.",
+        kind="gauge",
+        labelnames=("scope", "kind", "status"),
+    ),
+    MetricSpec(
+        name="yfin_audit_errors",
+        documentation="Failed items of the latest run per scope and kind, by error kind.",
+        kind="gauge",
+        labelnames=("scope", "kind", "error_kind"),
+    ),
+    MetricSpec(
+        name="yfin_audit_rows",
+        documentation="Rows the latest run per scope and kind fetched, wrote, verified, skipped.",
+        kind="gauge",
+        labelnames=("scope", "kind", "measure"),
+    ),
+    MetricSpec(
+        name="yfin_audit_status",
+        documentation="Latest FINISHED run per scope and kind: 0 ok, 1 partial, 2 failed.",
+        kind="gauge",
+        labelnames=("scope", "kind"),
+    ),
+    MetricSpec(
+        name="yfin_audit_running",
+        documentation="1 while a run of this scope is in flight.",
+        kind="gauge",
+        labelnames=("scope",),
+    ),
+    MetricSpec(
+        name="yfin_audit_started_timestamp",
+        documentation="When the latest run per scope and kind started, as a unix timestamp.",
+        kind="gauge",
+        labelnames=("scope", "kind"),
+    ),
+    MetricSpec(
+        name="yfin_proxies",
+        documentation=(
+            "Proxies by state: `disabled` is the operator's decision, the rest "
+            "is the health the system observed."
+        ),
+        kind="gauge",
+        labelnames=("state",),
+    ),
+    # --- bars -------------------------------------------------------------
+    MetricSpec(
+        name="yfin_bar_gaps_open",
+        documentation="Unresolved bar gaps, by interval and why they were recorded.",
+        kind="gauge",
+        labelnames=("interval", "reason"),
+    ),
+    MetricSpec(
+        name="yfin_bar_gaps_oldest_age_seconds",
+        documentation="Age of the oldest unresolved gap, by interval.",
+        kind="gauge",
+        labelnames=("interval",),
+    ),
+    MetricSpec(
+        name="yfin_bar_gaps_expiring",
+        documentation=(
+            "Open gaps within yf_intraday_retention_warn_days of the interval's "
+            "Yahoo limit -- after that edge Yahoo can never serve the window again."
+        ),
+        kind="gauge",
+        labelnames=("interval",),
+    ),
+    MetricSpec(
+        name="yfin_bar_gaps_resolved",
+        documentation="Gaps closed so far, by interval and what closed them.",
+        kind="gauge",
+        labelnames=("interval", "resolved_by"),
+    ),
+    MetricSpec(
+        name="yfin_bar_rescales_pending",
+        documentation="Splits that apply to an existing archive and have not been applied.",
+        kind="gauge",
+    ),
+    # --- stream -----------------------------------------------------------
+    MetricSpec(
+        name="yfin_stream_connections",
+        documentation="Upstream stream connections by state.",
+        kind="gauge",
+        labelnames=("state",),
+    ),
+    MetricSpec(
+        name="yfin_stream_heartbeat_age_seconds",
+        documentation="Oldest connection heartbeat. A stale one means the writer stopped.",
+        kind="gauge",
+    ),
+    MetricSpec(
+        name="yfin_stream_canary_age_seconds",
+        documentation=(
+            "Oldest canary. The canary sits at the end of the subscription list, "
+            "so silence here is the only signal Yahoo truncated it."
+        ),
+        kind="gauge",
+    ),
+    MetricSpec(
+        name="yfin_stream_subscribed_symbols",
+        documentation="Symbols actually subscribed, summed over connections.",
+        kind="gauge",
+    ),
+    MetricSpec(
+        name="yfin_stream_reconnects",
+        documentation=(
+            "Reconnects of the current connections. The in-process `_total` "
+            "counter is the one that survives a session."
+        ),
+        kind="gauge",
+    ),
+    MetricSpec(
+        name="yfin_stream_messages",
+        documentation="Messages received by the open stream session.",
+        kind="gauge",
+    ),
+    MetricSpec(
+        name="yfin_stream_rejects",
+        documentation="Rows the open stream session rejected.",
+        kind="gauge",
+    ),
+    # --- outboxes ---------------------------------------------------------
+    MetricSpec(
+        name="yfin_outbox_unpublished_rows",
+        documentation="Rows the relay has not published yet, by outbox table.",
+        kind="gauge",
+        labelnames=("outbox",),
+    ),
+    MetricSpec(
+        name="yfin_outbox_oldest_age_seconds",
+        documentation="Age of the oldest unpublished row, by outbox table.",
+        kind="gauge",
+        labelnames=("outbox",),
+    ),
+    # --- API usage --------------------------------------------------------
+    MetricSpec(
+        name="yfin_api_usage_requests",
+        documentation="Requests on the most recent FLUSHED day, by endpoint family.",
+        kind="gauge",
+        labelnames=("family",),
+    ),
+    MetricSpec(
+        name="yfin_api_usage_day_timestamp",
+        documentation="Which day yfin_api_usage_requests is about, as a unix timestamp.",
+        kind="gauge",
+    ),
+    MetricSpec(
+        name="yfin_api_usage_estimated_days",
+        documentation="Days flagged as reconstructed because the counters were unreachable.",
+        kind="gauge",
+    ),
+    # --- the scheduler's own jobs -----------------------------------------
+    MetricSpec(
+        name="yfin_job_last_success_timestamp",
+        documentation=(
+            "When this job last finished ok. Seeded from scheduler_runs at "
+            "start-up, so a restart does not look like an overdue job."
+        ),
+        kind="gauge",
+        labelnames=("job",),
+    ),
+    MetricSpec(
+        name="yfin_job_last_duration_seconds",
+        documentation="How long this job's last firing took.",
+        kind="gauge",
+        labelnames=("job",),
+    ),
+    MetricSpec(
+        name="yfin_job_interval_seconds",
+        documentation="The cron's mean period; what the freshness and overdue rules divide by.",
+        kind="gauge",
+        labelnames=("job",),
+    ),
+    MetricSpec(
+        name="yfin_job_running",
+        documentation="1 while this job's subprocess is alive.",
+        kind="gauge",
+        labelnames=("job",),
+    ),
+    MetricSpec(
+        name="yfin_job_next_run_timestamp",
+        documentation="When this job fires next, as a unix timestamp.",
+        kind="gauge",
+        labelnames=("job",),
+    ),
+    MetricSpec(
+        name="yfin_job_runs_total",
+        documentation="Firings by result, including the ones that never became a subprocess.",
+        kind="counter",
+        labelnames=("job", "result"),
+    ),
+    # --- the exporter's own health ----------------------------------------
+    MetricSpec(
+        name="yfin_exporter_query_seconds",
+        documentation="How long the last refresh of this query took.",
+        kind="gauge",
+        labelnames=("query",),
+    ),
+    MetricSpec(
+        name="yfin_exporter_last_success_timestamp",
+        documentation=(
+            "Last refresh in which every query succeeded. A failing query keeps "
+            "the previous gauges and leaves this behind."
+        ),
+        kind="gauge",
+    ),
+)
+
+
+#: Everything this codebase counts.
+#:
+#: The `yfin_sync_` prefix marks a counter a SHARD accumulates and the
+#: exporter republishes from `run_metrics`; `yfin_audit_` marks a gauge the
+#: exporter reads from the audit tables. The two prefixes are separate so no
+#: name is ever registered twice with two different label sets.
+METRICS: dict[str, MetricSpec] = {
+    **_PROCESS_METRICS,
+    **_SHARD_COUNTERS,
+    **_republished(_SHARD_COUNTERS),
+    **_EXPORTER_GAUGES,
+}
 
 
 def label_key(labels: dict[str, str]) -> str:
@@ -264,27 +562,74 @@ def inc(name: str, amount: int = 1, **labels: str) -> None:
             accumulator.inc(name, amount, **labels)
         return
     with suppress(Exception):
-        counter = _counter(name)
-        if counter is not None:
-            (counter.labels(**labels) if labels else counter).inc(amount)
+        counter = _object(name)
+        (counter.labels(**labels) if labels else counter).inc(amount)
 
 
-def _counter(name: str) -> Any:
-    """The Prometheus counter for a declared metric, created on first use.
+def _object(name: str) -> Any:
+    """The Prometheus object for a declared metric, created on first use.
 
     Creating one twice in a process raises "Duplicated timeseries in
-    CollectorRegistry", so they are cached. Returns None when the extra is
-    not installed, which is not an error: metrics are optional everywhere.
+    CollectorRegistry", so they are cached. Raises when the extra is not
+    installed -- every caller here is already inside a `suppress`, because
+    metrics are optional everywhere and a missing extra must not stop a run.
     """
-    existing = _COUNTERS.get(name)
+    existing = _OBJECTS.get(name)
     if existing is not None:
         return existing
     spec = METRICS[name]
-    from prometheus_client import Counter
+    from prometheus_client import Counter, Gauge
 
-    counter = Counter(spec.name, spec.documentation, spec.labelnames)
-    _COUNTERS[name] = counter
-    return counter
+    if spec.kind == "gauge":
+        # `multiprocess_mode="max"` costs nothing in a single-process
+        # service and is what makes the gauge readable at all if one ever
+        # runs under `PROMETHEUS_MULTIPROC_DIR`.
+        created: Any = Gauge(
+            spec.name, spec.documentation, spec.labelnames, multiprocess_mode="max"
+        )
+    else:
+        created = Counter(spec.name, spec.documentation, spec.labelnames)
+    _OBJECTS[name] = created
+    return created
+
+
+def set_gauge(name: str, value: float, **labels: str) -> None:
+    """Sets a gauge the exporter read out of the database.
+
+    Never raises, for the same reason `inc` does not: this runs on the
+    scheduler's exporter thread, and the scheduler is the process that runs
+    the jobs. A number nobody could publish is worth less than the work.
+
+    There is no accumulator branch. A gauge is a value read from a table by
+    a long-lived process; a shard has nothing to put in one.
+    """
+    with suppress(Exception):
+        _validate(name, labels)
+        gauge = _object(name)
+        (gauge.labels(**labels) if labels else gauge).set(value)
+
+
+def clear_gauge(name: str) -> None:
+    """Drops every label combination a gauge currently carries.
+
+    Called by the exporter before it republishes a query's gauges, and only
+    when that query SUCCEEDED. Without it a cell that left the universe, a
+    proxy that was deleted or a stream connection that closed would keep the
+    last value it ever had, on a dashboard, forever. With it, a query that
+    fails does not clear -- so the previous refresh's numbers stand and
+    `yfin_exporter_last_success_timestamp` is what goes stale.
+    """
+    with suppress(Exception):
+        _object(name).clear()
+
+
+def set_build_info(version: str) -> None:
+    """`yfin_build_info{version} 1`, so a dashboard can say what is running.
+
+    A `Gauge` with the value 1 rather than an `Info`: `Info` does not work
+    in multiprocess mode, and the API runs four uvicorn workers.
+    """
+    set_gauge("yfin_build_info", 1, version=version)
 
 
 def serve_metrics(port: int, addr: str = "0.0.0.0") -> bool:  # noqa: S104
@@ -330,10 +675,14 @@ __all__ = [
     "Accumulator",
     "CounterRow",
     "MetricSpec",
+    "clear_gauge",
     "count_exception",
     "current_accumulator",
+    "exported_name",
     "inc",
     "label_key",
     "serve_metrics",
+    "set_build_info",
+    "set_gauge",
     "use_accumulator",
 ]

@@ -42,8 +42,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.core.config import Settings, get_settings
 from yfin.core.logging_setup import get_logger
+from yfin.core.metrics import inc
 from yfin.scheduler import runs
+from yfin.scheduler.exporter import Exporter
 from yfin.scheduler.jobs import JOB_RUN_ID_VAR, JOBS, Job, interval_seconds
+from yfin.scheduler.queries import Sample
 
 log = get_logger(__name__)
 
@@ -93,6 +96,11 @@ class SchedulerService:
         self._lock = threading.Lock()
         self._stopping = threading.Event()
         self._scheduler: Any = None
+        # The database exporter runs in THIS process: it already has an
+        # engine, and it is the one part of the stack that is up whether or
+        # not anything else is. Built in `run()`, so a `build()`-only test
+        # never starts a thread.
+        self._exporter: Exporter | None = None
 
     # --- configuration -----------------------------------------------------
 
@@ -168,6 +176,59 @@ class SchedulerService:
         state.last_duration_seconds = (datetime.now(UTC) - started).total_seconds()
         if result == "ok":
             state.last_success = datetime.now(UTC)
+        # A real Prometheus counter, not a gauge the exporter republishes:
+        # the scheduler is long-lived, so a monotonic count of its own
+        # firings is exactly what a counter is for, and `rate()` over it is
+        # what a failing job looks like on a dashboard.
+        inc("yfin_job_runs_total", job=state.job.name, result=result)
+
+    # --- what the exporter publishes for us --------------------------------
+
+    def intervals(self) -> dict[str, float]:
+        """Each job's mean cadence, in seconds.
+
+        The exporter divides by these to decide what is stale, and it asks
+        every pass rather than once: `reload()` can change a trigger sixty
+        seconds from now, and freshness judged against a cron nobody runs
+        would be wrong in the direction that hides a problem.
+        """
+        return {name: state.interval_seconds for name, state in self._states.items()}
+
+    def job_samples(self) -> list[Sample]:
+        """The job gauges. In this process's memory, and in no table.
+
+        `next_run_timestamp` is the exception -- it comes from APScheduler,
+        which is the only thing that knows when a trigger fires next, and it
+        is absent for a job with no cron rather than reported as 0. A zero
+        there would read as "fires at the epoch", which is overdue by
+        fifty-six years.
+
+        `last_success` is seeded from `scheduler_runs` at start-up, so a
+        restart does not make every job look overdue at once.
+        """
+        scheduler = self._scheduler
+        samples: list[Sample] = []
+        for name, state in self._states.items():
+            labels = {"job": name}
+            samples.append(Sample("yfin_job_interval_seconds", state.interval_seconds, labels))
+            samples.append(Sample("yfin_job_running", float(state.running), labels))
+            if state.last_duration_seconds is not None:
+                samples.append(
+                    Sample("yfin_job_last_duration_seconds", state.last_duration_seconds, labels)
+                )
+            if state.last_success is not None:
+                samples.append(
+                    Sample(
+                        "yfin_job_last_success_timestamp",
+                        state.last_success.timestamp(),
+                        labels,
+                    )
+                )
+            job = scheduler.get_job(name) if scheduler is not None else None
+            nxt = getattr(job, "next_run_time", None)
+            if nxt is not None:
+                samples.append(Sample("yfin_job_next_run_timestamp", nxt.timestamp(), labels))
+        return samples
 
     # --- APScheduler wiring ------------------------------------------------
 
@@ -195,6 +256,10 @@ class SchedulerService:
         state = self._states.get(job_name)
         if state is not None:
             state.results[result] = state.results.get(result, 0) + 1
+        # Counted like any other result. A firing that was dropped is the
+        # thing `scheduler_runs` and this counter exist to make visible;
+        # leaving it out of the metric would put it only in a log line.
+        inc("yfin_job_runs_total", job=job_name, result=result)
 
     def build(self) -> Any:
         """The scheduler, with one trigger per ENABLED job."""
@@ -317,6 +382,8 @@ class SchedulerService:
         must stay below compose's `stop_grace_period` for that reason.
         """
         self._stopping.set()
+        if self._exporter is not None:
+            self._exporter.stop()
         if self._scheduler is not None:
             # `wait=False`: the point of the signal is to stop firing NOW;
             # the jobs already running are handled below.
@@ -377,6 +444,14 @@ class SchedulerService:
 
         reloader = threading.Thread(target=self._reload_loop, name="yfin-reload", daemon=True)
         reloader.start()
+
+        self._exporter = Exporter(
+            self._engine,
+            self._settings,
+            intervals=self.intervals,
+            job_samples=self.job_samples,
+        )
+        self._exporter.start()
 
         log.info(
             "scheduler started",

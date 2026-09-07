@@ -915,3 +915,63 @@ After the second review:
   the prefix-filter fact, entrypoint file, grant narrowed, interval
   computation, `apply_write` location, env-only count, measurements
   index, line references.
+
+While implementing step 6 (the exporter):
+
+- **The freshness statement is one aggregation, not two `DISTINCT ON`
+  CTEs joined together.** The literal shape in "The database exporter"
+  above was implemented first and measured at 4.24 s median on the
+  synthetic 10,000 × 49 table; the join could only merge on `symbol`
+  (`region IS NOT DISTINCT FROM` is not mergeable) and discarded 23.0 of
+  23.5 million rows in a join filter. Replacing it with a single
+  `GROUP BY (symbol, region, dataset)` carrying
+  `(array_agg(worst ORDER BY run_id DESC))[1]` and
+  `MAX(started_at) FILTER (WHERE worst IN good)` gives the same numbers --
+  the 65 repo cases passed unchanged across the swap -- at **2.35 s**.
+  `docs/measurements/observability.md`.
+- **The acceptance criterion holds only with `--audit-days` set.** The
+  cost scales with `sync_run_items` rows, not with cells: three nights of
+  history is 2.35 s, seven is 4.89 s and fails the 5 s criterion. Audit
+  retention is therefore a requirement of running the exporter, not an
+  option, and the README note has to say so.
+- **`ix_sync_run_items_cell_run` is not used by the freshness query.** It
+  reads every cell, so the planner scans sequentially. Measured, recorded,
+  and deliberately not acted on: the index still serves a single-cell
+  "why is this symbol stale" lookup, and dropping it is a migration.
+- **`asof_state` is the right shape and the wrong contents.** The same
+  question over it costs 0.048 s -- forty-nine times faster -- but it
+  carries no status and no region, so neither the universe rule nor a
+  domain cell can be expressed. If freshness outgrows its budget the next
+  design is a watermark table carrying both, and the measurement is the
+  evidence it would run in milliseconds.
+- **The exporter republishes the shard counters without `_total`.**
+  `yfin_sync_yahoo_requests_total` in `run_metrics` becomes the gauge
+  `yfin_sync_yahoo_requests{scope,dataset,outcome}`, which is what the
+  `yfin_sync_<name>{scope,...labels}` line above already spelled. The
+  suffix has to go: the value is the latest run's, not a monotonic total
+  of the scheduler process, and keeping it would register one name with
+  two label sets. Derived from the counter declarations rather than
+  listed, so a new counter is exported with no second edit.
+  `yfin_cells_total` keeps its `_total` -- there it is the denominator of
+  `yfin_cells_stale`, not the counter suffix.
+- **Three labels join the closed set**: `error_kind` (because
+  `yfin_audit_errors` already spends `kind` on the scheduled/manual
+  split), `query` (the exporter's self-health) and `version`. `version`
+  makes the code match this document's own `yfin_build_info{version}`;
+  step 1 had declared it with `type`.
+- **Both outboxes are exported.** The changes design has landed, so
+  `relay_lag(spec)` is generalised and the exporter reports
+  `stream_outbox` and `pipeline_outbox` rather than the first alone.
+- **`yfin_job_runs_total` is a real counter**, incremented in the
+  scheduler where the result is decided, including for the `misfired` and
+  `skipped` firings that never become a subprocess. The other five job
+  metrics are gauges the exporter reads from `SchedulerService` through a
+  callable -- `job_samples()` -- rather than from a table, and a job that
+  has never run or never succeeded reports NO timestamp rather than 0,
+  which would read as the epoch and fire `JobOverdue` on the day a job is
+  added.
+- **A query owns the gauges it clears.** Clearing happens only after the
+  query returned, so a failure leaves the previous refresh standing; and
+  it is per query rather than global, so a failing query cannot wipe
+  numbers another one filled in the same pass. A test asserts no two
+  queries own the same gauge.
