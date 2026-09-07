@@ -149,11 +149,107 @@ export async function getFinancials(symbol: string, statement: string, freq: str
   return rows;
 }
 
-export async function getDataset(
-  name: string, symbol: string, params: Record<string, string> = {},
-): Promise<Record<string, unknown>[]> {
+export type Row = Record<string, unknown>;
+
+export async function getDataset(name: string, symbol: string, params: Record<string, string> = {}): Promise<Row[]> {
   const search = new URLSearchParams({ ...params, symbol: symbol.trim().toUpperCase(), limit: "200" });
-  const page = await apiFetch<Page<Record<string, unknown>>>(`${DATA_BASE}/datasets/${encodeURIComponent(name)}?${search}`);
+  const page = await apiFetch<Page<Row>>(`${DATA_BASE}/datasets/${encodeURIComponent(name)}?${search}`);
+  return page.data;
+}
+
+// --- the catalogue and any dataset ------------------------------------------
+
+export interface CatalogColumn {
+  name: string;
+  /** The wire type: `string (decimal)`, `string (date-time)`, `string (date)`, `string`, `integer`, `boolean`. */
+  type: string;
+  nullable: boolean;
+}
+
+export interface CatalogEntry {
+  name: string;
+  family: string;
+  scope: string;
+  kind: string;
+  table: string;
+  sort_key: string[];
+  descending: boolean;
+  filters: string[];
+  symbol_scoped: boolean;
+  description: string;
+  columns: CatalogColumn[];
+}
+
+let catalogCache: Promise<CatalogEntry[]> | null = null;
+
+/** The catalogue, fetched once per page load. A failure is not cached, so
+ *  a retry after a network blip asks again. */
+export function getCatalog(): Promise<CatalogEntry[]> {
+  if (catalogCache === null) {
+    catalogCache = apiFetch<Page<CatalogEntry>>(`${DATA_BASE}/datasets`)
+      .then((page) => page.data)
+      .catch((err: unknown) => {
+        catalogCache = null;
+        throw err;
+      });
+  }
+  return catalogCache;
+}
+
+/** Tests only: forget the cached catalogue. */
+export function resetCatalogCache(): void {
+  catalogCache = null;
+}
+
+//: The UI principal's page cap; asking for more is a 422.
+export const PAGE_LIMIT = 1000;
+//: Pages followed per request. 5000 rows is more than any panel can show
+//: usefully; beyond this the panel says the list was cut.
+export const MAX_PAGES = 5;
+
+export interface Rows {
+  rows: Row[];
+  /** True when MAX_PAGES was reached with a cursor still to follow. */
+  truncated: boolean;
+}
+
+async function followPages(base: string, pages: number): Promise<Rows> {
+  const rows: Row[] = [];
+  let cursor: string | null = null;
+  for (let i = 0; i < pages; i += 1) {
+    const url: string = cursor ? `${base}&cursor=${encodeURIComponent(cursor)}` : base;
+    const page: Page<Row> = await apiFetch<Page<Row>>(url);
+    rows.push(...page.data);
+    cursor = page.next_cursor;
+    if (!cursor) return { rows, truncated: false };
+  }
+  return { rows, truncated: true };
+}
+
+/** Every row of one dataset, following cursors up to `pages` pages.
+ *  `params` are the dataset's filters plus, for a symbol-scoped dataset,
+ *  `symbol`; the caller decides, because the catalogue says which is which. */
+export function getDatasetRows(
+  name: string, params: Record<string, string> = {}, pages: number = MAX_PAGES,
+): Promise<Rows> {
+  const search = new URLSearchParams({ ...params, limit: String(PAGE_LIMIT) });
+  return followPages(`${DATA_BASE}/datasets/${encodeURIComponent(name)}?${search}`, pages);
+}
+
+/** Dividends, splits and capital gains, oldest first as the API sends them. */
+export function getActions(symbol: string): Promise<Rows> {
+  const code = encodeURIComponent(symbol.trim().toUpperCase());
+  return followPages(`${DATA_BASE}/symbols/${code}/actions?limit=${PAGE_LIMIT}`, MAX_PAGES);
+}
+
+//: The API's ReadableInterval, verbatim.
+export const BAR_INTERVALS = ["1m", "5m", "15m", "60m", "1d", "1wk", "1mo"];
+
+/** One page of bars, oldest first as the API sends them. */
+export async function getBars(symbol: string, interval: string, limit: number): Promise<Row[]> {
+  const code = encodeURIComponent(symbol.trim().toUpperCase());
+  const search = new URLSearchParams({ interval, limit: String(limit) });
+  const page = await apiFetch<Page<Row>>(`${DATA_BASE}/symbols/${code}/bars?${search}`);
   return page.data;
 }
 

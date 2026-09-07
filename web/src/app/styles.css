@@ -27,7 +27,7 @@ a { color: var(--accent); }
 .credits a { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); text-decoration: none; }
 .credits a:hover { color: var(--accent); }
 .credit-logo { width: 14px; height: 14px; }
-.credit-logo-wide { width: auto; height: 14px; }
+.credit-logo-wide { width: auto; height: 18px; }
 .help-fn { color: var(--accent); background: none; border: 0; font: inherit; cursor: pointer; padding: 0; }
 .help-fn:disabled { color: var(--muted); cursor: default; }
 .modal { background: #12171d; border: 1px solid var(--line); padding: 20px 24px; display: grid; gap: 10px; min-width: 280px; }
@@ -60,3 +60,14 @@ dl.des dt { color: var(--muted); }
 [cmdk-item][data-selected="true"] { background: var(--line); }
 [cmdk-group-heading] { padding: 6px 10px 2px; color: var(--muted); font-size: 11px; text-transform: uppercase; }
 .palette-note { margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.scroll-x { overflow-x: auto; max-width: 100%; }
+.dataset .grid th, .dataset .grid td { white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
+.json { margin: 0; white-space: pre-wrap; word-break: break-all; font: inherit; color: var(--muted); }
+.tabs { flex-wrap: wrap; }
+.family { display: block; margin: 10px 0 2px; color: var(--accent); text-transform: uppercase; font-size: 11px; }
+.ds-name { font-weight: 600; }
+.summary { max-width: 90ch; white-space: pre-wrap; }
+.usage { color: var(--muted); }
+h3 { margin: 14px 0 4px; font-size: 13px; color: var(--muted); }
+dl.des dd { margin: 0; word-break: break-word; }
+.credits-right { margin-left: auto; }

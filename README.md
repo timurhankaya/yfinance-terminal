@@ -149,7 +149,7 @@ HELP                  # every function and shortcut; Esc goes back
 |---|---|---|
 | **Kafka producer** | **TODO** | Publish each verified write as an event so downstream consumers do not poll the database. Open questions: topic per table vs per dataset, and whether the outbox lives in `sync_run_items` or a dedicated table. |
 | **WebSocket streaming** | **TODO** | Yahoo's live quote socket for intraday updates between scheduled runs, plus an outbound socket so clients can subscribe to symbols instead of polling. Needs a decision on how live ticks reconcile with the bar archive. |
-| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default; `DES`, `FA`, `ANR`, `N`, `CF` and `HELP` ship, live ticks and charts follow (`docs/superpowers/specs/2026-09-07-web-terminal-design.md`). |
+| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default. Every dataset in the archive is readable: `DS` browses the whole catalogue, `DES`/`FA`/`ANR`/`N`/`CF`/`CA`/`PX` and the tabbed `HDS`/`ERN`/`FUND`/`CAL`/`MKT`/`SCR`/`SRCH`/`DOM`/`REF` panels cover it by family; live ticks and charts follow (`docs/superpowers/specs/2026-09-07-web-terminal-design.md`). |
 
 ---
 

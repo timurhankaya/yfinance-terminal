@@ -28,6 +28,12 @@ export function HELP({ symbol }: PanelProps) {
                 {panel.code}
               </button>{" "}
               — {panel.title} ({panel.needsSymbol ? "needs a symbol" : "no symbol"})
+              {panel.usage && (
+                <>
+                  {" "}
+                  <code className="usage">{panel.usage}</code>
+                </>
+              )}
             </li>
           );
         })}

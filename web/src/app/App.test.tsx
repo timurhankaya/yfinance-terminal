@@ -78,6 +78,37 @@ afterEach(() => {
 });
 
 describe("AppRoutes", () => {
+  it("credits the data source, the package and the people behind the terminal", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: null, live_enabled: false, public: true });
+      if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      return json(200, { data: [], next_cursor: null });
+    });
+    mount("/ui/t/AAPL/DES");
+    const footer = await screen.findByRole("contentinfo", { name: "credits" });
+    const links = within(footer).getAllByRole("link").map((a) => [a.textContent?.trim(), a.getAttribute("href")]);
+    expect(links).toEqual([
+      ["Yahoo Finance", "https://finance.yahoo.com/"],
+      ["yfinance", "https://github.com/ranaroussi/yfinance"],
+      ["monafy.com", "https://monafy.com/"],
+      ["Timurhan Kaya", "https://github.com/kayacekovic"],
+    ]);
+    for (const a of within(footer).getAllByRole("link")) expect(a.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(footer.textContent).toContain("Not affiliated with, endorsed by or connected to Yahoo.");
+    expect(footer.textContent).toContain("Powered by");
+  });
+
+  it("never shows the login modal on a public terminal", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: null, live_enabled: false, public: true });
+      if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      return json(200, { data: [], next_cursor: null });
+    });
+    mount("/ui/t/AAPL/DES");
+    expect(await screen.findByText("Apple Inc.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("password")).not.toBeInTheDocument();
+  });
+
   it("shows the login modal when unauthenticated", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/me") return json(200, { authenticated: false, expires_at: null, live_enabled: false });

@@ -187,6 +187,17 @@ export function Shell() {
           yfinance
         </a>
         <span className="muted">Not affiliated with, endorsed by or connected to Yahoo.</span>
+        <span className="credits-right">
+          Powered by{" "}
+          <a href="https://monafy.com/" target="_blank" rel="noopener noreferrer">
+            monafy.com
+          </a>{" "}
+          ·{" "}
+          <a href="https://github.com/kayacekovic" target="_blank" rel="noopener noreferrer">
+            <img className="credit-logo" src="https://github.com/favicon.ico" alt="" />
+            Timurhan Kaya
+          </a>
+        </span>
       </footer>
       <CommandPalette
         open={palette.open}

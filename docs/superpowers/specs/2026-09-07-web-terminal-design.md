@@ -223,7 +223,39 @@ aralıktır, `15M` değil). Sembol token'ı `/^[A-Z0-9.^=-]+$/` (`BRK-B`,
 | `N` | single | Haber listesi; seçince özet ve link | `/ui/api/symbols/{s}/news` (`news_symbols ⋈ news`, `pub_date` desc) |
 | `CF` | single | SEC dosyaları ve ekleri | `/v1/datasets/sec_filings?symbol=`, `sec_filing_exhibits?symbol=` |
 | `QR` | headed | Time & sales; sanallaştırılmış | WS; açılışta `/ui/api/symbols/{s}/ticks?limit=` (varsayılan 500, en çok 2000) |
-| `HELP` | single | Mnemonik listesi; `needsSymbol=false` | statik |
+| `HELP` | single | Mnemonik listesi ve her panelin `usage` satırı; `needsSymbol=false` | statik |
+
+**Tam veri kapsamı (1e).** Arşivdeki her şey terminalden okunur; hiçbir
+dataset ve hiçbir `info` alanı dışarıda kalmaz. Tek bir tipli tablo
+motoru (`panels/table.tsx`) katalogun kolon türlerinden hücre biçimini
+türetir (`string (decimal)` → iki ondalık / K-M-B-T, `integer` → binlik
+ayraç, `string (date-time)` → yerel saat, `boolean` → yes/no, URL →
+bağlantı, null → "—"); grid'de gizlenen tek kolon `raw_json`'dır ve satır
+detayı (Enter/tıklama) her alanı, `raw_json`'ı okunur JSON olarak
+gösterir. Sayı biçimi sabit `en-US`'tir. Bunun üstünde:
+
+| Kod | Şablon | Panel | Kaynak |
+| --- | --- | --- | --- |
+| `DS` | single | Katalog gezgini: `DS` tüm dataset'leri aileye göre listeler; `DS <ad> [k=v ...]` herhangi birini filtreleriyle açar (`symbol_scoped` ise şerit sembolü gönderilir); `needsSymbol=false` | `/ui/api/v1/datasets`, `/ui/api/v1/datasets/{ad}` |
+| `HDS` | single | Sahipler: major, kurumsal, fon, insider roster/işlem/aktivite sekmeleri | `major_holders`, `institutional_holders`, `mutualfund_holders`, `insider_roster_holders`, `insider_transactions`, `insider_purchases` |
+| `ERN` | single | Kazanç: tarihler, geçmiş, EPS/gelir tahmini, trend, revizyon, büyüme, takvim (+geçmişi) | `earnings_dates`, `earnings_history`, `earnings_estimate`, `revenue_estimate`, `eps_trend`, `eps_revisions`, `growth_estimates`, `ticker_calendar`, `ticker_calendar_history` |
+| `FUND` | single | Fon profili, en büyük pozisyonlar, ağırlıklar, metrikler | `fund_profile`, `fund_top_holdings`, `fund_weightings`, `fund_metrics` |
+| `CAL` | single | Piyasa takvimleri (sembolsüz): kazanç, ekonomik, IPO, split | `earnings_calendar`, `economic_calendar`, `ipo_calendar`, `splits_calendar` |
+| `MKT` | single | Piyasa durumu ve endeks özeti, geçmişleriyle | `market_status`, `market_summary`, `market_status_history`, `market_summary_history` |
+| `SCR` | single | Screen tanımları, koşuları, üyeleri, quote anlık görüntüsü | `screens`, `screen_runs`, `screen_members`, `screen_quotes` |
+| `SRCH` | single | Arama/lookup sonuçları (`query_term=` filtresi) | `search_quotes`, `search_lists`, `search_report_hits`, `lookup_results`, `lookup_totals` |
+| `DOM` | single | Sektör/endüstri taksonomisi, metrikler, en büyükler, hareketliler, araştırma raporları | `domains`, `domain_metrics`, `domain_top_companies`, `domain_top_funds`, `domain_top_movers`, `research_reports`, `domain_report_links` |
+| `REF` | single | Referans anlık görüntüleri: fast info (+geçmiş), history metadata, `info` geçmişi, yöneticiler, hisse sayısı, haber eşlemesi | `fast_info`, `fast_info_history`, `history_metadata`, `info_history`, `company_officers`, `shares_full`, `news_symbols` |
+| `CA` | single | Temettü, split, sermaye kazancı; en yeni önce | `/ui/api/v1/symbols/{s}/actions` (tüm sayfalar) |
+| `PX` | single | Fiyat barları tablosu; `PX [1m\|5m\|15m\|60m\|1d\|1wk\|1mo] [satır]` | `/ui/api/v1/symbols/{s}/bars` |
+
+Kürate paneller `tabbedPanel` fabrikasından çıkan yapılandırmadır (sekme
+başına dataset ve sembol modu: `required`/`auto`/`none`); `DES` `info`'nun
+her alanını başlıklı bölümlere ayırır ve listelenmemiş anahtarları
+"Other" altında toplar, yalnız null alanları saymaya bırakır; altında
+`company_officers` tablosu vardır. Kalan iki dataset (`news`,
+`sec_filing_exhibits`) `N`/`CF` ve `DS` üzerinden erişilir. `GP`/`GIP`
+grafikleri 1d'de gelene kadar barlar `PX` ile okunur.
 
 **Panel sözleşmesi**
 
@@ -443,6 +475,7 @@ Dev: `fakeredis` zaten var; `web/devDependencies`'e Playwright (1d'de).
 | 1b | Komut dili | parser, registry, cmdk, history gezinme, `HELP`, `FA`, `ANR`, `N` (+`/ui/api/.../news`), `CF` | 1a |
 | 1c | Canlı yol | `stream/publish.py`, iki `stream` ayarı, `/ui/ws`, `/ui/api/.../ticks`, WS istemcisi ve store, şeridin canlı hâli, ölçüm | 1a |
 | 1d | Grafikler ve QR | lightweight-charts, `GP`, `GIP`, marker, gap overlay, `/ui/api/.../gaps`, canlı mum, `QR` paneli, Playwright senaryosu | 1b, 1c |
+| 1e | Tam veri kapsamı | tipli tablo motoru, `DS` katalog gezgini, `HDS`/`ERN`/`FUND`/`CAL`/`MKT`/`SCR`/`SRCH`/`DOM`/`REF` sekmeli panelleri, `CA`, `PX`, DES'in tüm `info` alanları | 1b |
 
 1b ve 1c bağımsız, paralel yürütülebilir. `QR` bir `PanelSpec` olduğu
 için 1d'dedir. Her alt proje kendi implementation plan'ını alır.

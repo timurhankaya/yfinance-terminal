@@ -1,13 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
+  MAX_PAGES,
+  PAGE_LIMIT,
   UnauthorizedError,
   apiFetch,
+  getActions,
+  getBars,
+  getCatalog,
   getDataset,
+  getDatasetRows,
   getFinancials,
   getMe,
   getSymbol,
   login,
+  resetCatalogCache,
   searchSymbols,
 } from "./client";
 
@@ -147,5 +154,63 @@ describe("endpoints", () => {
     expect(url).toContain("filing_type=10-K");
     expect(url).not.toContain("symbol=MSFT");
     expect(url).not.toContain("limit=5");
+  });
+});
+
+describe("catalogue and dataset rows", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetCatalogCache();
+  });
+
+  it("getCatalog fetches once and caches the entries", async () => {
+    const entry = { name: "major_holders", family: "holders", symbol_scoped: true, filters: [], columns: [] };
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond(200, { data: [entry], next_cursor: null }));
+    const first = await getCatalog();
+    const second = await getCatalog();
+    expect(first).toEqual(second);
+    expect(first[0]?.name).toBe("major_holders");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]![0]).toBe("/ui/api/v1/datasets");
+  });
+
+  it("getCatalog does not cache a failure", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(respond(500, { type: "internal" }, "application/problem+json"))
+      .mockResolvedValueOnce(respond(200, { data: [], next_cursor: null }));
+    await expect(getCatalog()).rejects.toBeInstanceOf(ApiError);
+    await expect(getCatalog()).resolves.toEqual([]);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("getDatasetRows follows cursors up to the page cap and says when it was cut", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      const n = /cursor=p(\d)/.exec(url)?.[1] ?? "0";
+      return Promise.resolve(respond(200, { data: [{ n }], next_cursor: `p${Number(n) + 1}` }));
+    });
+    const result = await getDatasetRows("screens", { kind: "predefined" });
+    expect(spy).toHaveBeenCalledTimes(MAX_PAGES);
+    expect(result.rows).toHaveLength(MAX_PAGES);
+    expect(result.truncated).toBe(true);
+    const url = spy.mock.calls[0]![0] as string;
+    expect(url).toBe(`/ui/api/v1/datasets/screens?kind=predefined&limit=${PAGE_LIMIT}`);
+  });
+
+  it("getDatasetRows stops at the last page", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(respond(200, { data: [{ a: 1 }], next_cursor: null }));
+    const result = await getDatasetRows("screens");
+    expect(result).toEqual({ rows: [{ a: 1 }], truncated: false });
+  });
+
+  it("getActions and getBars address the symbol routes", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(() => Promise.resolve(respond(200, { data: [], next_cursor: null })));
+    await getActions("aapl");
+    await getBars("aapl", "1d", 50);
+    expect(spy.mock.calls[0]![0]).toBe(`/ui/api/v1/symbols/AAPL/actions?limit=${PAGE_LIMIT}`);
+    expect(spy.mock.calls[1]![0]).toBe("/ui/api/v1/symbols/AAPL/bars?interval=1d&limit=50");
   });
 });
