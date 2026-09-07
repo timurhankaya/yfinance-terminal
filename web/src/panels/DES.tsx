@@ -132,8 +132,12 @@ const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 const YEAR_RE = /year|born/;
 
 /** One info value as text, by what its key says it is. */
+//: Digits that are not numbers: a postal code of 95014 is not 95,014.
+const TEXT_KEYS = new Set(["zip", "phone", "fax", "address1", "address2", "message_board_id", "price_hint"]);
+
 export function formatInfo(key: string, value: unknown): string {
   if (typeof value === "boolean") return value ? "yes" : "no";
+  if (TEXT_KEYS.has(key)) return String(value);
   // The pipeline already turned most epochs into ISO strings.
   if (typeof value === "string" && ISO_RE.test(value)) return formatDateTime(value);
   const n = asNumber(value);

@@ -82,6 +82,7 @@ describe("DES", () => {
     expect(formatInfo("full_time_employees", 164000)).toBe("164,000");
     expect(formatInfo("regular_market_price", "1319.97")).toBe("1,319.97");
     expect(formatInfo("tradeable", true)).toBe("yes");
+    expect(formatInfo("zip", "95014")).toBe("95014");
     expect(formatInfo("sector", "Technology")).toBe("Technology");
   });
 
