@@ -223,15 +223,6 @@ def epoch_to_datetime(value: Any, *, unit: str = "s") -> datetime | None:
         return None
 
 
-def convert_epoch_field(key: str, value: Any) -> datetime | None:
-    """Resolves the correct unit by field name."""
-    if key in EPOCH_MS_FIELDS:
-        return epoch_to_datetime(value, unit="ms")
-    if key in EPOCH_SEC_FIELDS:
-        return epoch_to_datetime(value, unit="s")
-    raise KeyError(f"not in epoch map: {key}")
-
-
 def warn_unmapped_epoch_like(payload: Mapping[str, Any], mapped_keys: frozenset[str]) -> list[str]:
     """Warns about fields not in the map that fall in the epoch range."""
     suspects: list[str] = []

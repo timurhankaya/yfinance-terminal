@@ -95,28 +95,19 @@ def _symbol_registry() -> Any:
     return SYMBOL_DATASETS
 
 
-def asof_tables(
-    registry: Any = None,
-    gate_table: str = _DEFAULT_GATE,
-) -> list[str]:
-    """Tables that accumulate as-of history.
-
-    Not hand-maintained, but `Base.metadata` alone isn't enough either: not
-    every table with `as_of_date` in its PK is as-of -- `shares_full` carries
-    the source's own date and, if deleted, is refetched via its watermark.
-    The distinguishing signal is the dataset base class, not the column name.
-
-    The gate table itself is out of scope: deleting a gate row would lose
-    `first_seen_at` and rewrite the whole history on the next run.
-    """
-    return sorted(asof_table_datasets(registry, gate_table))
-
-
 def asof_table_datasets(
     registry: Any = None,
     gate_table: str = _DEFAULT_GATE,
 ) -> dict[str, list[str]]:
     """As-of table -> names of the datasets that write to it.
+
+    Which tables count is not hand-maintained, and `Base.metadata` alone is
+    not enough either: not every table with `as_of_date` in its PK is as-of
+    -- `shares_full` carries the source's own date and, if deleted, is
+    refetched via its watermark. The distinguishing signal is the dataset
+    base class, not the column name. The gate table itself is out of scope:
+    deleting a gate row would lose `first_seen_at` and rewrite the whole
+    history on the next run.
 
     Most tables are written by one dataset, but `institutional_holders` is
     written by two (`institutional_holders` + `mutualfund_holders`,

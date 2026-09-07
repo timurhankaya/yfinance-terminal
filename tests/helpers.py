@@ -268,3 +268,31 @@ def as_funds_data(payload: Any) -> Any:
         key: (as_dataset_frame(value) if key in frames else value)
         for key, value in payload.items()
     }
+
+
+def expected_domain_cell_count(region_count: int, industry_count: int = 145) -> int:
+    """Expected `sync_run_items` cell count for a domain run.
+
+    domain_taxonomy   : 2 tables x 1 kind
+    sector_profile    : 4 tables x 11 keys x 1 region
+    sector_rankings   : 3 tables x 11 keys x R
+    industry_profile  : 5 tables x N keys x 1 region
+    industry_rankings : 3 tables x N keys x R
+
+    R=1 -> 1239. Generated from the formula, not a hand-written constant.
+
+    It lives here, not in `pipeline/domain_audit.py`, because both of its
+    callers are tests: it is the ORACLE those tests check the runner
+    against, and an oracle that ships in the module under test can only
+    ever agree with it.
+    """
+    from yfin.datasets.domain.common import SECTOR_KEYS
+
+    sectors = len(SECTOR_KEYS)
+    return (
+        2
+        + 4 * sectors
+        + 3 * sectors * region_count
+        + 5 * industry_count
+        + 3 * industry_count * region_count
+    )

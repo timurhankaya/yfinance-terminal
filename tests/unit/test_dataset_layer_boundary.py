@@ -13,7 +13,7 @@ import ast
 import pathlib
 
 from yfin.storage.contracts import VariantState
-from yfin.storage.variants import NoVariantState, ScreenVariantState
+from yfin.storage.variants import ScreenVariantState
 
 DATASETS = pathlib.Path(__file__).resolve().parents[2] / "src" / "yfin" / "datasets"
 
@@ -80,14 +80,14 @@ def test_no_dataset_module_imports_the_write_machinery() -> None:
     assert not offenders, "write machinery imported in datasets/: " + ", ".join(offenders)
 
 
-def test_the_storage_implementations_satisfy_the_protocol() -> None:
+def test_the_storage_implementation_satisfies_the_protocol() -> None:
     """A structural protocol is only a contract if something is checked
-    against it; nothing else in the codebase would catch a rename."""
-    checked: list[VariantState] = [NoVariantState(), ScreenVariantState(None)]  # type: ignore[arg-type]
+    against it; nothing else in the codebase would catch a rename.
+
+    There used to be a second implementation here, `NoVariantState`, a null
+    object standing for "no database". It was never constructed outside
+    this test: `GlobalDataset.variants` takes `VariantState | None` and
+    already treats None as "nothing disabled", so the null object was a
+    second spelling of the same case."""
+    checked: list[VariantState] = [ScreenVariantState(None)]  # type: ignore[arg-type]
     assert all(hasattr(state, "disabled_variants") for state in checked)
-
-
-def test_no_variant_state_disables_nothing() -> None:
-    """Library use and tests have no database; the dataset must then see
-    the full screen set rather than an empty one."""
-    assert NoVariantState().disabled_variants() == frozenset()

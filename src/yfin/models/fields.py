@@ -309,10 +309,6 @@ HISTORY_METADATA_FIELDS: tuple[Field, ...] = (
     _f("regularMarketVolume", "regular_market_volume", "ubig"),
 )
 
-INFO_SOURCE_KEYS: frozenset[str] = frozenset(f.source for f in INFO_FIELDS)
-FAST_INFO_SOURCE_KEYS: frozenset[str] = frozenset(f.source for f in FAST_INFO_FIELDS)
-HISTORY_METADATA_SOURCE_KEYS: frozenset[str] = frozenset(f.source for f in HISTORY_METADATA_FIELDS)
-
 # Nested keys known to be left in raw_json, never promoted to a column.
 INFO_NESTED_KEYS: frozenset[str] = frozenset(
     {"companyOfficers", "corporateActions", "executiveTeam"}

@@ -29,10 +29,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
@@ -44,8 +44,6 @@ from yfin.storage.persistence import PostgresRowWriter
 from yfin.stream.protocol import is_extended_session
 
 log = get_logger(__name__)
-
-MINUTE = timedelta(minutes=1)
 
 
 @dataclass
@@ -276,17 +274,3 @@ def reconcile_gaps(
 ) -> ReconcileStats:
     return GapReconciler(session_factory).run(dry_run=dry_run, limit=limit)
 
-
-def known_timezone(name: str | None) -> bool:
-    """Whether a timezone name can actually be resolved.
-
-    `symbols.timezone` comes from Yahoo, so it is not guaranteed to be a
-    name the platform's tz database has.
-    """
-    if not name:
-        return False
-    try:
-        ZoneInfo(name)
-    except (ZoneInfoNotFoundError, ValueError):
-        return False
-    return True

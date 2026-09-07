@@ -56,7 +56,13 @@ def _scope_values() -> list[str]:
     return [s.value for s in ApiScope]
 
 
-def _propagate(client_id: str, epoch: int, *, disabled: bool | None = None) -> bool:
+def _propagate(
+    client_id: str,
+    epoch: int,
+    *,
+    disabled: bool | None = None,
+    revoked_secret_ids: tuple[int, ...] = (),
+) -> bool:
     """Publishes an authorisation change to Redis so live tokens stop.
 
     Returns False instead of raising: the database change is already
@@ -64,7 +70,13 @@ def _propagate(client_id: str, epoch: int, *, disabled: bool | None = None) -> b
     of the whole operation.
     """
     try:
-        publish_revocation(get_api_settings(), client_id, epoch=epoch, disabled=disabled)
+        publish_revocation(
+            get_api_settings(),
+            client_id,
+            epoch=epoch,
+            disabled=disabled,
+            revoked_secret_ids=revoked_secret_ids,
+        )
         return True
     except WrongRedis as exc:
         # Distinct from a connection failure: here a Redis answered, and
@@ -119,10 +131,13 @@ def client_list() -> None:
         for row in rows:
             scopes = ", ".join(repo.scopes_of(session, row.client_id)) or "-"
             state = "active" if row.is_active else "disabled"
-            live = len(repo.live_secrets(session, row.client_id))
+            # Ids, not a count: `client revoke` takes one, and a count
+            # tells an operator that there is something to revoke without
+            # telling them what to type.
+            live = ",".join(str(s.id) for s in repo.live_secrets(session, row.client_id))
             typer.echo(
                 f"{row.client_id}  {row.plan:<6} {state:<8} "
-                f"secrets={live} epoch={row.auth_epoch}  {row.name}  [{scopes}]"
+                f"secrets=[{live}] epoch={row.auth_epoch}  {row.name}  [{scopes}]"
             )
         if not rows:
             typer.echo("no clients registered")
@@ -157,6 +172,117 @@ def client_rotate(
             err=True,
         )
         raise typer.Exit(EXIT_NOT_PROPAGATED)
+
+
+@client_app.command("revoke")
+def client_revoke(
+    client_id: Annotated[str, typer.Argument(help="Client id the secret belongs to")],
+    secret_id: Annotated[int, typer.Argument(help="Secret id, from `client list`")],
+) -> None:
+    """Kills ONE secret now, leaving the client and its other secret alive.
+
+    The gap this fills: `rotate` refuses a third live secret and says
+    "revoke the old one first", and this module's own documentation
+    described a `revoke` command -- but there was none, so the only way to
+    cut off a leaked secret was to disable the whole client, which stops
+    the traffic that is still legitimate.
+    """
+    factory = _session_factory()
+    with factory() as session:
+        try:
+            repo.revoke_secret(session, client_id, secret_id)
+        except repo.UnknownClient:
+            typer.echo(f"unknown client or secret: {client_id}/{secret_id}", err=True)
+            raise typer.Exit(EXIT_REJECTED) from None
+        epoch = repo.epoch_of(session, client_id)
+        session.commit()
+
+    typer.echo(f"{client_id} secret {secret_id} revoked")
+    # The secret id is published as well as the epoch: the epoch alone
+    # stops every token this client holds, which is more than was asked
+    # for. The per-secret key is what lets the other secret's tokens live.
+    if not _propagate(client_id, epoch, revoked_secret_ids=(secret_id,)):
+        typer.echo(
+            "WARNING: the secret is revoked in the database but this was not "
+            "propagated to Redis; tokens minted with it may stay valid for up "
+            "to one token lifetime.",
+            err=True,
+        )
+        raise typer.Exit(EXIT_NOT_PROPAGATED)
+
+
+@client_app.command("set-scopes")
+def client_set_scopes(
+    client_id: Annotated[str, typer.Argument(help="Client id to change")],
+    scopes: Annotated[
+        list[str],
+        typer.Argument(help=f"The complete new scope list. One of: {', '.join(_scope_values())}"),
+    ],
+) -> None:
+    """REPLACES the client's scopes; it does not add to them.
+
+    Replacement rather than add/remove because narrowing is the case that
+    matters, and an operator who has to think in deltas will eventually
+    leave a scope behind.
+    """
+    unknown = sorted(set(scopes) - set(_scope_values()))
+    if unknown:
+        typer.echo(f"unknown scope: {', '.join(unknown)}", err=True)
+        raise typer.Exit(EXIT_REJECTED)
+
+    factory = _session_factory()
+    with factory() as session:
+        try:
+            repo.set_scopes(session, client_id, scopes)
+        except repo.UnknownClient:
+            typer.echo(f"unknown client: {client_id}", err=True)
+            raise typer.Exit(EXIT_REJECTED) from None
+        epoch = repo.epoch_of(session, client_id)
+        session.commit()
+
+    typer.echo(f"{client_id} scopes: {', '.join(scopes)}")
+    _warn_if_not_propagated(client_id, epoch, "the new scopes")
+
+
+@client_app.command("set-plan")
+def client_set_plan(
+    client_id: Annotated[str, typer.Argument(help="Client id to change")],
+    plan: Annotated[str, typer.Argument(help="Plan name, from the api_plans table")],
+) -> None:
+    """Moves the client to another plan: rate, quota, page size, concurrency."""
+    factory = _session_factory()
+    with factory() as session:
+        try:
+            repo.set_plan(session, client_id, plan)
+        except repo.UnknownPlan:
+            typer.echo(f"unknown plan: {plan}", err=True)
+            raise typer.Exit(EXIT_REJECTED) from None
+        except repo.UnknownClient:
+            typer.echo(f"unknown client: {client_id}", err=True)
+            raise typer.Exit(EXIT_REJECTED) from None
+        epoch = repo.epoch_of(session, client_id)
+        session.commit()
+
+    typer.echo(f"{client_id} plan: {plan}")
+    _warn_if_not_propagated(client_id, epoch, "the new plan")
+
+
+def _warn_if_not_propagated(client_id: str, epoch: int, what: str) -> None:
+    """Both changes have to bite before the current token expires.
+
+    A widened scope is harmless if it lags; a NARROWED one is not, and
+    neither is a downgraded plan -- the client would keep the old limits
+    for the life of an already-issued token. So this exits non-zero for
+    the same reason `disable` does.
+    """
+    if _propagate(client_id, epoch):
+        return
+    typer.echo(
+        f"WARNING: {what} are committed but were not propagated to Redis; "
+        "existing tokens may keep the old ones for up to one token lifetime.",
+        err=True,
+    )
+    raise typer.Exit(EXIT_NOT_PROPAGATED)
 
 
 @client_app.command("disable")

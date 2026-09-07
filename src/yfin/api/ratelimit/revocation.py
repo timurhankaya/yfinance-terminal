@@ -83,11 +83,6 @@ def assert_api_redis(settings: ApiSettings) -> None:
         )
 
 
-def last_claimed(settings: ApiSettings) -> str | None:
-    """When an API last claimed this Redis, for an operator to sanity-check."""
-    value = get_redis(settings).get(MARKER_KEY)
-    return str(value) if value is not None else None
-
 
 def publish_revocation(
     settings: ApiSettings,

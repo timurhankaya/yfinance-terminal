@@ -76,20 +76,10 @@ class TestEpochMap:
     def test_all_21_fields_mapped(self) -> None:
         assert len(nz.EPOCH_SEC_FIELDS) + len(nz.EPOCH_MS_FIELDS) == 21
 
-    def test_milliseconds_field(self) -> None:
-        assert nz.convert_epoch_field("firstTradeDateMilliseconds", 345479400000) == datetime(
-            1980, 12, 12, 14, 30, tzinfo=UTC
-        )
-
-    def test_seconds_field(self) -> None:
-        assert nz.convert_epoch_field("regularMarketTime", 345479400) == datetime(
-            1980, 12, 12, 14, 30, tzinfo=UTC
-        )
-
-    @pytest.mark.parametrize("key", ["fullTimeEmployees", "allTimeHigh", "isEarningsDateEstimate"])
-    def test_not_epoch_fields_rejected(self, key: str) -> None:
-        with pytest.raises(KeyError):
-            nz.convert_epoch_field(key, 1)
+    def test_the_two_units_do_not_overlap(self) -> None:
+        """A field in both sets would be converted by whichever branch ran
+        first, and be wrong by a factor of a thousand in one of them."""
+        assert not (nz.EPOCH_SEC_FIELDS & nz.EPOCH_MS_FIELDS)
 
     def test_unmapped_epoch_like_is_reported(self) -> None:
         mapped = nz.EPOCH_SEC_FIELDS | nz.EPOCH_MS_FIELDS

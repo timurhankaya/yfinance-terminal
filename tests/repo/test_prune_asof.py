@@ -20,7 +20,12 @@ from sqlalchemy.orm import Session
 
 from yfin.datasets import SYMBOL_DATASETS
 from yfin.datasets.payloads import AsOfFramePayload
-from yfin.pipeline.prune import PruneDisabledError, asof_tables, prune_asof, run_prune
+from yfin.pipeline.prune import (
+    PruneDisabledError,
+    asof_table_datasets,
+    prune_asof,
+    run_prune,
+)
 from yfin.storage.persistence import PostgresRowWriter
 
 pytestmark = pytest.mark.repo
@@ -76,7 +81,7 @@ def _days(session: Session, symbol: str) -> list[date]:
 def test_asof_tables_are_derived_from_dataset_base_not_column_name() -> None:
     """`shares_full` also carries `as_of_date` in its PK but is not as-of:
     it is the source's own date and gets re-fetched via a watermark."""
-    tables = asof_tables()
+    tables = asof_table_datasets()
     assert "shares_full" not in tables
     assert TABLE in tables
     assert "fund_top_holdings" in tables
@@ -85,7 +90,7 @@ def test_asof_tables_are_derived_from_dataset_base_not_column_name() -> None:
 def test_gate_table_is_never_pruned() -> None:
     """If the gate row were deleted, `first_seen_at` would be lost and the
     whole history rewritten on the next run."""
-    assert "asof_state" not in asof_tables()
+    assert "asof_state" not in asof_table_datasets()
 
 
 def test_asof_table_count_matches_the_fourteen_as_of_tables() -> None:
@@ -96,7 +101,7 @@ def test_asof_table_count_matches_the_fourteen_as_of_tables() -> None:
     jump from 14 to 24, and `prune_asof(asof_state)` would try to prune
     discovery tables using the wrong gate.
     """
-    assert len(asof_tables()) == 14
+    assert len(asof_table_datasets()) == 14
 
 
 # --- pruning -------------------------------------------------------------

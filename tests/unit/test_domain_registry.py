@@ -76,6 +76,6 @@ def test_table_counts_match_the_audit_formula() -> None:
 
 
 def test_expected_cell_count_matches_the_spec_for_one_region() -> None:
-    from yfin.pipeline.domain_audit import expected_cell_count
+    from helpers import expected_domain_cell_count as expected_cell_count
 
     assert expected_cell_count(1) == 1239

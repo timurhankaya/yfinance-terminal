@@ -115,25 +115,3 @@ def audit_domains(
             report.problems.append(f"run #{run_id}: {report.failed_cells} basarisiz hucre")
 
     return report
-
-
-def expected_cell_count(region_count: int, industry_count: int = 145) -> int:
-    """Expected `sync_run_items` cell count.
-
-    domain_taxonomy   : 2 tables x 1 kind
-    sector_profile    : 4 tables x 11 keys x 1 region
-    sector_rankings   : 3 tables x 11 keys x R
-    industry_profile  : 5 tables x N keys x 1 region
-    industry_rankings : 3 tables x N keys x R
-
-    R=1 -> 1239. The expected value is generated from this formula, not
-    a hand-written constant.
-    """
-    sectors = len(SECTOR_KEYS)
-    return (
-        2
-        + 4 * sectors
-        + 3 * sectors * region_count
-        + 5 * industry_count
-        + 3 * industry_count * region_count
-    )

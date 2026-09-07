@@ -21,11 +21,3 @@ class ScreenVariantState:
     def disabled_variants(self) -> frozenset[str]:
         stmt = select(Screen.screen_key).where(Screen.is_enabled.is_(False))
         return frozenset(self._session.execute(stmt).scalars())
-
-
-class NoVariantState:
-    """Nothing is disabled. Used for library use and in tests, where there
-    is no database to consult."""
-
-    def disabled_variants(self) -> frozenset[str]:
-        return frozenset()

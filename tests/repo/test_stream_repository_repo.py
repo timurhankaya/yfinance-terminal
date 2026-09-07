@@ -119,11 +119,15 @@ def test_scope_is_ordered(repository: StreamRepository, seeded: Session) -> None
     assert symbols == sorted(symbols)
 
 
-def test_archived_symbols_respects_the_archive_flag(
+def test_the_archive_flag_is_carried_per_symbol(
     repository: StreamRepository, seeded: Session
 ) -> None:
-    """archive=false means quoted but not kept."""
-    archived = repository.archived_symbols()
+    """archive=false means quoted but not kept.
+
+    Read off `load_scope`, which is what the writer actually consults per
+    tick. The set-level `archived_symbols()` accessor this used to call had
+    no other caller."""
+    archived = {entry.symbol for entry in repository.load_scope() if entry.archive}
     assert "AAPL" in archived
     assert "MSFT" not in archived
 

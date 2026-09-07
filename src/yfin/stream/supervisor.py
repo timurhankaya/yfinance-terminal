@@ -27,7 +27,6 @@ import queue
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
 
 from yfin.core.logging_setup import get_logger
@@ -366,6 +365,3 @@ class StreamSupervisor:
         """
         return self._config.rescan_seconds * 2
 
-
-def now_utc() -> datetime:
-    return datetime.now(UTC)

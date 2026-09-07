@@ -41,9 +41,6 @@ log = get_logger(__name__)
 # Skip reason when --start/--end is given and a dataset has date_range="none".
 SKIP_DATE_RANGE = "date_range=none"
 
-# Skip reason for a cell outside intraday_scope.
-SKIP_OUT_OF_SCOPE = "outside intraday_scope"
-
 
 def _rows_of(result: NormalizedResult) -> int:
     return sum(len(w.rows) for w in result.writes)

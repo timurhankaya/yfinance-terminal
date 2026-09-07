@@ -37,7 +37,7 @@ from typing import Any, Final, Protocol
 
 from yfin.core.logging_setup import get_logger
 from yfin.stream.protocol import decode_envelope, validate_subscription
-from yfin.stream.rejects import DecodeResult, Reject
+from yfin.stream.rejects import DecodeResult
 from yfin.stream.topology import ConnectionPlan
 
 log = get_logger(__name__)
@@ -345,8 +345,3 @@ async def _default_connector(url: str) -> WebSocketLike:
         max_size=None,
     )
 
-
-def reject_for_subscription(symbols: Sequence[str]) -> list[Reject]:
-    """Convenience for callers that want to inspect a list before sending."""
-    _, rejects = validate_subscription(list(symbols))
-    return rejects

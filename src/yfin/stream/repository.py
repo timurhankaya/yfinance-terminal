@@ -74,16 +74,6 @@ class StreamRepository:
             ).all()
         return [ScopeEntry(symbol=r[0], exchange=r[1], archive=r[2]) for r in rows]
 
-    def archived_symbols(self) -> set[str]:
-        """Symbols whose ticks are kept, as opposed to only quoted.
-
-        `archive = false` keeps a symbol on the wire and in live_quotes
-        but out of live_ticks. That is the volume dial: the archive runs
-        to ~500-600 GB/year at 500 symbols, and some symbols are wanted
-        live without their history being wanted at all.
-        """
-        return {entry.symbol for entry in self.load_scope() if entry.archive}
-
     def count_symbols_missing_exchange(self) -> int:
         """Scoped symbols whose exchange is still NULL.
 

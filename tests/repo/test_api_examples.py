@@ -40,7 +40,7 @@ from yfin.api.auth import dependencies as auth_deps
 from yfin.api.auth import jwt as tokens
 from yfin.api.core.config import ApiSettings
 from yfin.api.core.openapi import REQUIRED_EXAMPLES, example_path
-from yfin.api.ratelimit import concurrency, limiter, policy, usage
+from yfin.api.ratelimit import concurrency, limiter, policy, token_endpoint, usage
 from yfin.api.ratelimit.policy import PlanLimits
 from yfin.api.storage import session as api_session
 from yfin.models import PriceHistory, Symbol
@@ -225,7 +225,16 @@ def _make_client(
 ) -> Iterator[TestClient]:
     factory = sessionmaker(bind=test_engine, expire_on_commit=False, future=True)
     monkeypatch.setattr(api_session, "get_session_factory", lambda: factory)
-    for module in (limiter, concurrency, usage, auth_deps):
+    # `token_endpoint` belongs in this list and was missing from it. It is
+    # the one limiter that is fail-closed, so it does not degrade quietly:
+    # it kept writing `tok:fail:*` to the REAL Redis at YFAPI_REDIS_URL
+    # while everything else here used fakeredis. The example capture that
+    # deliberately provokes a 401 increments that counter, the counter has
+    # a ten-minute TTL, and after ten runs the endpoint answered 429
+    # slow_down instead of the 401 the example is FOR -- a suite that
+    # cannot be run ten times in ten minutes, failing in a way that points
+    # nowhere near the cause.
+    for module in (limiter, concurrency, usage, auth_deps, token_endpoint):
         monkeypatch.setattr(module, "get_redis", lambda _s: redis)
     monkeypatch.setattr(policy, "limits_for_client", lambda _cid: limits)
 
