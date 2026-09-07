@@ -99,6 +99,15 @@ METERED = frozenset(
 #: Operations under `/v1`, which set cache headers on success.
 CACHED = frozenset(METERED | {"listDatasets"})
 
+#: Operations that answer `If-None-Match` with a 304. Exactly the handlers
+#: that go through `market._respond`; an explicit set because the document
+#: builder cannot see a call graph. The dataset routes are absent on
+#: purpose -- they emit no validator, so there is nothing to revalidate
+#: against, and adding one is a change to that surface, not to this one.
+CONDITIONAL = frozenset(
+    {"listSymbols", "getSymbol", "listBars", "listActions", "listFinancials"}
+)
+
 #: The one operation whose errors are RFC 6749, not RFC 9457.
 TOKEN_OPERATION = "issueToken"
 
@@ -132,6 +141,7 @@ BARS_VARIANT = (
 )
 
 STATUS_TITLES = {
+    304: "The representation has not changed since the ETag you sent",
     400: "The request is malformed",
     401: "Authentication failed or the token is not usable",
     403: "The token does not carry the required scope",
@@ -178,6 +188,24 @@ RATE_HEADERS = {
     "X-Quota-Limit": _header("Requests allowed this month by the plan.", _COUNT),
     "X-Quota-Remaining": _header("Requests left this month.", _COUNT),
     "X-Quota-Reset": _header("Seconds until the monthly quota resets.", _COUNT),
+}
+
+#: Only where a validator is actually emitted. `X-Data-As-Of` is absent
+#: wherever the schema records no fetch time -- the price tables
+#: deliberately keep none, since a per-row timestamp would cost gigabytes
+#: to answer a question the bar's own ts_utc already covers.
+VALIDATOR_HEADERS = {
+    "ETag": _header(
+        "Weak validator, `W/\"...\"`. Derived from the response body, so it "
+        "changes when the data does. Send it back as `If-None-Match`.",
+        _TEXT,
+    ),
+    "X-Data-As-Of": _header(
+        "When this data was last verified against the source. Absent where the "
+        "schema keeps no fetch timestamp.",
+        {"type": "string", "format": "date-time"},
+        required=False,
+    ),
 }
 
 CACHE_HEADERS = {
@@ -239,10 +267,14 @@ def _headers_for(operation_id: str, status: int) -> dict[str, Any]:
             headers.update(RETRY_HEADER)
         return headers
 
-    if operation_id in METERED and status in (200, 429):
+    if operation_id in METERED and status in (200, 304, 429):
         headers.update(RATE_HEADERS)
-    if operation_id in CACHED and status == 200:
+    if operation_id in CACHED and status in (200, 304):
         headers.update(CACHE_HEADERS)
+    if operation_id in CONDITIONAL and status in (200, 304):
+        # RFC 9110 §15.4.5: a 304 carries the headers whose value would
+        # differ from the 200's, the validator above all.
+        headers.update(VALIDATOR_HEADERS)
     if status == 429:
         headers.update(RETRY_HEADER)
     if status in _WWW_AUTHENTICATE:
@@ -421,6 +453,11 @@ def finalise(document: dict[str, Any]) -> dict[str, Any]:
 
 def _apply(operation: dict[str, Any], operation_id: str) -> None:
     responses = operation.setdefault("responses", {})
+
+    if operation_id in CONDITIONAL:
+        # No `content`: RFC 9110 forbids a body here, and a response object
+        # with only a description is the legal way to say so.
+        responses["304"] = {"description": STATUS_TITLES[304]}
 
     for status in ERROR_STATUSES[operation_id]:
         key = str(status)

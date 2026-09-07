@@ -458,3 +458,82 @@ def test_paging_works_WITHOUT_an_explicit_range(client: TestClient) -> None:
         row["ts_utc"] for row in second.json()["data"]
     }
     assert seen == set(), "pages must not overlap"
+
+
+# --- conditional requests ---------------------------------------------------
+
+
+def test_a_matching_etag_answers_304_with_no_body(client: TestClient) -> None:
+    first = _get(client, "/v1/symbols")
+    assert first.status_code == 200
+    etag = first.headers["ETag"]
+
+    again = client.get("/v1/symbols", headers={**_auth(), "If-None-Match": etag})
+    assert again.status_code == 304
+    assert again.content == b""
+
+
+def test_a_304_carries_what_rfc_9110_requires(client: TestClient) -> None:
+    """§15.4.5: the headers whose value would differ from the 200's. The
+    rate headers ride along too -- a conditional request still costs a
+    request, so a client must be able to see its budget shrink."""
+    etag = _get(client, "/v1/symbols").headers["ETag"]
+    response = client.get("/v1/symbols", headers={**_auth(), "If-None-Match": etag})
+
+    assert response.headers["ETag"] == etag
+    assert response.headers["Cache-Control"].startswith("private")
+    assert "Authorization" in response.headers["Vary"]
+    assert "RateLimit-Remaining" in response.headers
+    assert "X-Quota-Remaining" in response.headers
+
+
+def test_a_conditional_request_still_costs_a_request(client: TestClient) -> None:
+    """The prior design settled this: a 304 saves bandwidth and a query,
+    not a counter. Exempting it would have been a silent reversal."""
+    etag = _get(client, "/v1/symbols").headers["ETag"]
+    before = int(_get(client, "/v1/symbols").headers["X-Quota-Remaining"])
+    response = client.get("/v1/symbols", headers={**_auth(), "If-None-Match": etag})
+
+    assert response.status_code == 304
+    after = int(_get(client, "/v1/symbols").headers["X-Quota-Remaining"])
+    assert after < before
+
+
+def test_the_etag_changes_when_the_DATA_changes(
+    client: TestClient, seeded: Session
+) -> None:
+    """The validator is derived from the response body, and this is why.
+
+    It used to be a hash of the request identity alone, which made it a
+    pure function of the query: it never moved when the data did. Nothing
+    revalidated, so nothing noticed -- but honouring If-None-Match against
+    such a validator pins a client to one page forever.
+    """
+    etag = _get(client, "/v1/symbols").headers["ETag"]
+
+    seeded.execute(
+        insert(Symbol),
+        [{"symbol": "TESTNEW", "is_active": True, "exchange": "NMS"}],
+    )
+    seeded.commit()
+
+    after = _get(client, "/v1/symbols")
+    assert after.status_code == 200
+    assert after.headers["ETag"] != etag
+
+
+def test_a_stale_etag_gets_the_body(client: TestClient) -> None:
+    response = client.get(
+        "/v1/symbols", headers={**_auth(), "If-None-Match": 'W/"nonsense"'}
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]
+
+
+def test_an_unsupported_interval_is_refused_by_the_published_enum(
+    client: TestClient,
+) -> None:
+    """The check used to be hand-rolled in the handler while the contract
+    said `interval` was any string. It is the annotation now, so the
+    document lists the values a caller may send."""
+    assert _get(client, f"/v1/symbols/{SYMBOL}/bars", interval="3h").status_code == 422

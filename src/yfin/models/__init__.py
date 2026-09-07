@@ -29,6 +29,7 @@ from yfin.models.bars import (
     IntradayScope,
     PeriodicBar,
     PriceBar,
+    ReadableInterval,
     bars_table_for,
     timescale_ddl,
 )
@@ -270,6 +271,7 @@ __all__ = [
     "market_summary_history",
     "DAILY_INTERVAL",
     "READABLE_INTERVALS",
+    "ReadableInterval",
     "bars_table_for",
     "timescale_ddl",
     "LiveQuote",

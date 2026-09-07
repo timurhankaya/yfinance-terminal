@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -68,6 +69,13 @@ DAILY_INTERVAL = "1d"
 
 #: Every interval this project can resolve to storage.
 READABLE_INTERVALS: tuple[str, ...] = (*INTRADAY_INTERVALS, DAILY_INTERVAL, *PERIODIC_INTERVALS)
+
+#: The same set as a type, so an API parameter can be annotated with it and
+#: the published contract lists the values instead of saying "string".
+#: Spelled out because `Literal[*READABLE_INTERVALS]` runs but does not type
+#: check -- a Literal's arguments have to be visible statically. A test
+#: asserts the two stay equal, which is what makes the duplication safe.
+ReadableInterval = Literal["1m", "5m", "15m", "60m", "1d", "1wk", "1mo"]
 
 
 def bars_table_for(interval: str) -> str:

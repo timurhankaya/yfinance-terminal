@@ -1,7 +1,7 @@
 """Live WebSocket stream: tick archive, last-value table and its audit.
 
-Eight tables. Design:
-docs/superpowers/specs/2026-09-06-websocket-streaming-design.md
+Eight tables. Measurements behind the shape:
+docs/measurements/websocket.md
 
 The column set of `live_ticks` and `live_quotes` is the 33-field mapping
 in `stream/protocol.py`. The two are checked against each other by

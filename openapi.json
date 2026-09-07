@@ -2544,6 +2544,12 @@
                   "type": "string"
                 }
               },
+              "ETag": {
+                "description": "Weak validator, `W/\"...\"`. Derived from the response body, so it changes when the data does. Send it back as `If-None-Match`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "RateLimit-Limit": {
                 "description": "Requests allowed per second by the plan.",
                 "schema": {
@@ -2586,6 +2592,111 @@
               "X-Content-Type-Options": {
                 "description": "Always `nosniff`.",
                 "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Data-As-Of": {
+                "description": "When this data was last verified against the source. Absent where the schema keeps no fetch timestamp.",
+                "required": false,
+                "schema": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "The representation has not changed since the ETag you sent",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `private`: responses vary by scope and by the plan's page size, so a shared cache must not hold one and serve it to another client.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Weak validator, `W/\"...\"`. Derived from the response body, so it changes when the data does. Send it back as `If-None-Match`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Always includes `Authorization`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Data-As-Of": {
+                "description": "When this data was last verified against the source. Absent where the schema keeps no fetch timestamp.",
+                "required": false,
+                "schema": {
+                  "format": "date-time",
                   "type": "string"
                 }
               },
@@ -2943,6 +3054,12 @@
                   "type": "string"
                 }
               },
+              "ETag": {
+                "description": "Weak validator, `W/\"...\"`. Derived from the response body, so it changes when the data does. Send it back as `If-None-Match`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "RateLimit-Limit": {
                 "description": "Requests allowed per second by the plan.",
                 "schema": {
@@ -2985,6 +3102,111 @@
               "X-Content-Type-Options": {
                 "description": "Always `nosniff`.",
                 "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Data-As-Of": {
+                "description": "When this data was last verified against the source. Absent where the schema keeps no fetch timestamp.",
+                "required": false,
+                "schema": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "The representation has not changed since the ETag you sent",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `private`: responses vary by scope and by the plan's page size, so a shared cache must not hold one and serve it to another client.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Weak validator, `W/\"...\"`. Derived from the response body, so it changes when the data does. Send it back as `If-None-Match`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Always includes `Authorization`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Data-As-Of": {
+                "description": "When this data was last verified against the source. Absent where the schema keeps no fetch timestamp.",
+                "required": false,
+                "schema": {
+                  "format": "date-time",
                   "type": "string"
                 }
               },
@@ -3445,6 +3667,12 @@
                   "type": "string"
                 }
               },
+              "ETag": {
+                "description": "Weak validator, `W/\"...\"`. Derived from the response body, so it changes when the data does. Send it back as `If-None-Match`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "RateLimit-Limit": {
                 "description": "Requests allowed per second by the plan.",
                 "schema": {
@@ -3487,6 +3715,111 @@
               "X-Content-Type-Options": {
                 "description": "Always `nosniff`.",
                 "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Data-As-Of": {
+                "description": "When this data was last verified against the source. Absent where the schema keeps no fetch timestamp.",
+                "required": false,
+                "schema": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "The representation has not changed since the ETag you sent",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `private`: responses vary by scope and by the plan's page size, so a shared cache must not hold one and serve it to another client.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Weak validator, `W/\"...\"`. Derived from the response body, so it changes when the data does. Send it back as `If-None-Match`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Always includes `Authorization`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Data-As-Of": {
+                "description": "When this data was last verified against the source. Absent where the schema keeps no fetch timestamp.",
+                "required": false,
+                "schema": {
+                  "format": "date-time",
                   "type": "string"
                 }
               },
@@ -3863,11 +4196,22 @@
             }
           },
           {
+            "description": "Bar size. Intraday intervals are routed to the intraday tables, `1d` to the daily one and `1wk`/`1mo` to the periodic one; each carries its own cap on how wide a range may be asked for.",
             "in": "query",
             "name": "interval",
             "required": false,
             "schema": {
               "default": "1d",
+              "description": "Bar size. Intraday intervals are routed to the intraday tables, `1d` to the daily one and `1wk`/`1mo` to the periodic one; each carries its own cap on how wide a range may be asked for.",
+              "enum": [
+                "1m",
+                "5m",
+                "15m",
+                "60m",
+                "1d",
+                "1wk",
+                "1mo"
+              ],
               "title": "Interval",
               "type": "string"
             }
@@ -3977,6 +4321,12 @@
                   "type": "string"
                 }
               },
+              "ETag": {
+                "description": "Weak validator, `W/\"...\"`. Derived from the response body, so it changes when the data does. Send it back as `If-None-Match`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "RateLimit-Limit": {
                 "description": "Requests allowed per second by the plan.",
                 "schema": {
@@ -4019,6 +4369,111 @@
               "X-Content-Type-Options": {
                 "description": "Always `nosniff`.",
                 "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Data-As-Of": {
+                "description": "When this data was last verified against the source. Absent where the schema keeps no fetch timestamp.",
+                "required": false,
+                "schema": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "The representation has not changed since the ETag you sent",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `private`: responses vary by scope and by the plan's page size, so a shared cache must not hold one and serve it to another client.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Weak validator, `W/\"...\"`. Derived from the response body, so it changes when the data does. Send it back as `If-None-Match`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Always includes `Authorization`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Data-As-Of": {
+                "description": "When this data was last verified against the source. Absent where the schema keeps no fetch timestamp.",
+                "required": false,
+                "schema": {
+                  "format": "date-time",
                   "type": "string"
                 }
               },
@@ -4463,6 +4918,12 @@
                   "type": "string"
                 }
               },
+              "ETag": {
+                "description": "Weak validator, `W/\"...\"`. Derived from the response body, so it changes when the data does. Send it back as `If-None-Match`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "RateLimit-Limit": {
                 "description": "Requests allowed per second by the plan.",
                 "schema": {
@@ -4505,6 +4966,111 @@
               "X-Content-Type-Options": {
                 "description": "Always `nosniff`.",
                 "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Data-As-Of": {
+                "description": "When this data was last verified against the source. Absent where the schema keeps no fetch timestamp.",
+                "required": false,
+                "schema": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-Id": {
+                "description": "Identifies this request in the server's logs. Quote it in a support request.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "The representation has not changed since the ETag you sent",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `private`: responses vary by scope and by the plan's page size, so a shared cache must not hold one and serve it to another client.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Weak validator, `W/\"...\"`. Derived from the response body, so it changes when the data does. Send it back as `If-None-Match`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Always `no-referrer`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Fixed policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Always includes `Authorization`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Data-As-Of": {
+                "description": "When this data was last verified against the source. Absent where the schema keeps no fetch timestamp.",
+                "required": false,
+                "schema": {
+                  "format": "date-time",
                   "type": "string"
                 }
               },

@@ -288,13 +288,16 @@ def test_the_route_and_the_document_agree_on_the_id() -> None:
 def test_every_operation_publishes_the_statuses_it_can_answer(
     document: dict[str, Any],
 ) -> None:
-    from yfin.api.core.openapi import ERROR_STATUSES
+    from yfin.api.core.openapi import CONDITIONAL, ERROR_STATUSES
 
     for operations in document["paths"].values():
         for operation in operations.values():
+            operation_id = operation["operationId"]
             published = {int(code) for code in operation["responses"]}
-            expected = {200, *ERROR_STATUSES[operation["operationId"]]}
-            assert published == expected, operation["operationId"]
+            expected = {200, *ERROR_STATUSES[operation_id]}
+            if operation_id in CONDITIONAL:
+                expected.add(304)
+            assert published == expected, operation_id
 
 
 def test_the_validation_error_schemas_are_GONE(document: dict[str, Any]) -> None:
@@ -419,7 +422,7 @@ def test_the_rate_headers_are_published_where_they_are_actually_set(
             metered = operation["operationId"] in METERED
             for code, response in operation["responses"].items():
                 has_rate = "RateLimit-Limit" in response.get("headers", {})
-                assert has_rate == (metered and code in {"200", "429"}), (
+                assert has_rate == (metered and code in {"200", "304", "429"}), (
                     operation["operationId"],
                     code,
                 )
@@ -499,3 +502,43 @@ def test_the_token_endpoint_answers_a_missing_field_in_the_OAUTH_shape() -> None
     body = response.json()
     assert body["error"] == "invalid_request"
     assert "error_description" in body
+
+
+def test_the_interval_type_matches_what_storage_can_resolve() -> None:
+    """`ReadableInterval` is spelled out because a Literal's arguments have
+    to be visible statically, so it is a second copy of the tuple. This is
+    what keeps the copy honest."""
+    import typing
+
+    from yfin.models import READABLE_INTERVALS, ReadableInterval
+
+    assert typing.get_args(ReadableInterval) == READABLE_INTERVALS
+
+
+def test_the_bars_interval_is_published_as_a_choice(document: dict[str, Any]) -> None:
+    """It was an unconstrained string, so a caller learned the list by
+    guessing at it."""
+    from yfin.models import READABLE_INTERVALS
+
+    parameters = document["paths"]["/v1/symbols/{symbol}/bars"]["get"]["parameters"]
+    interval = next(p for p in parameters if p["name"] == "interval")
+    assert tuple(interval["schema"]["enum"]) == READABLE_INTERVALS
+    assert interval["description"]
+
+
+def test_a_conditional_response_carries_what_rfc_9110_requires(
+    document: dict[str, Any],
+) -> None:
+    """§15.4.5: no content, and the headers whose value would differ from
+    the 200's -- the validator above all."""
+    from yfin.api.core.openapi import CONDITIONAL
+
+    for operations in document["paths"].values():
+        for operation in operations.values():
+            if operation["operationId"] not in CONDITIONAL:
+                assert "304" not in operation["responses"]
+                continue
+            not_modified = operation["responses"]["304"]
+            assert "content" not in not_modified
+            headers = not_modified["headers"]
+            assert {"ETag", "Cache-Control", "Vary"} <= set(headers)

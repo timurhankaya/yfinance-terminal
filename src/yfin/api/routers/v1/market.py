@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from yfin.api.auth.dependencies import Principal
@@ -39,7 +40,7 @@ from yfin.api.storage import cursor as cursors
 from yfin.api.storage import limits, reads
 from yfin.api.storage.session import session_scope
 from yfin.core.families import DataFamily
-from yfin.models import READABLE_INTERVALS
+from yfin.models import ReadableInterval
 
 router = APIRouter(prefix="/v1", tags=["market"])
 
@@ -52,31 +53,61 @@ CACHE_SETTLED_SECONDS = 86_400
 CACHE_LIVE_SECONDS = 60
 
 
-def _finish(
+def _matches(header: str | None, etag: str) -> bool:
+    """RFC 9110 §13.1.2: a comma-separated list, or `*`, compared weakly."""
+    if not header:
+        return False
+    if header.strip() == "*":
+        return True
+    wanted = etag.removeprefix("W/")
+    return any(tag.strip().removeprefix("W/") == wanted for tag in header.split(","))
+
+
+def _respond[T: BaseModel](
+    request: Request,
     response: Response,
     *,
-    request: Request,
+    payload: T,
     as_of: datetime | None,
     settled: bool,
     payload_key: str,
-) -> None:
-    """Cache headers and the freshness stamp.
+) -> T | Response:
+    """Cache headers, the freshness stamp, and the conditional answer.
 
-    `private` always: these responses vary by scope and by the plan's page
-    size, so a shared cache holding one and serving it to another client
-    would be a data leak, not just a stale answer. `Vary: Authorization`
-    says the same thing to caches that only read headers.
+    The validator is derived from the serialised BODY, not from the
+    request alone. An earlier version hashed the request identity and the
+    freshness stamp only, which made the ETag a pure function of the
+    query -- it never changed when the data did. That is survivable while
+    nothing revalidates; the moment `If-None-Match` is honoured it becomes
+    a client pinned to one page forever. Hashing the body costs one pass
+    over a page already built and makes the header mean what HTTP says.
+
+    `Cache-Control: private` always: these responses vary by scope and by
+    the plan's page size, so a shared cache holding one and serving it to
+    another client would be a data leak, not just a stale answer.
+    `Vary: Authorization` says the same to caches that only read headers.
     """
+    stamp = as_of.isoformat() if as_of else "-"
+    digest = hashlib.sha256(
+        f"{payload_key}|{stamp}|{payload.model_dump_json()}".encode()
+    ).hexdigest()[:32]
+    etag = f'W/"{digest}"'
+
     max_age = CACHE_SETTLED_SECONDS if settled else CACHE_LIVE_SECONDS
     response.headers["Cache-Control"] = f"private, max-age={max_age}"
     response.headers["Vary"] = "Authorization, Accept-Encoding"
-    # Derived from the full request identity plus freshness, so two
-    # different pages of the same query never share an ETag.
-    stamp = as_of.isoformat() if as_of else "-"
-    digest = hashlib.sha256(f"{payload_key}|{stamp}".encode()).hexdigest()[:32]
-    response.headers["ETag"] = f'W/"{digest}"'
+    response.headers["ETag"] = etag
     if as_of is not None:
         response.headers["X-Data-As-Of"] = as_of.isoformat()
+
+    if not _matches(request.headers.get("if-none-match"), etag):
+        return payload
+
+    # RFC 9110 §15.4.5: no content, and the headers whose value would
+    # differ from the 200's. The rate headers ride along because the
+    # request was metered exactly like any other -- a conditional request
+    # still costs a request, and the saving is bandwidth.
+    return Response(status_code=304, headers=dict(response.headers))
 
 
 def _normalise_symbol(symbol: str) -> str:
@@ -108,7 +139,7 @@ def list_symbols(
     active: bool = True,
     limit: Annotated[int | None, Query(ge=1)] = None,
     cursor: str | None = None,
-) -> Collection[SymbolSummary]:
+) -> Collection[SymbolSummary] | Response:
     """Symbols in the universe.
 
     `active` defaults to true: an inactive row is one discovery found but
@@ -136,18 +167,18 @@ def list_symbols(
         limit=size,
         after=after,
     )
-    _finish(
+    return _respond(
+        request,
         response,
-        request=request,
+        payload=Collection[SymbolSummary](
+            data=[SymbolSummary(**row) for row in page.rows],
+            next_cursor=(
+                cursors.encode(page.next_key, query=identity) if page.next_key else None
+            ),
+        ),
         as_of=None,
         settled=False,
         payload_key=f"{identity}|{cursor}",
-    )
-    return Collection[SymbolSummary](
-        data=[SymbolSummary(**row) for row in page.rows],
-        next_cursor=(
-            cursors.encode(page.next_key, query=identity) if page.next_key else None
-        ),
     )
 
 
@@ -162,17 +193,25 @@ def get_symbol(
     session: SessionDep,
     symbol: str,
     principal: Annotated[Principal, Depends(guard(DataFamily.REFERENCE))],
-) -> Resource[SymbolDetail]:
+) -> Resource[SymbolDetail] | Response:
     """One symbol's identity, plus the newest snapshot the pipeline holds
     for it. `info` is null for a symbol discovery found but never synced."""
     limits.apply_statement_timeout(session)
-    row = reads.get_symbol(session, _normalise_symbol(symbol))
+    code = _normalise_symbol(symbol)
+    row = reads.get_symbol(session, code)
     if row is None:
         raise ApiProblem(404, TYPE_NOT_FOUND, "No such symbol")
-    _finish(
-        response, request=request, as_of=None, settled=False, payload_key=f"symbol|{symbol}"
+    return _respond(
+        request,
+        response,
+        payload=Resource[SymbolDetail](data=SymbolDetail(**row)),
+        as_of=None,
+        settled=False,
+        # The normalised code, not the raw path parameter: otherwise
+        # /v1/symbols/aapl and /v1/symbols/AAPL are two validators for one
+        # representation.
+        payload_key=f"symbol|{code}",
     )
-    return Resource[SymbolDetail](data=SymbolDetail(**row))
 
 
 # --- bars -------------------------------------------------------------------
@@ -189,7 +228,16 @@ def list_bars(
     session: SessionDep,
     symbol: str,
     principal: Annotated[Principal, Depends(guard(DataFamily.BARS))],
-    interval: str = "1d",
+    interval: Annotated[
+        ReadableInterval,
+        Query(
+            description=(
+                "Bar size. Intraday intervals are routed to the intraday tables, "
+                "`1d` to the daily one and `1wk`/`1mo` to the periodic one; each "
+                "carries its own cap on how wide a range may be asked for."
+            )
+        ),
+    ] = "1d",
     start: Annotated[datetime | None, Query(alias="from")] = None,
     end: Annotated[datetime | None, Query(alias="to")] = None,
     session_kind: Annotated[
@@ -197,7 +245,7 @@ def list_bars(
     ] = None,
     limit: Annotated[int | None, Query(ge=1)] = None,
     cursor: str | None = None,
-) -> Collection[Bar]:
+) -> Collection[Bar] | Response:
     """Bars for one symbol.
 
     `session` applies to intraday intervals only, and defaults to
@@ -209,14 +257,9 @@ def list_bars(
     limits.apply_statement_timeout(session)
     code = _normalise_symbol(symbol)
 
-    if interval not in READABLE_INTERVALS:
-        raise ApiProblem(
-            422,
-            TYPE_INVALID_PARAMETER,
-            "Unsupported interval",
-            detail=f"interval must be one of: {', '.join(READABLE_INTERVALS)}",
-        )
-
+    # No membership check: the annotation is the check, and it is what puts
+    # the list in the document. The hand-rolled version refused the same
+    # values while leaving the contract saying `interval` was any string.
     is_intraday = limits.span_class(interval) == "intraday"
     if session_kind is not None and not is_intraday:
         raise ApiProblem(
@@ -275,18 +318,19 @@ def list_bars(
         after=after,
     )
 
-    _finish(
+    return _respond(
+        request,
         response,
-        request=request,
-        as_of=None,
-        settled=window_end < datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0),
-        payload_key=f"{identity}|{cursor}",
-    )
-    return Collection[Bar](
-        data=[_bar(row) for row in page.rows],
-        next_cursor=(
-            cursors.encode(page.next_key, query=identity) if page.next_key else None
+        payload=Collection[Bar](
+            data=[_bar(row) for row in page.rows],
+            next_cursor=(
+                cursors.encode(page.next_key, query=identity) if page.next_key else None
+            ),
         ),
+        as_of=None,
+        settled=window_end
+        < datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0),
+        payload_key=f"{identity}|{cursor}",
     )
 
 
@@ -325,7 +369,7 @@ def list_actions(
     end: Annotated[datetime | None, Query(alias="to")] = None,
     limit: Annotated[int | None, Query(ge=1)] = None,
     cursor: str | None = None,
-) -> Collection[Action]:
+) -> Collection[Action] | Response:
     """Dividends, splits and capital gains for one symbol, newest first.
 
     Ranges are half-open and capped like a monthly series; the action
@@ -367,26 +411,26 @@ def list_actions(
         limit=size,
         after=after,
     )
-    _finish(
+    return _respond(
+        request,
         response,
-        request=request,
+        payload=Collection[Action](
+            data=[
+                Action(
+                    symbol=row["symbol"],
+                    action_date=row["action_date"],
+                    action_type=row["action_type"],
+                    action_value=paging.to_number(row["action_value"]) or "0",
+                )
+                for row in page.rows
+            ],
+            next_cursor=(
+                cursors.encode(page.next_key, query=identity) if page.next_key else None
+            ),
+        ),
         as_of=None,
         settled=True,
         payload_key=f"{identity}|{cursor}",
-    )
-    return Collection[Action](
-        data=[
-            Action(
-                symbol=row["symbol"],
-                action_date=row["action_date"],
-                action_type=row["action_type"],
-                action_value=paging.to_number(row["action_value"]) or "0",
-            )
-            for row in page.rows
-        ],
-        next_cursor=(
-            cursors.encode(page.next_key, query=identity) if page.next_key else None
-        ),
     )
 
 
@@ -408,7 +452,7 @@ def list_financials(
     freq: str,
     limit: Annotated[int | None, Query(ge=1)] = None,
     cursor: str | None = None,
-) -> Collection[FinancialFactOut]:
+) -> Collection[FinancialFactOut] | Response:
     """Line items for one statement.
 
     `statement` and `freq` are both required, and that is a performance
@@ -450,25 +494,25 @@ def list_financials(
         ) from exc
 
     as_of = reads.financials_as_of(session, code, statement, freq)
-    _finish(
+    return _respond(
+        request,
         response,
-        request=request,
+        payload=Collection[FinancialFactOut](
+            data=[
+                FinancialFactOut(
+                    period_end=row["period_end"],
+                    item_key=row["item_key"],
+                    value=paging.to_number(row["value"]) or "0",
+                    currency=row.get("currency"),
+                )
+                for row in page.rows
+            ],
+            next_cursor=(
+                cursors.encode(page.next_key, query=identity) if page.next_key else None
+            ),
+            as_of=as_of,
+        ),
         as_of=as_of,
         settled=True,
         payload_key=f"{identity}|{cursor}",
-    )
-    return Collection[FinancialFactOut](
-        data=[
-            FinancialFactOut(
-                period_end=row["period_end"],
-                item_key=row["item_key"],
-                value=paging.to_number(row["value"]) or "0",
-                currency=row.get("currency"),
-            )
-            for row in page.rows
-        ],
-        next_cursor=(
-            cursors.encode(page.next_key, query=identity) if page.next_key else None
-        ),
-        as_of=as_of,
     )
