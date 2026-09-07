@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import func, select, text
@@ -27,18 +26,10 @@ from sqlalchemy.orm import Session
 
 from yfin.core.logging_setup import get_logger
 from yfin.models import INTRADAY_INTERVALS, Base
+from yfin.storage.changes import ChangeCollector
+from yfin.storage.db import rowcount
 
 log = get_logger(__name__)
-
-
-def _rowcount(result: Any) -> int:
-    """Rows affected.
-
-    `Session.execute` is statically typed to return `Result`, and `rowcount`
-    is only defined on `CursorResult`; read here once instead of casting
-    everywhere.
-    """
-    return int(getattr(result, "rowcount", 0) or 0)
 
 
 class RescaleSkipped(Exception):
@@ -166,17 +157,28 @@ def seed_baseline(session: Session) -> int:
         ),
         {"now": now},
     )
-    seeded = _rowcount(result)
+    seeded = rowcount(result)
     log.info("rescale baseline seeded", rows=seeded)
     return seeded
 
 
-def apply_pending(session: Session, symbol: str) -> int:
+def apply_pending(
+    session: Session, symbol: str, *, collector: ChangeCollector | None = None
+) -> int:
     """Apply this symbol's pending splits; returns the count applied.
 
     Call site: inside the symbol's own write transaction, before `bars_*` is
     written. In the reverse order, new bars written in the same run
     (already at the new scale) would be divided a second time.
+
+    A rescale rewrites every bar the symbol has before the split boundary,
+    so it is published as ONE `rescale` event naming the split rather than
+    as one event per bar -- the same reasoning as a range event, and the
+    consumer applies the factor to its own mirror. The event is only
+    recorded for a split this session actually applied: `_apply_one` returns
+    0 when another session claimed the slot first, and announcing a rewrite
+    that some other transaction is doing would be a lie about who wrote what
+    and when.
     """
     pending = pending_splits(session, symbol)
     if not pending:
@@ -193,9 +195,12 @@ def apply_pending(session: Session, symbol: str) -> int:
             # "applied", and the correct data would never be rescaled again.
             log.error("rescale atlandi", symbol=symbol, split_date=str(split_day), reason=str(exc))
             continue
-        applied += _apply_one(
+        one = _apply_one(
             session, symbol, split_day, ratio, price_factor, volume_factor, boundary
         )
+        applied += one
+        if one and collector is not None:
+            collector.record_rescale(symbol, split_day, price_factor, boundary)
     return applied
 
 
@@ -229,7 +234,7 @@ def _apply_one(
         ),
         {"symbol": symbol, "split_date": split_day, "ratio": ratio, "now": now},
     )
-    if not _rowcount(claim):
+    if not rowcount(claim):
         return 0  # another session claimed it first
 
     # 1wk/1mo are out of scope: those two intervals are refetched from
@@ -273,7 +278,7 @@ def _apply_one(
         ),
         params,
     )
-    rows = _rowcount(updated)
+    rows = rowcount(updated)
     session.execute(
         text(
             "UPDATE bar_rescales SET rows_affected = :rows "

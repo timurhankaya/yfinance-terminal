@@ -119,6 +119,37 @@ def session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
 
+def rowcount(result: Any) -> int:
+    """Rows affected by a DML statement.
+
+    `Session.execute` is statically typed to return `Result`, and `rowcount`
+    only exists on `CursorResult`. Written once here rather than as a
+    `# type: ignore[attr-defined]` at each call site, which is what three
+    different modules had grown.
+
+    Not usable as verification -- `ON CONFLICT DO NOTHING` reports 0 for
+    rows it skipped (measured: `INSERT 0 0`), which is why writes are
+    verified by an independent key-existence read. It is fine for a DELETE,
+    where "how many did I remove" is exactly what it answers.
+    """
+    return int(getattr(result, "rowcount", 0) or 0)
+
+
+def returns_rows(result: Any) -> bool:
+    """Whether the statement just executed had a RETURNING clause.
+
+    Sibling of `rowcount` and there for the same reason: the attribute is on
+    `CursorResult`, while `Session.execute` is typed as returning `Result`.
+
+    The writer needs it because "should this write produce events" and "does
+    this statement hand any back" are different questions. A write whose
+    update map is entirely volatile is collected in principle and returns
+    nothing in practice, and reading that result raises
+    `ResourceClosedError`.
+    """
+    return bool(getattr(result, "returns_rows", False))
+
+
 class LockNotAcquired(RuntimeError):
     """Advisory lock could not be acquired; another sync is running."""
 

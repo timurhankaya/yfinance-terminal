@@ -16,6 +16,7 @@ from yfin.datasets.common import date_range_kwargs
 from yfin.datasets.payloads import FramePayload
 from yfin.datasets.registry import SYMBOL_DATASETS, register
 from yfin.ingest.client import call_yahoo
+from yfin.storage.contracts import VOLATILE_COLUMNS as CONTRACT_VOLATILE_COLUMNS
 from yfin.storage.contracts import TableWrite
 
 CACHE_HISTORY = "history_df"
@@ -55,6 +56,26 @@ UPDATE_COLUMNS = (
 
 # is_repaired is never written BACK to False; it only moves 0 -> 1.
 MONOTONIC_COLUMNS = ("is_repaired",)
+
+# Excluded from the change-event distinctness predicate, and MEASURED into
+# this list rather than guessed at.
+#
+# Yahoo recomputes the back-adjusted close on every call and returns a
+# slightly different float each time: 0.098122388124 then 0.098122373223 for
+# the same 1980 session, a drift in the eighth significant digit. Nothing
+# about the day changed. Without this, a settled daily sync of AAPL alone
+# published ~9,600 `update` events -- its entire history, every night -- and
+# the count moved run to run because the noise does
+# (docs/measurements/database.md, "Change-event volume").
+#
+# The column is still WRITTEN: volatile means "excluded from the predicate",
+# and the writer touches it separately, so the archive keeps the newest
+# value. What a consumer loses is notification of an adj_close-only change,
+# which is what a dividend does to every historical row. The remedy for a
+# consumer that needs it is to recompute from `close`, `dividend` and
+# `split_ratio` -- all of which it receives -- or to re-read the span from
+# the API.
+VOLATILE_COLUMNS = (*CONTRACT_VOLATILE_COLUMNS, "adj_close")
 
 
 def repair_enabled() -> bool:
@@ -232,6 +253,7 @@ class HistoryDataset(Dataset[FramePayload]):
                     key_columns=("symbol", "session_date"),
                     update_columns=UPDATE_COLUMNS,
                     monotonic_columns=MONOTONIC_COLUMNS,
+                    volatile_columns=VOLATILE_COLUMNS,
                 )
             ]
         )

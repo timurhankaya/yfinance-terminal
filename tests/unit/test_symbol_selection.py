@@ -20,9 +20,16 @@ runner = CliRunner()
 # --- pure helpers ------------------------------------------------------------
 
 
-def test_csv_upper_trims_and_uppercases() -> None:
-    assert common.csv_upper(" nms , nyq ,, ist ") == ["NMS", "NYQ", "IST"]
-    assert common.csv_upper(None) == []
+def test_comma_list_trims_uppercases_and_drops_empties() -> None:
+    """The dropped-empty is the part that matters: a trailing comma in a
+    hand-edited `.env` used to reach a region loop as `""`."""
+    from yfin.core.text import comma_list
+
+    assert comma_list(" nms , nyq ,, ist ", upper=True) == ["NMS", "NYQ", "IST"]
+    assert comma_list(" a , b ") == ["a", "b"]
+    assert comma_list(None) == []
+    assert comma_list("") == []
+    assert comma_list(" , , ") == []
 
 
 def test_selector_records_universe_and_range() -> None:

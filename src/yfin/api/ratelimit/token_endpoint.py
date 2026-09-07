@@ -22,12 +22,11 @@ is a fixed-length digest with a mandatory TTL.
 from __future__ import annotations
 
 import hashlib
-import threading
-import time
 from dataclasses import dataclass
 
 from yfin.api.core.config import ApiSettings
 from yfin.api.ratelimit.connection import get_redis
+from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.core.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -64,31 +63,7 @@ class Decision:
     degraded: bool = False
 
 
-class _ProcessLimiter:
-    """Fixed window in memory. The fallback, never the main mechanism."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._window = 0
-        self._hits: dict[str, int] = {}
-
-    def allow(self, key: str, limit: int) -> bool:
-        window = int(time.time() // WINDOW_SECONDS)
-        with self._lock:
-            if window != self._window:
-                self._window = window
-                self._hits = {}
-            count = self._hits.get(key, 0) + 1
-            self._hits[key] = count
-            return count <= limit
-
-    def reset(self) -> None:
-        with self._lock:
-            self._window = 0
-            self._hits = {}
-
-
-_fallback = _ProcessLimiter()
+_fallback = FixedWindow(WINDOW_SECONDS)
 
 
 def check(settings: ApiSettings, *, client_ip: str, client_id: str) -> Decision:

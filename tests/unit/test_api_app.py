@@ -11,6 +11,7 @@ from starlette.requests import Request
 from yfin.api.core.config import ApiSettings
 from yfin.api.core.errors import install_error_handlers
 from yfin.api.core.middleware import SECURITY_HEADERS, _networks, resolve_client_ip
+from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.api.routers import meta
 from yfin.core.logging_setup import REDACTED, redact_secrets
 
@@ -157,7 +158,7 @@ def test_readiness_is_limited_PER_IP(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(meta, "_check_database", lambda: True)
     monkeypatch.setattr(meta, "_check_redis", lambda _s: True)
-    monkeypatch.setattr(meta, "_limiter", meta._FixedWindow())
+    monkeypatch.setattr(meta, "_limiter", FixedWindow())
     monkeypatch.setattr(meta, "_cache", meta._ReadinessCache())
 
     client = TestClient(create_app(ApiSettings(health_rate_limit_per_minute=2)))
@@ -180,7 +181,7 @@ def test_the_readiness_result_is_cached(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr(meta, "_check_database", counted_db)
     monkeypatch.setattr(meta, "_check_redis", lambda _s: True)
-    monkeypatch.setattr(meta, "_limiter", meta._FixedWindow())
+    monkeypatch.setattr(meta, "_limiter", FixedWindow())
     monkeypatch.setattr(meta, "_cache", meta._ReadinessCache())
 
     client = TestClient(create_app(ApiSettings(health_cache_seconds=30)))
@@ -196,7 +197,7 @@ def test_readiness_reports_degraded_when_a_dependency_is_down(
 
     monkeypatch.setattr(meta, "_check_database", lambda: True)
     monkeypatch.setattr(meta, "_check_redis", lambda _s: False)
-    monkeypatch.setattr(meta, "_limiter", meta._FixedWindow())
+    monkeypatch.setattr(meta, "_limiter", FixedWindow())
     monkeypatch.setattr(meta, "_cache", meta._ReadinessCache())
 
     response = TestClient(create_app(ApiSettings())).get("/health/ready")

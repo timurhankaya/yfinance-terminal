@@ -26,23 +26,7 @@ from yfin.outbox.kafka import (
     publish,
     topic_for,
 )
-from yfin.outbox.spec import TICK_OUTBOX, OutboxSpec
-
-#: The pipeline's change outbox, as far as this module is concerned: the
-#: other set of answers the same code has to give. Its table and cursor
-#: arrive with the design's step 4.
-CHANGES_SPEC = OutboxSpec(
-    table="pipeline_outbox",
-    offset_table="pipeline_relay_offset",
-    lock_name="yfin_pipeline_relay",
-    route_column="family",
-    key_column="partition_key",
-    topic_pattern="yfin.changes.{family}",
-    placeholder="{family}",
-    upper_case_route=False,
-    client_id="yfin-changes-relay",
-    id_header=True,
-)
+from yfin.outbox.spec import CHANGES_OUTBOX, TICK_OUTBOX
 
 
 class FakeProducer:
@@ -183,7 +167,7 @@ def test_empty_bootstrap_servers_is_refused() -> None:
 def test_a_family_route_is_not_upper_cased() -> None:
     """`DataFamily` is already a closed lower-case set; upper-casing it
     would name a topic no ACL and no consumer expects."""
-    assert topic_for(CHANGES_SPEC, "fundamentals") == "yfin.changes.fundamentals"
+    assert topic_for(CHANGES_OUTBOX, "fundamentals") == "yfin.changes.fundamentals"
 
 
 def test_the_dedupe_header_travels_only_where_it_is_asked_for() -> None:
@@ -192,7 +176,7 @@ def test_the_dedupe_header_travels_only_where_it_is_asked_for() -> None:
     key and the outbox id has to travel. Tick topics stay header-free:
     `live_ticks`' primary key is already in the payload."""
     producer = FakeProducer()
-    publish(producer, [_message(id=77)], spec=CHANGES_SPEC)
+    publish(producer, [_message(id=77)], spec=CHANGES_OUTBOX)
     assert producer.headers == [[(OUTBOX_ID_HEADER, b"77")]]
 
     ticks = FakeProducer()
@@ -202,14 +186,14 @@ def test_the_dedupe_header_travels_only_where_it_is_asked_for() -> None:
 
 def test_the_key_comes_from_the_message_whatever_the_column_was() -> None:
     producer = FakeProducer()
-    publish(producer, [_message("news:1", "news")], spec=CHANGES_SPEC)
+    publish(producer, [_message("news:1", "news")], spec=CHANGES_OUTBOX)
     assert producer.produced[0][2] == b"news:1"
     assert producer.produced[0][0] == "yfin.changes.news"
 
 
 def test_the_two_specs_use_different_client_ids() -> None:
     """So the broker's own logs and metrics can tell the relays apart."""
-    assert TICK_OUTBOX.client_id != CHANGES_SPEC.client_id
+    assert TICK_OUTBOX.client_id != CHANGES_OUTBOX.client_id
 
 
 # --- configuration ---------------------------------------------------------

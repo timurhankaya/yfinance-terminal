@@ -23,7 +23,7 @@ from yfin.api.core.errors import (
     TYPE_UNAUTHENTICATED,
     ApiProblem,
 )
-from yfin.api.core.window import FixedWindow
+from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.ui import session
 from yfin.ui.session import COOKIE_NAME, SESSION_TTL_SECONDS, SessionInvalid, UiClaims
 

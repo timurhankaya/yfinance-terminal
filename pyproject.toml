@@ -44,6 +44,11 @@ api = [
     # application/x-www-form-urlencoded, and FastAPI's Form() refuses to
     # parse a body without this installed.
     "python-multipart>=0.0.9",
+    # Pinned exactly, not floored. The library picks its value class from
+    # PROMETHEUS_MULTIPROC_DIR at IMPORT time, process-wide, and the API is
+    # the only service that runs multiprocess -- a minor release changing
+    # that would be silent and would reach every other service too.
+    "prometheus-client==0.26.0",
 ]
 # Optional publish path. librdkafka rather than a pure-Python client: the
 # relay is a synchronous process, so an async client would buy nothing.

@@ -24,6 +24,7 @@ from yfin.core import normalize as nz
 from yfin.core.config import Settings, get_settings
 from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
+from yfin.core.text import comma_list
 from yfin.datasets.base import NormalizedResult
 from yfin.datasets.common import (
     project_fields,
@@ -240,7 +241,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
         fills during a run, the lock would never open.
         """
         cfg = settings
-        wanted = [k.strip() for k in cfg.yf_screen_keys.split(",") if k.strip()]
+        wanted = comma_list(cfg.yf_screen_keys)
         keys = [s.key for s in ALL_SCREENS]
         if wanted:
             unknown = [k for k in wanted if k not in set(keys)]

@@ -23,7 +23,7 @@ uv run ruff check . && uv run mypy src/yfin
 uv run pytest -q tests/unit && uv run pytest -q -m repo tests/repo
 uv run python scripts/dump_openapi.py --check
 ```
-Şu an hepsi yeşil: unit 1510, repo 481.
+Şu an hepsi yeşil: unit 1527, repo 492.
 
 ## Birinci turda tamamlananlar (2026-09-07)
 
@@ -79,25 +79,30 @@ değişikliklerin de olduğu bir dosyayı görmeden commit'lemek doğru değil.
 `git diff .env.example` ile gözden geçirip `tests/unit/test_env_example.py` ile
 birlikte commit'leyin.
 
+## Üçüncü turda tamamlananlar (2026-09-07)
+
+- `4295764` — `yfin --help` artık ORM'i de yüklemiyor: **947 ms / 1529 modül →
+  308 ms / 561 modül**. `bars`, `stream`, `settings`, `api` modüllerinin ağır
+  import'ları komut gövdelerine indi. Suçlular ölçülerek bulundu, tahmin
+  edilmedi (`core.config` ve `api.core.config` masum). `cli/api._scope_values`
+  düz bir taşıma değildi: komut dekoratörleri *değerlendirilirken* çağrılıyor,
+  o yüzden gövdeye indirmek yetmiyordu — `ApiScope`'un kendi türediği
+  `core.families` çiftinden türetiliyor artık, ve bir test ikisinin ayrışmasını
+  engelliyor. `tests/unit/test_cli_imports.py` bunu **alt süreçte** ölçüyor:
+  suite koşarken paketin yarısı zaten import edilmiş oluyor, süreç içinde
+  bakmak her hâlükârda yeşil verirdi.
+- `ad23c11` — `core/text.comma_list` 11 elle yazılmış CSV parse'ının yerine
+  geçti; `api/ratelimit/fixed_window.FixedWindow` iki birebir aynı sabit-pencere
+  sayacının. `comma_list` hiçbir şey import etmeyen bir modülde duruyor ve bu
+  taşıyıcı: `api/core/config.py` çağıranlardan biri ve az önce temizlenen
+  `--help` yolunda.
+- `a5661e5` — dört snapshot dataset'i artık yazma çiftini sınıfın kendi
+  bildiriminden kuruyor. Literal ile öznitelik ayrışsaydı gate kimsenin
+  yazmadığı bir tabloya bakardı ve her satır sonsuza dek yeni görünürdü.
+
 ## Kalan işler (öncelik sırasıyla)
 
-### 1. `yfin --help` hâlâ `yfin.models`'i yüklüyor (~560 ms)
-`cli/app.py` bölünürken kendi ağır import'ları komut gövdelerine indi ve
-`yfin.datasets` artık `--help` için hiç yüklenmiyor (ölçüldü: 1642 → 1529
-modül). Ama `bars`, `stream`, `settings` ve `api` modülleri `yfin.models`'i
-hâlâ modül düzeyinde alıyor, ve asıl maliyet o.
-**Yapılacak:** aynı işlemi o dört modülün ~35 komut gövdesinde tekrarla.
-Mekanik ama geniş; kendi turunu hak ediyor.
-
-### 2. YAGNI: kalan 8 tekrar (~110 satır)
-`24482d4` üçünü kapattı. Kalanlar: CSV parse 8 yerde, `snapshot_rows` mantığı
-2 yerde elle tekrar, iki ayrı sabit-pencere limiter.
-**Reddedilen iddia:** advisory-lock "sarmalayıcısı" 3 yerde tekrar değil — üç
-runner'daki `if acquire_lock: with advisory_lock(...): return run(...,
-acquire_lock=False)` yeniden girişi üçer satır, ne yaptığını okutuyor, ve
-katlamanın her yolu daha uzun ve daha az anlatan bir thunk/dekoratör istiyor.
-
-### 3. Sağlık kayıtları event loop'u bloke ediyor
+### 1. Sağlık kayıtları event loop'u bloke ediyor
 `stream/connection.py:259` her kanarya mesajında `_emit_health()` →
 `supervisor.py:323` → `repository.py:220` **senkron `INSERT`**, hem de asyncio
 event loop'unun içinde. Kanarya `BTC-USD` 7/24 tikliyor ve her bağlantıya
@@ -107,7 +112,7 @@ kuyruk için uyulmuş, sağlık yolu için gözden kaçmış.
 **Yapılacak:** `LatestBox` deseni: thread-safe `HealthBox`, writer thread'i
 `_flush_counters` içinde toplu yazsın.
 
-### 4. Yazma politikası metot olduğu için kalıtımla çoğalıyor
+### 2. Yazma politikası metot olduğu için kalıtımla çoğalıyor
 `upsert` `Dataset`'in metodu; 4 politika × 3 eksen = bugün 6 sınıf + 2 mixin +
 1 serbest fonksiyon. Somut zarar bugün var: `SnapshotDataset.key_columns`
 varsayılanı `("symbol",)` (`snapshot_base.py:73`) ama `SnapshotGlobalDataset`'te
@@ -118,7 +123,7 @@ yani Yahoo çağrısı ödendikten sonra patlıyor.
 `SnapshotPolicy`, `HashGatePolicy`, `AsOfPolicy`); gated base sınıflarını sil.
 **Büyük iş** — ~6 base dosyası + ~25 dataset. Kendi planını hak ediyor.
 
-### 5. `options` / `option_chain` için dataset yok
+### 3. `options` / `option_chain` için dataset yok
 yfinance'in `Ticker.option_chain()` / `options` yüzeyi hiç toplanmıyor ve repo
 genelinde (docs, test, yorum dahil) tek kelime geçmiyor. Bu kod tabanı her
 dışlamayı yazılı gerekçelendiriyor (`sustainability`, atlanan interval'ler,
@@ -129,6 +134,14 @@ tasarımını hak ediyor); `shares` ve `earnings` için "türetilebilir/deprecat
 gerekçesini koda yaz.
 
 ## Zaten reddedilmiş iddialar (tekrar açmayın)
+
+- Advisory-lock "sarmalayıcısı 3 yerde tekrar" değil: üç runner'daki
+  `if acquire_lock: with advisory_lock(...): return run(..., acquire_lock=False)`
+  yeniden girişi üçer satır ve katlamanın her yolu daha uzun bir thunk istiyor.
+- `policy.clear_cache`, `Registry.unregister` ve `Registry.is_opt_in` "sadece
+  testlerde kullanılıyor" diye silinemez: birincisi TTL cache'i süreç içinde
+  sıfırlamanın tek yolu, ikincisi modül düzeyi singleton'a yapılan test
+  kayıtlarını geri alıyor, üçüncüsü olmasa testler `registry._opt_in`'e uzanır.
 
 - `uvicorn` ölü değil — `Dockerfile:65` konteyner komutu olarak çalıştırıyor.
 - `storage/contracts.py` protokolleri (`RowSink`/`HashReader`/`SymbolLookup`/
@@ -144,6 +157,5 @@ gerekçesini koda yaz.
 
 ## Nasıl ilerleyelim
 
-Önce hangilerini bu turda alacağımıza karar verelim. Madde 3 dar ve tek başına
-alınabilir; 1 ve 2 mekanik ama geniş; 4 ve 5 kendi tasarım turlarını hak
-ediyor.
+Üç madde kaldı. Madde 1 dar ve tek başına alınabilir; 2 ve 3 kendi tasarım
+turlarını hak ediyor.

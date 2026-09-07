@@ -125,9 +125,17 @@ def test_export_by_default_returns_ONLY_KEYS_WITH_A_ROW(cli: CliRunner) -> None:
 
 
 def test_schema_DOES_NOT_TOUCH_THE_DB(cli: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A pure schema dump runs with no network and no DB."""
+    """A pure schema dump runs with no network and no DB.
+
+    Patched on `settings_store`, its home, rather than on the CLI module:
+    the CLI imports it inside the command body now (so that `yfin --help`
+    does not load the ORM), and a name patched on the importer would be
+    the wrong object by the time the command runs. Patching the source
+    also catches the call whichever module makes it."""
+    from yfin.storage import settings_store
+
     monkeypatch.setattr(
-        cli_config, "fetch_rows", lambda s: pytest.fail("schema connected to the DB")
+        settings_store, "fetch_rows", lambda s: pytest.fail("schema connected to the DB")
     )
     result = cli.invoke(config_app, ["schema"])
     assert result.exit_code == 0

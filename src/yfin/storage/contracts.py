@@ -21,6 +21,31 @@ from typing import Any, Literal, Protocol
 
 WriteMode = Literal["upsert", "replace_scope"]
 
+#: Columns that move on every run without anything having changed.
+#:
+#: They are excluded from the content hash for that reason, and the change
+#: collector excludes them from the distinctness predicate for the same one:
+#: a row whose only difference is `fetched_at` did not change, and
+#: publishing it would make every consumer rewrite its mirror daily.
+#:
+#: One definition, imported by both sides. `datasets/asof_base.py` used to
+#: carry its own copy, and two lists that must agree are a drift waiting to
+#: happen -- `first_seen_at` was added to one of them months after the other.
+#:
+#: `last_seen_at` is here on the same grounds and was MEASURED into it: it
+#: is written on every run by definition, and without it a settled daily
+#: sync published one `symbols` update per symbol -- 4,500 events a night
+#: saying only that the pipeline had looked. Only `symbols` carries the
+#: column today, exactly as only `asof_state` carries `first_seen_at`; the
+#: list is about what a name MEANS, so the next table to grow one inherits
+#: the answer instead of repeating the discovery.
+VOLATILE_COLUMNS: tuple[str, ...] = (
+    "fetched_at",
+    "first_seen_at",
+    "last_seen_at",
+    "as_of_date",
+)
+
 
 @dataclass(frozen=True)
 class TableWrite:
@@ -47,6 +72,16 @@ class TableWrite:
     # applying it column by column would blend two different instants
     # into a state that never existed on any exchange.
     guard_column: str | None = None
+    # Columns the distinctness predicate ignores, because they move on every
+    # run whether or not anything changed. They are still WRITTEN -- the
+    # writer touches them separately, so `fetched_at` (which the hash gate
+    # reads as "last verified at") and `as_of_date` (which `prune_asof`
+    # reads) end up exactly where a plain upsert would have put them.
+    #
+    # Per write rather than global, so a table that turns out to move a
+    # fourth column on every run can say so without changing the default for
+    # the other 67.
+    volatile_columns: tuple[str, ...] = VOLATILE_COLUMNS
 
 
 @dataclass

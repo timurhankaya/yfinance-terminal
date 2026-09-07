@@ -28,6 +28,7 @@ from yfin.datasets.meta import DatasetMeta
 from yfin.datasets.registry import Registry
 from yfin.pipeline.audit import ItemRecord, failed_records, record_items
 from yfin.pipeline.contracts import ProxyTracker
+from yfin.storage.changes import ChangeCollector, ChangeContext
 from yfin.storage.contracts import RowWriter, WriteStats
 from yfin.storage.persistence import PostgresRowWriter
 
@@ -65,6 +66,12 @@ class Turn:
     log_context: Mapping[str, Any] = field(default_factory=dict)
 
     region: str | None = None
+
+    #: How this turn's writes become change events, or None when
+    #: `yf_changes_enabled` is off. The CONTEXT is on the turn because only
+    #: the runner knows the run; the COLLECTOR is built per turn below, so a
+    #: turn that rolls back publishes nothing.
+    changes: ChangeContext | None = None
 
 
 def run_turn(
@@ -106,7 +113,17 @@ def run_turn(
 
     with factory() as session:
         try:
-            stats = turn.upsert(PostgresRowWriter(session), result)
+            # Built here, not on the Turn: a turn whose write fails rolls
+            # back, and its events must go with it rather than reach the
+            # next turn's collector.
+            collector = ChangeCollector(turn.changes) if turn.changes else None
+            if collector is not None:
+                collector.enter_dataset(turn.dataset.name)
+            stats = turn.upsert(PostgresRowWriter(session, collector=collector), result)
+            if collector is not None:
+                # Last statement before the commit, so the window the relay
+                # waits on stays as small as the transaction allows.
+                collector.flush(session)
             session.commit()
         except Exception as exc:  # noqa: BLE001 - the write boundary
             # Rollback first: the audit row is written by the caller from

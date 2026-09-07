@@ -25,11 +25,8 @@ from typing import Annotated
 import typer
 from sqlalchemy.orm import Session, sessionmaker
 
-from yfin.api.core.config import get_api_settings
-from yfin.api.models.clients import ApiScope
-from yfin.api.ratelimit.revocation import WrongRedis, publish_revocation
-from yfin.api.storage import clients as repo
 from yfin.cli.common import session_factory
+from yfin.core.families import DataFamily, scope_for
 from yfin.core.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -50,7 +47,15 @@ def _session_factory() -> sessionmaker[Session]:
 
 
 def _scope_values() -> list[str]:
-    return [s.value for s in ApiScope]
+    """The scope names, derived the same way `ApiScope` derives them.
+
+    Not read off `ApiScope` itself, which lives in the ORM module: this
+    function is called while the command decorators are being evaluated,
+    so importing it here made `yfin --help` load the whole model package.
+    `api/models/clients.py` builds the enum from exactly this pair, and
+    `test_api_clients.py` asserts the two lists stay equal.
+    """
+    return [scope_for(family) for family in DataFamily]
 
 
 def _propagate(
@@ -66,6 +71,9 @@ def _propagate(
     committed, so the honest report is a partial success, not a failure
     of the whole operation.
     """
+    from yfin.api.core.config import get_api_settings
+    from yfin.api.ratelimit.revocation import WrongRedis, publish_revocation
+
     try:
         publish_revocation(
             get_api_settings(),
@@ -96,6 +104,8 @@ def client_create(
     ] = None,
 ) -> None:
     """Creates a client and prints its secret ONCE."""
+    from yfin.api.storage import clients as repo
+
     scopes = scope or []
     unknown = sorted(set(scopes) - set(_scope_values()))
     if unknown:
@@ -122,6 +132,8 @@ def client_create(
 
 @client_app.command("list")
 def client_list() -> None:
+    from yfin.api.storage import clients as repo
+
     factory = _session_factory()
     with factory() as session:
         rows = repo.list_clients(session)
@@ -145,6 +157,8 @@ def client_rotate(
     client_id: Annotated[str, typer.Argument(help="Client id to rotate")],
 ) -> None:
     """Issues a new secret; the old one keeps working for a grace period."""
+    from yfin.api.storage import clients as repo
+
     factory = _session_factory()
     with factory() as session:
         try:
@@ -184,6 +198,8 @@ def client_revoke(
     cut off a leaked secret was to disable the whole client, which stops
     the traffic that is still legitimate.
     """
+    from yfin.api.storage import clients as repo
+
     factory = _session_factory()
     with factory() as session:
         try:
@@ -222,6 +238,8 @@ def client_set_scopes(
     matters, and an operator who has to think in deltas will eventually
     leave a scope behind.
     """
+    from yfin.api.storage import clients as repo
+
     unknown = sorted(set(scopes) - set(_scope_values()))
     if unknown:
         typer.echo(f"unknown scope: {', '.join(unknown)}", err=True)
@@ -247,6 +265,8 @@ def client_set_plan(
     plan: Annotated[str, typer.Argument(help="Plan name, from the api_plans table")],
 ) -> None:
     """Moves the client to another plan: rate, quota, page size, concurrency."""
+    from yfin.api.storage import clients as repo
+
     factory = _session_factory()
     with factory() as session:
         try:
@@ -297,6 +317,8 @@ def client_enable(
 
 
 def _set_active(client_id: str, *, active: bool) -> None:
+    from yfin.api.storage import clients as repo
+
     factory = _session_factory()
     with factory() as session:
         try:
@@ -335,6 +357,7 @@ def usage_flush(
     is still being written to, and a flush that took it would lose
     whatever landed between the read and the delete.
     """
+    from yfin.api.core.config import get_api_settings
     from yfin.api.ratelimit import usage
 
     settings = get_api_settings()

@@ -140,8 +140,11 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      # Nothing produces to this broker yet; it does not need a gigabyte
-      # of heap to sit idle next to a data pipeline that does.
+      # Two producers now: `yfin stream relay` for ticks and `yfin changes
+      # relay` for pipeline row changes, both off by default and both
+      # running as their own process. Neither is a throughput monster next
+      # to a data pipeline that wants the memory, so the heap stays small
+      # until a measurement says otherwise.
       KAFKA_HEAP_OPTS: -Xmx512m -Xms256m
       TZ: UTC
     ports:

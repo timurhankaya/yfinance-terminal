@@ -24,7 +24,7 @@ from sqlalchemy import text
 from yfin.api.core.config import ApiSettings
 from yfin.api.core.errors import TYPE_RATE_LIMIT, ApiProblem
 from yfin.api.core.openapi import contract
-from yfin.api.core.window import FixedWindow
+from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.core.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -62,11 +62,7 @@ class _ReadinessCache:
             self._expires = time.monotonic() + ttl
 
 
-#: Kept under the old name: tests and the readiness endpoint reach it
-#: through this module, and moving the class must not move them.
-_FixedWindow = FixedWindow
-
-_limiter = _FixedWindow()
+_limiter = FixedWindow()
 _cache = _ReadinessCache()
 
 

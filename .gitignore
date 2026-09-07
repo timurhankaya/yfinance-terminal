@@ -9,5 +9,10 @@ __pycache__/
 dist/
 build/
 .cache/
-.claude/worktrees/
+
+# Editor and tool state, per developer rather than per project.
+.idea/
+.vscode/
+.claude/
+.DS_Store
 web/node_modules/

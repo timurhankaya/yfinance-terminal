@@ -40,6 +40,7 @@ is applied on the write path instead.
 | `DO NOTHING` does not count skipped rows | `INSERT 0 0`. Row counts are unusable for verification, so writes are verified by a separate key-existence read. |
 | `GREATEST` ignores NULL | `greatest(true, NULL::boolean)` → `true`; `greatest(5, NULL::int)` → `5`. |
 | `GREATEST` works on booleans | `greatest(false, true)` → `true`. Monotonic columns rely on both of these. |
+| `excluded.col` carries the COLUMN's type, not the parameter's | Proposing `0.1283479928970337` into a `numeric(28,12)` stores `0.128347992897`; re-proposing the same high-precision value leaves `(t.c) IS DISTINCT FROM (excluded.c)` FALSE. The coercion happens before `excluded` is formed, so the distinctness predicate compares stored values against stored values and float64 repr noise does not fire it. |
 
 ## Telling an insert from an update
 
@@ -101,6 +102,91 @@ There is no false-positive path in either direction. The INSERT branch
 always writes a tuple with `xmax = 0`, and a row locked by another
 transaction (`SELECT ... FOR UPDATE`) cannot reach `RETURNING` here,
 because `RETURNING` reads the tuple this statement just wrote.
+
+## Change-event cost and volume
+
+Two questions, one live symbol: what does collecting change events cost the
+write path, and how much does a day that changed nothing actually publish.
+
+```
+uv run python scripts/measure_change_cost.py --symbol AAPL
+```
+
+The protocol is three passes over a WARM database -- off, on, off -- with no
+`--full-refresh`. Warm matters: a first sync is all inserts, where the
+predicate never fires and there is nothing to touch, while the steady-state
+daily sync is the run this pipeline makes 4,500 times a night. The third
+pass bounds run-to-run variance, so a difference smaller than that spread is
+noise rather than a cost.
+
+```
+symbol: AAPL
+protocol: warm database, three passes -- off, on, off
+
+pass 1  collector OFF :   27.19s
+pass 2  collector ON  :   28.10s
+pass 3  collector OFF :   26.95s
+
+off baseline (mean of 1 and 3):   27.07s
+run-to-run spread of the two off passes:   0.9%
+collector overhead against that baseline:  +3.8%
+```
+
+| Claim | Observation |
+|---|---|
+| `RETURNING *` + the distinctness predicate + the volatile touch cost **+3.8 %** | Against a baseline whose own run-to-run spread is 0.9 %, so the cost is real but small. The design's acceptance criterion was 10 %. |
+| Both passes wrote the same rows | 17,118 in each, so the timings compare the same work. |
+
+### What an unchanged day publishes
+
+The design asked for this measurement to find any table that emits on
+`raw_json` alone. None does. Two OTHER columns did, and both would have
+been invisible without running it:
+
+| Column | What it does | Cost before |
+|---|---|---|
+| `price_history.adj_close` | Yahoo recomputes the back-adjusted close on every call and returns a different float each time -- `0.098122388124`, then `0.098122373223` for the same 1980 session, a drift in the eighth significant digit | ~9,600 `update` events per symbol per night, its entire history; the count moved run to run (9,718 / 9,603 / 9,629) because the noise does |
+| `symbols.last_seen_at` | Written on every run by definition | one event per symbol per night, saying only that the pipeline had looked |
+
+Neither is a precision artefact: `excluded` is coerced to the column type
+(see Upsert above), so a float64 repr does not fire the predicate. These are
+genuinely different values arriving from upstream.
+
+Both are now `volatile_columns`, which excludes them from the predicate and
+keeps writing them, so the archive stays current and the event stream stays
+quiet. After that:
+
+```
+settled full sync #1: 0 event(s)
+settled full sync #2: 2 event(s)     <- the market moved between the runs
+```
+
+Zero is the number that matters. The two are real: the measurement ran
+during market hours and AAPL's quote changed.
+
+**What a consumer loses.** An `adj_close`-only change no longer produces an
+event, and that is exactly what a dividend does to every historical row. A
+consumer that needs the adjusted series recomputes it from `close`,
+`dividend` and `split_ratio` -- all of which it receives -- or re-reads the
+span from the API. The alternative was republishing 4,500 symbols' full
+history every night to carry a number the consumer can derive.
+
+### A defect this measurement found
+
+The first attempt at the collector-on pass failed 84 of 84 cells with
+`ResourceClosedError: This result object does not return rows`. A write
+whose update map is entirely volatile gets no predicate and therefore no
+`RETURNING` -- the hash gate's `UNCHANGED_UPDATE_COLUMNS = ("fetched_at",)`
+write is exactly that -- and the collector read a closed result. The unit
+test covered the compiled statement and was right about it; only executing
+it found the code around it. Fixed, with the regression test at the
+execution level.
+
+### Not yet measured
+
+Relay throughput against the local broker, and outbox growth during a first
+sync of 100 symbols. The relay's correctness is covered by
+`tests/repo/test_changes_relay_repo.py`; its ceiling is not.
 
 ## Bind parameters
 

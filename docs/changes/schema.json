@@ -1,0 +1,1955 @@
+{
+  "envelope_version": 1,
+  "tables": {
+    "analyst_eps_revisions": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "currency": "string",
+        "down_last_30d": "integer",
+        "down_last_7d": "integer",
+        "fetched_at": "string (date-time)",
+        "period": "string",
+        "symbol": "string",
+        "up_last_30d": "integer",
+        "up_last_7d": "integer"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "as_of_date",
+        "period"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "analyst_eps_trend": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "currency": "string",
+        "current": "string (decimal)",
+        "days_ago_30": "string (decimal)",
+        "days_ago_60": "string (decimal)",
+        "days_ago_7": "string (decimal)",
+        "days_ago_90": "string (decimal)",
+        "fetched_at": "string (date-time)",
+        "period": "string",
+        "symbol": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "as_of_date",
+        "period"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "analyst_estimates": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "avg": "string (decimal)",
+        "currency": "string",
+        "fetched_at": "string (date-time)",
+        "growth": "string (decimal)",
+        "high": "string (decimal)",
+        "low": "string (decimal)",
+        "metric": "string",
+        "number_of_analysts": "integer",
+        "period": "string",
+        "symbol": "string",
+        "year_ago_value": "string (decimal)"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "as_of_date",
+        "metric",
+        "period"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "analyst_grade_changes": {
+      "columns": {
+        "action": "string",
+        "current_price_target": "string (decimal)",
+        "fetched_at": "string (date-time)",
+        "firm": "string",
+        "from_grade": "string",
+        "grade_ts_utc": "string (date-time)",
+        "price_target_action": "string",
+        "prior_price_target": "string (decimal)",
+        "symbol": "string",
+        "to_grade": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "grade_ts_utc",
+        "firm"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "analyst_growth_estimates": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "fetched_at": "string (date-time)",
+        "index_trend": "string (decimal)",
+        "industry_trend": "string (decimal)",
+        "period": "string",
+        "sector_trend": "string (decimal)",
+        "stock_trend": "string (decimal)",
+        "symbol": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "as_of_date",
+        "period"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "analyst_price_targets": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "current": "string (decimal)",
+        "fetched_at": "string (date-time)",
+        "high": "string (decimal)",
+        "low": "string (decimal)",
+        "mean": "string (decimal)",
+        "median": "string (decimal)",
+        "symbol": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "as_of_date"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "analyst_recommendations": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "buy": "integer",
+        "fetched_at": "string (date-time)",
+        "hold": "integer",
+        "period": "string",
+        "sell": "integer",
+        "strong_buy": "integer",
+        "strong_sell": "integer",
+        "symbol": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "as_of_date",
+        "period"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "calendar_earnings": {
+      "columns": {
+        "company": "string",
+        "eps_estimate": "string (decimal)",
+        "event_name": "string",
+        "event_start_ts_utc": "string (date-time)",
+        "fetched_at": "string (date-time)",
+        "is_known": "boolean",
+        "market_cap": "string (decimal)",
+        "reported_eps": "string (decimal)",
+        "surprise_pct": "string (decimal)",
+        "symbol": "string",
+        "timing": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "event_start_ts_utc"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "calendar_economic": {
+      "columns": {
+        "actual": "string (decimal)",
+        "event_name": "string",
+        "event_time_utc": "string (date-time)",
+        "expected": "string (decimal)",
+        "fetched_at": "string (date-time)",
+        "last_reported": "string (decimal)",
+        "period_for": "string",
+        "region": "string",
+        "revised": "string (decimal)"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "region",
+        "event_time_utc",
+        "event_name"
+      ],
+      "partition_key": "region",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "calendar_ipo": {
+      "columns": {
+        "action": "string",
+        "amended_date": "string (date)",
+        "company": "string",
+        "currency": "string",
+        "exchange": "string",
+        "fetched_at": "string (date-time)",
+        "filing_date": "string (date)",
+        "ipo_date_utc": "string (date-time)",
+        "is_known": "boolean",
+        "price": "string (decimal)",
+        "price_from": "string (decimal)",
+        "price_to": "string (decimal)",
+        "shares": "string (decimal)",
+        "symbol": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "ipo_date_utc",
+        "action"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "calendar_splits": {
+      "columns": {
+        "company": "string",
+        "fetched_at": "string (date-time)",
+        "is_known": "boolean",
+        "old_share_worth": "integer",
+        "optionable": "boolean",
+        "payable_on_utc": "string (date-time)",
+        "ratio": "string (decimal)",
+        "share_worth": "integer",
+        "symbol": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "payable_on_utc"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "capital_gains": {
+      "columns": {
+        "amount": "string (decimal)",
+        "gain_date": "string (date)",
+        "symbol": "string"
+      },
+      "family": "bars",
+      "key_columns": [
+        "symbol",
+        "gain_date"
+      ],
+      "partition_key": "symbol",
+      "range": {
+        "has_bar_interval": false,
+        "ts_column": "gain_date"
+      },
+      "topic": "yfin.changes.bars"
+    },
+    "company_officers": {
+      "columns": {
+        "age": "integer",
+        "exercised_value": "string (decimal)",
+        "fiscal_year": "integer",
+        "name": "string",
+        "symbol": "string",
+        "title": "string",
+        "total_pay": "string (decimal)",
+        "unexercised_value": "string (decimal)",
+        "year_born": "integer"
+      },
+      "family": "reference",
+      "key_columns": [
+        "symbol",
+        "name"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.reference"
+    },
+    "dividends": {
+      "columns": {
+        "amount": "string (decimal)",
+        "ex_date": "string (date)",
+        "symbol": "string"
+      },
+      "family": "bars",
+      "key_columns": [
+        "symbol",
+        "ex_date"
+      ],
+      "partition_key": "symbol",
+      "range": {
+        "has_bar_interval": false,
+        "ts_column": "ex_date"
+      },
+      "topic": "yfin.changes.bars"
+    },
+    "domain_metrics": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "benchmark_five_year_change_pct": "string (decimal)",
+        "benchmark_name": "string",
+        "benchmark_one_year_change_pct": "string (decimal)",
+        "benchmark_reg_market_change_pct": "string (decimal)",
+        "benchmark_three_year_change_pct": "string (decimal)",
+        "benchmark_ytd_change_pct": "string (decimal)",
+        "companies_count": "integer",
+        "domain_key": "string",
+        "employee_count": "integer",
+        "fetched_at": "string (date-time)",
+        "five_year_change_pct": "string (decimal)",
+        "industries_count": "integer",
+        "market_cap": "string (decimal)",
+        "market_weight": "string (decimal)",
+        "one_year_change_pct": "string (decimal)",
+        "raw_json": "string",
+        "reg_market_change_pct": "string (decimal)",
+        "three_year_change_pct": "string (decimal)",
+        "ytd_change_pct": "string (decimal)"
+      },
+      "family": "domains",
+      "key_columns": [
+        "domain_key",
+        "as_of_date"
+      ],
+      "partition_key": "domain_key",
+      "topic": "yfin.changes.domains"
+    },
+    "domain_report_links": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "domain_key": "string",
+        "fetched_at": "string (date-time)",
+        "position": "integer",
+        "report_id": "string"
+      },
+      "family": "domains",
+      "key_columns": [
+        "domain_key",
+        "as_of_date",
+        "report_id"
+      ],
+      "partition_key": "domain_key",
+      "topic": "yfin.changes.domains"
+    },
+    "domain_top_companies": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "domain_key": "string",
+        "fetched_at": "string (date-time)",
+        "is_known": "boolean",
+        "last_price": "string (decimal)",
+        "market_cap": "string (decimal)",
+        "market_weight": "string (decimal)",
+        "name": "string",
+        "rating": "string",
+        "reg_market_change_pct": "string (decimal)",
+        "region": "string",
+        "symbol": "string",
+        "target_price": "string (decimal)",
+        "ytd_return": "string (decimal)"
+      },
+      "family": "domains",
+      "key_columns": [
+        "domain_key",
+        "region",
+        "as_of_date",
+        "symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.domains"
+    },
+    "domain_top_funds": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "domain_key": "string",
+        "expense_ratio": "string (decimal)",
+        "fetched_at": "string (date-time)",
+        "fund_type": "string",
+        "is_known": "boolean",
+        "last_price": "string (decimal)",
+        "name": "string",
+        "net_assets": "string (decimal)",
+        "region": "string",
+        "symbol": "string",
+        "ytd_return": "string (decimal)"
+      },
+      "family": "domains",
+      "key_columns": [
+        "domain_key",
+        "region",
+        "as_of_date",
+        "fund_type",
+        "symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.domains"
+    },
+    "domain_top_movers": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "domain_key": "string",
+        "fetched_at": "string (date-time)",
+        "growth_estimate": "string (decimal)",
+        "is_known": "boolean",
+        "last_price": "string (decimal)",
+        "name": "string",
+        "rank_type": "string",
+        "region": "string",
+        "symbol": "string",
+        "target_price": "string (decimal)",
+        "ytd_return": "string (decimal)"
+      },
+      "family": "domains",
+      "key_columns": [
+        "domain_key",
+        "region",
+        "as_of_date",
+        "rank_type",
+        "symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.domains"
+    },
+    "domains": {
+      "columns": {
+        "description": "string",
+        "domain_key": "string",
+        "domain_type": "string",
+        "fetched_at": "string (date-time)",
+        "first_seen_at": "string (date-time)",
+        "message_board_id": "string",
+        "name": "string",
+        "parent_key": "string",
+        "symbol": "string"
+      },
+      "family": "domains",
+      "key_columns": [
+        "domain_key"
+      ],
+      "partition_key": "domain_key",
+      "topic": "yfin.changes.domains"
+    },
+    "earnings_dates": {
+      "columns": {
+        "earnings_date_local": "string (date)",
+        "earnings_ts_utc": "string (date-time)",
+        "eps_estimate": "string (decimal)",
+        "fact_hash": "string",
+        "fetched_at": "string (date-time)",
+        "reported_eps": "string (decimal)",
+        "surprise_pct": "string (decimal)",
+        "symbol": "string",
+        "tz_name": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "earnings_ts_utc",
+        "fact_hash"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "earnings_history": {
+      "columns": {
+        "eps_actual": "string (decimal)",
+        "eps_difference": "string (decimal)",
+        "eps_estimate": "string (decimal)",
+        "fetched_at": "string (date-time)",
+        "quarter_end": "string (date)",
+        "surprise_percent": "string (decimal)",
+        "symbol": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "quarter_end"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "financial_facts": {
+      "columns": {
+        "freq": "string",
+        "item_key": "string",
+        "period_end": "string (date)",
+        "statement": "string",
+        "symbol": "string",
+        "value": "string (decimal)"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "statement",
+        "freq",
+        "period_end",
+        "item_key"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "financial_periods": {
+      "columns": {
+        "content_hash": "string",
+        "currency": "string",
+        "fetched_at": "string (date-time)",
+        "freq": "string",
+        "item_count": "integer",
+        "period_end": "string (date)",
+        "raw_json": "string",
+        "statement": "string",
+        "symbol": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "statement",
+        "freq",
+        "period_end"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "fund_metrics": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "category_average": "string (decimal)",
+        "fetched_at": "string (date-time)",
+        "metric": "string",
+        "section": "string",
+        "symbol": "string",
+        "value": "string (decimal)"
+      },
+      "family": "holders",
+      "key_columns": [
+        "symbol",
+        "as_of_date",
+        "section",
+        "metric"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.holders"
+    },
+    "fund_profile": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "bond_position": "string (decimal)",
+        "cash_position": "string (decimal)",
+        "category_name": "string",
+        "convertible_position": "string (decimal)",
+        "description": "string",
+        "expense_ratio": "string (decimal)",
+        "expense_ratio_cat": "string (decimal)",
+        "family": "string",
+        "fetched_at": "string (date-time)",
+        "holdings_turnover": "string (decimal)",
+        "holdings_turnover_cat": "string (decimal)",
+        "legal_type": "string",
+        "other_position": "string (decimal)",
+        "preferred_position": "string (decimal)",
+        "quote_type": "string",
+        "raw_json": "string",
+        "stock_position": "string (decimal)",
+        "symbol": "string",
+        "total_net_assets": "string (decimal)",
+        "total_net_assets_cat": "string (decimal)"
+      },
+      "family": "holders",
+      "key_columns": [
+        "symbol",
+        "as_of_date"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.holders"
+    },
+    "fund_top_holdings": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "fetched_at": "string (date-time)",
+        "holding_name": "string",
+        "holding_percent": "string (decimal)",
+        "holding_rank": "integer",
+        "holding_symbol": "string",
+        "is_known": "boolean",
+        "symbol": "string"
+      },
+      "family": "holders",
+      "key_columns": [
+        "symbol",
+        "as_of_date",
+        "holding_symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.holders"
+    },
+    "fund_weightings": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "category": "string",
+        "fetched_at": "string (date-time)",
+        "item_key": "string",
+        "symbol": "string",
+        "weight": "string (decimal)"
+      },
+      "family": "holders",
+      "key_columns": [
+        "symbol",
+        "as_of_date",
+        "category",
+        "item_key"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.holders"
+    },
+    "history_metadata": {
+      "columns": {
+        "chart_previous_close": "string (decimal)",
+        "content_hash": "string",
+        "currency": "string",
+        "data_granularity": "string",
+        "exchange_name": "string",
+        "exchange_timezone_name": "string",
+        "fetched_at": "string (date-time)",
+        "fifty_two_week_high": "string (decimal)",
+        "fifty_two_week_low": "string (decimal)",
+        "first_trade_date": "string (date-time)",
+        "full_exchange_name": "string",
+        "gmt_offset": "integer",
+        "has_pre_post_market_data": "boolean",
+        "instrument_type": "string",
+        "long_name": "string",
+        "price_hint": "integer",
+        "range": "string",
+        "raw_json": "string",
+        "regular_market_day_high": "string (decimal)",
+        "regular_market_day_low": "string (decimal)",
+        "regular_market_price": "string (decimal)",
+        "regular_market_time": "string (date-time)",
+        "regular_market_volume": "integer",
+        "short_name": "string",
+        "symbol": "string",
+        "timezone": "string"
+      },
+      "family": "reference",
+      "key_columns": [
+        "symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.reference"
+    },
+    "holder_breakdown": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "fetched_at": "string (date-time)",
+        "insiders_pct_held": "string (decimal)",
+        "institutions_count": "integer",
+        "institutions_float_pct_held": "string (decimal)",
+        "institutions_pct_held": "string (decimal)",
+        "symbol": "string"
+      },
+      "family": "holders",
+      "key_columns": [
+        "symbol",
+        "as_of_date"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.holders"
+    },
+    "insider_activity": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "buy_pct": "string (decimal)",
+        "fetched_at": "string (date-time)",
+        "net_pct": "string (decimal)",
+        "net_shares": "string (decimal)",
+        "net_trans": "integer",
+        "period_label": "string",
+        "purchases_shares": "string (decimal)",
+        "purchases_trans": "integer",
+        "sales_shares": "string (decimal)",
+        "sales_trans": "integer",
+        "sell_pct": "string (decimal)",
+        "symbol": "string",
+        "total_insider_shares": "string (decimal)"
+      },
+      "family": "holders",
+      "key_columns": [
+        "symbol",
+        "as_of_date"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.holders"
+    },
+    "insider_roster": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "fetched_at": "string (date-time)",
+        "latest_transaction_date": "string (date-time)",
+        "most_recent_transaction": "string",
+        "name": "string",
+        "position": "string",
+        "position_direct_date": "string (date-time)",
+        "position_indirect_date": "string (date-time)",
+        "position_summary": "string (decimal)",
+        "position_summary_date": "string (date-time)",
+        "shares_owned_directly": "string (decimal)",
+        "shares_owned_indirectly": "string (decimal)",
+        "symbol": "string",
+        "url": "string"
+      },
+      "family": "holders",
+      "key_columns": [
+        "symbol",
+        "as_of_date",
+        "name"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.holders"
+    },
+    "insider_transactions": {
+      "columns": {
+        "fact_hash": "string",
+        "fetched_at": "string (date-time)",
+        "insider": "string",
+        "ownership": "string",
+        "position": "string",
+        "shares": "string (decimal)",
+        "start_date": "string (date)",
+        "symbol": "string",
+        "text": "string",
+        "transaction_label": "string",
+        "url": "string",
+        "value": "string (decimal)"
+      },
+      "family": "holders",
+      "key_columns": [
+        "symbol",
+        "start_date",
+        "fact_hash"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.holders"
+    },
+    "institutional_holders": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "date_reported": "string (date)",
+        "fetched_at": "string (date-time)",
+        "holder": "string",
+        "holder_type": "string",
+        "pct_change": "string (decimal)",
+        "pct_held": "string (decimal)",
+        "shares": "string (decimal)",
+        "symbol": "string",
+        "value": "string (decimal)"
+      },
+      "family": "holders",
+      "key_columns": [
+        "symbol",
+        "as_of_date",
+        "holder_type",
+        "holder"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.holders"
+    },
+    "lookup_results": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "exchange": "string",
+        "fetched_at": "string (date-time)",
+        "fullday_change": "string (decimal)",
+        "fullday_change_percent": "string (decimal)",
+        "fullday_price": "string (decimal)",
+        "industry_link": "string",
+        "industry_name": "string",
+        "is_known": "boolean",
+        "lookup_type": "string",
+        "query_term": "string",
+        "quote_type": "string",
+        "rank_index": "integer",
+        "raw_json": "string",
+        "regular_market_change": "string (decimal)",
+        "regular_market_percent_change": "string (decimal)",
+        "regular_market_price": "string (decimal)",
+        "short_name": "string",
+        "source_rank": "integer",
+        "symbol": "string"
+      },
+      "family": "discovery",
+      "key_columns": [
+        "query_term",
+        "as_of_date",
+        "symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.discovery"
+    },
+    "lookup_totals": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "fetched_at": "string (date-time)",
+        "lookup_type": "string",
+        "query_term": "string",
+        "total": "integer"
+      },
+      "family": "discovery",
+      "key_columns": [
+        "query_term",
+        "as_of_date",
+        "lookup_type"
+      ],
+      "partition_key": "query_term",
+      "topic": "yfin.changes.discovery"
+    },
+    "market_status": {
+      "columns": {
+        "close_ts_utc": "string (date-time)",
+        "content_hash": "string",
+        "fetched_at": "string (date-time)",
+        "gmt_offset": "integer",
+        "market_id": "string",
+        "message": "string",
+        "name": "string",
+        "open_ts_utc": "string (date-time)",
+        "raw_json": "string",
+        "region": "string",
+        "status": "string",
+        "timezone_name": "string",
+        "tz_short": "string",
+        "yfit_market_status": "string"
+      },
+      "family": "reference",
+      "key_columns": [
+        "region"
+      ],
+      "partition_key": "region",
+      "topic": "yfin.changes.reference"
+    },
+    "market_status_history": {
+      "columns": {
+        "close_ts_utc": "string (date-time)",
+        "content_hash": "string",
+        "fetched_at": "string (date-time)",
+        "gmt_offset": "integer",
+        "market_id": "string",
+        "message": "string",
+        "name": "string",
+        "open_ts_utc": "string (date-time)",
+        "raw_json": "string",
+        "region": "string",
+        "status": "string",
+        "timezone_name": "string",
+        "tz_short": "string",
+        "yfit_market_status": "string"
+      },
+      "family": "reference",
+      "key_columns": [
+        "region",
+        "fetched_at"
+      ],
+      "partition_key": "region",
+      "topic": "yfin.changes.reference"
+    },
+    "market_summary": {
+      "columns": {
+        "board_code": "string",
+        "content_hash": "string",
+        "currency": "string",
+        "exchange": "string",
+        "exchange_timezone_name": "string",
+        "fetched_at": "string (date-time)",
+        "is_known": "boolean",
+        "market_state": "string",
+        "quote_type": "string",
+        "raw_json": "string",
+        "region": "string",
+        "regular_market_change": "string (decimal)",
+        "regular_market_change_percent": "string (decimal)",
+        "regular_market_previous_close": "string (decimal)",
+        "regular_market_price": "string (decimal)",
+        "regular_market_ts_utc": "string (date-time)",
+        "short_name": "string",
+        "symbol": "string"
+      },
+      "family": "reference",
+      "key_columns": [
+        "region",
+        "board_code"
+      ],
+      "partition_key": "region",
+      "topic": "yfin.changes.reference"
+    },
+    "market_summary_history": {
+      "columns": {
+        "board_code": "string",
+        "content_hash": "string",
+        "currency": "string",
+        "exchange": "string",
+        "exchange_timezone_name": "string",
+        "fetched_at": "string (date-time)",
+        "is_known": "boolean",
+        "market_state": "string",
+        "quote_type": "string",
+        "raw_json": "string",
+        "region": "string",
+        "regular_market_change": "string (decimal)",
+        "regular_market_change_percent": "string (decimal)",
+        "regular_market_previous_close": "string (decimal)",
+        "regular_market_price": "string (decimal)",
+        "regular_market_ts_utc": "string (date-time)",
+        "short_name": "string",
+        "symbol": "string"
+      },
+      "family": "reference",
+      "key_columns": [
+        "region",
+        "board_code",
+        "fetched_at"
+      ],
+      "partition_key": "region",
+      "topic": "yfin.changes.reference"
+    },
+    "news": {
+      "columns": {
+        "canonical_url": "string",
+        "click_through_url": "string",
+        "content_type": "string",
+        "description": "string",
+        "display_time": "string (date-time)",
+        "news_id": "string",
+        "provider_name": "string",
+        "provider_source_id": "string",
+        "provider_url": "string",
+        "pub_date": "string (date-time)",
+        "raw_json": "string",
+        "summary": "string",
+        "thumbnail_height": "integer",
+        "thumbnail_url": "string",
+        "thumbnail_width": "integer",
+        "title": "string"
+      },
+      "family": "news",
+      "key_columns": [
+        "news_id"
+      ],
+      "partition_key": "news_id",
+      "topic": "yfin.changes.news"
+    },
+    "news_symbols": {
+      "columns": {
+        "is_known": "boolean",
+        "news_id": "string",
+        "symbol": "string"
+      },
+      "family": "news",
+      "key_columns": [
+        "news_id",
+        "symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.news"
+    },
+    "periodic_bars": {
+      "columns": {
+        "bar_interval": "string",
+        "close": "string (decimal)",
+        "high": "string (decimal)",
+        "local_date": "string (date)",
+        "low": "string (decimal)",
+        "open": "string (decimal)",
+        "symbol": "string",
+        "ts_utc": "string (date-time)",
+        "volume": "integer"
+      },
+      "family": "bars",
+      "key_columns": [
+        "symbol",
+        "bar_interval",
+        "ts_utc"
+      ],
+      "partition_key": "symbol",
+      "range": {
+        "has_bar_interval": true,
+        "ts_column": "ts_utc"
+      },
+      "topic": "yfin.changes.bars"
+    },
+    "price_bars": {
+      "columns": {
+        "bar_interval": "string",
+        "close": "string (decimal)",
+        "high": "string (decimal)",
+        "is_extended": "boolean",
+        "local_date": "string (date)",
+        "low": "string (decimal)",
+        "open": "string (decimal)",
+        "symbol": "string",
+        "ts_utc": "string (date-time)",
+        "volume": "integer"
+      },
+      "family": "bars",
+      "key_columns": [
+        "symbol",
+        "bar_interval",
+        "ts_utc"
+      ],
+      "partition_key": "symbol",
+      "range": {
+        "has_bar_interval": true,
+        "ts_column": "ts_utc"
+      },
+      "topic": "yfin.changes.bars"
+    },
+    "price_history": {
+      "columns": {
+        "adj_close": "string (decimal)",
+        "capital_gain": "string (decimal)",
+        "close": "string (decimal)",
+        "dividend": "string (decimal)",
+        "high": "string (decimal)",
+        "is_repaired": "boolean",
+        "low": "string (decimal)",
+        "open": "string (decimal)",
+        "session_date": "string (date)",
+        "split_ratio": "string (decimal)",
+        "symbol": "string",
+        "ts_utc": "string (date-time)",
+        "volume": "integer"
+      },
+      "family": "bars",
+      "key_columns": [
+        "symbol",
+        "session_date"
+      ],
+      "partition_key": "symbol",
+      "range": {
+        "has_bar_interval": false,
+        "ts_column": "session_date"
+      },
+      "topic": "yfin.changes.bars"
+    },
+    "research_reports": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "author": "string",
+        "fetched_at": "string (date-time)",
+        "first_seen_at": "string (date-time)",
+        "head_html": "string",
+        "investment_rating": "string",
+        "provider": "string",
+        "report_headline": "string",
+        "report_id": "string",
+        "report_title": "string",
+        "report_ts_utc": "string (date-time)",
+        "report_type": "string",
+        "target_price": "string (decimal)",
+        "target_price_status": "string"
+      },
+      "family": "domains",
+      "key_columns": [
+        "report_id"
+      ],
+      "partition_key": "report_id",
+      "topic": "yfin.changes.domains"
+    },
+    "screen_members": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "fetched_at": "string (date-time)",
+        "is_known": "boolean",
+        "rank_index": "integer",
+        "screen_key": "string",
+        "symbol": "string"
+      },
+      "family": "discovery",
+      "key_columns": [
+        "screen_key",
+        "as_of_date",
+        "symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.discovery"
+    },
+    "screen_quotes": {
+      "columns": {
+        "annual_return_nav_y3": "string (decimal)",
+        "annual_return_nav_y5": "string (decimal)",
+        "as_of_date": "string (date)",
+        "ask": "string (decimal)",
+        "ask_size": "integer",
+        "average_analyst_rating": "string",
+        "average_daily_volume_10day": "integer",
+        "average_daily_volume_3month": "integer",
+        "bid": "string (decimal)",
+        "bid_size": "integer",
+        "book_value": "string (decimal)",
+        "crypto_tradeable": "boolean",
+        "currency": "string",
+        "custom_price_alert_confidence": "string",
+        "display_name": "string",
+        "dividend_date": "string (date-time)",
+        "dividend_rate": "string (decimal)",
+        "dividend_yield": "string (decimal)",
+        "earnings_call_timestamp_end": "string (date-time)",
+        "earnings_call_timestamp_start": "string (date-time)",
+        "earnings_timestamp": "string (date-time)",
+        "earnings_timestamp_end": "string (date-time)",
+        "earnings_timestamp_start": "string (date-time)",
+        "eps_current_year": "string (decimal)",
+        "eps_forward": "string (decimal)",
+        "eps_trailing_twelve_months": "string (decimal)",
+        "esg_populated": "boolean",
+        "exchange": "string",
+        "exchange_data_delayed_by": "integer",
+        "exchange_timezone_name": "string",
+        "exchange_timezone_short_name": "string",
+        "fetched_at": "string (date-time)",
+        "fifty_day_average": "string (decimal)",
+        "fifty_day_average_change": "string (decimal)",
+        "fifty_day_average_change_percent": "string (decimal)",
+        "fifty_two_week_change_percent": "string (decimal)",
+        "fifty_two_week_high": "string (decimal)",
+        "fifty_two_week_high_change": "string (decimal)",
+        "fifty_two_week_high_change_percent": "string (decimal)",
+        "fifty_two_week_low": "string (decimal)",
+        "fifty_two_week_low_change": "string (decimal)",
+        "fifty_two_week_low_change_percent": "string (decimal)",
+        "fifty_two_week_range": "string",
+        "financial_currency": "string",
+        "first_trade_date": "string (date-time)",
+        "forward_pe": "string (decimal)",
+        "full_exchange_name": "string",
+        "fullday_change": "string (decimal)",
+        "fullday_change_percent": "string (decimal)",
+        "fullday_price": "string (decimal)",
+        "gmt_offset_milliseconds": "integer",
+        "has_pre_post_market_data": "boolean",
+        "implied_shares_outstanding": "string (decimal)",
+        "ipo_expected_date": "string (date-time)",
+        "is_earnings_date_estimate": "boolean",
+        "is_known": "boolean",
+        "language": "string",
+        "last_close_price_to_nnwc_per_share": "string (decimal)",
+        "last_close_tev_ebit_ltm": "string (decimal)",
+        "long_name": "string",
+        "market": "string",
+        "market_cap": "string (decimal)",
+        "market_state": "string",
+        "message_board_id": "string",
+        "name_change_date": "string (date-time)",
+        "net_assets": "string (decimal)",
+        "net_expense_ratio": "string (decimal)",
+        "pe_ttm": "string (decimal)",
+        "post_market_change": "string (decimal)",
+        "post_market_change_percent": "string (decimal)",
+        "post_market_price": "string (decimal)",
+        "post_market_time": "string (date-time)",
+        "prev_name": "string",
+        "price_eps_current_year": "string (decimal)",
+        "price_hint": "integer",
+        "price_to_book": "string (decimal)",
+        "quote_source_name": "string",
+        "quote_type": "string",
+        "raw_json": "string",
+        "region": "string",
+        "regular_market_change": "string (decimal)",
+        "regular_market_change_percent": "string (decimal)",
+        "regular_market_day_high": "string (decimal)",
+        "regular_market_day_low": "string (decimal)",
+        "regular_market_day_range": "string",
+        "regular_market_open": "string (decimal)",
+        "regular_market_previous_close": "string (decimal)",
+        "regular_market_price": "string (decimal)",
+        "regular_market_time": "string (date-time)",
+        "regular_market_volume": "integer",
+        "shares_outstanding": "string (decimal)",
+        "short_name": "string",
+        "source_interval": "integer",
+        "symbol": "string",
+        "tradeable": "boolean",
+        "trailing_annual_dividend_rate": "string (decimal)",
+        "trailing_annual_dividend_yield": "string (decimal)",
+        "trailing_pe": "string (decimal)",
+        "trailing_three_month_nav_returns": "string (decimal)",
+        "trailing_three_month_returns": "string (decimal)",
+        "triggerable": "boolean",
+        "two_hundred_day_average": "string (decimal)",
+        "two_hundred_day_average_change": "string (decimal)",
+        "two_hundred_day_average_change_percent": "string (decimal)",
+        "type_disp": "string",
+        "yield_ttm": "string (decimal)",
+        "ytd_return": "string (decimal)"
+      },
+      "family": "discovery",
+      "key_columns": [
+        "symbol",
+        "as_of_date"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.discovery"
+    },
+    "screen_runs": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "content_hash": "string",
+        "criteria_json": "string",
+        "fetched_at": "string (date-time)",
+        "fetched_rows": "integer",
+        "last_updated": "string (date-time)",
+        "page_count": "integer",
+        "row_count": "integer",
+        "screen_key": "string",
+        "total": "integer",
+        "version_id": "integer",
+        "yahoo_id": "string"
+      },
+      "family": "discovery",
+      "key_columns": [
+        "screen_key",
+        "as_of_date"
+      ],
+      "partition_key": "screen_key",
+      "topic": "yfin.changes.discovery"
+    },
+    "screens": {
+      "columns": {
+        "created_at": "string (date-time)",
+        "definition_json": "string",
+        "description": "string",
+        "is_enabled": "boolean",
+        "kind": "string",
+        "quote_type": "string",
+        "screen_key": "string",
+        "sort_asc": "boolean",
+        "sort_field": "string",
+        "title": "string",
+        "updated_at": "string (date-time)"
+      },
+      "family": "discovery",
+      "key_columns": [
+        "screen_key"
+      ],
+      "partition_key": "screen_key",
+      "topic": "yfin.changes.discovery"
+    },
+    "search_lists": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "brand_slug": "string",
+        "daily_percent_gain": "string (decimal)",
+        "fetched_at": "string (date-time)",
+        "follower_count": "integer",
+        "icon_url": "string",
+        "is_premium": "boolean",
+        "list_key": "string",
+        "list_type": "string",
+        "name": "string",
+        "pf_id": "string",
+        "query_term": "string",
+        "rank_index": "integer",
+        "raw_json": "string",
+        "score": "string (decimal)",
+        "symbol_count": "integer",
+        "total": "integer",
+        "user_id": "string",
+        "yahoo_id": "string"
+      },
+      "family": "discovery",
+      "key_columns": [
+        "query_term",
+        "as_of_date",
+        "list_key"
+      ],
+      "partition_key": "query_term",
+      "topic": "yfin.changes.discovery"
+    },
+    "search_quotes": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "disp_sec_ind_flag": "boolean",
+        "exch_disp": "string",
+        "exchange": "string",
+        "fetched_at": "string (date-time)",
+        "industry": "string",
+        "industry_disp": "string",
+        "is_known": "boolean",
+        "is_yahoo_finance": "boolean",
+        "long_name": "string",
+        "name_change_date": "string (date-time)",
+        "prev_name": "string",
+        "query_term": "string",
+        "quote_type": "string",
+        "rank_index": "integer",
+        "raw_json": "string",
+        "score": "string (decimal)",
+        "sector": "string",
+        "sector_disp": "string",
+        "short_name": "string",
+        "symbol": "string",
+        "type_disp": "string"
+      },
+      "family": "discovery",
+      "key_columns": [
+        "query_term",
+        "as_of_date",
+        "symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.discovery"
+    },
+    "search_report_hits": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "fetched_at": "string (date-time)",
+        "query_term": "string",
+        "rank_index": "integer",
+        "report_id": "string"
+      },
+      "family": "discovery",
+      "key_columns": [
+        "query_term",
+        "as_of_date",
+        "report_id"
+      ],
+      "partition_key": "query_term",
+      "topic": "yfin.changes.discovery"
+    },
+    "sec_filing_exhibits": {
+      "columns": {
+        "exhibit_type": "string",
+        "filing_id": "string",
+        "symbol": "string",
+        "url": "string",
+        "url_hash": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "filing_id",
+        "exhibit_type",
+        "url_hash"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "sec_filings": {
+      "columns": {
+        "edgar_url": "string",
+        "exhibit_count": "integer",
+        "fetched_at": "string (date-time)",
+        "filed_ts_utc": "string (date-time)",
+        "filing_date": "string (date)",
+        "filing_id": "string",
+        "filing_type": "string",
+        "raw_json": "string",
+        "symbol": "string",
+        "title": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "filing_id"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "shares_full": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "shares": "integer",
+        "symbol": "string",
+        "ts_utc": "string (date-time)"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "as_of_date",
+        "shares"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "splits": {
+      "columns": {
+        "ratio": "string (decimal)",
+        "split_date": "string (date)",
+        "symbol": "string"
+      },
+      "family": "bars",
+      "key_columns": [
+        "symbol",
+        "split_date"
+      ],
+      "partition_key": "symbol",
+      "range": {
+        "has_bar_interval": false,
+        "ts_column": "split_date"
+      },
+      "topic": "yfin.changes.bars"
+    },
+    "symbols": {
+      "columns": {
+        "created_at": "string (date-time)",
+        "currency": "string",
+        "discovered_at": "string (date-time)",
+        "discovered_by": "string",
+        "exchange": "string",
+        "first_trade_date": "string (date-time)",
+        "full_exchange_name": "string",
+        "is_active": "boolean",
+        "isin": "string",
+        "last_seen_at": "string (date-time)",
+        "long_name": "string",
+        "quote_type": "string",
+        "short_name": "string",
+        "symbol": "string",
+        "timezone": "string",
+        "unknown_streak": "integer",
+        "updated_at": "string (date-time)"
+      },
+      "family": "reference",
+      "key_columns": [
+        "symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.reference"
+    },
+    "ticker_calendar": {
+      "columns": {
+        "content_hash": "string",
+        "dividend_date": "string (date)",
+        "earnings_average": "string (decimal)",
+        "earnings_date_count": "integer",
+        "earnings_date_end": "string (date)",
+        "earnings_date_start": "string (date)",
+        "earnings_high": "string (decimal)",
+        "earnings_low": "string (decimal)",
+        "ex_dividend_date": "string (date)",
+        "fetched_at": "string (date-time)",
+        "raw_json": "string",
+        "revenue_average": "string (decimal)",
+        "revenue_high": "string (decimal)",
+        "revenue_low": "string (decimal)",
+        "symbol": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "ticker_calendar_history": {
+      "columns": {
+        "content_hash": "string",
+        "dividend_date": "string (date)",
+        "earnings_average": "string (decimal)",
+        "earnings_date_count": "integer",
+        "earnings_date_end": "string (date)",
+        "earnings_date_start": "string (date)",
+        "earnings_high": "string (decimal)",
+        "earnings_low": "string (decimal)",
+        "ex_dividend_date": "string (date)",
+        "fetched_at": "string (date-time)",
+        "raw_json": "string",
+        "revenue_average": "string (decimal)",
+        "revenue_high": "string (decimal)",
+        "revenue_low": "string (decimal)",
+        "symbol": "string"
+      },
+      "family": "fundamentals",
+      "key_columns": [
+        "symbol",
+        "fetched_at"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.fundamentals"
+    },
+    "ticker_fast_info": {
+      "columns": {
+        "content_hash": "string",
+        "currency": "string",
+        "day_high": "string (decimal)",
+        "day_low": "string (decimal)",
+        "exchange": "string",
+        "fetched_at": "string (date-time)",
+        "fifty_day_average": "string (decimal)",
+        "last_price": "string (decimal)",
+        "last_volume": "integer",
+        "market_cap": "string (decimal)",
+        "open": "string (decimal)",
+        "previous_close": "string (decimal)",
+        "quote_type": "string",
+        "raw_json": "string",
+        "regular_market_previous_close": "string (decimal)",
+        "shares": "string (decimal)",
+        "symbol": "string",
+        "ten_day_average_volume": "integer",
+        "three_month_average_volume": "integer",
+        "timezone": "string",
+        "two_hundred_day_average": "string (decimal)",
+        "year_change": "string (decimal)",
+        "year_high": "string (decimal)",
+        "year_low": "string (decimal)"
+      },
+      "family": "reference",
+      "key_columns": [
+        "symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.reference"
+    },
+    "ticker_fast_info_history": {
+      "columns": {
+        "content_hash": "string",
+        "currency": "string",
+        "day_high": "string (decimal)",
+        "day_low": "string (decimal)",
+        "exchange": "string",
+        "fetched_at": "string (date-time)",
+        "fifty_day_average": "string (decimal)",
+        "last_price": "string (decimal)",
+        "last_volume": "integer",
+        "market_cap": "string (decimal)",
+        "open": "string (decimal)",
+        "previous_close": "string (decimal)",
+        "quote_type": "string",
+        "raw_json": "string",
+        "regular_market_previous_close": "string (decimal)",
+        "shares": "string (decimal)",
+        "symbol": "string",
+        "ten_day_average_volume": "integer",
+        "three_month_average_volume": "integer",
+        "timezone": "string",
+        "two_hundred_day_average": "string (decimal)",
+        "year_change": "string (decimal)",
+        "year_high": "string (decimal)",
+        "year_low": "string (decimal)"
+      },
+      "family": "reference",
+      "key_columns": [
+        "symbol",
+        "fetched_at"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.reference"
+    },
+    "ticker_info": {
+      "columns": {
+        "address1": "string",
+        "address2": "string",
+        "all_time_high": "string (decimal)",
+        "all_time_low": "string (decimal)",
+        "ask": "string (decimal)",
+        "ask_size": "integer",
+        "average_analyst_rating": "string",
+        "average_daily_volume_10day": "integer",
+        "average_daily_volume_3month": "integer",
+        "average_volume": "integer",
+        "average_volume_10days": "integer",
+        "beta": "string (decimal)",
+        "beta_3_year": "string (decimal)",
+        "bid": "string (decimal)",
+        "bid_size": "integer",
+        "book_value": "string (decimal)",
+        "category": "string",
+        "circulating_supply": "string (decimal)",
+        "city": "string",
+        "compensation_as_of_epoch_date": "string (date-time)",
+        "content_hash": "string",
+        "country": "string",
+        "crypto_tradeable": "boolean",
+        "currency": "string",
+        "current_price": "string (decimal)",
+        "current_ratio": "string (decimal)",
+        "date_short_interest": "string (date-time)",
+        "day_high": "string (decimal)",
+        "day_low": "string (decimal)",
+        "debt_to_equity": "string (decimal)",
+        "display_name": "string",
+        "dividend_date": "string (date-time)",
+        "dividend_rate": "string (decimal)",
+        "dividend_yield": "string (decimal)",
+        "earnings_call_timestamp_end": "string (date-time)",
+        "earnings_call_timestamp_start": "string (date-time)",
+        "earnings_growth": "string (decimal)",
+        "earnings_quarterly_growth": "string (decimal)",
+        "earnings_timestamp": "string (date-time)",
+        "earnings_timestamp_end": "string (date-time)",
+        "earnings_timestamp_start": "string (date-time)",
+        "ebitda": "string (decimal)",
+        "ebitda_margins": "string (decimal)",
+        "enterprise_to_ebitda": "string (decimal)",
+        "enterprise_to_revenue": "string (decimal)",
+        "enterprise_value": "string (decimal)",
+        "eps_current_year": "string (decimal)",
+        "eps_forward": "string (decimal)",
+        "eps_trailing_twelve_months": "string (decimal)",
+        "esg_populated": "boolean",
+        "ex_dividend_date": "string (date-time)",
+        "exchange": "string",
+        "exchange_data_delayed_by": "integer",
+        "exchange_timezone_name": "string",
+        "exchange_timezone_short_name": "string",
+        "fax": "string",
+        "fetched_at": "string (date-time)",
+        "fifty_day_average": "string (decimal)",
+        "fifty_two_week_change_percent": "string (decimal)",
+        "fifty_two_week_high": "string (decimal)",
+        "fifty_two_week_low": "string (decimal)",
+        "fifty_two_week_range": "string",
+        "financial_currency": "string",
+        "first_trade_date": "string (date-time)",
+        "five_year_average_return": "string (decimal)",
+        "five_year_avg_dividend_yield": "string (decimal)",
+        "float_shares": "string (decimal)",
+        "forward_eps": "string (decimal)",
+        "forward_pe": "string (decimal)",
+        "free_cashflow": "string (decimal)",
+        "from_currency": "string",
+        "full_exchange_name": "string",
+        "full_time_employees": "integer",
+        "fully_diluted_value": "string (decimal)",
+        "fund_family": "string",
+        "fund_inception_date": "string (date-time)",
+        "fund_yield": "string (decimal)",
+        "gmt_offset_milliseconds": "integer",
+        "governance_epoch_date": "string (date-time)",
+        "gross_margins": "string (decimal)",
+        "gross_profits": "string (decimal)",
+        "has_pre_post_market_data": "boolean",
+        "held_percent_insiders": "string (decimal)",
+        "held_percent_institutions": "string (decimal)",
+        "implied_shares_outstanding": "string (decimal)",
+        "industry": "string",
+        "industry_disp": "string",
+        "industry_key": "string",
+        "ir_website": "string",
+        "is_earnings_date_estimate": "boolean",
+        "language": "string",
+        "last_dividend_date": "string (date-time)",
+        "last_dividend_value": "string (decimal)",
+        "last_fiscal_year_end": "string (date-time)",
+        "last_market": "string",
+        "last_split_date": "string (date-time)",
+        "last_split_factor": "string",
+        "legal_type": "string",
+        "long_business_summary": "string",
+        "long_name": "string",
+        "market": "string",
+        "market_cap": "string (decimal)",
+        "market_state": "string",
+        "max_supply": "string (decimal)",
+        "message_board_id": "string",
+        "most_recent_quarter": "string (date-time)",
+        "nav_price": "string (decimal)",
+        "net_assets": "string (decimal)",
+        "net_expense_ratio": "string (decimal)",
+        "net_income_to_common": "string (decimal)",
+        "next_fiscal_year_end": "string (date-time)",
+        "non_diluted_market_cap": "string (decimal)",
+        "number_of_analyst_opinions": "integer",
+        "open": "string (decimal)",
+        "operating_cashflow": "string (decimal)",
+        "operating_margins": "string (decimal)",
+        "payout_ratio": "string (decimal)",
+        "peg_ratio": "string (decimal)",
+        "phone": "string",
+        "pre_market_change": "string (decimal)",
+        "pre_market_change_percent": "string (decimal)",
+        "pre_market_price": "string (decimal)",
+        "pre_market_time": "string (date-time)",
+        "previous_close": "string (decimal)",
+        "price_eps_current_year": "string (decimal)",
+        "price_hint": "integer",
+        "price_to_book": "string (decimal)",
+        "price_to_sales_trailing_12_months": "string (decimal)",
+        "profit_margins": "string (decimal)",
+        "quick_ratio": "string (decimal)",
+        "quote_source_name": "string",
+        "quote_type": "string",
+        "raw_json": "string",
+        "recommendation_key": "string",
+        "recommendation_mean": "string (decimal)",
+        "region": "string",
+        "regular_market_change": "string (decimal)",
+        "regular_market_change_percent": "string (decimal)",
+        "regular_market_day_high": "string (decimal)",
+        "regular_market_day_low": "string (decimal)",
+        "regular_market_day_range": "string",
+        "regular_market_open": "string (decimal)",
+        "regular_market_previous_close": "string (decimal)",
+        "regular_market_price": "string (decimal)",
+        "regular_market_time": "string (date-time)",
+        "regular_market_volume": "integer",
+        "return_on_assets": "string (decimal)",
+        "return_on_equity": "string (decimal)",
+        "revenue_growth": "string (decimal)",
+        "revenue_per_share": "string (decimal)",
+        "sector": "string",
+        "sector_disp": "string",
+        "sector_key": "string",
+        "shares_outstanding": "string (decimal)",
+        "shares_short": "string (decimal)",
+        "shares_short_previous_month_date": "string (date-time)",
+        "shares_short_prior_month": "string (decimal)",
+        "short_name": "string",
+        "short_percent_of_float": "string (decimal)",
+        "short_ratio": "string (decimal)",
+        "source_interval": "integer",
+        "start_date": "string (date-time)",
+        "state": "string",
+        "symbol": "string",
+        "target_high_price": "string (decimal)",
+        "target_low_price": "string (decimal)",
+        "target_mean_price": "string (decimal)",
+        "target_median_price": "string (decimal)",
+        "three_year_average_return": "string (decimal)",
+        "to_currency": "string",
+        "total_assets": "string (decimal)",
+        "total_cash": "string (decimal)",
+        "total_cash_per_share": "string (decimal)",
+        "total_debt": "string (decimal)",
+        "total_revenue": "string (decimal)",
+        "total_supply": "string (decimal)",
+        "tradeable": "boolean",
+        "trailing_annual_dividend_rate": "string (decimal)",
+        "trailing_annual_dividend_yield": "string (decimal)",
+        "trailing_eps": "string (decimal)",
+        "trailing_pe": "string (decimal)",
+        "trailing_peg_ratio": "string (decimal)",
+        "triggerable": "boolean",
+        "two_hundred_day_average": "string (decimal)",
+        "type_disp": "string",
+        "volume": "integer",
+        "volume_24hr": "string (decimal)",
+        "volume_all_currencies": "string (decimal)",
+        "website": "string",
+        "ytd_return": "string (decimal)",
+        "zip": "string"
+      },
+      "family": "reference",
+      "key_columns": [
+        "symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.reference"
+    },
+    "ticker_info_history": {
+      "columns": {
+        "address1": "string",
+        "address2": "string",
+        "all_time_high": "string (decimal)",
+        "all_time_low": "string (decimal)",
+        "ask": "string (decimal)",
+        "ask_size": "integer",
+        "average_analyst_rating": "string",
+        "average_daily_volume_10day": "integer",
+        "average_daily_volume_3month": "integer",
+        "average_volume": "integer",
+        "average_volume_10days": "integer",
+        "beta": "string (decimal)",
+        "beta_3_year": "string (decimal)",
+        "bid": "string (decimal)",
+        "bid_size": "integer",
+        "book_value": "string (decimal)",
+        "category": "string",
+        "circulating_supply": "string (decimal)",
+        "city": "string",
+        "compensation_as_of_epoch_date": "string (date-time)",
+        "content_hash": "string",
+        "country": "string",
+        "crypto_tradeable": "boolean",
+        "currency": "string",
+        "current_price": "string (decimal)",
+        "current_ratio": "string (decimal)",
+        "date_short_interest": "string (date-time)",
+        "day_high": "string (decimal)",
+        "day_low": "string (decimal)",
+        "debt_to_equity": "string (decimal)",
+        "display_name": "string",
+        "dividend_date": "string (date-time)",
+        "dividend_rate": "string (decimal)",
+        "dividend_yield": "string (decimal)",
+        "earnings_call_timestamp_end": "string (date-time)",
+        "earnings_call_timestamp_start": "string (date-time)",
+        "earnings_growth": "string (decimal)",
+        "earnings_quarterly_growth": "string (decimal)",
+        "earnings_timestamp": "string (date-time)",
+        "earnings_timestamp_end": "string (date-time)",
+        "earnings_timestamp_start": "string (date-time)",
+        "ebitda": "string (decimal)",
+        "ebitda_margins": "string (decimal)",
+        "enterprise_to_ebitda": "string (decimal)",
+        "enterprise_to_revenue": "string (decimal)",
+        "enterprise_value": "string (decimal)",
+        "eps_current_year": "string (decimal)",
+        "eps_forward": "string (decimal)",
+        "eps_trailing_twelve_months": "string (decimal)",
+        "esg_populated": "boolean",
+        "ex_dividend_date": "string (date-time)",
+        "exchange": "string",
+        "exchange_data_delayed_by": "integer",
+        "exchange_timezone_name": "string",
+        "exchange_timezone_short_name": "string",
+        "fax": "string",
+        "fetched_at": "string (date-time)",
+        "fifty_day_average": "string (decimal)",
+        "fifty_two_week_change_percent": "string (decimal)",
+        "fifty_two_week_high": "string (decimal)",
+        "fifty_two_week_low": "string (decimal)",
+        "fifty_two_week_range": "string",
+        "financial_currency": "string",
+        "first_trade_date": "string (date-time)",
+        "five_year_average_return": "string (decimal)",
+        "five_year_avg_dividend_yield": "string (decimal)",
+        "float_shares": "string (decimal)",
+        "forward_eps": "string (decimal)",
+        "forward_pe": "string (decimal)",
+        "free_cashflow": "string (decimal)",
+        "from_currency": "string",
+        "full_exchange_name": "string",
+        "full_time_employees": "integer",
+        "fully_diluted_value": "string (decimal)",
+        "fund_family": "string",
+        "fund_inception_date": "string (date-time)",
+        "fund_yield": "string (decimal)",
+        "gmt_offset_milliseconds": "integer",
+        "governance_epoch_date": "string (date-time)",
+        "gross_margins": "string (decimal)",
+        "gross_profits": "string (decimal)",
+        "has_pre_post_market_data": "boolean",
+        "held_percent_insiders": "string (decimal)",
+        "held_percent_institutions": "string (decimal)",
+        "implied_shares_outstanding": "string (decimal)",
+        "industry": "string",
+        "industry_disp": "string",
+        "industry_key": "string",
+        "ir_website": "string",
+        "is_earnings_date_estimate": "boolean",
+        "language": "string",
+        "last_dividend_date": "string (date-time)",
+        "last_dividend_value": "string (decimal)",
+        "last_fiscal_year_end": "string (date-time)",
+        "last_market": "string",
+        "last_split_date": "string (date-time)",
+        "last_split_factor": "string",
+        "legal_type": "string",
+        "long_business_summary": "string",
+        "long_name": "string",
+        "market": "string",
+        "market_cap": "string (decimal)",
+        "market_state": "string",
+        "max_supply": "string (decimal)",
+        "message_board_id": "string",
+        "most_recent_quarter": "string (date-time)",
+        "nav_price": "string (decimal)",
+        "net_assets": "string (decimal)",
+        "net_expense_ratio": "string (decimal)",
+        "net_income_to_common": "string (decimal)",
+        "next_fiscal_year_end": "string (date-time)",
+        "non_diluted_market_cap": "string (decimal)",
+        "number_of_analyst_opinions": "integer",
+        "open": "string (decimal)",
+        "operating_cashflow": "string (decimal)",
+        "operating_margins": "string (decimal)",
+        "payout_ratio": "string (decimal)",
+        "peg_ratio": "string (decimal)",
+        "phone": "string",
+        "pre_market_change": "string (decimal)",
+        "pre_market_change_percent": "string (decimal)",
+        "pre_market_price": "string (decimal)",
+        "pre_market_time": "string (date-time)",
+        "previous_close": "string (decimal)",
+        "price_eps_current_year": "string (decimal)",
+        "price_hint": "integer",
+        "price_to_book": "string (decimal)",
+        "price_to_sales_trailing_12_months": "string (decimal)",
+        "profit_margins": "string (decimal)",
+        "quick_ratio": "string (decimal)",
+        "quote_source_name": "string",
+        "quote_type": "string",
+        "raw_json": "string",
+        "recommendation_key": "string",
+        "recommendation_mean": "string (decimal)",
+        "region": "string",
+        "regular_market_change": "string (decimal)",
+        "regular_market_change_percent": "string (decimal)",
+        "regular_market_day_high": "string (decimal)",
+        "regular_market_day_low": "string (decimal)",
+        "regular_market_day_range": "string",
+        "regular_market_open": "string (decimal)",
+        "regular_market_previous_close": "string (decimal)",
+        "regular_market_price": "string (decimal)",
+        "regular_market_time": "string (date-time)",
+        "regular_market_volume": "integer",
+        "return_on_assets": "string (decimal)",
+        "return_on_equity": "string (decimal)",
+        "revenue_growth": "string (decimal)",
+        "revenue_per_share": "string (decimal)",
+        "sector": "string",
+        "sector_disp": "string",
+        "sector_key": "string",
+        "shares_outstanding": "string (decimal)",
+        "shares_short": "string (decimal)",
+        "shares_short_previous_month_date": "string (date-time)",
+        "shares_short_prior_month": "string (decimal)",
+        "short_name": "string",
+        "short_percent_of_float": "string (decimal)",
+        "short_ratio": "string (decimal)",
+        "source_interval": "integer",
+        "start_date": "string (date-time)",
+        "state": "string",
+        "symbol": "string",
+        "target_high_price": "string (decimal)",
+        "target_low_price": "string (decimal)",
+        "target_mean_price": "string (decimal)",
+        "target_median_price": "string (decimal)",
+        "three_year_average_return": "string (decimal)",
+        "to_currency": "string",
+        "total_assets": "string (decimal)",
+        "total_cash": "string (decimal)",
+        "total_cash_per_share": "string (decimal)",
+        "total_debt": "string (decimal)",
+        "total_revenue": "string (decimal)",
+        "total_supply": "string (decimal)",
+        "tradeable": "boolean",
+        "trailing_annual_dividend_rate": "string (decimal)",
+        "trailing_annual_dividend_yield": "string (decimal)",
+        "trailing_eps": "string (decimal)",
+        "trailing_pe": "string (decimal)",
+        "trailing_peg_ratio": "string (decimal)",
+        "triggerable": "boolean",
+        "two_hundred_day_average": "string (decimal)",
+        "type_disp": "string",
+        "volume": "integer",
+        "volume_24hr": "string (decimal)",
+        "volume_all_currencies": "string (decimal)",
+        "website": "string",
+        "ytd_return": "string (decimal)",
+        "zip": "string"
+      },
+      "family": "reference",
+      "key_columns": [
+        "symbol",
+        "fetched_at"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.reference"
+    }
+  }
+}

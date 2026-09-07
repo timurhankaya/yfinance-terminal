@@ -14,6 +14,7 @@ import typer
 from yfin.cli.common import echo_tally, parse_day, session_factory
 from yfin.core.config import get_settings
 from yfin.core.logging_setup import configure_logging, get_logger
+from yfin.core.text import comma_list
 
 log = get_logger(__name__)
 
@@ -145,7 +146,7 @@ def market_sync(
     configure_logging(settings.log_level)
     engine = create_db_engine(settings)
 
-    selected = MARKET_DATASETS.resolve(None if datasets.strip() == "all" else datasets.split(","))
+    selected = MARKET_DATASETS.resolve(None if datasets.strip() == "all" else comma_list(datasets))
     # `_parse_day` gives a meaningful message + exit 1 on an invalid date. A raw
     # strptime ValueError would fall through to main()'s generic handler and
     # show the user "unexpected error" -- `sync` already did this correctly.

@@ -50,6 +50,25 @@ OUTBOX_COLUMNS: tuple[str, ...] = ("created_at", "family", "partition_key", "pay
 #: A rescale rewrites `price_bars` and nothing else.
 RESCALE_TABLE = "price_bars"
 
+#: The key column a range event's span is measured over, per bars table.
+#:
+#: Written out rather than derived, because "the date-ish key column" is a
+#: guess and this is the field a consumer uses to re-read the span. Two of
+#: the six also carry `bar_interval`, which is why a range event names both:
+#: one span per (symbol, interval) there, one per symbol on the rest.
+#: `tests/unit/test_routing.py` holds the map to the schema.
+BARS_TIME_COLUMN: Mapping[str, str] = {
+    "price_bars": "ts_utc",
+    "periodic_bars": "ts_utc",
+    "price_history": "session_date",
+    "dividends": "ex_date",
+    "splits": "split_date",
+    "capital_gains": "gain_date",
+}
+
+#: Bars tables whose rows are also keyed by an interval.
+BARS_INTERVAL_TABLES: frozenset[str] = frozenset({"price_bars", "periodic_bars"})
+
 #: `_append`'s default for `dataset`, meaning "whatever `enter_dataset` last
 #: set". `None` cannot carry that meaning: it is the real answer for `purge`
 #: and `rescale`, which run outside any dataset, so the two cases need
@@ -74,6 +93,25 @@ class ChangeContext:
     #: Above this many inserted rows, a write to a bars-family table becomes
     #: one range event instead of one event per bar.
     range_threshold: int
+
+
+def context_for(
+    *, enabled: bool, run_id: int | None, range_threshold: int
+) -> ChangeContext | None:
+    """A context, or None when change publishing is off.
+
+    The one place "off means nothing happens" is written down. None travels
+    all the way to `PostgresRowWriter`, which then emits the statements it
+    emitted before any of this existed -- no predicate, no `RETURNING *`, no
+    outbox row -- so the feature costs zero until someone turns it on.
+
+    Takes the two values rather than `Settings`: `storage/persistence.py`
+    imports this module and states that it depends on no configuration, and
+    a `core.config` import here would quietly make that false.
+    """
+    if not enabled:
+        return None
+    return ChangeContext(run_id=run_id, range_threshold=range_threshold)
 
 
 @dataclass(frozen=True)
@@ -306,4 +344,7 @@ __all__ = [
     "ChangeContext",
     "ChangeEvent",
     "ChangeOp",
+    "context_for",
+    "BARS_INTERVAL_TABLES",
+    "BARS_TIME_COLUMN",
 ]

@@ -22,6 +22,7 @@ from sqlalchemy.orm import sessionmaker
 
 from yfin.core.config import Settings, get_settings
 from yfin.core.logging_setup import get_logger
+from yfin.core.text import comma_list
 from yfin.datasets.market.base import GlobalDataset, MarketContext
 from yfin.datasets.registry import MARKET_DATASETS
 from yfin.models import RunScope
@@ -35,6 +36,7 @@ from yfin.pipeline.audit import (
 from yfin.pipeline.contracts import ProxyTracker
 from yfin.pipeline.single_proxy import setup_single_proxy
 from yfin.pipeline.turn import Turn, run_turn
+from yfin.storage.changes import ChangeContext, context_for
 from yfin.storage.db import advisory_lock, session_factory
 from yfin.storage.variants import ScreenVariantState
 
@@ -57,7 +59,7 @@ def market_regions(settings: Settings | None = None) -> list[str]:
     cfg = settings or get_settings()
     # MarketRegion isn't a StrEnum: str(member) gives "MarketRegion.US"
     valid = {member.value for member in MarketRegion}
-    regions = [r.strip().upper() for r in cfg.yf_market_regions.split(",") if r.strip()]
+    regions = comma_list(cfg.yf_market_regions, upper=True)
     unknown = [r for r in regions if r not in valid]
     if unknown:
         raise ValueError(f"invalid market region: {', '.join(unknown)}")
@@ -79,6 +81,7 @@ def _run_turn(
     mctx: MarketContext,
     scope_label: str,
     tracker: ProxyTracker | None = None,
+    changes: ChangeContext | None = None,
 ) -> list[ItemRecord]:
     """One turn: fetch -> normalize -> upsert, in its own transaction.
 
@@ -96,6 +99,7 @@ def _run_turn(
             registry=MARKET_DATASETS,
             kind="market",
             log_context={"scope": scope_label},
+            changes=changes,
         ),
         tracker,
     )
@@ -139,6 +143,12 @@ def run_market_sync(
         scope=RunScope.MARKET,
     )
 
+    changes = context_for(
+        enabled=cfg.yf_changes_enabled,
+        run_id=run_id,
+        range_threshold=cfg.yf_changes_range_threshold,
+    )
+
     base_ctx = MarketContext(
         fetched_at=datetime.now(UTC),
         start=window_start,
@@ -158,7 +168,16 @@ def run_market_sync(
             # Region loop is outside the dataset: sync_run_items
             # granularity naturally becomes (dataset x table x region)
             for region in regions:
-                emit(_run_turn(factory, dataset, base_ctx.for_region(region), region, tracker))
+                emit(
+                    _run_turn(
+                        factory,
+                        dataset,
+                        base_ctx.for_region(region),
+                        region,
+                        tracker,
+                        changes,
+                    )
+                )
         elif dataset.scope == "variant":
             # Screen loop is outside for the same reason as the region
             # loop. The variant list is read in its own short-lived
@@ -168,9 +187,18 @@ def run_market_sync(
             with factory() as session:
                 variants = list(dataset.variants(cfg, ScreenVariantState(session)))
             for variant in variants:
-                emit(_run_turn(factory, dataset, base_ctx.for_variant(variant), variant, tracker))
+                emit(
+                    _run_turn(
+                        factory,
+                        dataset,
+                        base_ctx.for_variant(variant),
+                        variant,
+                        tracker,
+                        changes,
+                    )
+                )
         else:
-            emit(_run_turn(factory, dataset, base_ctx, GLOBAL_SCOPE_MARKER, tracker))
+            emit(_run_turn(factory, dataset, base_ctx, GLOBAL_SCOPE_MARKER, tracker, changes))
 
     if tracker is not None:
         with factory() as session:

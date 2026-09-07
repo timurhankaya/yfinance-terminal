@@ -27,6 +27,7 @@ from starlette.responses import Response
 
 from yfin.api.core.config import ApiSettings
 from yfin.core.logging_setup import get_logger
+from yfin.core.text import comma_list
 
 log = get_logger(__name__)
 
@@ -75,7 +76,7 @@ def resolve_client_ip(
         return peer
 
     forwarded = request.headers.get("x-forwarded-for", "")
-    hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+    hops = comma_list(forwarded)
     # Walk right-to-left past every hop we trust; the first address that
     # is not one of our proxies is the client. Anything further left was
     # written by someone we do not control.

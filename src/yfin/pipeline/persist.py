@@ -18,34 +18,61 @@ from yfin.core.logging_setup import get_logger
 from yfin.models import Symbol
 from yfin.pipeline.audit import ItemRecord, channel_records, failed_records, record_items
 from yfin.pipeline.payload import SymbolPayload
+from yfin.storage.changes import ChangeCollector
 from yfin.storage.persistence import PostgresRowWriter
 from yfin.storage.rescale import apply_pending
 
 log = get_logger(__name__)
 
-def persist_symbol(session: Session, payload: SymbolPayload) -> list[ItemRecord]:
-    """One transaction per symbol: written as a whole or not at all."""
+def persist_symbol(
+    session: Session,
+    payload: SymbolPayload,
+    collector: ChangeCollector | None = None,
+) -> list[ItemRecord]:
+    """One transaction per symbol: written as a whole or not at all.
+
+    The collector, when there is one, is filled here and flushed as the LAST
+    statement before the caller commits. That ordering is what keeps the
+    outbox window small: the pipeline relay cannot pass an open writing
+    transaction, so the gap between the flush and the commit is the gap it
+    waits on.
+    """
     records: list[ItemRecord] = []
-    writer = PostgresRowWriter(session)
+    writer = PostgresRowWriter(session, collector=collector)
     # Rescale hook runs before price_bars is written, in the same
     # transaction. In the reverse order, bars written in this run (already
     # at Yahoo's current scale) would get split again. A separate
     # transaction doesn't work either: persist_with_retry replays the
     # whole block on a lock conflict, and a rescale that already committed
     # would muddy the accounting even if not reapplied.
-    rescale_before_bars(session, payload)
+    rescale_before_bars(session, payload, collector)
     for dataset, result, fetched, duration in payload.results:
+        if collector is not None:
+            # Labels the events that follow. The dataset is the answer to
+            # "which fetch produced this", which the table alone cannot give:
+            # six datasets write `symbols`.
+            collector.enter_dataset(dataset.name)
         stats = dataset.upsert(writer, result, full_refresh=payload.full_refresh)
         records.extend(record_items(dataset, payload.symbol, stats, fetched, duration))
+    if collector is not None:
+        collector.flush(session)
     records.extend(channel_records(payload))
     return records
 
 
-def rescale_before_bars(session: Session, payload: SymbolPayload) -> None:
+def rescale_before_bars(
+    session: Session,
+    payload: SymbolPayload,
+    collector: ChangeCollector | None = None,
+) -> None:
     """Applies pending splits if any dataset writes to price_bars.
 
     Only runs when price_bars will actually be written, so a run like
     `--datasets info` doesn't needlessly query splits/bar_rescales.
+
+    It runs BEFORE the dataset loop, so the collector already exists here
+    and its `dataset` label is still None -- which is right: a rescale is
+    not something a dataset did.
     """
     writes_bars = any(
         "price_bars" in dataset.produces for dataset, _result, _f, _d in payload.results
@@ -53,7 +80,7 @@ def rescale_before_bars(session: Session, payload: SymbolPayload) -> None:
     if not writes_bars:
         return
     try:
-        apply_pending(session, payload.symbol)
+        apply_pending(session, payload.symbol, collector=collector)
     except Exception as exc:  # noqa: BLE001 - a hook failure must not drop the symbol
         # Swallowing this is dangerous since we're in the same transaction:
         # a broken rescale would silently stick. Re-raise instead and let
@@ -118,7 +145,14 @@ def persist_with_retry(
     for attempt in range(1, attempts + 1):
         with factory() as session:
             try:
-                records = persist_symbol(session, payload)
+                # One collector PER ATTEMPT. A replayed transaction re-does
+                # the writes, so reusing the first attempt's collector would
+                # publish the rolled-back attempt's events as well as the
+                # committed one's.
+                collector = (
+                    ChangeCollector(payload.changes) if payload.changes else None
+                )
+                records = persist_symbol(session, payload, collector)
                 session.commit()
                 return records
             except Exception as exc:  # noqa: BLE001

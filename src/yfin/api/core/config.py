@@ -19,6 +19,8 @@ import functools
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from yfin.core.text import comma_list
+
 # Below this, an HS256 key is weaker than the digest it feeds.
 MIN_SIGNING_KEY_BYTES = 32
 
@@ -83,10 +85,10 @@ class ApiSettings(BaseSettings):
         return raw
 
     def cors_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        return comma_list(self.cors_origins)
 
     def trusted_proxy_list(self) -> list[str]:
-        return [c.strip() for c in self.trusted_proxies.split(",") if c.strip()]
+        return comma_list(self.trusted_proxies)
 
     def validate_ui(self) -> None:
         """Refuses a UI that is switched on with nothing guarding it.

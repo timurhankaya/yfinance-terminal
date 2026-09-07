@@ -10,6 +10,7 @@ from sqlalchemy import select
 from yfin.cli.common import parse_day, session_factory
 from yfin.core.config import get_settings
 from yfin.core.logging_setup import configure_logging, get_logger
+from yfin.core.text import comma_list
 
 log = get_logger(__name__)
 
@@ -48,7 +49,7 @@ def domain_sync(
     configure_logging(settings.log_level)
     engine = create_db_engine(settings)
 
-    selected = DOMAIN_DATASETS.resolve(None if datasets.strip() == "all" else datasets.split(","))
+    selected = DOMAIN_DATASETS.resolve(None if datasets.strip() == "all" else comma_list(datasets))
 
     try:
         summary = run_domain_sync(engine, selected, settings=settings)

@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from yfin.api.core.config import ApiSettings
 from yfin.api.core.errors import install_error_handlers
 from yfin.api.core.middleware import RequestContextMiddleware
-from yfin.api.core.window import FixedWindow
+from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.ui import router as ui_router
 from yfin.ui.session import COOKIE_NAME
 

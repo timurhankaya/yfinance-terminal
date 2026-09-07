@@ -10,13 +10,9 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 import typer
-from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.cli.common import session_factory
-from yfin.core import normalize as nz
-from yfin.models import BAR_INTERVALS, BarGap, IntradayScope
-from yfin.storage.rescale import apply_pending, seed_baseline, unseeded_historic_splits
 
 scope_app = typer.Typer(help="Intraday scope management (intraday_scope)", no_args_is_help=True)
 bars_app = typer.Typer(help="price_bars maintenance and audit", no_args_is_help=True)
@@ -44,6 +40,11 @@ def scope_add(
     resolution checks "is there at least one row for this interval", so a
     single row excludes every OTHER symbol from that scope.
     """
+    from sqlalchemy import func, select
+
+    from yfin.core import normalize as nz
+    from yfin.models import BAR_INTERVALS, IntradayScope
+
     if interval not in BAR_INTERVALS:
         typer.echo(f"unknown interval: {interval}; valid: {', '.join(BAR_INTERVALS)}")
         raise typer.Exit(code=1)
@@ -83,6 +84,11 @@ def scope_disable(
     Deleting the last row for an interval would silently reopen scope to the
     entire universe; disable carries no such risk.
     """
+    from sqlalchemy import update
+
+    from yfin.core import normalize as nz
+    from yfin.models import IntradayScope
+
     codes = [nz.normalize_symbol(s) for s in symbols]
     with _factory()() as session:
         session.execute(
@@ -97,6 +103,10 @@ def scope_disable(
 @scope_app.command("list")
 def scope_list(interval: Annotated[str | None, typer.Option("--interval")] = None) -> None:
     """Show the scope table and each interval's RESOLVED meaning."""
+    from sqlalchemy import select
+
+    from yfin.models import BAR_INTERVALS, IntradayScope
+
     with _factory()() as session:
         stmt = select(
             IntradayScope.bar_interval, IntradayScope.symbol, IntradayScope.enabled
@@ -134,6 +144,11 @@ def bars_gaps(
     open_only: Annotated[bool, typer.Option("--open-only")] = False,
 ) -> None:
     """Missed windows."""
+    from sqlalchemy import select
+
+    from yfin.core import normalize as nz
+    from yfin.models import BarGap
+
     with _factory()() as session:
         stmt = select(
             BarGap.symbol,
@@ -177,6 +192,10 @@ def bars_maintain(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -
         price_bars now CARRIES an FK to symbols and integrity is guaranteed
         at the DB level. The query became dead code.
     """
+    from sqlalchemy import text
+
+    from yfin.storage.rescale import unseeded_historic_splits
+
     with _factory()() as session:
         # 1) Baseline-seed audit
         unseeded = unseeded_historic_splits(session)
@@ -220,6 +239,9 @@ def bars_rescale(
     the splits table and re-split bars that Yahoo already returned at the
     current scale.
     """
+    from yfin.core import normalize as nz
+    from yfin.storage.rescale import apply_pending, seed_baseline
+
     with _factory()() as session:
         if seed:
             count = seed_baseline(session)
