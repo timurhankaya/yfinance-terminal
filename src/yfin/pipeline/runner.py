@@ -19,7 +19,7 @@ from yfin.core.errors import PROXY_FAULT_KINDS, DatasetOutOfScope, ErrorKind, cl
 from yfin.core.logging_setup import bind_shard_context, get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.registry import SYMBOL_DATASETS
-from yfin.ingest.client import make_ticker
+from yfin.ingest.client import configure_yfinance, make_ticker
 from yfin.models import (
     ItemStatus,
 )
@@ -372,6 +372,14 @@ def run_sync(
                 end=end,
                 selector=selector,
             )
+
+    # Not the shard's job here: this entry point is used directly by
+    # `yfin discover` and by library callers, and without it yfinance keeps
+    # its own default of `hide_exceptions=True`. An internal failure then
+    # comes back as an empty result, the audit records EMPTY rather than
+    # FAILED, and the run exits 0 -- "no data" and "the request blew up"
+    # become indistinguishable, in the direction that reports success.
+    configure_yfinance(settings=cfg)
 
     factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     run_id = open_run(

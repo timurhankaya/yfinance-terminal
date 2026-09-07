@@ -317,6 +317,27 @@ class TestEarningsDates:
         payload = EarningsDatesPayload(frame=None, fetched_at=FETCHED_AT)
         assert REGISTRY["earnings_dates"].normalize(payload, "SPY").is_empty
 
+    def test_a_complete_history_REPLACES_what_is_stored(self) -> None:
+        """`fact_hash` is in the key because one timestamp can carry two
+        genuinely different rows -- but it also changes when a quarter's
+        ESTIMATE becomes a REPORTED result. A plain upsert left the
+        superseded estimate in place forever: two contradictory rows for
+        one earnings event, with nothing to say which is current."""
+        write = self._result("AAPL").writes[0]
+        assert write.mode == "replace_scope"
+        assert write.scope_columns == ("symbol",)
+
+    def test_a_TRUNCATED_history_only_merges(self) -> None:
+        """Replacing after the page cap cut the history short would delete
+        exactly the rows the run could not re-read."""
+        payload = EarningsDatesPayload(
+            frame=as_earnings_frame(load_fixture("AAPL", "earnings_dates")),
+            fetched_at=FETCHED_AT,
+            complete=False,
+        )
+        result = REGISTRY["earnings_dates"].normalize(payload, "AAPL")
+        assert result.writes[0].mode == "upsert"
+
     @pytest.mark.parametrize("symbol", ["SPY", "BTC-USD"])
     def test_no_earnings_dates_for_non_companies(self, symbol: str) -> None:
         """Source returns None; the fixture stores it as an empty record list."""

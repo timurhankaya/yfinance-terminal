@@ -70,6 +70,10 @@ class EarningsDatesPayload:
 
     frame: pd.DataFrame | None
     fetched_at: datetime
+    #: Whether paging reached an empty page rather than the page cap. Only
+    #: a complete history may replace what is stored -- truncating and then
+    #: replacing would delete the older rows the cap cut off.
+    complete: bool = True
 
 
 @dataclass(frozen=True, slots=True)

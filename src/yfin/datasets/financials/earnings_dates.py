@@ -40,8 +40,15 @@ UPDATE_COLUMNS = (
 )
 
 
-def _fetch_pages(symbol: str, max_pages: int) -> pd.DataFrame | None:
+def _fetch_pages(symbol: str, max_pages: int) -> tuple[pd.DataFrame | None, bool]:
+    """The pages, and whether paging ran out of data rather than pages.
+
+    The second value decides whether the result may REPLACE what is
+    stored. A truncated history that replaced would delete exactly the
+    rows the cap cut off.
+    """
     frames: list[pd.DataFrame] = []
+    complete = False
     for page in range(max_pages):
         offset = page * PAGE_LIMIT
         # Fresh Ticker per page; otherwise the cache ignores offset.
@@ -52,11 +59,18 @@ def _fetch_pages(symbol: str, max_pages: int) -> pd.DataFrame | None:
         )
         # Stop condition is an EMPTY PAGE, not len(page) < limit.
         if nz.is_empty_result(frame):
+            complete = True
             break
         frames.append(frame)
+    if not complete:
+        log.warning(
+            "earnings dates hit the page cap; history may be truncated",
+            symbol=symbol,
+            max_pages=max_pages,
+        )
     if not frames:
-        return None
-    return pd.concat(frames)
+        return None, complete
+    return pd.concat(frames), complete
 
 
 class MissingTimezoneError(ValueError):
@@ -100,8 +114,9 @@ class EarningsDatesDataset(Dataset[EarningsDatesPayload]):
 
     def fetch(self, ctx: SyncContext) -> EarningsDatesPayload:
         max_pages = get_settings().yf_earnings_dates_max_pages
+        frame, complete = _fetch_pages(ctx.symbol, max_pages)
         return EarningsDatesPayload(
-            frame=_fetch_pages(ctx.symbol, max_pages), fetched_at=ctx.fetched_at
+            frame=frame, fetched_at=ctx.fetched_at, complete=complete
         )
 
     def normalize(self, raw: EarningsDatesPayload, symbol: str) -> NormalizedResult:
@@ -154,6 +169,19 @@ class EarningsDatesDataset(Dataset[EarningsDatesPayload]):
                     rows=list(rows.values()),
                     key_columns=KEY_COLUMNS,
                     update_columns=UPDATE_COLUMNS,
+                    # Replace the symbol's history, not merge into it.
+                    # `fact_hash` is part of the key precisely because one
+                    # timestamp can carry two genuinely different rows --
+                    # but it also changes when a quarter's ESTIMATE becomes
+                    # a REPORTED result, and a plain upsert then left the
+                    # superseded estimate in place forever. Two contradictory
+                    # rows for one earnings event, with nothing to say which
+                    # is current.
+                    #
+                    # Only when the fetch reached the end of the history: a
+                    # truncated page run must not delete what it could not
+                    # re-read.
+                    mode="replace_scope" if raw.complete else "upsert",
                 )
             ]
         )
