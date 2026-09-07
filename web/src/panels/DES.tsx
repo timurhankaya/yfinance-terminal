@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, UnauthorizedError, getSymbol, type SymbolDetail } from "../api/client";
 import { useSession } from "../app/session";
 
@@ -45,17 +45,21 @@ export function DES({ symbol }: { symbol: string }) {
   const authenticated = me?.authenticated === true;
   const [state, setState] = useState<State>({ kind: "loading" });
 
-  // `cancelled` guards against a stale response overwriting fresher data:
-  // if `symbol` changes while a fetch is in flight, the effect below marks
-  // the old call cancelled and its `setState`s after the await are skipped.
-  const load = useCallback(async (cancelled: () => boolean) => {
+  // `token.cancelled` guards against a stale response overwriting fresher
+  // data: when `symbol` changes (or Retry starts a new attempt) while a
+  // fetch is in flight, the old call's token is marked cancelled and its
+  // `setState`s after the await are skipped. Held in a ref, not state, so
+  // Retry can reach the CURRENT token without re-running the effect.
+  const tokenRef = useRef<{ cancelled: boolean }>({ cancelled: false });
+
+  const load = useCallback(async (token: { cancelled: boolean }) => {
     setState({ kind: "loading" });
     try {
       const detail = await getSymbol(symbol);
-      if (cancelled()) return;
+      if (token.cancelled) return;
       setState({ kind: "ready", detail });
     } catch (err) {
-      if (cancelled()) return;
+      if (token.cancelled) return;
       if (err instanceof UnauthorizedError) requireLogin();
       else if (err instanceof ApiError && err.status === 404) setState({ kind: "missing" });
       else setState({ kind: "error" });
@@ -66,19 +70,26 @@ export function DES({ symbol }: { symbol: string }) {
   // login: the spec's "the last command re-runs after a successful login".
   useEffect(() => {
     if (!authenticated) return;
-    let cancelled = false;
-    void load(() => cancelled);
+    const token = { cancelled: false };
+    tokenRef.current = token;
+    void load(token);
     return () => {
-      cancelled = true;
+      token.cancelled = true;
     };
   }, [load, authenticated]);
+
+  function retry() {
+    const token = { cancelled: false };
+    tokenRef.current = token;
+    void load(token);
+  }
 
   if (state.kind === "loading") return <p className="muted">Loading {symbol}…</p>;
   if (state.kind === "missing") return <p className="error">No such symbol: {symbol}</p>;
   if (state.kind === "error")
     return (
       <p className="error">
-        Could not load {symbol}. <button onClick={() => void load(() => false)}>Retry</button>
+        Could not load {symbol}. <button onClick={retry}>Retry</button>
       </p>
     );
 

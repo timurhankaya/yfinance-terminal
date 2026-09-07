@@ -79,6 +79,17 @@ describe("AppRoutes", () => {
     expect(await screen.findByText("MSFT Corp")).toBeInTheDocument();
   });
 
+  it("shows an unreachable-API message when login fails with a network error", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/me") return json(200, { authenticated: false, expires_at: null, live_enabled: false });
+      if (url === "/ui/api/login") throw new TypeError("network");
+      throw new Error(`unexpected ${url}`);
+    });
+    mount("/ui/t/AAPL/DES");
+    await userEvent.type(await screen.findByLabelText("password"), `${PW}{enter}`);
+    expect(await screen.findByText("Could not reach the API. Try again.")).toBeInTheDocument();
+  });
+
   it("redirects /ui to the last visited triple", async () => {
     localStorage.setItem("yfin.ui.last", "/ui/t/TSLA/DES");
     mockFetch((url) => {

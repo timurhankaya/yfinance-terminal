@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { ApiError, login } from "../api/client";
+import { ApiError, UnauthorizedError, login } from "../api/client";
 import { useSession } from "./session";
 
 export function LoginModal() {
@@ -19,7 +19,8 @@ export function LoginModal() {
       await refresh();
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) setError("Too many attempts. Wait a minute.");
-      else setError("Wrong password.");
+      else if (err instanceof UnauthorizedError) setError("Wrong password.");
+      else setError("Could not reach the API. Try again.");
     } finally {
       setBusy(false);
     }
