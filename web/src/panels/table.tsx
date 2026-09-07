@@ -8,6 +8,7 @@ import type { ReactElement, ReactNode } from "react";
 import type { CatalogColumn, Row } from "../api/client";
 import { LOCALE, asNumber, formatBig } from "./DES";
 import { DataTable, useListKeys, type Column } from "./common";
+import type { LinkRule } from "./links";
 
 //: Shown only in the row detail: as a grid column it would be a page wide.
 export const DETAIL_ONLY = new Set(["raw_json"]);
@@ -77,9 +78,32 @@ function prettyJson(value: unknown): string {
   }
 }
 
-/** Every field of one row, raw_json pretty-printed. */
-export function RowDetail(props: { row: Row; columns: CatalogColumn[]; onClose: () => void }): ReactElement {
-  const { row, columns, onClose } = props;
+function Links({ row, rules }: { row: Row; rules: LinkRule[] }): ReactElement | null {
+  const items = rules.flatMap((rule) => {
+    const href = rule.href(row);
+    return href ? [[rule.label, href] as const] : [];
+  });
+  if (items.length === 0) return null;
+  return (
+    <span className="row-links">
+      {items.map(([label, href]) => (
+        <a key={href} href={href} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+          {label} ↗
+        </a>
+      ))}
+    </span>
+  );
+}
+
+/** Every field of one row, raw_json pretty-printed, plus the links the
+ *  row implies. */
+export function RowDetail(props: {
+  row: Row;
+  columns: CatalogColumn[];
+  links?: LinkRule[];
+  onClose: () => void;
+}): ReactElement {
+  const { row, columns, links = [], onClose } = props;
   const known = new Set(columns.map((c) => c.name));
   // Fields the catalogue did not list still show: a row is the truth,
   // the catalogue is a description of it.
@@ -90,6 +114,14 @@ export function RowDetail(props: { row: Row; columns: CatalogColumn[]; onClose: 
         Close
       </button>
       <dl className="des">
+        {links.length > 0 && (
+          <>
+            <dt>open</dt>
+            <dd>
+              <Links row={row} rules={links} />
+            </dd>
+          </>
+        )}
         {columns.map((column) => (
           <Field key={column.name} name={column.name} type={column.type} value={row[column.name]} />
         ))}
@@ -130,11 +162,14 @@ export interface DatasetTableProps {
    *  bars and actions come oldest first. */
   reverse?: boolean;
   truncated?: boolean;
+  /** Links the rows imply (a report page, a quote page); shown as an
+   *  "open" column and in the row detail. */
+  links?: LinkRule[];
 }
 
 /** A dataset as a grid with j/k/Enter and click opening the row detail. */
 export function DatasetTable(props: DatasetTableProps): ReactElement {
-  const { columns, rows: given, hide = [], reverse = false, truncated = false } = props;
+  const { columns, rows: given, hide = [], reverse = false, truncated = false, links = [] } = props;
   const rows = reverse ? [...given].reverse() : given;
   const [open, setOpen] = useState<number | null>(null);
   const toggle = (index: number) => setOpen((current) => (current === index ? null : index));
@@ -157,6 +192,9 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
     align: isNumericType(c.type) ? "right" : "left",
     format: (row) => formatCell(row[c.name], c.type, c.name),
   }));
+  if (links.length > 0) {
+    gridColumns.push({ key: "__links", label: "open", format: (row) => <Links row={row} rules={links} /> });
+  }
   const detail = open === null ? undefined : rows[open];
 
   return (
@@ -177,7 +215,7 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
           }}
         />
       </div>
-      {detail && <RowDetail row={detail} columns={columns} onClose={() => setOpen(null)} />}
+      {detail && <RowDetail row={detail} columns={columns} links={links} onClose={() => setOpen(null)} />}
     </div>
   );
 }

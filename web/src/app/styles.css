@@ -71,3 +71,4 @@ dl.des dt { color: var(--muted); }
 h3 { margin: 14px 0 4px; font-size: 13px; color: var(--muted); }
 dl.des dd { margin: 0; word-break: break-word; }
 .credits-right { margin-left: auto; }
+.row-links a { margin-right: 8px; white-space: nowrap; }

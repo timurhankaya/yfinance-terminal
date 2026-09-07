@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { getDataset, getSymbol, type CatalogColumn, type Row, type SymbolDetail } from "../api/client";
 import type { PanelProps, PanelSpec } from "../commands/types";
 import { ErrorCard, MissingCard, usePanelData } from "./common";
+import { quoteUrl } from "./links";
 import { DatasetTable, formatDateTime } from "./table";
 
 // Keys are the API's: the `info` snapshot is normalised to snake_case on
@@ -250,6 +251,12 @@ export function DES({ symbol }: PanelProps) {
         <dt>Currency</dt><dd>{d.currency ?? "—"}</dd>
         <dt>Timezone</dt><dd>{d.timezone ?? "—"}</dd>
         <dt>Active</dt><dd>{d.is_active ? "yes" : "no"}</dd>
+        <dt>Yahoo</dt>
+        <dd>
+          <a href={quoteUrl(d.symbol)} target="_blank" rel="noopener noreferrer">
+            {quoteUrl(d.symbol)}
+          </a>
+        </dd>
       </dl>
       {grouped.summary && (
         <>

@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 import { ApiError, getCatalog, getDatasetRows, type CatalogEntry, type Rows } from "../api/client";
 import type { PanelArgs } from "../commands/types";
 import { EmptyCard, ErrorCard, usePanelData } from "./common";
+import { linksFor } from "./links";
 import { DatasetTable } from "./table";
 
 /** How a dataset takes the strip's symbol.
@@ -97,6 +98,7 @@ export function DatasetView(props: {
         rows={rows.rows}
         hide={state.data.symbol !== null ? ["symbol"] : []}
         truncated={rows.truncated}
+        links={linksFor(entry.name, entry.columns.map((c) => c.name))}
       />
     </section>
   );
