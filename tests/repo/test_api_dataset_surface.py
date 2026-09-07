@@ -137,11 +137,12 @@ def client(
 def test_the_catalogue_is_filtered_to_the_callers_scopes(client: TestClient) -> None:
     """Advertising data the caller cannot fetch is noise; the full list is
     available, but only by asking."""
-    body = client.get("/v1/datasets", headers=_token("reference:read")).json()
-    assert body["data"] == []
+    reference = client.get("/v1/datasets", headers=_token("reference:read")).json()
+    assert {row["family"] for row in reference["data"]} == {"reference"}
 
-    body = client.get("/v1/datasets", headers=_token("holders:read")).json()
-    assert {row["name"] for row in body["data"]} >= {"major_holders", "mutualfund_holders"}
+    holders = client.get("/v1/datasets", headers=_token("holders:read")).json()
+    assert {row["family"] for row in holders["data"]} == {"holders"}
+    assert {row["name"] for row in holders["data"]} >= {"major_holders", "mutualfund_holders"}
 
 
 def test_the_full_catalogue_is_available_on_request(client: TestClient) -> None:

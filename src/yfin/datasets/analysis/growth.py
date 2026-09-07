@@ -12,8 +12,10 @@ returning them again no migration is needed.
 from __future__ import annotations
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.datasets.analysis.base import Column, PeriodFrameDataset
 from yfin.datasets.asof_base import asof_produces
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.registry import register
 
 
@@ -29,6 +31,13 @@ class GrowthEstimatesDataset(PeriodFrameDataset):
         Column("indexTrend", "index_trend", nz.to_decimal),
         Column("industryTrend", "industry_trend", nz.to_decimal),
         Column("sectorTrend", "sector_trend", nz.to_decimal),
+    )
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="analyst_growth_estimates",
+        sort_key=("as_of_date", "period"),
+        descending=True,
+        description="Consensus growth estimates by period.",
     )
 
 

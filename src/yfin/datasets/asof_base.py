@@ -88,7 +88,7 @@ def _sort_key(row: dict[str, Any], key_columns: tuple[str, ...]) -> tuple[str, .
     return tuple(str(row.get(name)) for name in key_columns)
 
 
-def _first_row(result: NormalizedResult) -> dict[str, Any]:
+def first_row(result: NormalizedResult) -> dict[str, Any]:
     """First data row in `writes` order.
 
     `next(..., None)`: `upsert` only calls this when `is_empty` is False,
@@ -120,7 +120,7 @@ class AsOfGate:
 
     def gate_identity(self, result: NormalizedResult) -> dict[str, Any]:
         """Key fields of the gate row (default: symbol side)."""
-        return {"symbol": _first_row(result)["symbol"], "dataset": self.name}
+        return {"symbol": first_row(result)["symbol"], "dataset": self.name}
 
     def content_hash(self, result: NormalizedResult) -> str:
         """SHA-256 of the canonical body of `result.writes`.
@@ -148,7 +148,7 @@ class AsOfGate:
         digest: str,
         unchanged: bool,
     ) -> TableWrite:
-        first = _first_row(result)
+        first = first_row(result)
         row = {
             **self.gate_identity(result),
             "as_of_date": first["as_of_date"],

@@ -26,7 +26,7 @@ from yfin.core import normalize as nz
 from yfin.core.config import get_settings
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult
-from yfin.datasets.common import key_value
+from yfin.datasets.common import key_value, mark_known
 from yfin.datasets.market.base import GlobalDataset, MarketContext
 from yfin.datasets.payloads import CalendarFramePayload
 from yfin.datasets.registry import register_market
@@ -119,15 +119,8 @@ class CalendarDatasetBase(GlobalDataset[CalendarFramePayload]):
 
     def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
         stats = WriteStats(skipped=dict(result.skipped))
-        if self.has_symbol:
-            candidates = {
-                row["symbol"] for write in result.writes for row in write.rows if row.get("symbol")
-            }
-            known = writer.known_symbols(candidates) if candidates else set()
-            for write in result.writes:
-                for row in write.rows:
-                    row["is_known"] = row.get("symbol") in known
-        for write in result.writes:
+        writes = mark_known(writer, result.writes) if self.has_symbol else result.writes
+        for write in writes:
             apply_write(writer, write, stats)
         return stats
 

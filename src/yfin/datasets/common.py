@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any
@@ -12,6 +13,7 @@ from yfin.core.logging_setup import get_logger
 from yfin.models.base import FACT_PRECISION
 from yfin.models.fields import Field
 from yfin.models.kinds import KINDS
+from yfin.storage.contracts import SymbolLookup, TableWrite
 
 log = get_logger(__name__)
 
@@ -288,3 +290,39 @@ def discovered_symbol_row(
         "discovered_at": fetched_at,
         "last_seen_at": fetched_at,
     }
+
+
+def mark_known(
+    writer: SymbolLookup,
+    writes: Sequence[TableWrite],
+    *,
+    column: str = "symbol",
+) -> list[TableWrite]:
+    """Fills `is_known` for symbols that may sit outside the universe.
+
+    Five datasets need this, because five tables carry a symbol with NO
+    foreign key: news_symbols, fund_top_holdings, the two domain ranking
+    tables, and the market status/summary boards. The FK is absent on
+    purpose -- each symbol runs in a single transaction, so one foreign
+    symbol would roll back everything else that symbol wrote.
+
+    It was written five times in two different shapes: three returned new
+    TableWrites, two mutated `result.writes` in place. Same policy, two
+    semantics, and the copying ones each rebuilt TableWrite field by field
+    and dropped `monotonic_columns` in the process. This is the copying
+    shape for all five; nothing mutates its input.
+
+    One `known_symbols` call covers every write, not one per write.
+    """
+    candidates = {row[column] for write in writes for row in write.rows if row.get(column)}
+    known = writer.known_symbols(candidates) if candidates else set()
+    return [
+        replace(
+            write,
+            rows=[
+                {**row, "is_known": bool(row.get(column)) and row[column] in known}
+                for row in write.rows
+            ],
+        )
+        for write in writes
+    ]

@@ -20,10 +20,12 @@ from typing import Any
 import pandas as pd
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext
 from yfin.datasets.common import to_big_value
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import AsOfFramePayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_optional
@@ -64,6 +66,13 @@ class InsiderPurchasesDataset(AsOfDataset[AsOfFramePayload]):
     name = "insider_purchases"
     depends_on = ("symbols",)
     produces = asof_produces(TABLE)
+    api = ApiExposure(
+        family=DataFamily.HOLDERS,
+        table="insider_activity",
+        sort_key=("as_of_date",),
+        descending=True,
+        description="Aggregated insider buying and selling.",
+    )
 
     def fetch(self, ctx: SyncContext) -> AsOfFramePayload:
         frame = call_optional(ctx.ticker.get_insider_purchases, what=f"{self.name}:{ctx.symbol}")

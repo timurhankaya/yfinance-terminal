@@ -16,8 +16,10 @@ import pandas as pd
 
 from yfin.core import normalize as nz
 from yfin.core.config import get_settings
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import EarningsDatesPayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_yahoo, make_ticker
@@ -86,6 +88,13 @@ class EarningsDatesDataset(Dataset[EarningsDatesPayload]):
     name = "earnings_dates"
     depends_on = ("symbols",)
     produces = ("earnings_dates",)
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="earnings_dates",
+        sort_key=("earnings_ts_utc", "fact_hash"),
+        descending=True,
+        description="Past and upcoming earnings dates.",
+    )
 
     def fetch(self, ctx: SyncContext) -> EarningsDatesPayload:
         max_pages = get_settings().yf_earnings_dates_max_pages

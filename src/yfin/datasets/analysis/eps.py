@@ -9,9 +9,11 @@ fixture test.
 from __future__ import annotations
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.datasets.analysis.base import Column, PeriodFrameDataset
 from yfin.datasets.asof_base import asof_produces
 from yfin.datasets.common import to_fact_value
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.registry import register
 
 
@@ -33,6 +35,13 @@ class EpsTrendDataset(PeriodFrameDataset):
         Column("90daysAgo", "days_ago_90", to_fact_value),
         Column("currency", "currency", _currency),
     )
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="analyst_eps_trend",
+        sort_key=("as_of_date", "period"),
+        descending=True,
+        description="Consensus EPS estimate as it moved over time.",
+    )
 
 
 class EpsRevisionsDataset(PeriodFrameDataset):
@@ -47,6 +56,13 @@ class EpsRevisionsDataset(PeriodFrameDataset):
         Column("downLast7Days", "down_last_7d", nz.to_int),
         Column("downLast30days", "down_last_30d", nz.to_int),
         Column("currency", "currency", _currency),
+    )
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="analyst_eps_revisions",
+        sort_key=("as_of_date", "period"),
+        descending=True,
+        description="Counts of upward and downward EPS revisions.",
     )
 
 

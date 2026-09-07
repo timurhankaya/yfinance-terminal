@@ -15,9 +15,11 @@ from typing import Any
 import pandas as pd
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.common import in_range
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import RangedFramePayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_optional
@@ -39,6 +41,13 @@ class EarningsHistoryDataset(Dataset[RangedFramePayload]):
     depends_on = ("symbols",)
     produces = (TABLE,)
     date_range = "filter"
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="earnings_history",
+        sort_key=("quarter_end",),
+        descending=True,
+        description="Reported versus estimated EPS, by quarter.",
+    )
 
     def fetch(self, ctx: SyncContext) -> RangedFramePayload:
         frame = call_optional(

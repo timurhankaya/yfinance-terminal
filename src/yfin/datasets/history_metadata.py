@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.common import data_columns, snapshot_rows, warn_unmapped
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import MetadataPayload
 from yfin.datasets.registry import register
 from yfin.datasets.symbols import fetch_history_metadata
@@ -21,6 +23,12 @@ class HistoryMetadataDataset(Dataset[MetadataPayload]):
     name = "history_metadata"
     depends_on = ("symbols",)
     produces = ("history_metadata",)
+    api = ApiExposure(
+        family=DataFamily.REFERENCE,
+        table="history_metadata",
+        sort_key=("symbol",),
+        description="Exchange, timezone and trading-period metadata.",
+    )
 
     def fetch(self, ctx: SyncContext) -> MetadataPayload:
         return MetadataPayload(metadata=fetch_history_metadata(ctx), fetched_at=ctx.fetched_at)

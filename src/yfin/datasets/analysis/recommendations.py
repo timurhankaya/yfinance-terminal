@@ -12,8 +12,10 @@ returned 3.
 from __future__ import annotations
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.datasets.analysis.base import Column, PeriodFrameDataset
 from yfin.datasets.asof_base import asof_produces
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.registry import register
 
 
@@ -33,6 +35,13 @@ class RecommendationsDataset(PeriodFrameDataset):
     )
     # All five counters are NOT NULL; measured int64 with no NaN on 19/19 symbols.
     required = ("strong_buy", "buy", "hold", "sell", "strong_sell")
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="analyst_recommendations",
+        sort_key=("as_of_date", "period"),
+        descending=True,
+        description="Buy/hold/sell recommendation counts by period.",
+    )
 
 
 register(RecommendationsDataset())

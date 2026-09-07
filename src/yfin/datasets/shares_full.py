@@ -9,8 +9,10 @@ import pandas as pd
 
 from yfin.core import normalize as nz
 from yfin.core.config import get_settings
+from yfin.core.families import DataFamily
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.common import EPOCH_START, date_range_kwargs
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import SeriesPayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_yahoo
@@ -22,6 +24,13 @@ class SharesFullDataset(Dataset[SeriesPayload]):
     depends_on = ("symbols",)
     produces = ("shares_full",)
     date_range = "api"
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="shares_full",
+        sort_key=("as_of_date", "shares"),
+        descending=True,
+        description="Shares outstanding over time.",
+    )
 
     def fetch(self, ctx: SyncContext) -> SeriesPayload:
         # --start/--end OVERRIDES the watermark.

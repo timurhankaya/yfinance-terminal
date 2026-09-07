@@ -16,9 +16,11 @@ from typing import Any
 import pandas as pd
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.common import blank_to_none, in_range, key_value
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import RangedFramePayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_optional
@@ -59,6 +61,13 @@ class UpgradesDowngradesDataset(Dataset[RangedFramePayload]):
     produces = (TABLE,)
     # Source returns a fixed window; the date range only filters rows.
     date_range = "filter"
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="analyst_grade_changes",
+        sort_key=("grade_ts_utc", "firm"),
+        descending=True,
+        description="Analyst upgrades and downgrades, newest first.",
+    )
 
     def fetch(self, ctx: SyncContext) -> RangedFramePayload:
         frame = call_optional(

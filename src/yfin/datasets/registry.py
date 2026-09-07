@@ -13,6 +13,8 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
+from yfin.models.bars import BAR_INTERVALS, INTRADAY_INTERVALS
+
 if TYPE_CHECKING:
     from yfin.datasets.base import Dataset
     from yfin.datasets.domain.base import DomainDataset
@@ -200,18 +202,13 @@ SYMBOL_DATASETS: Registry[Dataset[Any]] = Registry(
     bootstrap="symbols",
     aliases={
         "actions": ("dividends", "splits", "capital_gains"),
-        # price_bars dataset family. The interval set `bars` expands to can
-        # be narrowed with YF_BAR_INTERVALS; the registrations themselves
-        # are always all six.
-        "bars": (
-            "bars_1m",
-            "bars_5m",
-            "bars_15m",
-            "bars_60m",
-            "bars_1wk",
-            "bars_1mo",
-        ),
-        "intraday": ("bars_1m", "bars_5m", "bars_15m", "bars_60m"),
+        # price_bars dataset family. DERIVED from the interval set, not
+        # retyped: a listed-by-hand alias that missed a new interval would
+        # register it and then silently skip it under `--datasets bars`.
+        # The set `bars` expands to can be narrowed with YF_BAR_INTERVALS;
+        # the registrations themselves are always all of them.
+        "bars": tuple(f"bars_{i}" for i in BAR_INTERVALS),
+        "intraday": tuple(f"bars_{i}" for i in INTRADAY_INTERVALS),
         # `recommendations_summary` is an ALIAS, not a registration: in the
         # source its body is `return self.get_recommendations(as_dict=as_dict)`
         # (base.py:220).

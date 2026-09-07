@@ -18,7 +18,6 @@ history_metadata table and produce an extra audit row.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any
 
 import pandas as pd
@@ -28,7 +27,7 @@ from yfin.core import normalize as nz
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext
-from yfin.datasets.common import key_value, to_fact_value
+from yfin.datasets.common import key_value, mark_known, to_fact_value
 from yfin.datasets.payloads import FundsPayload
 from yfin.datasets.registry import register
 from yfin.datasets.symbols import fetch_fast_info, fetch_history_metadata
@@ -443,24 +442,17 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
         changes (an unknown holding symbol gets added to `symbols`) the gate
         opens and rows get updated.
         """
-        writes = [
-            _mark_known(writer, write) if write.table == HOLDINGS_TABLE and write.rows else write
-            for write in result.writes
-        ]
+        # holding_symbol has NO FK: the source sends symbols outside the
+        # universe (BRK-B, 2330.TW, 005930.KQ, 0700.HK, and the fund symbols
+        # VRTPX, BISXX). With an FK, the per-symbol single transaction would
+        # roll back ALL of the fund's data.
+        targets = [w for w in result.writes if w.table == HOLDINGS_TABLE and w.rows]
+        flagged = mark_known(writer, targets, column="holding_symbol")
+        marked = {id(w): m for w, m in zip(targets, flagged, strict=True)}
+        writes = [marked.get(id(write), write) for write in result.writes]
         return super().upsert(
             writer, NormalizedResult(writes=writes, skipped=dict(result.skipped))
         )
-
-
-def _mark_known(writer: RowWriter, write: TableWrite) -> TableWrite:
-    """holding_symbol has NO FK: the source sends symbols outside the
-    universe (BRK-B, 2330.TW, 005930.KQ, 0700.HK, and FUND symbols VRTPX,
-    BISXX). With an FK, the per-symbol single transaction would roll back
-    ALL of the fund's data -- same reasoning as news_symbols."""
-    candidates = {row["holding_symbol"] for row in write.rows}
-    known = writer.known_symbols(candidates)
-    rows = [{**row, "is_known": row["holding_symbol"] in known} for row in write.rows]
-    return replace(write, rows=rows)
 
 
 register(FundsDataDataset())

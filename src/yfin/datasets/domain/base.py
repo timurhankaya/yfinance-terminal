@@ -24,7 +24,7 @@ from yfin.datasets.asof_base import (
     DOMAIN_GATE_TABLE,
     GLOBAL_REGION_MARKER,
     AsOfGate,
-    _first_row,
+    first_row,
 )
 from yfin.datasets.base import NormalizedResult
 from yfin.storage.contracts import RowWriter, WriteStats, apply_write
@@ -155,7 +155,7 @@ class DomainAsOfDataset[RawT](AsOfGate, DomainDataset[RawT]):
         into rows and read back from there. Region-less datasets have no
         `region` column in their rows -> defaults to `'*'`.
         """
-        first = _first_row(result)
+        first = first_row(result)
         return {
             "domain_key": first["domain_key"],
             "dataset": self.name,

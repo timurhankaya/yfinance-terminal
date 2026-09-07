@@ -12,9 +12,11 @@ import re
 from typing import Any
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.common import key_value
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import SecFilingsPayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_optional
@@ -50,6 +52,14 @@ class SecFilingsDataset(Dataset[SecFilingsPayload]):
     name = "sec_filings"
     depends_on = ("symbols",)
     produces = ("sec_filings", "sec_filing_exhibits")
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="sec_filings",
+        sort_key=("filing_date", "filing_id"),
+        descending=True,
+        filters=("filing_type",),
+        description="SEC filings, newest first.",
+    )
 
     def fetch(self, ctx: SyncContext) -> SecFilingsPayload:
         # 404 for non-US symbols, {} for fund/ETF; both count as empty.

@@ -13,9 +13,11 @@ from __future__ import annotations
 from typing import Any
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import AsOfMappingPayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_optional
@@ -31,6 +33,13 @@ class AnalystPriceTargetsDataset(AsOfDataset[AsOfMappingPayload]):
     name = "analyst_price_targets"
     depends_on = ("symbols",)
     produces = asof_produces(TABLE)
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="analyst_price_targets",
+        sort_key=("as_of_date",),
+        descending=True,
+        description="Analyst price target range and mean.",
+    )
 
     def fetch(self, ctx: SyncContext) -> AsOfMappingPayload:
         payload = call_optional(

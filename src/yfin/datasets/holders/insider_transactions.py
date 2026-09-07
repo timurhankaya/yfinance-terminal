@@ -20,9 +20,11 @@ from typing import Any
 import pandas as pd
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.common import blank_to_none, in_range, key_value, to_big_value
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import RangedFramePayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_optional
@@ -65,6 +67,13 @@ class InsiderTransactionsDataset(Dataset[RangedFramePayload]):
     depends_on = ("symbols",)
     produces = (TABLE,)
     date_range = "filter"
+    api = ApiExposure(
+        family=DataFamily.HOLDERS,
+        table="insider_transactions",
+        sort_key=("start_date", "fact_hash"),
+        descending=True,
+        description="Individual insider transactions.",
+    )
 
     def fetch(self, ctx: SyncContext) -> RangedFramePayload:
         frame = call_optional(

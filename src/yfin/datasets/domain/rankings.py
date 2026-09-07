@@ -9,12 +9,12 @@ byte-identical across all 5 regions, which is why they live on the
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any
 
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import DOMAIN_GATE_TABLE, asof_produces
 from yfin.datasets.base import NormalizedResult
+from yfin.datasets.common import mark_known
 from yfin.datasets.domain.base import DomainAsOfDataset, DomainContext
 from yfin.datasets.domain.common import (
     MAPPED_KEYS,
@@ -126,12 +126,12 @@ class _DomainRankingsDataset(DomainAsOfDataset[DomainPayload]):
         it would leave the flag stuck at 0, since the gate would call it
         `skipped`.
         """
-        writes = [
-            _mark_known(writer, write)
-            if write.rows and "is_known" in write.update_columns
-            else write
-            for write in result.writes
-        ]
+        # No FK on `symbol`: SGE.L, 285A.T, ODINE.IS and 0P0001WO1I are
+        # outside the universe, and an FK would drop the whole pass's
+        # transaction over one foreign symbol.
+        targets = [w for w in result.writes if w.rows and "is_known" in w.update_columns]
+        marked = {id(w): m for w, m in zip(targets, mark_known(writer, targets), strict=True)}
+        writes = [marked.get(id(write), write) for write in result.writes]
         return super().upsert(
             writer, NormalizedResult(writes=writes, skipped=dict(result.skipped))
         )
@@ -242,16 +242,6 @@ class IndustryRankingsDataset(_DomainRankingsDataset):
             scope_columns=("domain_key", "region", "as_of_date"),
             scope_values=(self._scope(raw, key),),
         )
-
-
-def _mark_known(writer: RowWriter, write: TableWrite) -> TableWrite:
-    """No FK on `symbol`: SGE.L, 285A.T, ODINE.IS, 0P0001WO1I are outside
-    the universe. An FK would drop the whole pass's transaction over one
-    foreign symbol -- same rationale as `news_symbols` and `fund_top_holdings`."""
-    candidates = {row["symbol"] for row in write.rows}
-    known = writer.known_symbols(candidates)
-    rows = [{**row, "is_known": row["symbol"] in known} for row in write.rows]
-    return replace(write, rows=rows)
 
 
 register_domain(SectorRankingsDataset())

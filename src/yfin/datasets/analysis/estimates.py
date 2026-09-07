@@ -12,9 +12,11 @@ vs `yearAgoRevenue`.
 from __future__ import annotations
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.datasets.analysis.base import Column, PeriodFrameDataset
 from yfin.datasets.asof_base import asof_produces
 from yfin.datasets.common import to_fact_value
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.registry import register
 from yfin.models.analysis import EstimateMetric
 
@@ -56,6 +58,17 @@ class EarningsEstimateDataset(_EstimateDataset):
     api_method = "get_earnings_estimate"
     constants = (("metric", EstimateMetric.EPS.value),)
     columns = _columns("yearAgoEps")
+    # Both estimate datasets write analyst_estimates and only `metric`
+        # separates them, so the slice has to be pinned here -- otherwise
+        # asking for earnings would also return revenue rows.
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="analyst_estimates",
+        sort_key=("as_of_date", "period"),
+        descending=True,
+        fixed=(("metric", "eps"),),
+        description="Consensus earnings estimates by period.",
+    )
 
 
 class RevenueEstimateDataset(_EstimateDataset):
@@ -63,6 +76,14 @@ class RevenueEstimateDataset(_EstimateDataset):
     api_method = "get_revenue_estimate"
     constants = (("metric", EstimateMetric.REVENUE.value),)
     columns = _columns("yearAgoRevenue")
+    api = ApiExposure(
+        family=DataFamily.FUNDAMENTALS,
+        table="analyst_estimates",
+        sort_key=("as_of_date", "period"),
+        descending=True,
+        fixed=(("metric", "revenue"),),
+        description="Consensus revenue estimates by period.",
+    )
 
 
 register(EarningsEstimateDataset())

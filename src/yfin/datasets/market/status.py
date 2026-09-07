@@ -17,6 +17,7 @@ from typing import Any
 from yfin.core import normalize as nz
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult
+from yfin.datasets.common import mark_known
 from yfin.datasets.market.base import MarketContext, SnapshotGlobalDataset
 from yfin.datasets.payloads import MarketStatusPayload, MarketSummaryPayload
 from yfin.datasets.registry import register_market
@@ -243,14 +244,10 @@ class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
     def upsert(self, writer: RowWriter, result: NormalizedResult) -> WriteStats:
         # Board symbols (ES=F, ^GSPC) may be outside the universe: no FK,
         # the is_known flag is marked instead (same pattern as news_symbols).
-        candidates = {
-            row["symbol"] for write in result.writes for row in write.rows if row.get("symbol")
-        }
-        known = writer.known_symbols(candidates) if candidates else set()
-        for write in result.writes:
-            for row in write.rows:
-                row["is_known"] = bool(row.get("symbol")) and row["symbol"] in known
-        return super().upsert(writer, result)
+        marked = NormalizedResult(
+            writes=mark_known(writer, result.writes), skipped=dict(result.skipped)
+        )
+        return super().upsert(writer, marked)
 
 
 register_market(MarketStatusDataset())

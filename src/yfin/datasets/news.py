@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any
 
 from yfin.core import normalize as nz
 from yfin.core.config import get_settings
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
-from yfin.datasets.common import key_value
+from yfin.datasets.common import key_value, mark_known
 from yfin.datasets.payloads import NewsPayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_yahoo, make_ticker
@@ -196,23 +195,13 @@ class NewsDataset(Dataset[NewsPayload]):
         stats = WriteStats(skipped=dict(result.skipped))
         for write in result.writes:
             if write.table == "news_symbols" and write.rows:
-                write = self._mark_known(writer, write)
+                # No FK on news_symbols.symbol: upstream sends symbols from
+                # outside the universe, and one transaction per symbol means
+                # an FK violation would roll back ALL of that symbol's data.
+                write = mark_known(writer, [write])[0]
             apply_write(writer, write, stats)
         return stats
 
-    @staticmethod
-    def _mark_known(writer: RowWriter, write: TableWrite) -> TableWrite:
-        """is_known: whether the symbol exists in the symbols table.
-
-        There is NO foreign key on news_symbols.symbol: upstream sends
-        symbols from outside our universe, and because each symbol runs in
-        a single transaction, an FK violation would roll back ALL of that
-        symbol's data.
-        """
-        candidates = {row["symbol"] for row in write.rows}
-        known = writer.known_symbols(candidates)
-        rows = [{**row, "is_known": row["symbol"] in known} for row in write.rows]
-        return replace(write, rows=rows)
 
 
 register(NewsDataset())
