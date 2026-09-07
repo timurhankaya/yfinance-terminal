@@ -950,3 +950,185 @@ class TestApiUsage:
         self._rows(db_session)
         found = {s.name: s.value for s in q.api_usage(ctx)}
         assert found["yfin_api_usage_estimated_days"] == 1.0
+
+
+class TestOnlyTheOpenSessionIsHealth:
+    """A finished session's rows are still in the table.
+
+    `stream_connection_health` is documented as current state only, but
+    nothing deletes a row when its session ends. Read unfiltered, one row
+    left behind by a session that finished thirteen hours earlier set
+    `yfin_stream_canary_age_seconds` to 48,618 while every live connection
+    was five seconds old -- and `StreamStale` fires at 600, so the alert
+    would have been on permanently and cleared never.
+    """
+
+    def _health(
+        self,
+        session: Session,
+        session_id: int,
+        key: str,
+        *,
+        minutes_old: float,
+        subscribed: int = 96,
+    ) -> None:
+        from yfin.models import StreamConnectionHealth
+
+        session.add(
+            StreamConnectionHealth(
+                connection_key=key,
+                session_id=session_id,
+                state="open",
+                subscribed_count=subscribed,
+                heartbeat_at=NOW - timedelta(minutes=minutes_old),
+                last_canary_at=NOW - timedelta(minutes=minutes_old),
+                reconnect_count=0,
+            )
+        )
+        session.flush()
+
+    def _session(self, session: Session, *, finished: bool) -> int:
+        from yfin.models import StreamSession, StreamStatus
+
+        row = StreamSession(
+            started_at=NOW - timedelta(hours=14),
+            finished_at=NOW - timedelta(hours=13) if finished else None,
+            status=StreamStatus.OK if finished else StreamStatus.RUNNING,
+            messages_received=0,
+            rows_rejected=0,
+        )
+        session.add(row)
+        session.flush()
+        return int(row.id)
+
+    @pytest.fixture
+    def mixed(self, db_session: Session) -> None:
+        """One row from a dead session, two from the live one."""
+        dead = self._session(db_session, finished=True)
+        self._health(db_session, dead, "OLD#0", minutes_old=810, subscribed=2)
+        live = self._session(db_session, finished=False)
+        self._health(db_session, live, "NMS#0", minutes_old=0.1)
+        self._health(db_session, live, "NMS#1", minutes_old=0.1)
+
+    def test_a_dead_session_does_not_age_the_canary(
+        self, ctx: Context, mixed: None
+    ) -> None:
+        age = _find(q.stream(ctx), "yfin_stream_canary_age_seconds")
+        assert age is not None
+        assert age < 60, "a finished session's row is still being counted"
+
+    def test_a_dead_session_does_not_age_the_heartbeat(
+        self, ctx: Context, mixed: None
+    ) -> None:
+        age = _find(q.stream(ctx), "yfin_stream_heartbeat_age_seconds")
+        assert age is not None
+        assert age < 60
+
+    def test_it_counts_the_live_connections_only(
+        self, ctx: Context, mixed: None
+    ) -> None:
+        """103 where 102 were running is a number an operator checks
+        against Yahoo's per-connection quota."""
+        states = {
+            s.labels["state"]: s.value
+            for s in q.stream(ctx)
+            if s.name == "yfin_stream_connections"
+        }
+        assert states == {"open": 2.0}
+
+    def test_it_sums_the_live_subscriptions_only(
+        self, ctx: Context, mixed: None
+    ) -> None:
+        assert _find(q.stream(ctx), "yfin_stream_subscribed_symbols") == 192.0
+
+
+class TestPendingRescalesIsOneGroupedPass:
+    """211 splits against a 1.7-million-row hypertable.
+
+    A correlated `MIN(local_date)` per split row was 6.74 s on the live
+    database and the whole cost of the `bars` query, which the exporter
+    runs every five minutes. One grouped pass is 0.065 s for the same
+    answer. The behaviour below is what the rewrite had to preserve.
+    """
+
+    def _fixture(self, session: Session, split_day: str, bar_day: str) -> None:
+        from datetime import date
+        from decimal import Decimal
+
+        from yfin.models import PriceBar, Split, Symbol
+
+        session.add(Symbol(symbol="AAPL", is_active=True))
+        session.flush()
+        session.add(
+            PriceBar(
+                symbol="AAPL",
+                bar_interval="1m",
+                ts_utc=NOW,
+                local_date=date.fromisoformat(bar_day),
+                close=Decimal("1.0"),
+            )
+        )
+        session.add(
+            Split(
+                symbol="AAPL",
+                split_date=date.fromisoformat(split_day),
+                ratio=Decimal("2"),
+            )
+        )
+        session.flush()
+
+    def _pending(self, ctx: Context) -> float | None:
+        return _find(q.bars(ctx), "yfin_bar_rescales_pending")
+
+    def test_a_split_after_the_archive_starts_counts(
+        self, ctx: Context, db_session: Session
+    ) -> None:
+        self._fixture(db_session, split_day="2026-09-01", bar_day="2026-08-01")
+        assert self._pending(ctx) == 1.0
+
+    def test_a_split_predating_the_archive_does_not(
+        self, ctx: Context, db_session: Session
+    ) -> None:
+        """Those bars already arrived at the post-split scale."""
+        self._fixture(db_session, split_day="2020-01-01", bar_day="2026-08-01")
+        assert self._pending(ctx) == 0.0
+
+    def test_a_symbol_with_no_bars_is_not_pending(
+        self, ctx: Context, db_session: Session
+    ) -> None:
+        """The JOIN replaced a correlated subquery whose NULL result
+        excluded the row; an inner join has to drop it for the same
+        reason -- there is no archive to rescale."""
+        from datetime import date
+        from decimal import Decimal
+
+        from yfin.models import Split, Symbol
+
+        db_session.add(Symbol(symbol="AAPL", is_active=True))
+        db_session.flush()
+        db_session.add(
+            Split(symbol="AAPL", split_date=date(2026, 9, 1), ratio=Decimal("2"))
+        )
+        db_session.flush()
+        assert self._pending(ctx) == 0.0
+
+    def test_an_applied_split_is_not_pending(
+        self, ctx: Context, db_session: Session
+    ) -> None:
+        from datetime import date
+        from decimal import Decimal
+
+        from yfin.models import BarRescale
+
+        self._fixture(db_session, split_day="2026-09-01", bar_day="2026-08-01")
+        db_session.add(
+            BarRescale(
+                symbol="AAPL",
+                split_date=date(2026, 9, 1),
+                ratio=Decimal("2"),
+                applied_at=NOW,
+                rows_affected=10,
+            )
+        )
+        db_session.flush()
+        assert self._pending(ctx) == 0.0

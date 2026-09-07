@@ -454,15 +454,25 @@ ORDER BY 1, 2
 #: `bar_rescales` row, and a split date after the symbol's earliest bar. The
 #: second gate is what keeps a fresh install -- where `rescale --seed` was
 #: skipped -- from reporting every historical split as pending work.
+#:
+#: The earliest bar is taken by ONE grouped pass, not by a correlated
+#: subquery per split row. `pending_splits` does the correlated form
+#: because it is asked about a single symbol; asked about all of them it
+#: became 211 per-symbol MIN lookups over a 1.7-million-row hypertable.
+#: Measured on the live database: 6.74 s correlated against 0.065 s
+#: grouped, same answer -- and it was the whole cost of the `bars` query,
+#: which the exporter runs every five minutes.
 RESCALES_PENDING_SQL = """
+WITH first_bar AS (
+    SELECT symbol, MIN(local_date) AS local_date FROM price_bars GROUP BY symbol
+)
 SELECT COUNT(*) AS n
 FROM splits s
+JOIN first_bar b ON b.symbol = s.symbol
 LEFT JOIN bar_rescales a
        ON a.symbol = s.symbol AND a.split_date = s.split_date
 WHERE a.symbol IS NULL
-  AND s.split_date > (
-      SELECT MIN(b.local_date) FROM price_bars b WHERE b.symbol = s.symbol
-  )
+  AND s.split_date > b.local_date
 """
 
 
@@ -505,22 +515,41 @@ def bars(ctx: Context) -> list[Sample]:
 
 # --- stream and the outboxes -----------------------------------------------
 
-#: `stream_connection_health` holds CURRENT state only, one row per
-#: connection. The two ages are maxima across the rows because one silent
-#: connection is the failure: averaging them would hide it behind the ones
-#: still working.
+#: The OPEN session's connections, and only those.
+#:
+#: `stream_connection_health` is documented as holding current state only,
+#: but nothing deletes a row when its session ends -- so the table really
+#: does accumulate history. Read unfiltered, ONE row left behind by a
+#: session that finished thirteen hours earlier set
+#: `yfin_stream_canary_age_seconds` to 48,618 while every live connection
+#: was five seconds old. `StreamStale` fires at 600, so the alert would
+#: have been on permanently and cleared never: the exact way an alert
+#: channel becomes one nobody reads. It also counted 103 connections where
+#: 102 were running.
+#:
+#: The join is what makes "current" true. The two ages stay MAXIMA across
+#: the surviving rows, because one silent connection IS the failure and an
+#: average would hide it behind the ones still working.
+_OPEN_SESSION = """
+    JOIN stream_sessions s ON s.id = h.session_id AND s.finished_at IS NULL
+"""
+
 STREAM_HEALTH_SQL = """
-SELECT COALESCE(MAX(EXTRACT(EPOCH FROM (CAST(:now AS timestamptz) - heartbeat_at))), 0)
+SELECT COALESCE(MAX(EXTRACT(EPOCH FROM (CAST(:now AS timestamptz) - h.heartbeat_at))), 0)
            AS heartbeat_age,
-       COALESCE(MAX(EXTRACT(EPOCH FROM (CAST(:now AS timestamptz) - last_canary_at))), 0)
+       COALESCE(MAX(EXTRACT(EPOCH FROM (CAST(:now AS timestamptz) - h.last_canary_at))), 0)
            AS canary_age,
-       COALESCE(SUM(subscribed_count), 0) AS subscribed,
-       COALESCE(SUM(reconnect_count), 0) AS reconnects
-FROM stream_connection_health
+       COALESCE(SUM(h.subscribed_count), 0) AS subscribed,
+       COALESCE(SUM(h.reconnect_count), 0) AS reconnects
+FROM stream_connection_health h
+{open_session}
 """
 
 STREAM_STATES_SQL = """
-SELECT state, COUNT(*) AS n FROM stream_connection_health GROUP BY 1 ORDER BY 1
+SELECT h.state, COUNT(*) AS n
+FROM stream_connection_health h
+{open_session}
+GROUP BY 1 ORDER BY 1
 """
 
 #: The OPEN session -- there is at most one, because `stream run` takes an
@@ -537,8 +566,13 @@ LIMIT 1
 
 def stream(ctx: Context) -> list[Sample]:
     with ctx.session_factory() as session:
-        health = session.execute(text(STREAM_HEALTH_SQL), {"now": ctx.now}).one()
-        states = session.execute(text(STREAM_STATES_SQL)).all()
+        health = session.execute(
+            text(STREAM_HEALTH_SQL.format(open_session=_OPEN_SESSION)),
+            {"now": ctx.now},
+        ).one()
+        states = session.execute(
+            text(STREAM_STATES_SQL.format(open_session=_OPEN_SESSION))
+        ).all()
         current = session.execute(text(STREAM_SESSION_SQL)).one_or_none()
 
     heartbeat_age, canary_age, subscribed, reconnects = health
@@ -781,8 +815,8 @@ def statements() -> Iterable[tuple[str, str]]:
         ("gaps_expiring", GAPS_EXPIRING_SQL.format(limits=limits)),
         ("gaps_resolved", GAPS_RESOLVED_SQL),
         ("rescales_pending", RESCALES_PENDING_SQL),
-        ("stream_health", STREAM_HEALTH_SQL),
-        ("stream_states", STREAM_STATES_SQL),
+        ("stream_health", STREAM_HEALTH_SQL.format(open_session=_OPEN_SESSION)),
+        ("stream_states", STREAM_STATES_SQL.format(open_session=_OPEN_SESSION)),
         ("stream_session", STREAM_SESSION_SQL),
         ("api_usage", API_USAGE_SQL),
         ("api_estimated", API_ESTIMATED_SQL),
