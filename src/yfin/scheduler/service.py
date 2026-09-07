@@ -194,7 +194,7 @@ class SchedulerService:
         # the scheduler is long-lived, so a monotonic count of its own
         # firings is exactly what a counter is for, and `rate()` over it is
         # what a failing job looks like on a dashboard.
-        inc("yfin_job_runs_total", job=state.job.name, result=result)
+        inc("yfin_job_runs_total", job_name=state.job.name, result=result)
 
     # --- what the exporter publishes for us --------------------------------
 
@@ -223,7 +223,7 @@ class SchedulerService:
         scheduler = self._scheduler
         samples: list[Sample] = []
         for name, state in self._states.items():
-            labels = {"job": name}
+            labels = {"job_name": name}
             samples.append(Sample("yfin_job_interval_seconds", state.interval_seconds, labels))
             samples.append(Sample("yfin_job_running", float(state.running), labels))
             if state.last_duration_seconds is not None:
@@ -273,7 +273,7 @@ class SchedulerService:
         # Counted like any other result. A firing that was dropped is the
         # thing `scheduler_runs` and this counter exist to make visible;
         # leaving it out of the metric would put it only in a log line.
-        inc("yfin_job_runs_total", job=job_name, result=result)
+        inc("yfin_job_runs_total", job_name=job_name, result=result)
 
     def build(self) -> Any:
         """The scheduler, with one trigger per ENABLED job."""

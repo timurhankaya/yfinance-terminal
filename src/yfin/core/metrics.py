@@ -53,7 +53,13 @@ ALLOWED_LABELS: frozenset[str] = frozenset(
         "interval",
         "reason",
         "state",
-        "job",
+        # `job_name`, NOT `job`. `job` and `instance` are RESERVED: a
+        # scrape stamps them from the scrape config, and a metric that
+        # carries its own `job` has it renamed to `exported_job` while
+        # `job` becomes the scrape job's name. Measured on the running
+        # stack -- every `by (job)` in a dashboard was silently grouping
+        # by a label with one value.
+        "job_name",
         "result",
         "handler",
         "outbox",
@@ -508,37 +514,37 @@ _EXPORTER_GAUGES: dict[str, MetricSpec] = _declare(
             "start-up, so a restart does not look like an overdue job."
         ),
         kind="gauge",
-        labelnames=("job",),
+        labelnames=("job_name",),
     ),
     MetricSpec(
         name="yfin_job_last_duration_seconds",
         documentation="How long this job's last firing took.",
         kind="gauge",
-        labelnames=("job",),
+        labelnames=("job_name",),
     ),
     MetricSpec(
         name="yfin_job_interval_seconds",
         documentation="The cron's mean period; what the freshness and overdue rules divide by.",
         kind="gauge",
-        labelnames=("job",),
+        labelnames=("job_name",),
     ),
     MetricSpec(
         name="yfin_job_running",
         documentation="1 while this job's subprocess is alive.",
         kind="gauge",
-        labelnames=("job",),
+        labelnames=("job_name",),
     ),
     MetricSpec(
         name="yfin_job_next_run_timestamp",
         documentation="When this job fires next, as a unix timestamp.",
         kind="gauge",
-        labelnames=("job",),
+        labelnames=("job_name",),
     ),
     MetricSpec(
         name="yfin_job_runs_total",
         documentation="Firings by result, including the ones that never became a subprocess.",
         kind="counter",
-        labelnames=("job", "result"),
+        labelnames=("job_name", "result"),
     ),
     # --- the exporter's own health ----------------------------------------
     MetricSpec(

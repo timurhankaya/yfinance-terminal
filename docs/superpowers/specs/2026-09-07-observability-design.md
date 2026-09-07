@@ -1090,3 +1090,54 @@ While implementing step 9 (stream, relays, tracing):
 - **`yfin_build_info` is set in the scheduler and the API** from
   `importlib.metadata.version`, which is the first thing that actually
   writes the gauge step 1 declared.
+
+While implementing step 10 (image, compose, provisioning) and running the
+stack against a live pipeline:
+
+- **`job` is a RESERVED Prometheus label, and `yfin_job_*{job}` was
+  broken.** A scrape stamps `job` and `instance` from the scrape config; a
+  metric carrying its own `job` is not rejected but silently RENAMED to
+  `exported_job`, and `job` becomes the scrape job's name. So every
+  `by (job)` in a dashboard grouped by a label with one value and
+  `JobOverdue` matched nothing. Found on the running stack, not in review:
+  the exposition text looked right and only the ingested series was wrong.
+  The label is now `job_name`, `job` and `instance` are OUT of
+  `ALLOWED_LABELS`, and a test asserts no metric uses either.
+- **`scheduler` and `stream` are in the BASE compose file, unprofiled,
+  with `restart: unless-stopped`.** The design put `scheduler` in the
+  `observability` profile and `stream` in a `stream` profile. Both are
+  wrong for what they are: these two processes are what keeps the
+  warehouse current, not part of the stack that watches it, and gating
+  them behind a monitoring profile means the data stops being fresh
+  whenever somebody brings the stack up without it. The two RELAYS keep a
+  profile (`kafka`) -- both refuse to start when their feature is off, and
+  a service that exits 1 under `restart: unless-stopped` is a crash loop
+  rather than a disabled feature.
+- **Non-API services disable the inherited HEALTHCHECK in the base file.**
+  The image's check asks `127.0.0.1:8000/health`, which only the API
+  serves; inherited, every other service reports permanently unhealthy,
+  which is worse than no check. The observability override replaces it
+  with a probe on the service's own `/metrics` port -- which also makes
+  "the exporter thread is alive" a thing Docker checks.
+- **Tempo 3.0 is not a 2.x config.** `grafana/tempo:3.0.3` replaced the
+  ingester/compactor pair with a block-builder, a live-store and a backend
+  scheduler/worker; the top-level `ingester:` and `compactor:` keys are a
+  hard parse error (`field ingester not found in type app.Config`) and the
+  container restarts forever. Retention is `backend_worker.compaction.
+  block_retention`; `trace_idle_period` has no 3.x equivalent at this
+  level and is dropped. Verified against the pinned image.
+- **`alloy fmt --test`, not `--check`.** The flag in the design does not
+  exist in v1.19.2. CI runs `fmt --test` through the pinned image, along
+  with `promtool check config`, `promtool check rules`, and a
+  `docker compose config` over both files.
+- **Ports the stack publishes are parameterised.** `PROMETHEUS_PORT`,
+  `GRAFANA_PORT` and `ALLOY_PORT` join the existing `DB_PORT`,
+  `REDIS_PORT` and `API_PORT`, because a developer machine very often
+  already has something on 9090 and 3000 -- this one did, and the stack
+  would not start.
+- **`tests/unit/test_observability_stack.py`** checks the two things a
+  YAML linter cannot: that every metric named in a dashboard panel or an
+  alert expression is DECLARED in `core/metrics.py`, and that the wiring
+  between the compose files agrees with itself (one service per metrics
+  port, `PROMETHEUS_MULTIPROC_DIR` on the API alone, every published port
+  scraped).

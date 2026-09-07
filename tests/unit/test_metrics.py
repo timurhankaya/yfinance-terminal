@@ -339,3 +339,34 @@ class TestTheServiceCounters:
     def test_the_histograms_are_declared_as_histograms(self) -> None:
         for name in ("yfin_stream_batch_seconds", "yfin_relay_pass_seconds"):
             assert METRICS[name].kind == "histogram"
+
+
+class TestTheReservedLabels:
+    """`job` and `instance` belong to Prometheus, not to us.
+
+    A scrape stamps both from the scrape config. A metric that carries its
+    own is not rejected -- it is silently RENAMED to `exported_job` while
+    `job` becomes the scrape job's name, so every `by (job)` in a dashboard
+    groups by a label with one value and every alert that filters on it
+    matches nothing.
+
+    Found on the running stack, not in review: the series looked right in
+    the exposition text and wrong only after Prometheus had ingested it.
+    """
+
+    def test_no_metric_uses_a_reserved_label(self) -> None:
+        for spec in METRICS.values():
+            assert "job" not in spec.labelnames, spec.name
+            assert "instance" not in spec.labelnames, spec.name
+
+    def test_the_closed_set_does_not_offer_them(self) -> None:
+        """Removed from ALLOWED_LABELS too, so the next metric that wants
+        to name a job cannot reach for `job` and pass validation."""
+        assert "job" not in ALLOWED_LABELS
+        assert "instance" not in ALLOWED_LABELS
+        assert "job_name" in ALLOWED_LABELS
+
+    def test_the_scheduler_metrics_use_job_name(self) -> None:
+        for name, spec in METRICS.items():
+            if name.startswith("yfin_job_"):
+                assert "job_name" in spec.labelnames, name

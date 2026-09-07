@@ -132,10 +132,10 @@ class TestTheJobGauges:
 
     def test_they_are_published_alongside_the_queries(self, recorder: _Recorder) -> None:
         exporter = _exporter(
-            job_samples=lambda: [Sample("yfin_job_running", 1, {"job": "sync"})]
+            job_samples=lambda: [Sample("yfin_job_running", 1, {"job_name": "sync"})]
         )
         assert exporter.refresh() == 0
-        assert ("yfin_job_running", 1, (("job", "sync"),)) in recorder.sets
+        assert ("yfin_job_running", 1, (("job_name", "sync"),)) in recorder.sets
 
     def test_a_failure_there_is_a_failure_too(self, recorder: _Recorder) -> None:
         def boom() -> list[Sample]:

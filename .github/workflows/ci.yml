@@ -57,6 +57,46 @@ jobs:
       - name: docs/changes/schema.json is current
         run: uv run python scripts/dump_change_schema.py --check
 
+      # The monitoring stack's own configuration. None of it is Python and
+      # all of it fails at 3am if it is wrong: a Prometheus that will not
+      # parse its config does not start, and an Alloy that will not parse
+      # its own is a stack with no logs and no traces.
+      #
+      # Through the PINNED images rather than a downloaded binary, so what
+      # CI validates is exactly what compose runs.
+      - name: promtool check config
+        run: |
+          docker run --rm -v "$PWD/deploy/observability/prometheus:/etc/prometheus:ro" \
+            --entrypoint promtool prom/prometheus:v3.14.0 \
+            check config /etc/prometheus/prometheus.yml
+
+      - name: promtool check rules
+        run: |
+          docker run --rm -v "$PWD/deploy/observability/prometheus:/etc/prometheus:ro" \
+            --entrypoint promtool prom/prometheus:v3.14.0 \
+            check rules /etc/prometheus/rules/recording.yml
+
+      # `fmt --test` rather than a lint: Alloy's parser is the only thing
+      # that agrees with Alloy about its own syntax, and a river file that
+      # is merely misformatted still fails to load in some versions.
+      - name: alloy fmt --test
+        run: |
+          docker run --rm -v "$PWD/deploy/observability/alloy:/etc/alloy:ro" \
+            --entrypoint alloy grafana/alloy:v1.19.2 \
+            fmt --test /etc/alloy/config.alloy
+
+      # The compose files reference each other's services, and the
+      # override adds environment to services the base file defines -- a
+      # name that drifted between them would be silently ignored.
+      - name: compose files resolve
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.observability.yml \
+            config --quiet
+        env:
+          DB_PASSWORD: ci
+          YFAPI_JWT_SIGNING_KEY: ci-signing-key-that-is-at-least-32-bytes
+
   # The schema invariants (collation, FK policy, timestamp precision,
   # as-of key ordering) and the empty-diff rule are the project's stated
   # guarantees, and none of them ran here: `pytest -q` deselects the

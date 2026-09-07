@@ -1,0 +1,20 @@
+# The repository is the source of the dashboards.
+#
+# `allowUiUpdates: false` is deliberate and occasionally annoying: a panel
+# fixed in the browser at 3am is a panel that is un-fixed by the next
+# `docker compose up`. Editing the JSON is the only way the fix survives,
+# and it is also the only way anybody else gets it.
+
+apiVersion: 1
+
+providers:
+  - name: yfin
+    orgId: 1
+    folder: yfin
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

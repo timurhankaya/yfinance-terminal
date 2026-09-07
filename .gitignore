@@ -16,3 +16,7 @@ build/
 .claude/
 .DS_Store
 web/node_modules/
+
+# Stack credentials. The committed .env.example next to it documents the
+# names; the values are per-install.
+deploy/observability/.env

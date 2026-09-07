@@ -1,0 +1,41 @@
+# Recording rules only. Alerts live in Grafana's provisioning, so there is
+# one place to look for "what fires and who hears it" rather than two.
+#
+# These exist because the expressions are used by several dashboard panels
+# each, and a ratio recomputed four different ways eventually disagrees
+# with itself.
+
+groups:
+  - name: yfin-freshness
+    interval: 1m
+    rules:
+      # The headline number on Overview. Guarded against an empty
+      # universe: `0/0` is NaN, which renders as "No data" and reads as a
+      # broken exporter rather than as a pipeline with nothing to do.
+      - record: yfin:cells_stale_ratio
+        expr: |
+          sum(yfin_cells_stale) / clamp_min(sum(yfin_cells_total), 1)
+
+      - record: yfin:cells_stale_ratio_by_scope
+        expr: |
+          sum by (scope) (yfin_cells_stale)
+            / clamp_min(sum by (scope) (yfin_cells_total), 1)
+
+  - name: yfin-api
+    interval: 1m
+    rules:
+      # 5xx only. A 4xx is the client being told something true, and
+      # counting it as an error rate would make a well-behaved API look
+      # broken every time somebody mistyped a symbol.
+      - record: yfin:api_error_ratio
+        expr: |
+          sum(rate(yfin_http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(yfin_http_requests_total[5m])), 0.001)
+
+  - name: yfin-sync
+    interval: 1m
+    rules:
+      - record: yfin:sync_cache_hit_ratio
+        expr: |
+          sum by (cache) (yfin_sync_cache_ops{result="hit"})
+            / clamp_min(sum by (cache) (yfin_sync_cache_ops), 1)

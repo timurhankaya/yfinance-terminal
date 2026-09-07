@@ -1,0 +1,76 @@
+# Scrape config for the yfin stack.
+#
+# Static targets, not service discovery: the service set is fixed by
+# docker-compose.yml, and Docker SD here would need the same socket mount
+# Alloy has -- a second root-equivalent grant to save editing a list of
+# six entries.
+#
+# A target that is DOWN is not an error in this file. The two relays and
+# the observability profile may legitimately be off, and `up == 0` for
+# them is shown on Overview rather than alerted; the alert rules live in
+# Grafana's provisioning and say which absences actually matter.
+
+global:
+  # 15s. The exporter refreshes its gauges every 300s, so a faster scrape
+  # would re-read the same values -- but the in-process counters (HTTP,
+  # stream batches, relay passes) move continuously and 15s is what makes
+  # a rate() over them readable.
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    stack: yfin
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # The API serves /metrics on its own port through the instrumentator,
+  # not through `serve_metrics`: it runs four uvicorn workers and their
+  # counters are summed from PROMETHEUS_MULTIPROC_DIR.
+  - job_name: yfin-api
+    static_configs:
+      - targets: ["api:8000"]
+        labels:
+          service: api
+
+  # The scheduler's port carries TWO things: its own job metrics, and
+  # every gauge the database exporter reads out of a table. It is the one
+  # target whose absence makes the whole Freshness dashboard blank.
+  - job_name: yfin-scheduler
+    static_configs:
+      - targets: ["scheduler:9101"]
+        labels:
+          service: scheduler
+
+  - job_name: yfin-stream
+    static_configs:
+      - targets: ["stream:9102"]
+        labels:
+          service: stream
+
+  # Two relays, two ports, one job. The `outbox` label on every metric is
+  # what tells them apart; `service` is `relay` for both because that is
+  # the name they log under.
+  - job_name: yfin-relays
+    static_configs:
+      - targets: ["stream-relay:9103", "changes-relay:9104"]
+        labels:
+          service: relay
+
+  # PostgreSQL and Redis are exported BY ALLOY rather than by their own
+  # containers: two fewer things to run, and Alloy's postgres exporter
+  # still supports custom queries, which `postgres_exporter
+  # --extend.query-path` has deprecated.
+  - job_name: alloy
+    static_configs:
+      - targets: ["alloy:12345"]
+
+  # Consumer-group lag for EXTERNAL consumers. yfin only produces, so
+  # this says nothing about the relays -- `yfin_outbox_*` does that.
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
