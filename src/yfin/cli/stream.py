@@ -14,20 +14,15 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import typer
-from sqlalchemy import func, select, text
-from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.cli.common import engine, session_factory
-from yfin.core import normalize as nz
-from yfin.core.config import get_settings
-from yfin.models import Symbol
-from yfin.models.stream import StreamScope
-from yfin.stream.runner import StreamDisabled, canary_symbols, run_stream
-from yfin.stream.topology import QuotaExceeded, plan_connections
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import CursorResult
 
 stream_app = typer.Typer(help="Live WebSocket tick stream", no_args_is_help=True)
 stream_scope_app = typer.Typer(help="Streaming scope (stream_scope)", no_args_is_help=True)
@@ -54,6 +49,9 @@ def stream_run() -> None:
     from `yfin_sync`: the two write different tables and may run together.
     """
     from sqlalchemy import Engine
+
+    from yfin.core.config import get_settings
+    from yfin.stream.runner import StreamDisabled, run_stream
 
     engine = _engine()
     assert isinstance(engine, Engine)
@@ -88,8 +86,10 @@ def stream_status() -> None:
     Relay lag is reported only when Kafka is enabled; a growing row count
     means the relay is behind, a growing age means it is stopped.
     """
-    from sqlalchemy import Engine
+    from sqlalchemy import Engine, func, select, text
 
+    from yfin.core.config import get_settings
+    from yfin.models.stream import StreamScope
     from yfin.stream.runner import build_repository
 
     engine = _engine()
@@ -177,6 +177,12 @@ def scope_add(
     means out of scope, so `disable` may delete rather than having to keep
     a row around.
     """
+    from sqlalchemy import func, select, text
+
+    from yfin.core import normalize as nz
+    from yfin.core.config import get_settings
+    from yfin.models import Symbol
+
     settings = get_settings()
     archive = settings.yf_stream_archive_default and not no_archive
     codes = [nz.normalize_symbol(code) for code in symbols]
@@ -225,8 +231,9 @@ def scope_disable(
     symbols: Annotated[list[str], typer.Argument(help="Symbol codes")],
 ) -> None:
     """Remove symbols from the streaming scope and drop their quotes."""
-    from sqlalchemy import Engine
+    from sqlalchemy import Engine, text
 
+    from yfin.core import normalize as nz
     from yfin.stream.runner import build_repository
 
     codes = [nz.normalize_symbol(code) for code in symbols]
@@ -253,6 +260,14 @@ def scope_list(
     ] = None,
 ) -> None:
     """List the streaming scope, with the connection each symbol lands on."""
+    from sqlalchemy import select
+
+    from yfin.core.config import get_settings
+    from yfin.models import Symbol
+    from yfin.models.stream import StreamScope
+    from yfin.stream.runner import canary_symbols
+    from yfin.stream.topology import QuotaExceeded, plan_connections
+
     settings = get_settings()
     query = (
         select(StreamScope.symbol, StreamScope.enabled, StreamScope.archive, Symbol.exchange)
@@ -316,6 +331,7 @@ def stream_relay(
     """
     from sqlalchemy import Engine
 
+    from yfin.core.config import get_settings
     from yfin.outbox.relay import OutboxRelay, RelayConfig
     from yfin.outbox.spec import TICK_OUTBOX
     from yfin.storage.db import advisory_lock

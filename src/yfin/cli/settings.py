@@ -13,7 +13,7 @@ not become a casualty of the failure it's trying to recover from.
 from __future__ import annotations
 
 import json
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
@@ -25,23 +25,9 @@ from yfin.core.config import (
     settings_schema,
     source_is_env,
 )
-from yfin.storage.settings_store import (
-    SEED_PATH,
-    SettingRejected,
-    SettingState,
-    Source,
-    adopt_env_values,
-    export_values,
-    fetch_rows,
-    load_seed_file,
-    normalize_key,
-    plan_seed,
-    serialize,
-    set_setting,
-    settings_state,
-    unset_setting,
-    write_all,
-)
+
+if TYPE_CHECKING:
+    from yfin.storage.settings_store import SettingState
 
 config_app = typer.Typer(help="DB-backed configuration (settings table)", no_args_is_help=True)
 
@@ -57,6 +43,8 @@ def _read_rows_or_warn(settings: Settings) -> dict[str, str] | None:
     `None` means "DB WAS NOT CONSULTED", and `settings_state` reflects that
     correctly by reporting the effective source as env/default.
     """
+    from yfin.storage.settings_store import fetch_rows
+
     if source_is_env():
         typer.echo(
             "DB layer OFF (YF_SETTINGS_SOURCE=env): the values below come "
@@ -76,10 +64,14 @@ def _read_rows_or_warn(settings: Settings) -> dict[str, str] | None:
 
 
 def _states(settings: Settings) -> dict[str, SettingState]:
+    from yfin.storage.settings_store import settings_state
+
     return settings_state(rows=_read_rows_or_warn(settings))
 
 
 def _defaults() -> dict[str, str]:
+    from yfin.storage.settings_store import serialize
+
     return {item.key: serialize(item.default) for item in settings_schema()}
 
 
@@ -101,6 +93,8 @@ def config_list(
     exist" -- that's the question an operator actually has; use
     `--source db` for row existence.
     """
+    from yfin.storage.settings_store import Source
+
     if group is not None and group not in SETTING_GROUPS:
         typer.echo(f"unknown group: {group} ({', '.join(SETTING_GROUPS)})", err=True)
         raise typer.Exit(code=EXIT_REJECTED)
@@ -133,6 +127,8 @@ def config_list(
 @config_app.command("get")
 def config_get(key: Annotated[str, typer.Argument(help="Setting key")]) -> None:
     """Effective value and source of a single setting."""
+    from yfin.storage.settings_store import normalize_key
+
     canonical = normalize_key(key)
     settings = bootstrap_settings()
     states = _states(settings)
@@ -154,6 +150,8 @@ def config_set(
     An invalid value is rejected AT WRITE TIME (exit 2); the error must not
     surface in tomorrow night's cron run instead.
     """
+    from yfin.storage.settings_store import SettingRejected, set_setting
+
     try:
         canonical = set_setting(key, value, settings=bootstrap_settings())
     except SettingRejected as exc:
@@ -168,6 +166,15 @@ def config_unset(key: Annotated[str, typer.Argument(help="Setting key")]) -> Non
 
     Exit code 0 and a message if no row existed: the command is IDEMPOTENT.
     """
+    from yfin.storage.settings_store import (
+        SEED_PATH,
+        SettingRejected,
+        load_seed_file,
+        normalize_key,
+        serialize,
+        unset_setting,
+    )
+
     canonical = normalize_key(key)
     if canonical not in DB_MANAGED_FIELDS:
         typer.echo(f"unknown or not DB-managed setting: {canonical}", err=True)
@@ -216,6 +223,16 @@ def config_seed(
     `--dry-run` returns EXIT CODE 1 if any row is missing, so it can be used
     as a "is the seed up to date" step in CI.
     """
+    from yfin.storage.settings_store import (
+        SEED_PATH,
+        SettingRejected,
+        adopt_env_values,
+        fetch_rows,
+        load_seed_file,
+        plan_seed,
+        write_all,
+    )
+
     settings = bootstrap_settings()
     try:
         seed = load_seed_file(SEED_PATH)
@@ -269,6 +286,8 @@ def config_export(
     link between a future default change and this deployment. Keep it out
     of the seed repo.
     """
+    from yfin.storage.settings_store import export_values
+
     states = _states(bootstrap_settings())
     typer.echo(
         json.dumps(
@@ -282,6 +301,8 @@ def config_schema(
     as_json: Annotated[bool, typer.Option("--json", help="Panel-ready format")] = False,
 ) -> None:
     """Metadata the panel needs to draw its form. Never touches the DB."""
+    from yfin.storage.settings_store import serialize
+
     note = (
         "Note: the 8 env-only fields (db_*, yf_proxy_secret_key, log_level) "
         "are NOT listed here; they stay in .env."
