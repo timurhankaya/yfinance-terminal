@@ -23,6 +23,12 @@ dependencies = [
     "typer>=0.12",
     "tenacity>=8.2",
     "structlog>=24.1",
+    # Both arrive transitively via yfinance, and both are used directly:
+    # stream/connection.py opens its own websocket (yfinance's client does
+    # not reconnect -- see the streaming design, K2) and stream/protocol.py
+    # reads PricingData off the wire. Same reasoning as curl_cffi above.
+    "websockets>=13",
+    "protobuf>=5.27",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +57,10 @@ dev = [
     # quota in a single Lua script, so without it those tests could only
     # run against a real server.
     "fakeredis[lua]>=2.25",
+    # The stream connection tests drive a real loopback websocket server,
+    # so they are async. Without this plugin bare pytest SKIPS `async def`
+    # tests silently -- they would look green while never running.
+    "pytest-asyncio>=0.24",
 ]
 
 [project.urls]
@@ -76,6 +86,7 @@ markers = [
     "live: requires the real Yahoo API and a real PostgreSQL",
 ]
 addopts = "-m 'not repo and not live'"
+asyncio_mode = "auto"
 pythonpath = ["tests"]
 
 [tool.ruff]
