@@ -178,3 +178,22 @@ def test_the_api_owns_tables_are_not_readable_either() -> None:
 
     exposed = {entry.table.name for entry in CATALOG.values()}
     assert {name for name in exposed if name.startswith("api_")} == set()
+
+
+def test_both_documentation_views_render() -> None:
+    """Swagger UI is for trying an endpoint, ReDoc for reading the whole
+    contract. Both render from /openapi.json, so neither can show
+    something the API does not serve."""
+    with TestClient(create_app(api_settings())) as client:
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            assert client.get(path).status_code == 200, path
+
+
+def test_the_documentation_can_be_turned_off() -> None:
+    """A deployment that does not want its surface published should be
+    able to withhold it without also losing the API."""
+    settings = api_settings().model_copy(update={"docs_enabled": False})
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/docs").status_code == 404
+        assert client.get("/openapi.json").status_code == 404
+        assert client.get("/health").status_code == 200

@@ -932,9 +932,22 @@ edilir; **query string loga alinmaz** (bir istemci sirri yanlislikla
 query'de gonderirse loga dusmesin diye). CLI `create` / `rotate`
 ciktisindaki secret stdout'a yazilir, log dosyasina asla.
 
-**CORS** varsayilan kapali, allowlist ile acilir. `/docs` ve
-`/openapi.json` varsayilan olarak aciktir (`YFAPI_DOCS_ENABLED` ile
-kapatilabilir) ve `/oauth/token` ile ayni IP limitine tabidir.
+**CORS** varsayilan kapali, allowlist ile acilir.
+
+**Iki dokuman gorunumu yayinlanir**, cunku farkli sorulari cevaplarlar:
+
+- `/docs` — Swagger UI. Gelistiricinin client id/secret'ini yapistirip
+  bir uc noktayi tarayicidan denedigi yer; "Authorize" dugmesi §7.2'deki
+  `clientCredentials` semasi sayesinde gercekten calisir.
+- `/redoc` — ReDoc. Sozlesmenin bastan sona OKUNDUGU yer.
+- `/openapi.json` — belgenin kendisi; ikisi de bunu render eder,
+  dolayisiyla hicbiri API'nin sunmadigi bir seyi gosteremez.
+
+Ucu de `YFAPI_DOCS_ENABLED=false` ile kapatilir ve `/oauth/token` ile
+ayni IP limitine tabidir. **Kabul edilmis sinir:** her iki arayuz de
+varliklarini bir CDN'den ceker; dis aga cikisi olmayan bir sunucuda
+sayfalar acilir ama bos kalir. Belge her halukarda `/openapi.json`'dan
+alinabilir, ki araclarin tukettigi de odur.
 
 ## 8. Dogrulama
 
@@ -996,8 +1009,14 @@ kararlastirilan isler. Kaybolmasinlar diye burada dururlar.
   gercek bir "en son ne zaman dogrulandi" degeri uretir; §5.6'daki
   gerekce ve reddedilen alternatifler orada. API tarafinda birincil
   anahtar aramasi, yazma tarafinda kosu basina bir upsert.
-- **Compose'daki `api` servisi ve Dockerfile.** Uc noktalar var artik;
-  kalan is imaji ve servisi yazmaktir.
+- ~~Compose'daki `api` servisi ve Dockerfile.~~ **Yapildi.** Iki asamali
+  imaj, root olmayan kullanici, `/health` uzerinden healthcheck. Bir
+  ayrinti bilerek boyle: `--no-proxy-headers`. uvicorn'un kendi proxy
+  islemesi `request.client`'i `X-Forwarded-For`'un iddia ettigi adresle
+  DEGISTIRIR; API ise istemci adresini kendisi, yapilandirilmis bir CIDR
+  listesine karsi cozer (§7.5). uvicorn once ezseydi o kontrolun
+  dayandigi gercek peer kaybolur ve her rate limit anahtari saldirganin
+  sectigi deger olurdu.
 - **Kafka icin bir uretici/tuketici.** Broker compose'da ayakta. Amaci
   bu spec yazildiktan sonra netlesti: canli WebSocket akisi tasariminin
   (`2026-09-06-websocket-streaming-design.md`, K5) transactional outbox

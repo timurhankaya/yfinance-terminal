@@ -68,6 +68,45 @@ services:
       timeout: 3s
       retries: 20
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: yfin-api
+    environment:
+      # The pipeline settings the API needs to reach the database. It
+      # reads the same keys as the CLI; `db_host` is the service name
+      # here rather than localhost.
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-yfin}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_NAME: ${DB_NAME:-yfinance}
+      # The signing key has no default on purpose: an API that starts
+      # with a guessable key is worse than one that refuses to start.
+      YFAPI_JWT_SIGNING_KEY: ${YFAPI_JWT_SIGNING_KEY:?YFAPI_JWT_SIGNING_KEY is required}
+      YFAPI_JWT_KID: ${YFAPI_JWT_KID:-k1}
+      YFAPI_JWT_ISSUER: ${YFAPI_JWT_ISSUER:-yfin-api}
+      YFAPI_JWT_AUDIENCE: ${YFAPI_JWT_AUDIENCE:-yfin-api}
+      YFAPI_REDIS_URL: redis://redis:6379/0
+      # Empty by default, and that is the safe value: with no trusted
+      # network the X-Forwarded-For header is ignored outright rather
+      # than believed. Set it to the reverse proxy's CIDR in front of a
+      # real deployment.
+      YFAPI_TRUSTED_PROXIES: ${YFAPI_TRUSTED_PROXIES:-}
+      YFAPI_CORS_ORIGINS: ${YFAPI_CORS_ORIGINS:-}
+      YFAPI_DOCS_ENABLED: ${YFAPI_DOCS_ENABLED:-true}
+      TZ: UTC
+    ports:
+      # /docs (Swagger UI) and /redoc read the same document the API
+      # serves at /openapi.json.
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   kafka:
     # KRaft: no ZooKeeper. Pinned like every other image here.
     image: apache/kafka:3.9.0

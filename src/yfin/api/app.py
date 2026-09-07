@@ -36,8 +36,18 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         title=TITLE,
         version=VERSION,
         description=DESCRIPTION,
+        # Two views of the same document, because they answer different
+        # questions. Swagger UI is where a developer pastes a client id
+        # and calls an endpoint; ReDoc is where they read the contract
+        # end to end. Both render from /openapi.json, so neither can
+        # drift from what the API actually serves.
+        #
+        # Both pull their assets from a CDN. On a host without outbound
+        # internet the pages load but stay blank -- the document itself
+        # is always available at /openapi.json, which is what tooling
+        # consumes anyway.
         docs_url="/docs" if settings.docs_enabled else None,
-        redoc_url=None,
+        redoc_url="/redoc" if settings.docs_enabled else None,
         openapi_url="/openapi.json" if settings.docs_enabled else None,
     )
 
