@@ -1,8 +1,10 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { AppRoutes } from "./App";
+import { clearRegistry, registerPanel } from "../commands/registry";
+import { registerAll } from "../panels";
 
 const PW = "hunter2";
 
@@ -14,6 +16,10 @@ function symbolBody(symbol: string, longName: string) {
   return { data: { symbol, long_name: longName, short_name: null, exchange: null, full_exchange_name: null, currency: null, quote_type: null, timezone: null, is_active: true, info: null } };
 }
 
+function searchBody(rows: Array<{ symbol: string; long_name: string | null; short_name: string | null }>) {
+  return { data: rows.map((r) => ({ ...r, exchange: null, quote_type: null })), next_cursor: null };
+}
+
 function mockFetch(handler: (url: string, init?: RequestInit) => Response) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => handler(String(input), init));
 }
@@ -22,6 +28,16 @@ function unauthorized(): Response {
   return new Response("{}", { status: 401, headers: { "content-type": "application/problem+json" } });
 }
 
+// jsdom has no ResizeObserver; cmdk (the command palette) uses one to track
+// its list height.
+class FakeResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+Element.prototype.scrollIntoView = vi.fn();
+
 function mount(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -29,6 +45,31 @@ function mount(path: string) {
     </MemoryRouter>,
   );
 }
+
+beforeEach(() => {
+  clearRegistry();
+  registerAll();
+  registerPanel({
+    code: "FAKEFA",
+    title: "Fake",
+    needsSymbol: true,
+    layout: "single",
+    parseArgs: () => ({}),
+    component: () => <p>fake FA panel</p>,
+  });
+  registerPanel({
+    code: "GIP",
+    title: "Intraday",
+    needsSymbol: true,
+    layout: "headed",
+    parseArgs: (t) => {
+      const i = (t[0] ?? "5m").toLowerCase();
+      if (!["1m", "5m", "15m", "60m"].includes(i)) throw new Error(`Unknown interval ${t[0]}`);
+      return { interval: i };
+    },
+    component: () => null,
+  });
+});
 
 afterEach(() => {
   cleanup();
@@ -99,5 +140,105 @@ describe("AppRoutes", () => {
     });
     mount("/ui");
     expect(await screen.findByText("Tesla")).toBeInTheDocument();
+  });
+
+  it("runs a mnemonic-only command against the current symbol", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
+      if (url === "/v1/symbols/MSFT") return json(200, symbolBody("MSFT", "Microsoft Corp"));
+      throw new Error(`unexpected ${url}`);
+    });
+    mount("/ui/t/MSFT/DES");
+    await screen.findByText("Microsoft Corp");
+    await userEvent.type(await screen.findByLabelText("command"), "msft fakefa{enter}");
+    expect(await screen.findByText("fake FA panel")).toBeInTheDocument();
+    expect(await screen.findByLabelText("command")).toHaveValue("");
+  });
+
+  it("warns and opens the palette when a symbol is not found, and lets the palette pick resolve it", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
+      if (url === "/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      if (url === "/v1/symbols/NOPE") return new Response("{}", { status: 404, headers: { "content-type": "application/problem+json" } });
+      if (url === "/v1/symbols/NOPES") return json(200, symbolBody("NOPES", "Nopes Inc."));
+      if (url.startsWith("/v1/symbols?q=NOPE")) return json(200, searchBody([{ symbol: "NOPES", long_name: "Nopes Inc.", short_name: null }]));
+      throw new Error(`unexpected ${url}`);
+    });
+    mount("/ui/t/AAPL/DES");
+    await screen.findByText("Apple Inc.");
+    await userEvent.type(await screen.findByLabelText("command"), "NOPE{enter}");
+    expect(await screen.findByText("No such symbol NOPE")).toBeInTheDocument();
+    expect(await screen.findByText("Apple Inc.")).toBeInTheDocument();
+    const palette = await screen.findByLabelText("palette");
+    expect(palette).toBeInTheDocument();
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/v1/symbols?q=NOPE&limit=20"),
+      expect.anything(),
+    ));
+    const item = await screen.findByText(/NOPES/);
+    await userEvent.click(item);
+    expect(await screen.findByText("Nopes Inc.")).toBeInTheDocument();
+  });
+
+  it("reports a bad panel argument without changing the URL", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
+      if (url === "/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      throw new Error(`unexpected ${url}`);
+    });
+    mount("/ui/t/AAPL/DES");
+    await screen.findByText("Apple Inc.");
+    await userEvent.type(await screen.findByLabelText("command"), "gip 3m{enter}");
+    expect(await screen.findByText("Unknown interval 3m")).toBeInTheDocument();
+    expect(await screen.findByText("Apple Inc.")).toBeInTheDocument();
+  });
+
+  it("Esc first clears the focused command box, then navigates back", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
+      if (url === "/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      if (url === "/v1/symbols/MSFT") return json(200, symbolBody("MSFT", "Microsoft Corp"));
+      throw new Error(`unexpected ${url}`);
+    });
+    mount("/ui/t/AAPL/DES");
+    await screen.findByText("Apple Inc.");
+    const input = await screen.findByLabelText("command");
+    await userEvent.type(input, "msft{enter}");
+    await screen.findByText("Microsoft Corp");
+    await userEvent.type(input, "something");
+    expect(input).toHaveValue("something");
+    await userEvent.keyboard("{Escape}");
+    expect(input).toHaveValue("");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.getByText("Apple Inc.")).toBeInTheDocument());
+  });
+
+  it("opens HELP on '?' when the command box is not focused", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
+      if (url === "/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      throw new Error(`unexpected ${url}`);
+    });
+    mount("/ui/t/AAPL/DES");
+    await screen.findByText("Apple Inc.");
+    const input = await screen.findByLabelText("command");
+    input.blur();
+    await userEvent.keyboard("?");
+    expect(await screen.findByText("Help")).toBeInTheDocument();
+  });
+
+  it("focuses the command box on '/' when it is not already focused", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
+      if (url === "/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      throw new Error(`unexpected ${url}`);
+    });
+    mount("/ui/t/AAPL/DES");
+    await screen.findByText("Apple Inc.");
+    const input = await screen.findByLabelText("command");
+    input.blur();
+    expect(document.activeElement).not.toBe(input);
+    await userEvent.keyboard("/");
+    expect(document.activeElement).toBe(input);
   });
 });
