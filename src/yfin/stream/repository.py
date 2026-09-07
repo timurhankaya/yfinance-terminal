@@ -23,12 +23,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.models.stream import StreamStatus
 
-#: Advisory lock names. Separate from `yfin_sync` so a stream process and
-#: a scheduled sync can run at the same time -- they write different
-#: tables. `yfin stream reconcile` is the exception and takes the sync
-#: lock, because it writes price_bars.
+#: The stream ingest advisory lock. Separate from `yfin_sync` so a stream
+#: process and a scheduled sync can run at the same time -- they write
+#: different tables. `yfin stream reconcile` is the exception and takes the
+#: sync lock, because it writes price_bars. The relay has its own lock, and
+#: it is declared with the rest of its outbox in `outbox/spec.py`.
 STREAM_LOCK_NAME = "yfin_stream"
-RELAY_LOCK_NAME = "yfin_stream_relay"
 
 
 @dataclass(frozen=True)

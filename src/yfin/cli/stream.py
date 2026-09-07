@@ -12,6 +12,7 @@ those all want a process that exits when told to.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Annotated, Any, cast
 
@@ -142,7 +143,7 @@ def stream_status() -> None:
         # Only with Kafka on: with the relay off by design, a permanently
         # growing backlog is the expected state and reporting it as a
         # number to worry about would be noise.
-        from yfin.stream.relay import relay_lag
+        from yfin.outbox.relay import relay_lag
 
         unpublished, oldest_seconds = relay_lag(factory)
         typer.echo(
@@ -319,8 +320,9 @@ def stream_relay(
     """
     from sqlalchemy import Engine
 
+    from yfin.outbox.relay import OutboxRelay, RelayConfig
+    from yfin.outbox.spec import TICK_OUTBOX
     from yfin.storage.db import advisory_lock
-    from yfin.stream.relay import RELAY_LOCK_NAME, OutboxRelay, RelayConfig
     from yfin.stream.runner import session_factory_for
 
     settings = get_settings()
@@ -336,12 +338,14 @@ def stream_relay(
     factory = session_factory_for(engine)
     config = RelayConfig(
         bootstrap_servers=settings.yf_kafka_bootstrap_servers,
-        topic_pattern=settings.yf_kafka_topic_pattern,
         batch_size=settings.yf_kafka_relay_batch,
     )
-    relay = OutboxRelay(factory, config)
+    # The pattern is an operator setting, so it overrides the spec's own
+    # default rather than sitting next to it as a second source of truth.
+    spec = replace(TICK_OUTBOX, topic_pattern=settings.yf_kafka_topic_pattern)
+    relay = OutboxRelay(factory, config, spec)
 
-    with advisory_lock(engine, RELAY_LOCK_NAME):
+    with advisory_lock(engine, spec.lock_name):
         missing = relay.verify_topics()
         if missing:
             # Not fatal, but worth saying out loud: a topic created
@@ -350,9 +354,11 @@ def stream_relay(
             typer.echo(f"topics not present on the broker: {', '.join(missing)}")
 
         if once:
-            from yfin.stream.kafka import build_producer
+            from yfin.outbox.kafka import build_producer
 
-            published = relay.publish_once(build_producer(config.bootstrap_servers))
+            published = relay.publish_once(
+                build_producer(config.bootstrap_servers, client_id=spec.client_id)
+            )
             typer.echo(f"published {published} message(s)")
         else:
             stats = relay.run()

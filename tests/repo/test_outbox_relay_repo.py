@@ -14,7 +14,8 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
-from yfin.stream.relay import OutboxRelay, RelayConfig, relay_lag
+from yfin.outbox.relay import OutboxRelay, RelayConfig, relay_lag
+from yfin.outbox.spec import TICK_OUTBOX
 
 pytestmark = pytest.mark.repo
 
@@ -26,7 +27,14 @@ class FakeProducer:
         self.produced: list[tuple[str, bytes, bytes]] = []
         self.fail = fail
 
-    def produce(self, topic: str, value: bytes, key: bytes, on_delivery: Any) -> None:
+    def produce(
+        self,
+        topic: str,
+        value: bytes,
+        key: bytes,
+        on_delivery: Any,
+        headers: Any = None,
+    ) -> None:
         self.produced.append((topic, value, key))
         on_delivery("broker down" if self.fail else None, None)
 
@@ -45,7 +53,7 @@ def factory(db_session: Session) -> sessionmaker[Session]:
 
 @pytest.fixture
 def relay(factory: sessionmaker[Session]) -> OutboxRelay:
-    return OutboxRelay(factory, RelayConfig(bootstrap_servers="unused:9092"))
+    return OutboxRelay(factory, RelayConfig(bootstrap_servers="unused:9092"), TICK_OUTBOX)
 
 
 def _queue(session: Session, count: int, *, exchange: str = "NMS", start: int = 0) -> None:
@@ -106,7 +114,7 @@ def test_rows_are_published_in_id_order(relay: OutboxRelay, db_session: Session)
 def test_batch_size_bounds_a_pass(factory: sessionmaker[Session], db_session: Session) -> None:
     _queue(db_session, 10)
     relay = OutboxRelay(
-        factory, RelayConfig(bootstrap_servers="unused:9092", batch_size=4)
+        factory, RelayConfig(bootstrap_servers="unused:9092", batch_size=4), TICK_OUTBOX
     )
     assert relay.publish_once(FakeProducer()) == 4
 
@@ -154,14 +162,14 @@ def test_lag_counts_unpublished_rows(
     relay: OutboxRelay, factory: sessionmaker[Session], db_session: Session
 ) -> None:
     _queue(db_session, 4)
-    pending, _ = relay_lag(factory)
+    pending, _ = relay_lag(factory, TICK_OUTBOX)
     assert pending == 4
     relay.publish_once(FakeProducer())
-    assert relay_lag(factory)[0] == 0
+    assert relay_lag(factory, TICK_OUTBOX)[0] == 0
 
 
 def test_lag_on_an_empty_outbox_is_zero(factory: sessionmaker[Session]) -> None:
-    assert relay_lag(factory) == (0, 0)
+    assert relay_lag(factory, TICK_OUTBOX) == (0, 0)
 
 
 # --- cleanup ---------------------------------------------------------------
@@ -185,7 +193,9 @@ def test_cleanup_is_safe_with_no_offset_row(
 ) -> None:
     db_session.execute(text("DELETE FROM stream_relay_offset"))
     db_session.commit()
-    relay = OutboxRelay(factory, RelayConfig(bootstrap_servers="unused:9092"))
+    relay = OutboxRelay(
+        factory, RelayConfig(bootstrap_servers="unused:9092"), TICK_OUTBOX
+    )
     assert relay.drop_published_chunks() == 0
 
 

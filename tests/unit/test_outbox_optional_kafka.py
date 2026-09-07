@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from yfin.stream.kafka import KafkaUnavailable
+from yfin.outbox.kafka import KafkaUnavailable
 
 STREAM_MODULES = [
     "yfin.stream.protocol",
@@ -30,8 +30,8 @@ STREAM_MODULES = [
     "yfin.stream.repository",
     "yfin.stream.supervisor",
     "yfin.stream.writer",
-    "yfin.stream.kafka",
-    "yfin.stream.relay",
+    "yfin.outbox.kafka",
+    "yfin.outbox.relay",
     "yfin.stream.reconcile",
     "yfin.stream.runner",
     "yfin.cli.stream",
@@ -102,9 +102,9 @@ def test_building_a_producer_without_the_extra_fails_clearly() -> None:
         for name in list(sys.modules):
             if _is_stream_module(name):
                 del sys.modules[name]
-        kafka = importlib.import_module("yfin.stream.kafka")
+        kafka = importlib.import_module("yfin.outbox.kafka")
         with pytest.raises(kafka.KafkaUnavailable, match="not installed"):
-            kafka.build_producer("localhost:9092")
+            kafka.build_producer("localhost:9092", client_id="x")
 
 
 def test_the_error_names_the_extra_to_install() -> None:
@@ -112,9 +112,9 @@ def test_the_error_names_the_extra_to_install() -> None:
         for name in list(sys.modules):
             if _is_stream_module(name):
                 del sys.modules[name]
-        kafka = importlib.import_module("yfin.stream.kafka")
+        kafka = importlib.import_module("yfin.outbox.kafka")
         with pytest.raises(kafka.KafkaUnavailable, match=r'yfin\[kafka\]'):
-            kafka.build_producer("localhost:9092")
+            kafka.build_producer("localhost:9092", client_id="x")
 
 
 def test_kafka_unavailable_is_importable_either_way() -> None:

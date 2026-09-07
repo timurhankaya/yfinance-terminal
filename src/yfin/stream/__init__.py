@@ -4,13 +4,14 @@ Measurements: docs/measurements/websocket.md
 
 Layer rule: writes go through `storage/contracts.py`, and every read and
 maintenance query the *ingest* path needs lives in `repository.py` --
-scope, sessions, connection health, quote cleanup. `relay.py` is the one
-exception and it is deliberate: it runs as its own process
-(`yfin stream relay`), and its offset and `drop_chunks` queries are
-meaningless to the ingest path. Putting them in `repository.py` would
-hand every stream module a vocabulary only the relay uses.
+scope, sessions, connection health, quote cleanup. The relay used to be
+the exception here; it now lives in `yfin.outbox`, which is where its
+offset and `drop_chunks` queries belong: they are about delivering a
+queue, not about ticks, and a second outbox drives the same code. The
+tick queue's shape is declared as `outbox.spec.TICK_OUTBOX`. The
+dependency runs one way -- `stream/` may use `outbox/`, never the reverse.
 
-`writer.py` is the second exception, for a reason worth stating: its
+`writer.py` is the exception that remains, for a reason worth stating: its
 `symbols` reads ask whether a row EXISTS (a foreign-key question), while
 `repository.load_scope` asks whether a symbol is ELIGIBLE (`is_active`
 plus the scope join). Same table, different questions -- reusing the

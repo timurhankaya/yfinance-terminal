@@ -1,22 +1,47 @@
 """Topic naming, delivery tracking and the publish contract.
 
-No broker here: what these cover is the logic that decides where a
-message goes and whether the relay is allowed to move on. The end-to-end
-path is exercised in tests/repo against a real broker.
+No broker here: what these cover is the logic that decides where a message
+goes and whether the relay is allowed to move on. The end-to-end path is
+exercised in tests/repo against a real broker.
+
+Two outboxes drive the same code, so the spec's own vocabulary is under
+test too: the tick spec must produce exactly what it produced before the
+extraction, and a spec that asks for the dedupe header must be the only one
+that sends it.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
-from yfin.stream.kafka import (
+from yfin.outbox.kafka import (
+    OUTBOX_ID_HEADER,
     UNKNOWN_EXCHANGE,
     DeliveryTracker,
     KafkaUnavailable,
     OutboxMessage,
     build_producer,
     publish,
-    topic_for,
+    topic_for_spec,
+)
+from yfin.outbox.spec import TICK_OUTBOX, OutboxSpec
+
+#: The pipeline's change outbox, as far as this module is concerned: the
+#: other set of answers the same code has to give. Its table and cursor
+#: arrive with the design's step 4.
+CHANGES_SPEC = OutboxSpec(
+    table="pipeline_outbox",
+    offset_table="pipeline_relay_offset",
+    lock_name="yfin_pipeline_relay",
+    route_column="family",
+    key_column="partition_key",
+    topic_pattern="yfin.changes.{family}",
+    placeholder="{family}",
+    upper_case_route=False,
+    client_id="yfin-changes-relay",
+    id_header=True,
 )
 
 
@@ -25,11 +50,20 @@ class FakeProducer:
 
     def __init__(self, *, fail: bool = False, stuck: int = 0) -> None:
         self.produced: list[tuple[str, bytes, bytes]] = []
+        self.headers: list[list[tuple[str, bytes]] | None] = []
         self._fail = fail
         self._stuck = stuck
 
-    def produce(self, topic: str, value: bytes, key: bytes, on_delivery: object) -> None:
+    def produce(
+        self,
+        topic: str,
+        value: bytes,
+        key: bytes,
+        on_delivery: object,
+        headers: list[tuple[str, bytes]] | None = None,
+    ) -> None:
         self.produced.append((topic, value, key))
+        self.headers.append(headers)
         callback = on_delivery
         assert callable(callback)
         callback("broker down" if self._fail else None, None)
@@ -38,8 +72,10 @@ class FakeProducer:
         return self._stuck
 
 
-def _message(symbol: str = "AAPL", exchange: str | None = "NMS") -> OutboxMessage:
-    return OutboxMessage(id=1, symbol=symbol, exchange=exchange, payload='{"a":1}')
+def _message(
+    key: str = "AAPL", route: str | None = "NMS", *, id: int = 1
+) -> OutboxMessage:
+    return OutboxMessage(id=id, xid=None, key=key, route=route, payload='{"a":1}')
 
 
 # --- topic naming ----------------------------------------------------------
@@ -48,33 +84,35 @@ def _message(symbol: str = "AAPL", exchange: str | None = "NMS") -> OutboxMessag
 def test_topic_is_per_exchange() -> None:
     """A topic per symbol would be thousands of topics; a single topic
     would give up per-exchange isolation."""
-    assert topic_for("yfin.ticks.{exchange}", "NMS") == "yfin.ticks.NMS"
+    assert topic_for_spec(TICK_OUTBOX, "NMS") == "yfin.ticks.NMS"
 
 
 def test_topic_upper_cases_the_exchange() -> None:
     """Raw case differences would split one topic in two and quietly halve
     the per-symbol ordering guarantee."""
-    assert topic_for("yfin.ticks.{exchange}", "nms") == "yfin.ticks.NMS"
+    assert topic_for_spec(TICK_OUTBOX, "nms") == "yfin.ticks.NMS"
 
 
 @pytest.mark.parametrize("exchange", [None, "", "   "])
 def test_missing_exchange_uses_the_unknown_label(exchange: str | None) -> None:
-    assert topic_for("yfin.ticks.{exchange}", exchange) == f"yfin.ticks.{UNKNOWN_EXCHANGE}"
+    assert topic_for_spec(TICK_OUTBOX, exchange) == f"yfin.ticks.{UNKNOWN_EXCHANGE}"
 
 
 def test_illegal_characters_are_replaced() -> None:
     """Exchange codes come from discovery paths, so a slash is not
     impossible -- and an illegal name fails one message at a time."""
-    assert topic_for("yfin.ticks.{exchange}", "A/B C") == "yfin.ticks.A-B-C"
+    assert topic_for_spec(TICK_OUTBOX, "A/B C") == "yfin.ticks.A-B-C"
 
 
 def test_topic_name_is_length_capped() -> None:
-    assert len(topic_for("yfin.ticks.{exchange}", "X" * 400)) <= 249
+    assert len(topic_for_spec(TICK_OUTBOX, "X" * 400)) <= 249
 
 
 def test_a_pattern_without_the_placeholder_gives_one_topic() -> None:
     """Operators who want a single topic just leave {exchange} out."""
-    assert topic_for("yfin.ticks", "NMS") == "yfin.ticks"
+    assert topic_for_spec(replace(TICK_OUTBOX, topic_pattern="yfin.ticks"), "NMS") == (
+        "yfin.ticks"
+    )
 
 
 # --- delivery --------------------------------------------------------------
@@ -103,7 +141,7 @@ def test_publish_sends_one_message_per_row() -> None:
     tracker = publish(
         producer,
         [_message("AAPL"), _message("MSFT")],
-        topic_pattern="yfin.ticks.{exchange}",
+        spec=TICK_OUTBOX,
     )
     assert tracker.delivered == 2
     assert [p[0] for p in producer.produced] == ["yfin.ticks.NMS", "yfin.ticks.NMS"]
@@ -112,20 +150,20 @@ def test_publish_sends_one_message_per_row() -> None:
 def test_publish_keys_on_the_symbol() -> None:
     """The key is what makes ordering per-symbol rather than per-topic."""
     producer = FakeProducer()
-    publish(producer, [_message("AAPL")], topic_pattern="yfin.ticks.{exchange}")
+    publish(producer, [_message("AAPL")], spec=TICK_OUTBOX)
     assert producer.produced[0][2] == b"AAPL"
 
 
 def test_publish_reports_a_broker_failure() -> None:
     producer = FakeProducer(fail=True)
-    tracker = publish(producer, [_message()], topic_pattern="yfin.ticks.{exchange}")
+    tracker = publish(producer, [_message()], spec=TICK_OUTBOX)
     assert not tracker.ok
 
 
 def test_messages_left_queued_after_flush_count_as_failure() -> None:
     """flush() returning non-zero means the broker never confirmed them."""
     producer = FakeProducer(stuck=3)
-    tracker = publish(producer, [_message()], topic_pattern="yfin.ticks.{exchange}")
+    tracker = publish(producer, [_message()], spec=TICK_OUTBOX)
     assert not tracker.ok
     assert "still queued" in tracker.failed[-1]
 
@@ -136,7 +174,45 @@ def test_messages_left_queued_after_flush_count_as_failure() -> None:
 def test_empty_bootstrap_servers_is_refused() -> None:
     """Loud at start beats a stream that quietly publishes nothing."""
     with pytest.raises(KafkaUnavailable, match="bootstrap_servers"):
-        build_producer("")
+        build_producer("", client_id="x")
+
+
+# --- the spec's vocabulary -------------------------------------------------
+
+
+def test_a_family_route_is_not_upper_cased() -> None:
+    """`DataFamily` is already a closed lower-case set; upper-casing it
+    would name a topic no ACL and no consumer expects."""
+    assert topic_for_spec(CHANGES_SPEC, "fundamentals") == "yfin.changes.fundamentals"
+
+
+def test_the_dedupe_header_travels_only_where_it_is_asked_for() -> None:
+    """One change transaction can write the same row twice -- `symbols`
+    from three datasets -- so `(table, key, occurred_at)` is not a dedupe
+    key and the outbox id has to travel. Tick topics stay header-free:
+    `live_ticks`' primary key is already in the payload."""
+    producer = FakeProducer()
+    publish(producer, [_message(id=77)], spec=CHANGES_SPEC)
+    assert producer.headers == [[(OUTBOX_ID_HEADER, b"77")]]
+
+    ticks = FakeProducer()
+    publish(ticks, [_message(id=77)], spec=TICK_OUTBOX)
+    assert ticks.headers == [None]
+
+
+def test_the_key_comes_from_the_message_whatever_the_column_was() -> None:
+    producer = FakeProducer()
+    publish(producer, [_message("news:1", "news")], spec=CHANGES_SPEC)
+    assert producer.produced[0][2] == b"news:1"
+    assert producer.produced[0][0] == "yfin.changes.news"
+
+
+def test_the_two_specs_use_different_client_ids() -> None:
+    """So the broker's own logs and metrics can tell the relays apart."""
+    assert TICK_OUTBOX.client_id != CHANGES_SPEC.client_id
+
+
+# --- configuration ---------------------------------------------------------
 
 
 def test_producer_requests_idempotence() -> None:
@@ -145,7 +221,7 @@ def test_producer_requests_idempotence() -> None:
     ordering depends on."""
     import inspect
 
-    from yfin.stream import kafka
+    from yfin.outbox import kafka
 
     source = inspect.getsource(kafka.build_producer)
     assert '"enable.idempotence": True' in source
