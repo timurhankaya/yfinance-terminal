@@ -40,7 +40,7 @@ engellemediğini garanti eder.
 | Güvenlik başlıkları sabit dict, `setdefault`; CSP yok; `/v1` yanıtları `Cache-Control: private`, `Vary: Authorization` | `api/core/middleware.py:33-40,128-135`, `market.py:139-140` |
 | CORS sadece `cors_origins` doluysa; `public_base_url` varsayılan `""` | `api/app.py:118-128`, `api/core/config.py:56` |
 | `ApiSettings` env prefix `YFAPI_`; `docker-compose.yml` `api` servisine `YFAPI_*` değerlerini tek tek geçirir | `api/core/config.py:27-28`, `docker-compose.yml:87-98` |
-| `.env.example` testi yalnızca çekirdek `Settings`'i kapsar ve dosyadaki her anahtarın bir `Settings` alanı olmasını ister; `YFAPI_*` anahtarı dosyada yok | `tests/unit/test_env_example.py:20-43` |
+| `.env.example` testi her `ApiSettings` alanının `YFAPI_*` olarak belgelenmesini **zorunlu kılar** ve dosyadaki her anahtarın bir ayar olmasını ister | `tests/unit/test_env_example.py:33-82` |
 | `StreamWriter._write` bir batch'i tek transaction'da yazar; `_write_ticks` `(verified_count, unknown)` döner, `accepted` listesi yerel; COPY `ON CONFLICT DO NOTHING` | `stream/writer.py:274-352` |
 | Supervisor `archive=false` sembolleri kuyruğa koymaz; `_write` bunları hiç görmez | `stream/supervisor.py:289-290` |
 | `live_ticks` PK `(symbol, ts_utc)`; `market_hours_code` ve `received_at` var; `live_quotes` `live_ticks`'in son değer türevi, `quotes_every_n_batches`'te bir yazılır | `models/stream.py:111-181,191-204`, `writer.py:487` |
@@ -140,10 +140,10 @@ edilmez. `install`:
 
 **Ayarlar.** `ApiSettings` (`YFAPI_` prefix), ikisi de env-only:
 `ui_enabled: bool = False`, `ui_password: str = ""`. `ui_enabled` açık
-ve şifre boşsa `create_app` `ValueError` atar. Bu iki anahtar
-`.env.example`'a **girmez**: oradaki test yalnızca çekirdek `Settings`
-alanlarını tanır ve yabancı anahtarda kırılır. `docker-compose.yml` ve
-README belgeler.
+ve şifre boşsa `create_app` `ValueError` atar. İki anahtar
+`YFAPI_UI_ENABLED` ve `YFAPI_UI_PASSWORD` olarak `.env.example`'a girer;
+oradaki test her `ApiSettings` alanının belgelenmesini zorunlu kılar.
+`docker-compose.yml` ve README de belgeler.
 
 **API'ye entegrasyon.** `current_principal`: `Authorization` başlığı
 varsa yalnızca o değerlendirilir, geçersizse 401; başlık yoksa ve UI
@@ -384,7 +384,7 @@ session,live}.py`, `src/yfin/stream/publish.py`,
 `stream` alanı), `pyproject.toml` (`redis` ana bağımlılık, package-data),
 `.gitignore` (`src/yfin/ui/static/dist`), `Dockerfile` (node aşaması),
 `.github/workflows/ci.yml` (`web` job'u), `.env.example`
-(`YF_STREAM_PUBLISH_*`), `docker-compose.yml` (`api`: `YFAPI_UI_ENABLED`,
+(`YFAPI_UI_*`, `YF_STREAM_PUBLISH_*`), `docker-compose.yml` (`api`: `YFAPI_UI_ENABLED`,
 `YFAPI_UI_PASSWORD`, `YFAPI_PUBLIC_BASE_URL`; stream servisi varsa
 `YF_STREAM_PUBLISH_REDIS_URL`), `README.md`.
 
@@ -483,8 +483,8 @@ senaryosu: login → `AAPL GIP 5m` → mum görünür.
 - `app.frontend()` bırakıldı; fallback ve `check_dir` davranışı
   nedeniyle elle rota (Karar 2).
 - `redis` ana bağımlılığa; yayın için ayrı Redis URL ayarı (Karar 7).
-- `.env.example` testi `YFAPI_*` tanımadığı için UI anahtarları oraya
-  girmez.
+- `.env.example` testi her `ApiSettings` alanını zorunlu kıldığı için
+  UI anahtarları oraya girer (ilk inceleme eski dosyayı okumuştu).
 - `_write_ticks` `accepted`'ı döndürür; tekrar yayın olasılığı ve
   istemci tarafı tekrar atma yazıldı.
 - `archive=false` sembollerin canlı yolu olmadığı yazıldı.
