@@ -141,10 +141,10 @@ def stream_status() -> None:
         # number to worry about would be noise.
         from yfin.outbox.relay import relay_lag
 
-        unpublished, oldest_seconds = relay_lag(factory)
+        lag = relay_lag(factory)
         typer.echo(
-            f"relay: {unpublished} row(s) unpublished; "
-            f"oldest {oldest_seconds}s behind"
+            f"relay: {lag.rows} row(s) unpublished; "
+            f"oldest {lag.oldest_age_seconds}s behind"
         )
 
 

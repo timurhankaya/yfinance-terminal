@@ -28,15 +28,14 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.core.logging_setup import get_logger
+from yfin.outbox.cursor import Lag, Position, cursor_for
 from yfin.outbox.kafka import (
     KafkaUnavailable,
-    OutboxMessage,
     Producer,
     build_producer,
     existing_topics,
@@ -81,6 +80,7 @@ class OutboxRelay:
         self._session_factory = session_factory
         self._config = config
         self._spec = spec
+        self._cursor = cursor_for(spec)
         self._producer = producer
         self._stopping = threading.Event()
         self.stats = RelayStats()
@@ -134,8 +134,11 @@ class OutboxRelay:
         step past messages a broker outage swallowed, and the outbox is the
         only place they exist.
         """
-        offset = self._read_offset()
-        messages = self._read_batch(offset)
+        with self._session_factory() as session:
+            at = self._cursor.read(session, self._spec)
+            messages = self._cursor.batch(
+                session, self._spec, at, self._config.batch_size
+            )
         if not messages:
             return 0
 
@@ -154,60 +157,14 @@ class OutboxRelay:
             )
             return 0
 
-        self._write_offset(messages[-1].id)
+        last = messages[-1]
+        with self._session_factory() as session:
+            self._cursor.advance(
+                session, self._spec, Position(xid=last.xid or 0, id=last.id)
+            )
         self.stats.published += len(messages)
         self.stats.passes += 1
         return len(messages)
-
-    # --- offset ------------------------------------------------------------
-
-    def _read_offset(self) -> int:
-        spec = self._spec
-        with self._session_factory() as session:
-            row = session.execute(
-                text(f"SELECT last_published_id FROM {spec.offset_table} WHERE id = 1")
-            ).scalar_one_or_none()
-            if row is None:
-                session.execute(
-                    text(
-                        f"INSERT INTO {spec.offset_table} "
-                        "(id, last_published_id, updated_at) "
-                        "VALUES (1, 0, :ts) ON CONFLICT (id) DO NOTHING"
-                    ),
-                    {"ts": datetime.now(UTC)},
-                )
-                session.commit()
-                return 0
-        return int(row)
-
-    def _write_offset(self, last_id: int) -> None:
-        spec = self._spec
-        with self._session_factory() as session:
-            session.execute(
-                text(
-                    f"UPDATE {spec.offset_table} "
-                    "   SET last_published_id = :id, updated_at = :ts "
-                    " WHERE id = 1"
-                ),
-                {"id": last_id, "ts": datetime.now(UTC)},
-            )
-            session.commit()
-
-    def _read_batch(self, offset: int) -> list[OutboxMessage]:
-        spec = self._spec
-        with self._session_factory() as session:
-            rows = session.execute(
-                text(
-                    f"SELECT id, {spec.key_column}, {spec.route_column}, payload "
-                    f"  FROM {spec.table} "
-                    " WHERE id > :offset ORDER BY id LIMIT :limit"
-                ),
-                {"offset": offset, "limit": self._config.batch_size},
-            ).all()
-        return [
-            OutboxMessage(id=r[0], xid=None, key=r[1], route=r[2], payload=r[3])
-            for r in rows
-        ]
 
     # --- cleanup -----------------------------------------------------------
 
@@ -233,21 +190,9 @@ class OutboxRelay:
         """
         spec = self._spec
         with self._session_factory() as session:
-            offset = session.execute(
-                text(f"SELECT last_published_id FROM {spec.offset_table} WHERE id = 1")
-            ).scalar_one_or_none()
-            if offset is None:
-                return 0
-            cutoff = session.execute(
-                text(f"SELECT min(created_at) FROM {spec.table} WHERE id > :offset"),
-                {"offset": offset},
-            ).scalar_one_or_none()
-            if cutoff is None:
-                # Everything is published; the newest row's timestamp is
-                # the boundary.
-                cutoff = session.execute(
-                    text(f"SELECT max(created_at) FROM {spec.table}")
-                ).scalar_one_or_none()
+            cutoff = self._cursor.cutoff(
+                session, spec, self._cursor.read(session, spec)
+            )
             if cutoff is None:
                 return 0
             dropped = session.execute(
@@ -263,33 +208,25 @@ class OutboxRelay:
 
 def relay_lag(
     session_factory: sessionmaker[Session], spec: OutboxSpec = TICK_OUTBOX
-) -> tuple[int, int]:
-    """(unpublished rows, oldest unpublished age in seconds).
+) -> Lag:
+    """How far behind the relay is, and whether it is behind or blocked.
 
-    What `yfin stream status` reports. A growing first number means the
-    relay is behind; a growing second means it is stopped.
+    What `yfin stream status` and `yfin changes status` report. A growing
+    `rows` means the relay is behind; a growing `oldest_age_seconds` means
+    it is stopped. On the `xid` cursor a third number tells those apart from
+    a third case: the relay cannot pass an open writing transaction, so a
+    backlog with `held_back_seconds` set is not a relay problem at all.
     """
     with session_factory() as session:
-        offset = session.execute(
-            text(f"SELECT last_published_id FROM {spec.offset_table} WHERE id = 1")
-        ).scalar_one_or_none()
-        if offset is None:
-            offset = 0
-        row = session.execute(
-            text(
-                "SELECT count(*), "
-                "       COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at)))::bigint, 0) "
-                f"  FROM {spec.table} WHERE id > :offset"
-            ),
-            {"offset": offset},
-        ).one()
-    return int(row[0]), int(row[1])
+        cursor = cursor_for(spec)
+        return cursor.lag(session, spec, cursor.read(session, spec))
 
 
 __all__ = [
     "KafkaUnavailable",
     "OutboxRelay",
     "RelayConfig",
+    "Lag",
     "RelayStats",
     "relay_lag",
 ]

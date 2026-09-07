@@ -162,14 +162,16 @@ def test_lag_counts_unpublished_rows(
     relay: OutboxRelay, factory: sessionmaker[Session], db_session: Session
 ) -> None:
     _queue(db_session, 4)
-    pending, _ = relay_lag(factory, TICK_OUTBOX)
-    assert pending == 4
+    assert relay_lag(factory, TICK_OUTBOX).rows == 4
     relay.publish_once(FakeProducer())
-    assert relay_lag(factory, TICK_OUTBOX)[0] == 0
+    assert relay_lag(factory, TICK_OUTBOX).rows == 0
 
 
 def test_lag_on_an_empty_outbox_is_zero(factory: sessionmaker[Session]) -> None:
-    assert relay_lag(factory, TICK_OUTBOX) == (0, 0)
+    lag = relay_lag(factory, TICK_OUTBOX)
+    assert (lag.rows, lag.oldest_age_seconds) == (0, 0)
+    # The id cursor waits on no writer, so it reports no third number.
+    assert lag.held_back_seconds is None
 
 
 # --- cleanup ---------------------------------------------------------------

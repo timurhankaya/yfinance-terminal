@@ -21,7 +21,7 @@ on the stream package.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,12 @@ class OutboxSpec:
     table: str
     #: Its single-row cursor table.
     offset_table: str
+    #: How the relay walks the queue, and what the offset stores. `id` is
+    #: correct only for a queue with a single writer thread; a queue written
+    #: by concurrent transactions has to walk `(xid, id)` or it steps past
+    #: the rows of a transaction that took its ids early and committed late.
+    #: See `cursor.py`.
+    cursor: Literal["id", "xid"]
     #: Advisory lock. Two relays on one outbox would publish the same rows
     #: and roll each other's progress back; the offset table's single-row
     #: constraint does not prevent that, only the lock does.
@@ -62,6 +68,9 @@ class OutboxSpec:
 TICK_OUTBOX: Final = OutboxSpec(
     table="stream_outbox",
     offset_table="stream_relay_offset",
+    # A single writer thread, so `id` follows commit order -- the premise
+    # `stream/writer.py` states and this depends on.
+    cursor="id",
     lock_name="yfin_stream_relay",
     route_column="exchange",
     key_column="symbol",
@@ -73,4 +82,28 @@ TICK_OUTBOX: Final = OutboxSpec(
 )
 
 
-__all__ = ["TICK_OUTBOX", "OutboxSpec"]
+#: The pipeline's change queue. Written by every symbol, market and domain
+#: transaction, which commit concurrently -- hence the `xid` walk.
+CHANGES_OUTBOX: Final = OutboxSpec(
+    table="pipeline_outbox",
+    offset_table="pipeline_relay_offset",
+    cursor="xid",
+    lock_name="yfin_pipeline_relay",
+    route_column="family",
+    key_column="partition_key",
+    topic_pattern="yfin.changes.{family}",
+    placeholder="{family}",
+    # `DataFamily` is already the closed lower-case set the seven
+    # `<family>:read` scopes are named after; upper-casing it would name a
+    # topic no ACL and no consumer expects.
+    upper_case_route=False,
+    client_id="yfin-changes-relay",
+    # One transaction can write the same row twice -- `symbols` from three
+    # datasets, `news` from two -- under one flush timestamp, so
+    # `(table, key, occurred_at)` is not a dedupe key and the outbox id has
+    # to travel.
+    id_header=True,
+)
+
+
+__all__ = ["CHANGES_OUTBOX", "TICK_OUTBOX", "OutboxSpec"]
