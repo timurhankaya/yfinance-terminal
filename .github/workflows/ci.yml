@@ -45,6 +45,12 @@ jobs:
       - name: openapi.json is current
         run: uv run python scripts/dump_openapi.py --check
 
+      # The same lock for the event stream. The envelope's `row` IS the
+      # table row, so a column added anywhere changes what consumers
+      # receive; this makes that a reviewable diff rather than a surprise.
+      - name: docs/changes/schema.json is current
+        run: uv run python scripts/dump_change_schema.py --check
+
   # The schema invariants (collation, FK policy, timestamp precision,
   # as-of key ordering) and the empty-diff rule are the project's stated
   # guarantees, and none of them ran here: `pytest -q` deselects the

@@ -23,6 +23,7 @@ import typer
 
 from yfin.cli.api import api_app
 from yfin.cli.bars import bars_app, scope_app
+from yfin.cli.changes import changes_app
 from yfin.cli.common import (
     echo_tally,
     filtered_symbols,
@@ -56,6 +57,7 @@ app.add_typer(discover_app, name="discover")
 app.add_typer(domain_app, name="domain")
 app.add_typer(bars_app, name="bars")
 app.add_typer(stream_app, name="stream")
+app.add_typer(changes_app, name="changes")
 app.add_typer(scope_app, name="scope")
 app.add_typer(config_app, name="config")
 app.add_typer(api_app, name="api")
@@ -244,6 +246,17 @@ def status(
             )
             for item in failures:
                 typer.echo(f"    FAILED {item.symbol}/{item.dataset}: {item.error}")
+
+    # Only with change publishing on. With the relay off by design a
+    # permanently growing backlog is the expected state, and reporting it as
+    # a number to worry about would be noise -- the same rule `yfin stream
+    # status` applies to the tick relay.
+    from yfin.core.config import get_settings
+
+    if get_settings().yf_changes_enabled:
+        from yfin.cli.changes import changes_lag_line
+
+        typer.echo(changes_lag_line())
 
 
 @app.command("prune")
