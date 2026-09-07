@@ -28,3 +28,8 @@ deploy/observability/.env
 # a CI job (web/playwright.config.ts says why).
 web/test-results/
 web/playwright-report/
+
+# Agent workflow scratch: task briefs, review diffs and reports written
+# by the SDD tooling. Per run, not per project -- the decisions that
+# survive a run are in docs/superpowers/, which IS committed.
+.superpowers/
