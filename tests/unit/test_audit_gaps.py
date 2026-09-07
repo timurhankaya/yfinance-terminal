@@ -14,7 +14,9 @@ import pytest
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.registry import Registry
 from yfin.models import ItemStatus
-from yfin.pipeline.runner import SymbolPayload, _failed_records, _record_items, _worker
+from yfin.pipeline.audit import failed_records, record_items
+from yfin.pipeline.payload import SymbolPayload
+from yfin.pipeline.runner import _worker
 from yfin.storage.contracts import TableWrite, WriteStats
 
 FETCHED_AT = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
@@ -71,7 +73,7 @@ class _Ranged(_Watchonly):
 
 def test_watchonly_dataset_still_records_an_item() -> None:
     """A dataset with produces=() does not vanish from the audit."""
-    records = _record_items(_Watchonly(), "AAPL", WriteStats(), fetched=0, duration_ms=1)
+    records = record_items(_Watchonly(), "AAPL", WriteStats(), fetched=0, duration_ms=1)
     assert len(records) == 1
     assert records[0].table_name is None
     assert records[0].status is ItemStatus.EMPTY
@@ -81,7 +83,7 @@ def test_watchonly_failure_still_records_an_item() -> None:
     """The same gap existed on the failure path too."""
     registry: Registry[Dataset[Any]] = Registry()
     registry.register(_Watchonly())
-    records = _failed_records("AAPL", "_watchonly", "boom", registry=registry)
+    records = failed_records("AAPL", "_watchonly", "boom", registry=registry)
     assert len(records) == 1
     assert records[0].table_name is None
     assert records[0].status is ItemStatus.FAILED
@@ -90,7 +92,7 @@ def test_watchonly_failure_still_records_an_item() -> None:
 def test_unknown_dataset_name_still_records_an_item() -> None:
     """A single NULL row is written even for a name absent from the registry."""
     registry: Registry[Dataset[Any]] = Registry()
-    records = _failed_records("AAPL", "_yok", "boom", registry=registry)
+    records = failed_records("AAPL", "_yok", "boom", registry=registry)
     assert len(records) == 1
     assert records[0].table_name is None
 
@@ -128,11 +130,11 @@ def test_no_range_runs_everything() -> None:
 
 def test_skipped_datasets_become_item_records() -> None:
     """A skipped dataset does not vanish silently; it is written as SKIPPED."""
-    from yfin.pipeline.runner import _skipped_records
+    from yfin.pipeline.audit import skipped_records
 
     registry: Registry[Dataset[Any]] = Registry()
     registry.register(_Watchonly())
-    records = _skipped_records("AAPL", "_watchonly", "date_range=none", registry=registry)
+    records = skipped_records("AAPL", "_watchonly", "date_range=none", registry=registry)
     assert len(records) == 1
     assert records[0].status is ItemStatus.SKIPPED
     assert records[0].error == "date_range=none"

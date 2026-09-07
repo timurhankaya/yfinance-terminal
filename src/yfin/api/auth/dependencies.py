@@ -116,7 +116,9 @@ def _invalid_token(problem_type: str = TYPE_INVALID_TOKEN) -> ApiProblem:
     )
 
 
-def _insufficient_scope(scope: str) -> ApiProblem:
+def insufficient_scope(scope: str) -> ApiProblem:
+    """Public: the generic dataset route raises the same 403, and a second
+    copy of the body and its challenge header is how the two drift."""
     return ApiProblem(
         403,
         TYPE_INSUFFICIENT_SCOPE,
@@ -174,7 +176,7 @@ def current_principal(
     # enumerate what exists by reading 404 against 403.
     for required in security_scopes.scopes:
         if required not in held:
-            raise _insufficient_scope(required)
+            raise insufficient_scope(required)
 
     request.state.client_id = claims.client_id
     request.state.jti = claims.jti

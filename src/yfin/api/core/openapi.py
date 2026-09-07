@@ -99,7 +99,8 @@ ERROR_STATUSES: dict[str, tuple[int, ...]] = {
 
 #: Operations that meter the request, and therefore carry the rate and
 #: quota headers. Not the same as "has security": `listDatasets` requires
-#: a token but no scope, and still meters.
+#: a token but no scope, and still meters -- under the `meta` family,
+#: which exists for surfaces that belong to no data family.
 METERED = frozenset(
     {
         "listSymbols",
@@ -107,6 +108,7 @@ METERED = frozenset(
         "listBars",
         "listActions",
         "listFinancials",
+        "listDatasets",
         "readDataset",
     }
 )
@@ -147,13 +149,17 @@ PROBLEM_VARIANTS: dict[int, tuple[str, tuple[str, ...]]] = {
     504: ("QueryTimeout", (errors.TYPE_QUERY_TIMEOUT,)),
 }
 
-#: One operation refuses a range that is merely too wide, which is not the
-#: same failure as a malformed parameter and is worth its own type. It is
-#: the only variant that is per operation rather than per status.
-BARS_VARIANT = (
-    "InvalidBarsRequest",
+#: Some operations refuse a range that is merely too wide, which is not
+#: the same failure as a malformed parameter and is worth its own type.
+#: The only variant that is per operation rather than per status.
+RANGE_VARIANT = (
+    "InvalidRangeRequest",
     (*PROBLEM_VARIANTS[422][1], errors.TYPE_RANGE_TOO_LARGE),
 )
+
+#: The operations that can answer with `range_too_large`. `listActions`
+#: was missing and sent a type its own published schema forbade.
+RANGED = frozenset({"listBars", "listActions"})
 
 #: The examples the document must carry, as
 #: `operationId -> {status -> (example name, ...)}`. Curated rather than
@@ -420,7 +426,7 @@ def problem_schemas() -> dict[str, Any]:
     }
 
     schemas: dict[str, Any] = {"Problem": problem}
-    variants = [*PROBLEM_VARIANTS.values(), BARS_VARIANT]
+    variants = [*PROBLEM_VARIANTS.values(), RANGE_VARIANT]
     for name, types in variants:
         schemas[name] = {
             "allOf": [
@@ -432,8 +438,8 @@ def problem_schemas() -> dict[str, Any]:
 
 
 def _variant_ref(operation_id: str, status: int) -> str:
-    if operation_id == "listBars" and status == 422:
-        name = BARS_VARIANT[0]
+    if operation_id in RANGED and status == 422:
+        name = RANGE_VARIANT[0]
     else:
         name = PROBLEM_VARIANTS[status][0]
     return f"#/components/schemas/{name}"

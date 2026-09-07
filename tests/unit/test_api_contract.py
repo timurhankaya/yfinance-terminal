@@ -314,7 +314,7 @@ def test_every_error_carries_a_narrowed_problem_schema(document: dict[str, Any])
     documented it might answer `quota_exceeded` would be a contract a
     generated client is entitled to believe."""
     from yfin.api.core.errors import PROBLEM_MEDIA_TYPE
-    from yfin.api.core.openapi import BARS_VARIANT, PROBLEM_VARIANTS, TOKEN_OPERATION
+    from yfin.api.core.openapi import PROBLEM_VARIANTS, RANGE_VARIANT, RANGED, TOKEN_OPERATION
 
     for operations in document["paths"].values():
         for operation in operations.values():
@@ -326,8 +326,8 @@ def test_every_error_carries_a_narrowed_problem_schema(document: dict[str, Any])
                 content = response["content"]
                 assert set(content) == {PROBLEM_MEDIA_TYPE}, (operation["operationId"], code)
                 expected = (
-                    BARS_VARIANT[0]
-                    if operation["operationId"] == "listBars" and code == "422"
+                    RANGE_VARIANT[0]
+                    if operation["operationId"] in RANGED and code == "422"
                     else PROBLEM_VARIANTS[int(code)][0]
                 )
                 assert content[PROBLEM_MEDIA_TYPE]["schema"]["$ref"].endswith(f"/{expected}")
@@ -363,10 +363,10 @@ def test_every_error_type_has_a_status_that_can_carry_it() -> None:
     """A type nothing publishes is a type a client cannot prepare for.
     `range_too_large` was exactly that until it was given to bars."""
     from yfin.api.core.errors import ALL_TYPES
-    from yfin.api.core.openapi import BARS_VARIANT, PROBLEM_VARIANTS
+    from yfin.api.core.openapi import PROBLEM_VARIANTS, RANGE_VARIANT
 
     placed: set[str] = set()
-    for _, types in (*PROBLEM_VARIANTS.values(), BARS_VARIANT):
+    for _, types in (*PROBLEM_VARIANTS.values(), RANGE_VARIANT):
         placed |= set(types)
     assert placed == set(ALL_TYPES)
 

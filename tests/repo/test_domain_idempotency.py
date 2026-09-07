@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from domain_support import NOW, run_dataset, run_taxonomy
 from yfin.datasets.registry import DOMAIN_DATASETS
 from yfin.models import ItemStatus
-from yfin.pipeline.runner import _record_items
+from yfin.pipeline.audit import record_items
 
 pytestmark = pytest.mark.repo
 
@@ -19,7 +19,7 @@ LATER = NOW + timedelta(hours=6)
 
 
 def _statuses(dataset_name: str, stats, region: str) -> dict[str, ItemStatus]:
-    records = _record_items(
+    records = record_items(
         DOMAIN_DATASETS[dataset_name], "^YH311", stats, fetched=0, duration_ms=1, region=region
     )
     return {r.table_name: r.status for r in records}

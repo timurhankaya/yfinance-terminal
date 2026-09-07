@@ -12,7 +12,7 @@ from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
 
 from yfin.models import ItemStatus, Proxy, ProxyHealth, ProxyScheme, SyncRunItem
-from yfin.pipeline.runner import (
+from yfin.pipeline.audit import (
     EXIT_OK,
     EXIT_PARTIAL,
     ItemRecord,

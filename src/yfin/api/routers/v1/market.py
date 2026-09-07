@@ -145,6 +145,21 @@ def _respond[T: BaseModel](
     return Response(status_code=304, headers=dict(response.headers))
 
 
+#: Which published error type each window refusal is. One mapping, so the
+#: two endpoints cannot disagree about what a rejected range is called.
+_WINDOW_TYPES = {
+    limits.WindowProblem.INVERTED: TYPE_INVALID_PARAMETER,
+    limits.WindowProblem.TOO_WIDE: TYPE_RANGE_TOO_LARGE,
+}
+
+
+def _refuse_window(problem: tuple[limits.WindowProblem, str] | None) -> None:
+    if problem is None:
+        return
+    kind, detail = problem
+    raise ApiProblem(422, _WINDOW_TYPES[kind], "Unacceptable time range", detail=detail)
+
+
 def _normalise_symbol(symbol: str) -> str:
     """Symbol columns are COLLATE "C", so `aapl` and `AAPL` are different
     values in the database. Normalising at the boundary keeps that from
@@ -334,14 +349,7 @@ def list_bars(
         end=limits.to_utc(end),
         now=datetime.now(UTC),
     )
-    problem = limits.window_error(interval, window_start, window_end)
-    if problem is not None:
-        raise ApiProblem(
-            422,
-            TYPE_RANGE_TOO_LARGE if "exceeds" in problem else TYPE_INVALID_PARAMETER,
-            "Unacceptable time range",
-            detail=problem,
-        )
+    _refuse_window(limits.window_error(interval, window_start, window_end))
 
     if not reads.symbol_exists(session, code):
         raise ApiProblem(404, TYPE_NOT_FOUND, "No such symbol")
@@ -441,9 +449,11 @@ def list_actions(
         end=limits.to_utc(end),
         now=datetime.now(UTC),
     )
-    problem = limits.window_error("1mo", window_start, window_end)
-    if problem is not None:
-        raise ApiProblem(422, TYPE_RANGE_TOO_LARGE, "Unacceptable time range", detail=problem)
+    # The same mapping as bars. It raised `range_too_large` unconditionally
+    # here, including for an inverted range -- a type this operation's
+    # published schema does not admit, so a generated client would fail to
+    # deserialise its own error.
+    _refuse_window(limits.window_error("1mo", window_start, window_end))
 
     if not reads.symbol_exists(session, code):
         raise ApiProblem(404, TYPE_NOT_FOUND, "No such symbol")

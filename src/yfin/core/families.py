@@ -41,6 +41,16 @@ def scope_for(family: DataFamily) -> str:
     return f"{family.value}{SCOPE_SUFFIX}"
 
 
-#: Usage is measured per family, plus two surfaces that belong to no
-#: family: the token endpoint and the catalogue. Health is not measured.
-EXTRA_USAGE_FAMILIES = ("oauth", "meta")
+#: The token endpoint's usage family.
+OAUTH_FAMILY = "oauth"
+
+#: The dataset catalogue's, and that of any request refused before the
+#: dataset it named could be resolved. Named rather than spelled inline:
+#: `UsageFamily` is built dynamically, so a literal here would not type
+#: check at the call site and a typo would only surface as a counter
+#: nobody ever reads.
+META_FAMILY = "meta"
+
+#: Usage is measured per family, plus the two surfaces above. Health is
+#: not measured.
+EXTRA_USAGE_FAMILIES = (OAUTH_FAMILY, META_FAMILY)

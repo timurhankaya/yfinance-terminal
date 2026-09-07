@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.core.errors import DatasetOutOfScope
 from yfin.models import IntradayScope, Symbol
-from yfin.pipeline.runner import GapReader, ScopeReader
+from yfin.pipeline.readers import GapReader, ScopeReader
 
 pytestmark = pytest.mark.repo
 

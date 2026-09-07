@@ -16,8 +16,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.datasets import MARKET_DATASETS, SYMBOL_DATASETS
 from yfin.models import Base
+from yfin.pipeline.audit import EXIT_OK
 from yfin.pipeline.market_runner import run_market_sync
-from yfin.pipeline.runner import EXIT_OK, run_sync
+from yfin.pipeline.runner import run_sync
 
 pytestmark = pytest.mark.live
 

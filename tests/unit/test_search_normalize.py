@@ -180,7 +180,7 @@ class TestGateScope:
         """Regression guard.
 
         Four tables do not carry `query_term`; if they were on the gated
-        side, `_first_row` would return the wrong row and the gate write
+        side, `first_row` would return the wrong row and the gate write
         would raise a KeyError. `research_reports` was added to this list
         during an audit -- the original design counted only three.
         """
@@ -188,7 +188,7 @@ class TestGateScope:
 
     def test_gated_tables_all_carry_gate_columns(self, aapl: Any) -> None:
         """Every gated row must carry `query_term` + `as_of_date` +
-        `fetched_at`, so `_first_row` finds the right row regardless of
+        `fetched_at`, so `first_row` finds the right row regardless of
         which write is populated."""
         for write in aapl.writes:
             if write.table in UNGATED_TABLES:

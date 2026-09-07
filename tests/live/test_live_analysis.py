@@ -23,7 +23,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from yfin.datasets import SYMBOL_DATASETS
 from yfin.ingest.client import configure_yfinance
 from yfin.models import Base, ItemStatus, SyncRunItem
-from yfin.pipeline.runner import EXIT_OK, run_sync
+from yfin.pipeline.audit import EXIT_OK
+from yfin.pipeline.runner import run_sync
 
 pytestmark = pytest.mark.live
 

@@ -22,7 +22,7 @@ from yfin.datasets import SYMBOL_DATASETS
 from yfin.datasets.base import NormalizedResult
 from yfin.datasets.payloads import AsOfFramePayload
 from yfin.models import ItemStatus
-from yfin.pipeline.runner import _record_items
+from yfin.pipeline.audit import record_items
 from yfin.storage.contracts import TableWrite
 from yfin.storage.persistence import PostgresRowWriter
 
@@ -222,11 +222,11 @@ def test_empty_source_never_opens_the_gate(db_session: Session, symbol: str) -> 
 def test_audit_cell_is_skipped_when_content_is_unchanged(
     db_session: Session, symbol: str
 ) -> None:
-    """`runner._record_items` counts this as `skipped`: attempted=0, skipped>0."""
+    """`runner.record_items` counts this as `skipped`: attempted=0, skipped>0."""
     _run(db_session, symbol, ["Vanguard"], fetched_at=NOW)
     stats = _run(db_session, symbol, ["Vanguard"], fetched_at=LATER)
 
-    records = {r.table_name: r for r in _record_items(DATASET, symbol, stats, 1, 0)}
+    records = {r.table_name: r for r in record_items(DATASET, symbol, stats, 1, 0)}
     assert records["institutional_holders"].status is ItemStatus.SKIPPED
     # The gate row is written on every run -> its own cell stays `ok`
     assert records["asof_state"].status is ItemStatus.OK
@@ -270,6 +270,6 @@ def test_multi_table_dataset_can_be_empty_and_skipped_at_once(
     funds.upsert(writer, result)
     stats = funds.upsert(writer, result)
 
-    records = {r.table_name: r for r in _record_items(funds, symbol, stats, 1, 0)}
+    records = {r.table_name: r for r in record_items(funds, symbol, stats, 1, 0)}
     assert records["fund_profile"].status is ItemStatus.SKIPPED
     assert records["fund_top_holdings"].status is ItemStatus.EMPTY

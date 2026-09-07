@@ -599,7 +599,7 @@
           }
         ]
       },
-      "InvalidBarsRequest": {
+      "InvalidRangeRequest": {
         "allOf": [
           {
             "$ref": "#/components/schemas/Problem"
@@ -1954,6 +1954,27 @@
                   "type": "string"
                 }
               },
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
               "Referrer-Policy": {
                 "description": "Always `no-referrer`.",
                 "schema": {
@@ -1976,6 +1997,27 @@
                 "description": "Always `nosniff`.",
                 "schema": {
                   "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
                 }
               },
               "X-Request-Id": {
@@ -2075,6 +2117,27 @@
             },
             "description": "A rate limit, concurrency limit or the monthly quota was hit",
             "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per second by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in the current second.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Reset": {
+                "description": "Seconds until the per-second budget refills.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
               "Referrer-Policy": {
                 "description": "Always `no-referrer`.",
                 "schema": {
@@ -2098,6 +2161,27 @@
                 "description": "Always `nosniff`.",
                 "schema": {
                   "type": "string"
+                }
+              },
+              "X-Quota-Limit": {
+                "description": "Requests allowed this month by the plan.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Remaining": {
+                "description": "Requests left this month.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Quota-Reset": {
+                "description": "Seconds until the monthly quota resets.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
                 }
               },
               "X-Request-Id": {
@@ -4389,7 +4473,7 @@
             "content": {
               "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InvalidRequest"
+                  "$ref": "#/components/schemas/InvalidRangeRequest"
                 }
               }
             },
@@ -5109,7 +5193,7 @@
                   }
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/InvalidBarsRequest"
+                  "$ref": "#/components/schemas/InvalidRangeRequest"
                 }
               }
             },

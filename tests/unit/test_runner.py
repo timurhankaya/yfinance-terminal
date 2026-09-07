@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from yfin.models import ItemStatus
-from yfin.pipeline.runner import (
+from yfin.pipeline.audit import (
     EXIT_ALL_FAILED,
     EXIT_NO_SYMBOL_RESOLVED,
     EXIT_OK,
@@ -80,7 +80,7 @@ def test_item_record_carries_the_row_counters() -> None:
 
 
 class TestItemStatusMapping:
-    """_record_items status table."""
+    """record_items status table."""
 
     @pytest.mark.parametrize(
         ("attempted", "verified", "skipped", "expected"),
@@ -95,7 +95,7 @@ class TestItemStatusMapping:
         self, attempted: int, verified: int, skipped: int, expected: ItemStatus
     ) -> None:
         from yfin.datasets.base import Dataset, WriteStats
-        from yfin.pipeline.runner import _record_items
+        from yfin.pipeline.audit import record_items
 
         class Dummy(Dataset):
             name = "dummy"
@@ -112,20 +112,20 @@ class TestItemStatusMapping:
             verified={"t": verified} if verified else {},
             skipped={"t": skipped} if skipped else {},
         )
-        records = _record_items(Dummy(), "A", stats, attempted, 0)
+        records = record_items(Dummy(), "A", stats, attempted, 0)
         assert records[0].status is expected
 
     def test_multi_table_dataset_writes_one_row_per_table(self) -> None:
         """For datasets writing to multiple tables, one row per table."""
         from yfin.datasets import SYMBOL_DATASETS as REGISTRY
         from yfin.datasets.base import WriteStats
-        from yfin.pipeline.runner import _record_items
+        from yfin.pipeline.audit import record_items
 
         stats = WriteStats(
             attempted={"ticker_info": 1, "ticker_info_history": 1, "company_officers": 10},
             verified={"ticker_info": 1, "ticker_info_history": 1, "company_officers": 10},
         )
-        records = _record_items(REGISTRY["info"], "AAPL", stats, 1, 5)
+        records = record_items(REGISTRY["info"], "AAPL", stats, 1, 5)
         assert {r.table_name for r in records} == {
             "ticker_info",
             "ticker_info_history",

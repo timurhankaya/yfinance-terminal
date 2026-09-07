@@ -25,18 +25,19 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from yfin.api.auth.dependencies import Authenticated
+from yfin.api.auth.dependencies import Authenticated, insufficient_scope
 from yfin.api.core.errors import (
     TYPE_INVALID_PARAMETER,
     TYPE_NOT_FOUND,
     ApiProblem,
 )
-from yfin.api.ratelimit.dependencies import meter
+from yfin.api.ratelimit.dependencies import attribute_family, meter
 from yfin.api.routers.v1 import paging
 from yfin.api.schemas.common import Collection
 from yfin.api.storage import catalog, limits
 from yfin.api.storage import cursor as cursors
 from yfin.api.storage.session import session_scope
+from yfin.core.families import META_FAMILY
 
 router = APIRouter(prefix="/v1/datasets", tags=["datasets"])
 
@@ -118,6 +119,7 @@ class CatalogEntryOut(BaseModel):
 
 @router.get("", response_model=Collection[CatalogEntryOut], summary="Dataset catalogue")
 def list_datasets(
+    request: Request,
     response: Response,
     principal: Authenticated,
     all_datasets: Annotated[
@@ -134,6 +136,12 @@ def list_datasets(
     data they cannot fetch is noise. `?all=true` is the documented way to
     see the rest -- a deliberate choice, not an accident of implementation.
     """
+    # Metered like everything else. It was not, and a token holder could
+    # therefore drive this route at any rate they liked -- it still costs a
+    # signature check, a Redis read and a worker thread each time. `meta`
+    # is the family reserved for exactly this: a surface that belongs to
+    # no data family.
+    meter(request, response, principal, META_FAMILY)
     entries = catalog.visible_to(principal.scopes, everything=all_datasets)
     response.headers["Cache-Control"] = "private, max-age=300"
     response.headers["Vary"] = "Authorization"
@@ -175,23 +183,27 @@ def read_dataset(
     dropping a filter returns more data than the caller asked for and
     looks like it worked.
     """
+    # Metered BEFORE the catalogue is consulted, and deliberately so. The
+    # refusals below are the cheapest thing a caller can ask for and were
+    # the only unmetered path in the API: unlimited 403s and 404s, none of
+    # them counted, each one a signature check and a Redis read. The real
+    # family is attributed once the name resolves.
+    meter(request, response, principal, META_FAMILY)
     entry = catalog.CATALOG.get(name)
 
     # Scope before existence: 404-versus-403 is how an unauthorised caller
     # would enumerate dataset names.
     required = entry.scope if entry is not None else None
     if required is not None and required not in principal.scopes:
-        raise ApiProblem(
-            403,
-            "insufficient_scope",
-            "The token does not carry the required scope",
-            detail=f"required scope: {required}",
-            headers={'WWW-Authenticate': f'Bearer error="insufficient_scope", scope="{required}"'},
-        )
+        # The same factory the scoped routes raise, not a second copy: the
+        # type was a bare string here and the challenge header a verbatim
+        # duplicate, so renaming the constant would have left two
+        # different 403 bodies in one API.
+        raise insufficient_scope(required)
     if entry is None:
         raise ApiProblem(404, TYPE_NOT_FOUND, "No such dataset")
 
-    meter(request, response, principal, entry.family)
+    attribute_family(request, entry.family)
     limits.apply_statement_timeout(session)
 
     filters = _filters(request, entry)

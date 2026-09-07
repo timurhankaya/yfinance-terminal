@@ -537,3 +537,29 @@ def test_an_unsupported_interval_is_refused_by_the_published_enum(
     said `interval` was any string. It is the annotation now, so the
     document lists the values a caller may send."""
     assert _get(client, f"/v1/symbols/{SYMBOL}/bars", interval="3h").status_code == 422
+
+
+def test_an_inverted_range_is_NOT_called_too_large(client: TestClient) -> None:
+    """`list_actions` raised `range_too_large` for every window refusal,
+    including a reversed one -- a type its own published schema forbade, so
+    a generated client could not deserialise its own error. The reason it
+    could happen: the storage layer returned prose and the router asked
+    whether the word "exceeds" appeared in it."""
+    response = _get(
+        client,
+        f"/v1/symbols/{SYMBOL}/actions",
+        **{"from": "2026-02-01T00:00:00Z", "to": "2026-01-01T00:00:00Z"},
+    )
+    assert response.status_code == 422
+    assert response.json()["type"] == "invalid_parameter"
+
+
+def test_a_range_that_really_is_too_large_still_says_so(client: TestClient) -> None:
+    response = _get(
+        client,
+        f"/v1/symbols/{SYMBOL}/bars",
+        interval="1m",
+        **{"from": "2020-01-01T00:00:00Z", "to": "2026-01-01T00:00:00Z"},
+    )
+    assert response.status_code == 422
+    assert response.json()["type"] == "range_too_large"

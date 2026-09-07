@@ -53,8 +53,27 @@ class LimitState:
     headers: dict[str, str] = field(default_factory=dict)
 
 
+def attribute_family(request: Request, family: DataFamily) -> None:
+    """Names the family a request turned out to belong to.
+
+    The generic dataset route cannot know its family until it has resolved
+    the name, but it must be metered BEFORE that -- otherwise a caller
+    could drive the 403 and 404 paths at any rate they liked, and every
+    one of those still costs a signature check, a Redis read and a worker.
+    So the request is metered under `meta` and told its real family here,
+    once. The counter is only read by the middleware after the handler
+    returns, so filling it in late is safe.
+    """
+    state: LimitState | None = getattr(request.state, "limits", None)
+    if state is not None:
+        state.family = family.value
+
+
 def meter(
-    request: Request, response: Response, principal: Principal, family: DataFamily
+    request: Request,
+    response: Response,
+    principal: Principal,
+    family: DataFamily | str,
 ) -> None:
     """Applies the plan's limits and records what was done.
 
@@ -66,7 +85,8 @@ def meter(
     """
     settings: ApiSettings = request.app.state.api_settings
     limits = policy.limits_for_client(principal.client_id)
-    state = LimitState(client_id=principal.client_id, family=family.value)
+    billed = family.value if isinstance(family, DataFamily) else family
+    state = LimitState(client_id=principal.client_id, family=billed)
     request.state.limits = state
     request.state.page_size_cap = limits.max_page_size
 

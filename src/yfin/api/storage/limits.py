@@ -14,6 +14,7 @@ it may run, and how much it may return.
 
 from __future__ import annotations
 
+import enum
 from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import text
@@ -84,15 +85,32 @@ def resolve_window(
     return now - span, now
 
 
-def window_error(interval: str, start: datetime, end: datetime) -> str | None:
-    """The reason the window is unacceptable, or None."""
+class WindowProblem(enum.Enum):
+    """Why a window was refused.
+
+    An enum rather than a message, because the router maps this onto a
+    published error type. It used to return prose and the router asked
+    whether the word "exceeds" appeared in it -- so rewording a sentence
+    in the storage layer silently changed which `type` the API sends, and
+    `range_too_large` is part of the contract.
+    """
+
+    INVERTED = "inverted"
+    TOO_WIDE = "too_wide"
+
+
+def window_error(
+    interval: str, start: datetime, end: datetime
+) -> tuple[WindowProblem, str] | None:
+    """The reason the window is unacceptable and how to say it, or None."""
     if start >= end:
-        return "'from' must be earlier than 'to'"
+        return WindowProblem.INVERTED, "'from' must be earlier than 'to'"
     span = max_span(interval)
     if end - start > span:
         return (
+            WindowProblem.TOO_WIDE,
             f"the requested range exceeds the maximum of {span.days} days "
-            f"for interval {interval}"
+            f"for interval {interval}",
         )
     return None
 

@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.datasets.base import NormalizedResult
 from yfin.models import PriceHistory, Symbol
-from yfin.pipeline.runner import SymbolPayload, _is_lock_conflict, _persist_with_retry
+from yfin.pipeline.payload import SymbolPayload
+from yfin.pipeline.persist import is_lock_conflict, persist_with_retry
 from yfin.storage.contracts import TableWrite, WriteStats
 from yfin.storage.persistence import PostgresRowWriter
 
@@ -116,24 +117,24 @@ class TestLockConflictClassification:
         ],
     )
     def test_lock_sqlstates_are_retryable(self, sqlstate: str) -> None:
-        assert _is_lock_conflict(_FakeDbapiError(sqlstate))
+        assert is_lock_conflict(_FakeDbapiError(sqlstate))
 
     def test_other_sqlstates_are_not_retried(self) -> None:
         # 42703 undefined_column -- a programming error; retrying would give
         # the same result forever.
-        assert not _is_lock_conflict(_FakeDbapiError("42703"))
+        assert not is_lock_conflict(_FakeDbapiError("42703"))
 
     def test_55p03_is_deliberately_excluded(self) -> None:
         """lock_not_available is deliberately excluded: this code path uses
         no NOWAIT / SKIP LOCKED, so it never occurs. Retrying an SQLSTATE
         with no justification would silently legitimize wrong behavior if
         NOWAIT were added later."""
-        assert not _is_lock_conflict(_FakeDbapiError("55P03"))
+        assert not is_lock_conflict(_FakeDbapiError("55P03"))
 
     def test_exception_without_orig_is_not_retried(self) -> None:
         """An exception with no `orig` is a programming error; the getattr
         chain returns None and it is not retried."""
-        assert not _is_lock_conflict(RuntimeError("plain error"))
+        assert not is_lock_conflict(RuntimeError("plain error"))
 
 
 class _FlakyDataset:
@@ -169,7 +170,7 @@ class TestTransactionRetry:
         payload = SymbolPayload(symbol=SYMBOL, resolved=True)
         payload.results.append((dataset, result, 1, 0))  # type: ignore[arg-type]
 
-        records = _persist_with_retry(factory, payload, attempts=3)
+        records = persist_with_retry(factory, payload, attempts=3)
 
         assert dataset.calls == 2, "the first attempt must fail with a lock conflict"
         assert all(r.status.value != "failed" for r in records)
@@ -198,7 +199,7 @@ class TestTransactionRetry:
             (dataset, NormalizedResult(writes=[]), 0, 0)  # type: ignore[arg-type]
         )
 
-        records = _persist_with_retry(factory, payload, attempts=3)
+        records = persist_with_retry(factory, payload, attempts=3)
         assert dataset.calls == 1, "a deterministic error must not be retried"
         assert all(r.status.value == "failed" for r in records)
 
@@ -224,7 +225,7 @@ class TestFailedTransactionAudit:
         payload.skipped.append(("news", "date_range=none"))
         payload.out_of_scope.append(("bars_1m", "outside intraday_scope"))
 
-        records = _persist_with_retry(factory, payload, attempts=1)
+        records = persist_with_retry(factory, payload, attempts=1)
 
         by_dataset = {r.dataset: r.status.value for r in records}
         # `boom` fails because the write failed, but the other three channels survive

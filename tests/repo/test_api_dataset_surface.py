@@ -300,3 +300,62 @@ def test_a_symbol_keyed_dataset_without_that_opt_in_still_refuses(
 ) -> None:
     response = client.get("/v1/datasets/major_holders", headers=_token("holders:read"))
     assert response.status_code == 422
+
+
+# --- metering ---------------------------------------------------------------
+
+
+def test_a_refused_dataset_request_is_still_METERED(
+    client: TestClient, redis: fakeredis.FakeRedis
+) -> None:
+    """The 403 and 404 paths were the only unmetered surface in the API.
+
+    A token holder could drive them at any rate they liked: no rate limit,
+    no concurrency slot, nothing counted against the monthly quota -- while
+    each request still cost a signature check, a Redis read and a worker
+    thread. They are metered under `meta`, the family reserved for a
+    surface that belongs to no data family.
+    """
+    # The counters are what matters here, not the headers: a problem
+    # response carries only what the raiser attached, which is what the
+    # published contract says -- rate headers appear on 200, 304 and 429.
+    assert (
+        client.get("/v1/datasets/no_such_dataset", headers=_token("holders:read"))
+    ).status_code == 404
+    assert (
+        client.get(
+            "/v1/datasets/major_holders",
+            params={"symbol": SYMBOL},
+            headers=_token("reference:read"),
+        )
+    ).status_code == 403
+
+    counts: dict[str, Any] = redis.hgetall(next(iter(redis.keys("usage:*"))))
+    assert counts.get(f"{CLIENT_ID}:meta") == "2"
+
+
+def test_the_catalogue_itself_is_metered(
+    client: TestClient, redis: fakeredis.FakeRedis
+) -> None:
+    response = client.get("/v1/datasets", headers=_token("holders:read"))
+    assert response.status_code == 200
+    assert "X-Quota-Remaining" in response.headers
+
+    counts: dict[str, Any] = redis.hgetall(next(iter(redis.keys("usage:*"))))
+    assert counts.get(f"{CLIENT_ID}:meta") == "1"
+
+
+def test_a_served_dataset_is_billed_to_its_OWN_family(
+    client: TestClient, redis: fakeredis.FakeRedis
+) -> None:
+    """Metering happens before the name is resolved, so the family has to
+    be filled in afterwards -- and it must be the dataset's, not `meta`."""
+    response = client.get(
+        "/v1/datasets/major_holders",
+        params={"symbol": SYMBOL},
+        headers=_token("holders:read"),
+    )
+    assert response.status_code == 200
+
+    counts: dict[str, Any] = redis.hgetall(next(iter(redis.keys("usage:*"))))
+    assert counts == {f"{CLIENT_ID}:holders": "1"}
