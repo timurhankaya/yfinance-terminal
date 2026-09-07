@@ -145,15 +145,20 @@ def run_market_sync(
         end=window_end,
     )
 
-    items: list[ItemRecord] = []
+    # Written after every turn, not once at the end. The data of a turn is
+    # committed by `run_turn` in its own transaction, so a process that dies
+    # mid-run would otherwise leave the data written and no audit row at all
+    # for the run, with `sync_runs` stuck in `running`. The symbol runner
+    # emits per symbol for the same reason (`runner.py`).
+    def emit(records: Sequence[ItemRecord]) -> None:
+        write_items(factory, run_id, records, proxy_id=proxy_id, proxy_label=proxy_label)
+
     for dataset in datasets:
         if dataset.scope == "region":
             # Region loop is outside the dataset: sync_run_items
             # granularity naturally becomes (dataset x table x region)
             for region in regions:
-                items.extend(
-                    _run_turn(factory, dataset, base_ctx.for_region(region), region, tracker)
-                )
+                emit(_run_turn(factory, dataset, base_ctx.for_region(region), region, tracker))
         elif dataset.scope == "variant":
             # Screen loop is outside for the same reason as the region
             # loop. The variant list is read in its own short-lived
@@ -163,13 +168,10 @@ def run_market_sync(
             with factory() as session:
                 variants = list(dataset.variants(cfg, ScreenVariantState(session)))
             for variant in variants:
-                items.extend(
-                    _run_turn(factory, dataset, base_ctx.for_variant(variant), variant, tracker)
-                )
+                emit(_run_turn(factory, dataset, base_ctx.for_variant(variant), variant, tracker))
         else:
-            items.extend(_run_turn(factory, dataset, base_ctx, GLOBAL_SCOPE_MARKER, tracker))
+            emit(_run_turn(factory, dataset, base_ctx, GLOBAL_SCOPE_MARKER, tracker))
 
-    write_items(factory, run_id, items, proxy_id=proxy_id, proxy_label=proxy_label)
     if tracker is not None:
         with factory() as session:
             tracker.flush(session)

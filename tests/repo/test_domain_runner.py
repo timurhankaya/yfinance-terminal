@@ -313,3 +313,47 @@ def test_one_key_and_region_is_a_single_http_request(
     assert successful
     assert len(successful) == len(set(successful))
 
+
+
+@pytest.mark.usefixtures("clean")
+def test_a_crash_mid_run_leaves_the_finished_turns_in_the_audit(
+    test_engine: Engine, fake_fetch: FakeYahoo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each turn commits its data in its own transaction, so the audit rows
+    have to be committed on the same rhythm.
+
+    Collecting them in a list and writing once at the end meant a process
+    that died mid-run left the data written and NOT ONE audit row for the
+    run, with `sync_runs` stuck in `running` -- the run looked like it had
+    never done anything.
+
+    `KeyboardInterrupt` rather than `Exception`: `run_turn` is the error
+    boundary and would swallow the latter into a `failed` cell, which is
+    the orderly path, not the one being tested.
+    """
+    import yfin.pipeline.domain_runner as runner_mod
+
+    real_run_turn = runner_mod.run_turn
+    turns = 0
+
+    def dying_run_turn(*args: Any, **kwargs: Any) -> Any:
+        nonlocal turns
+        turns += 1
+        if turns > 3:
+            raise KeyboardInterrupt("process killed mid-run")
+        return real_run_turn(*args, **kwargs)
+
+    monkeypatch.setattr(runner_mod, "run_turn", dying_run_turn)
+
+    with pytest.raises(KeyboardInterrupt):
+        _run(test_engine)
+
+    factory = sessionmaker(bind=test_engine, future=True)
+    with factory() as session:
+        run_id = session.execute(
+            text("SELECT id FROM sync_runs ORDER BY id DESC LIMIT 1")
+        ).scalar_one()
+        rows = session.execute(
+            text("SELECT COUNT(*) FROM sync_run_items WHERE run_id = :r"), {"r": run_id}
+        ).scalar_one()
+    assert rows > 0

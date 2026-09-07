@@ -250,12 +250,19 @@ def run_domain_sync(
     )
     base_ctx._cache.update(cache)
 
-    items: list[ItemRecord] = []
     selected = list(datasets)
+
+    # Written after every turn, not once at the end. The data of a turn is
+    # committed by `run_turn` in its own transaction, so a process that dies
+    # mid-run would otherwise leave the data written and no audit row at all
+    # for the run, with `sync_runs` stuck in `running`. The symbol runner
+    # emits per symbol for the same reason (`runner.py`).
+    def emit(records: Sequence[ItemRecord]) -> None:
+        write_items(factory, run_id, records, proxy_id=proxy_id, proxy_label=proxy_label)
 
     # 4. Bootstrap: one turn, one transaction.
     for dataset in [d for d in selected if not d.per_key]:
-        items.extend(
+        emit(
             _run_turn(factory, dataset, base_ctx, TAXONOMY_SCOPE_MARKER,
                       TAXONOMY_SCOPE_MARKER, tracker)
         )
@@ -278,13 +285,12 @@ def run_domain_sync(
         for key, symbol in targets[dataset.scope]:
             target_ctx = base_ctx.for_target(key, dataset.scope)
             for region in turn_regions:
-                items.extend(
+                emit(
                     _run_turn(
                         factory, dataset, target_ctx.for_region(region), key, symbol, tracker
                     )
                 )
 
-    write_items(factory, run_id, items, proxy_id=proxy_id, proxy_label=proxy_label)
     if tracker is not None:
         with factory() as session:
             tracker.flush(session)
