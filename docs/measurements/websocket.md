@@ -9,16 +9,21 @@ streaming design. Cited by name rather than by path: measurements outlive
 the design documents that consume them, which is why they live here.
 
 > **Scope warning.** The **write side** is complete and independent of
-> the day of the week. The **stream side** was captured on a Sunday: only
-> 24/7 crypto symbols produced messages, so message rate and field
-> fill-rates for US equities count as **not measured**. These must be
-> repeated during open market hours before any capacity claim about
-> equities is made; the write-path ceiling below is what the current
-> `yf_stream_*` defaults rest on, and it does not depend on them.
+> the day of the week. The **stream side** has been captured twice —
+> Sunday 2026-09-06, and Monday 2026-09-07, which turned out to be **US
+> Labor Day**. Both rounds therefore ran against a closed equity market,
+> and only 24/7 crypto produced real traffic. Equity message rate and
+> field fill-rates count as **not measured**: the field-coverage table
+> below rests on 2 messages that were almost certainly on-subscribe
+> snapshots. A third round during a genuine regular session
+> (**2026-09-08 13:30–20:00 UTC** is the next one) is what would settle
+> them.
 >
-> The subscription limit and connection behaviour, on the other hand, are
-> independent of the day of the week and have been measured — the first
-> round's flawed result and its correction are recorded explicitly below.
+> Nothing else waits on that round: the write-path ceiling, the
+> subscription limit and connection behaviour are all independent of the
+> day of the week, and they are what the current `yf_stream_*` defaults
+> rest on. The first round's flawed subscription result and its
+> correction are recorded explicitly below.
 
 ## Subscription limit: 100 symbols / connection
 
@@ -159,13 +164,14 @@ sent. yfinance resends the entire set every 15 seconds; this is both
 unnecessary and it makes the 100 truncation permanent. (Idle longer than
 4 minutes was not tested.)
 
-## Open-market round — pre-market, 2026-09-07 08:05 UTC
+## Second round — 2026-09-07 08:05 UTC (**US market holiday**)
 
-Second measurement round: Monday 04:05 EDT, the first minutes of
-pre-market. 13 symbols (10 liquid US equities + 3 crypto), 5 minutes,
-decoded in memory without writing to the database.
+Second measurement round: Monday 04:05 EDT. 13 symbols (10 liquid US
+equities + 3 crypto), 5 minutes, decoded in memory without writing to the
+database.
 
-### Equities do not stream in pre-market
+> **This round was recorded on Labor Day and the equity conclusions drawn
+> from it were wrong.** See the correction below.
 
 | Symbol group | Messages in 5 minutes |
 |---|---:|
@@ -173,9 +179,41 @@ decoded in memory without writing to the database.
 | AMZN, GOOGL | 1 each |
 | BTC-USD / ETH-USD / SOL-USD | 60 / 54 / 45 |
 
-Pre-market is technically open at 04:00 ET, but nothing flows. **A
-meaningful equity rate can only be measured during the regular session
-(13:30 UTC)**, so that part of the design's stage 0 is still open.
+### Corrected: this was a holiday, not a thin pre-market
+
+The round was first read as "pre-market is technically open at 04:00 ET,
+but nothing flows". **That attribution was wrong.** 2026-09-07 is the
+first Monday of September — US Labor Day — and the equity markets were
+closed for the entire day, pre-market included.
+
+Confirmed against the upstream at 2026-09-07 13:06 UTC (09:06 EDT, which
+on a trading day is active pre-market, 24 minutes before the open):
+
+```
+status               closed
+yfit_market_status   YFT_MARKET_CLOSED
+message              U.S. markets closed
+next open            2026-09-08 13:30 UTC
+```
+
+So the table above measures **a closed market**, not a thin one. It says
+nothing about pre-market behaviour and nothing about equity message rate.
+This is the same failure mode as the first round's truncation error
+recorded above: a real observation attributed to the wrong cause. The
+first round blamed Sunday; this one blamed pre-market thinness.
+
+The two AMZN/GOOGL messages are almost certainly the on-subscribe
+snapshot of the last known price, not live trades — the same mechanism
+that produces the p99 lag outliers described below. That is an inference
+from the subscribe behaviour, not a separate measurement.
+
+**Still open:** equity message rate and equity field fill-rates. The next
+usable window is the regular session, **2026-09-08 13:30–20:00 UTC**.
+
+**Unaffected by the holiday** — these hold regardless of session, and are
+the round's real yield: the float32 artefact (a protobuf encoding
+property), the snapshot lag distribution, and the `_verify` chunk
+measurement (a pure database result).
 
 Crypto confirms the first round: median inter-message gap is exactly
 **5.0 seconds**, i.e. a server-side sampled snapshot rather than a tick
@@ -198,13 +236,18 @@ last known price, and in a closed market that price is Friday's close. So
 `received_at - ts_utc` always looks enormous for the first seconds of a
 connection.
 
-Two consequences, both already handled:
+Two consequences:
 
-- `yfin stream status` reports **p50 and p95**, not p99. A handful of
-  stale snapshots would make p99 meaningless on its own.
-- The `live_quotes` guard (`excluded.ts_utc > live_quotes.ts_utc`) stops
-  those snapshots from rolling a current price backwards. The assumption
-  that out-of-order delivery is ordinary on reconnect held up.
+- The `live_quotes` guard stops those snapshots from rolling a current
+  price backwards — `writer.py` passes `guard_column="ts_utc"` and
+  `persistence.py` drops a row whose guard value is not newer. **Handled.**
+  The assumption that out-of-order delivery is ordinary on reconnect held
+  up.
+- Any lag figure has to be read at **p50/p95**; a handful of stale
+  snapshots makes p99 meaningless on its own. **Not handled:** `yfin
+  stream status` reports connection staleness and relay lag, not a lag
+  percentile, so this is a rule for whoever queries `live_ticks` directly
+  rather than something the CLI enforces.
 
 ### Field coverage: bid/ask never arrive
 
@@ -215,21 +258,37 @@ Two consequences, both already handled:
 | **`bid`, `ask`, `bid_size`, `ask_size`** | **0%** | **0%** |
 | `circulating_supply`, `market_cap`, `vol_24hr`, `from_currency` | 0% | 100% |
 
-**`bid`/`ask` arrived in neither group.** That was the open question: they
-exist in the proto and not in the stream. So §7.2's "NULL means absent or
-zero" caveat is, for these two fields, permanent.
+**`bid`/`ask` arrived in neither group.** For crypto this is a real
+result: 159 messages, none carrying either field. They exist in the proto
+and not in the stream, so the "a NULL means the field was absent or
+genuinely zero, and the two are indistinguishable" caveat is, for these
+two fields on crypto, permanent.
 
-The equity sample is only 2 messages, so this table is **not conclusive**
-and must be repeated during the regular session.
+**The equity column is not a measurement.** It rests on 2 messages, and
+both arrived on a closed market — most likely as the on-subscribe
+snapshot rather than live quotes. A snapshot is exactly the case where
+`day_high` / `day_volume` / `bid` would be absent anyway, so the 0% row
+tells us nothing about what a trading session sends. This column must be
+rebuilt from the regular session; until then, treat it as unmeasured
+rather than as evidence.
 
 ### market_hours: PRE_MARKET (0) was never observed
 
 All 161 messages carried **`market_hours = 1` (REGULAR)** -- including the
-two equity messages that arrived during pre-market hours.
+two equity messages, which arrived while the US market was closed for
+Labor Day.
 
-This neither confirms nor refutes the presence exception (§7.2). Treating
-`0` as PRE_MARKET rather than "absent" remains an assumption until a
-message actually carries it. The reasoning for keeping it stands -- if
+That is worth stating on its own: **`market_hours` did not reflect the
+actual session state.** A field claiming REGULAR_MARKET on a day the
+exchange never opened cannot be trusted as a session indicator, so
+`is_extended_session()` classifies the value Yahoo sent, not the market's
+real state. Whether this is specific to the on-subscribe snapshot or
+holds generally is unknown from 2 messages.
+
+This neither confirms nor refutes the presence exception that
+`protocol.py` makes for `market_hours` (see the enum section below).
+Treating `0` as PRE_MARKET rather than "absent" remains an assumption
+until a message actually carries it. The reasoning for keeping it stands -- if
 wrong, the cost is writing a redundant `0`; if right, the gain is that
 `is_extended` can be derived at all -- but the line stays unmeasured.
 

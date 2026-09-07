@@ -42,7 +42,7 @@ def parse_line(line: str, scheme: ProxyScheme) -> ProxyEndpoint | None:
         return None
     parts = text.split(":")
     if len(parts) < 2:
-        raise ValueError(f"gecersiz satir (host:port bekleniyor): {text[:24]}...")
+        raise ValueError(f"invalid line (expected host:port): {text[:24]}...")
     # .lower() is required: hostnames are case-insensitive (RFC 4343) and
     # `uq_proxies_endpoint` relies on that. PostgreSQL's column is
     # COLLATE "C", so case-insensitivity must be enforced on the write
@@ -50,7 +50,7 @@ def parse_line(line: str, scheme: ProxyScheme) -> ProxyEndpoint | None:
     # separate proxies. `parse_dsn`'s urlsplit path already does this.
     host, port = parts[0].strip().lower(), parts[1].strip()
     if not port.isdigit():
-        raise ValueError(f"gecersiz port: {port!r}")
+        raise ValueError(f"invalid port: {port!r}")
     return ProxyEndpoint(
         scheme=scheme,
         host=host,
@@ -67,7 +67,7 @@ def parse_lines(lines: Iterable[str], scheme: ProxyScheme) -> Iterator[ProxyEndp
             endpoint = parse_line(line, scheme)
         except ValueError as exc:
             # Message carries no password: only the line number and reason
-            raise ValueError(f"satir {number}: {exc}") from None
+            raise ValueError(f"line {number}: {exc}") from None
         if endpoint is not None:
             yield endpoint
 
