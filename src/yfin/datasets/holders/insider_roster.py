@@ -65,12 +65,14 @@ MAPPED_SOURCES = frozenset(
 
 class InsiderRosterDataset(AsOfDataset[AsOfFramePayload]):
     name = "insider_roster_holders"
-    api = ApiExposure(
-        family=DataFamily.HOLDERS,
-        table=TABLE,
-        sort_key=("as_of_date", "name"),
-        descending=True,
-        description="Insiders on record and the shares they hold.",
+    api = (
+        ApiExposure(
+            family=DataFamily.HOLDERS,
+            table=TABLE,
+            sort_key=("as_of_date", "name"),
+            descending=True,
+            description="Insiders on record and the shares they hold.",
+        ),
     )
     depends_on = ("symbols",)
     produces = asof_produces(TABLE)

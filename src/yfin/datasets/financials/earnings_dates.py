@@ -88,12 +88,14 @@ class EarningsDatesDataset(Dataset[EarningsDatesPayload]):
     name = "earnings_dates"
     depends_on = ("symbols",)
     produces = ("earnings_dates",)
-    api = ApiExposure(
-        family=DataFamily.FUNDAMENTALS,
-        table="earnings_dates",
-        sort_key=("earnings_ts_utc", "fact_hash"),
-        descending=True,
-        description="Past and upcoming earnings dates.",
+    api = (
+        ApiExposure(
+            family=DataFamily.FUNDAMENTALS,
+            table="earnings_dates",
+            sort_key=("earnings_ts_utc", "fact_hash"),
+            descending=True,
+            description="Past and upcoming earnings dates.",
+        ),
     )
 
     def fetch(self, ctx: SyncContext) -> EarningsDatesPayload:

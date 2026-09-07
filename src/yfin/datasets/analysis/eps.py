@@ -35,12 +35,14 @@ class EpsTrendDataset(PeriodFrameDataset):
         Column("90daysAgo", "days_ago_90", to_fact_value),
         Column("currency", "currency", _currency),
     )
-    api = ApiExposure(
-        family=DataFamily.FUNDAMENTALS,
-        table="analyst_eps_trend",
-        sort_key=("as_of_date", "period"),
-        descending=True,
-        description="Consensus EPS estimate as it moved over time.",
+    api = (
+        ApiExposure(
+            family=DataFamily.FUNDAMENTALS,
+            table="analyst_eps_trend",
+            sort_key=("as_of_date", "period"),
+            descending=True,
+            description="Consensus EPS estimate as it moved over time.",
+        ),
     )
 
 
@@ -57,12 +59,14 @@ class EpsRevisionsDataset(PeriodFrameDataset):
         Column("downLast30days", "down_last_30d", nz.to_int),
         Column("currency", "currency", _currency),
     )
-    api = ApiExposure(
-        family=DataFamily.FUNDAMENTALS,
-        table="analyst_eps_revisions",
-        sort_key=("as_of_date", "period"),
-        descending=True,
-        description="Counts of upward and downward EPS revisions.",
+    api = (
+        ApiExposure(
+            family=DataFamily.FUNDAMENTALS,
+            table="analyst_eps_revisions",
+            sort_key=("as_of_date", "period"),
+            descending=True,
+            description="Counts of upward and downward EPS revisions.",
+        ),
     )
 
 

@@ -1,9 +1,12 @@
 """Data families: the closed set both the dataset side and the API share.
 
-A family is the unit authorisation is expressed in. The API does not keep
-a hand-maintained map of dataset -> scope; every dataset declares its
-family and the scope follows from it, so registering a new dataset can
-never leave authorisation subtly wrong.
+A family is the unit authorisation is expressed in. The API keeps no
+hand-maintained map of dataset -> scope: a dataset that is readable
+declares its family in its `ApiExposure`, and the scope follows from that
+one declaration. Exposure is opt-in and absence fails closed, so a newly
+registered dataset is unreachable rather than reachable under the wrong
+scope -- see `datasets/exposure.py` for why that beats a mandatory
+family on every dataset.
 
 The set is deliberately closed. Adding a family is not free -- it needs a
 migration for the enum type and a decision about what it means

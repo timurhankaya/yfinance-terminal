@@ -98,11 +98,13 @@ class MarketStatusDataset(SnapshotGlobalDataset[MarketStatusPayload]):
     snapshot_table = "market_status"
     history_table = "market_status_history"
     key_columns = ("region",)
-    api = ApiExposure(
-        family=DataFamily.REFERENCE,
-        table="market_status",
-        sort_key=("region",),
-        description="Whether each regional market is open, and when it next changes.",
+    api = (
+        ApiExposure(
+            family=DataFamily.REFERENCE,
+            table="market_status",
+            sort_key=("region",),
+            description="Whether each regional market is open, and when it next changes.",
+        ),
     )
 
     def fetch(self, mctx: MarketContext) -> MarketStatusPayload:
@@ -164,13 +166,15 @@ class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
     snapshot_table = "market_summary"
     history_table = "market_summary_history"
     key_columns = ("region", "board_code")
-    api = ApiExposure(
-        family=DataFamily.REFERENCE,
-        table="market_summary",
-        sort_key=("region", "board_code"),
-        symbol_optional=True,
-        filters=("region",),
-        description="Headline index quotes per region.",
+    api = (
+        ApiExposure(
+            family=DataFamily.REFERENCE,
+            table="market_summary",
+            sort_key=("region", "board_code"),
+            symbol_optional=True,
+            filters=("region",),
+            description="Headline index quotes per region.",
+        ),
     )
 
     def fetch(self, mctx: MarketContext) -> MarketSummaryPayload:

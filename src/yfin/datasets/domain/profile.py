@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import DOMAIN_GATE_TABLE, asof_produces
 from yfin.datasets.base import NormalizedResult
@@ -33,6 +34,7 @@ from yfin.datasets.domain.common import (
     warn_unmapped,
 )
 from yfin.datasets.domain.payloads import DomainPayload
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.registry import register_domain
 from yfin.storage.contracts import TableWrite
 
@@ -263,6 +265,25 @@ class SectorProfileDataset(_DomainProfileDataset):
     # sector response's `overview` block.
     produces = asof_produces(
         METRICS_TABLE, REPORTS_TABLE, REPORT_LINKS_TABLE, gate=DOMAIN_GATE_TABLE
+    )
+    api = (
+        ApiExposure(
+            name="domain_metrics",
+            family=DataFamily.DOMAINS,
+            table="domain_metrics",
+            sort_key=("as_of_date", "domain_key"),
+            descending=True,
+            filters=("domain_key",),
+            description="Company and employee counts, market weight per domain.",
+        ),
+        ApiExposure(
+            name="research_reports",
+            family=DataFamily.DOMAINS,
+            table="research_reports",
+            sort_key=("as_of_date", "report_id"),
+            descending=True,
+            description="Research reports linked to sectors and industries.",
+        ),
     )
 
 

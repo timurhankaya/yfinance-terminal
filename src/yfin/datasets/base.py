@@ -211,11 +211,14 @@ class Dataset[RawT](ABC):
     # A class attribute, not a property: turning it into a property in a
     # subtype would narrow the base contract, same issue as `produces`.
     date_range: DateRange = "none"
-    # Opt-in to the generic read surface. None means "not served": the
-    # dataset stays out of the catalogue and /v1/datasets/{name} answers
-    # 404. Failing closed is what keeps a newly registered dataset from
-    # becoming readable, or readable under the wrong scope, by accident.
-    api: ApiExposure | None = None
+    # Opt-in to the generic read surface, one entry per readable
+    # resource. Empty means "not served": the dataset stays out of the
+    # catalogue and /v1/datasets/{name} answers 404. Failing closed is
+    # what keeps a newly registered dataset from becoming readable, or
+    # readable under the wrong scope, by accident. A tuple rather than a
+    # single value because a dataset can write several tables and each is
+    # its own resource.
+    api: tuple[ApiExposure, ...] = ()
 
     @abstractmethod
     def fetch(self, ctx: SyncContext) -> RawT:

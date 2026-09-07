@@ -61,13 +61,15 @@ class EarningsEstimateDataset(_EstimateDataset):
     # Both estimate datasets write analyst_estimates and only `metric`
         # separates them, so the slice has to be pinned here -- otherwise
         # asking for earnings would also return revenue rows.
-    api = ApiExposure(
-        family=DataFamily.FUNDAMENTALS,
-        table="analyst_estimates",
-        sort_key=("as_of_date", "period"),
-        descending=True,
-        fixed=(("metric", "eps"),),
-        description="Consensus earnings estimates by period.",
+    api = (
+        ApiExposure(
+            family=DataFamily.FUNDAMENTALS,
+            table="analyst_estimates",
+            sort_key=("as_of_date", "period"),
+            descending=True,
+            fixed=(("metric", "eps"),),
+            description="Consensus earnings estimates by period.",
+        ),
     )
 
 
@@ -76,13 +78,15 @@ class RevenueEstimateDataset(_EstimateDataset):
     api_method = "get_revenue_estimate"
     constants = (("metric", EstimateMetric.REVENUE.value),)
     columns = _columns("yearAgoRevenue")
-    api = ApiExposure(
-        family=DataFamily.FUNDAMENTALS,
-        table="analyst_estimates",
-        sort_key=("as_of_date", "period"),
-        descending=True,
-        fixed=(("metric", "revenue"),),
-        description="Consensus revenue estimates by period.",
+    api = (
+        ApiExposure(
+            family=DataFamily.FUNDAMENTALS,
+            table="analyst_estimates",
+            sort_key=("as_of_date", "period"),
+            descending=True,
+            fixed=(("metric", "revenue"),),
+            description="Consensus revenue estimates by period.",
+        ),
     )
 
 

@@ -32,10 +32,12 @@ import yfinance as yf
 
 from yfin.core import normalize as nz
 from yfin.core.config import get_settings
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext
 from yfin.datasets.discovery.base import DISCOVERY_GATE_TABLE, DiscoveryDataset
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.news import _thumbnail
 from yfin.datasets.registry import register
 from yfin.datasets.symbol_discovery import (
@@ -137,6 +139,18 @@ class SearchDataset(DiscoveryDataset[SearchPayload]):
         "search_lists",
         "search_report_hits",
         gate=DISCOVERY_GATE_TABLE,
+    )
+    api = (
+        ApiExposure(
+            name="search_quotes",
+            family=DataFamily.DISCOVERY,
+            table="search_quotes",
+            sort_key=("as_of_date", "query_term", "symbol"),
+            descending=True,
+            filters=("query_term",),
+            symbol_optional=True,
+            description="Symbols a free-text search returned.",
+        ),
     )
 
     def fetch(self, ctx: SyncContext) -> SearchPayload:

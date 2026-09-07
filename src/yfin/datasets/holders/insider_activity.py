@@ -66,12 +66,14 @@ class InsiderPurchasesDataset(AsOfDataset[AsOfFramePayload]):
     name = "insider_purchases"
     depends_on = ("symbols",)
     produces = asof_produces(TABLE)
-    api = ApiExposure(
-        family=DataFamily.HOLDERS,
-        table="insider_activity",
-        sort_key=("as_of_date",),
-        descending=True,
-        description="Aggregated insider buying and selling.",
+    api = (
+        ApiExposure(
+            family=DataFamily.HOLDERS,
+            table="insider_activity",
+            sort_key=("as_of_date",),
+            descending=True,
+            description="Aggregated insider buying and selling.",
+        ),
     )
 
     def fetch(self, ctx: SyncContext) -> AsOfFramePayload:

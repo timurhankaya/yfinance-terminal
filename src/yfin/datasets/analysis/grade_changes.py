@@ -61,12 +61,14 @@ class UpgradesDowngradesDataset(Dataset[RangedFramePayload]):
     produces = (TABLE,)
     # Source returns a fixed window; the date range only filters rows.
     date_range = "filter"
-    api = ApiExposure(
-        family=DataFamily.FUNDAMENTALS,
-        table="analyst_grade_changes",
-        sort_key=("grade_ts_utc", "firm"),
-        descending=True,
-        description="Analyst upgrades and downgrades, newest first.",
+    api = (
+        ApiExposure(
+            family=DataFamily.FUNDAMENTALS,
+            table="analyst_grade_changes",
+            sort_key=("grade_ts_utc", "firm"),
+            descending=True,
+            description="Analyst upgrades and downgrades, newest first.",
+        ),
     )
 
     def fetch(self, ctx: SyncContext) -> RangedFramePayload:

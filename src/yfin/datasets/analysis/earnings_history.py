@@ -41,12 +41,14 @@ class EarningsHistoryDataset(Dataset[RangedFramePayload]):
     depends_on = ("symbols",)
     produces = (TABLE,)
     date_range = "filter"
-    api = ApiExposure(
-        family=DataFamily.FUNDAMENTALS,
-        table="earnings_history",
-        sort_key=("quarter_end",),
-        descending=True,
-        description="Reported versus estimated EPS, by quarter.",
+    api = (
+        ApiExposure(
+            family=DataFamily.FUNDAMENTALS,
+            table="earnings_history",
+            sort_key=("quarter_end",),
+            descending=True,
+            description="Reported versus estimated EPS, by quarter.",
+        ),
     )
 
     def fetch(self, ctx: SyncContext) -> RangedFramePayload:

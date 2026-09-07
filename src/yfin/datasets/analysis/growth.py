@@ -32,12 +32,14 @@ class GrowthEstimatesDataset(PeriodFrameDataset):
         Column("industryTrend", "industry_trend", nz.to_decimal),
         Column("sectorTrend", "sector_trend", nz.to_decimal),
     )
-    api = ApiExposure(
-        family=DataFamily.FUNDAMENTALS,
-        table="analyst_growth_estimates",
-        sort_key=("as_of_date", "period"),
-        descending=True,
-        description="Consensus growth estimates by period.",
+    api = (
+        ApiExposure(
+            family=DataFamily.FUNDAMENTALS,
+            table="analyst_growth_estimates",
+            sort_key=("as_of_date", "period"),
+            descending=True,
+            description="Consensus growth estimates by period.",
+        ),
     )
 
 

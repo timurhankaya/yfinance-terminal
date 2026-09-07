@@ -24,12 +24,14 @@ class SharesFullDataset(Dataset[SeriesPayload]):
     depends_on = ("symbols",)
     produces = ("shares_full",)
     date_range = "api"
-    api = ApiExposure(
-        family=DataFamily.FUNDAMENTALS,
-        table="shares_full",
-        sort_key=("as_of_date", "shares"),
-        descending=True,
-        description="Shares outstanding over time.",
+    api = (
+        ApiExposure(
+            family=DataFamily.FUNDAMENTALS,
+            table="shares_full",
+            sort_key=("as_of_date", "shares"),
+            descending=True,
+            description="Shares outstanding over time.",
+        ),
     )
 
     def fetch(self, ctx: SyncContext) -> SeriesPayload:

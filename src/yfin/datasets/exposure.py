@@ -25,7 +25,14 @@ from yfin.core.families import DataFamily, scope_for
 
 @dataclass(frozen=True)
 class ApiExposure:
-    """A dataset's contract with the generic read surface."""
+    """One readable resource, declared by the dataset that writes it.
+
+    A dataset may declare several. That is not a convenience: a dataset is
+    a WRITE-side unit -- one fetch, one or more tables -- while the read
+    side wants resources. `funds_data` writes four tables and `search`
+    eight; with one exposure per dataset their data was unreachable, and
+    three published scopes granted access to nothing.
+    """
 
     #: Decides the scope required and the usage counter billed.
     family: DataFamily
@@ -65,12 +72,19 @@ class ApiExposure:
     #: cheap to send, expensive to serve.
     symbol_optional: bool = False
 
+    #: The name this resource is served under. Empty means "the dataset's
+    #: own name", which is right when a dataset exposes exactly one thing.
+    name: str = ""
+
     #: One line for the catalogue.
     description: str = ""
 
     @property
     def scope(self) -> str:
         return scope_for(self.family)
+
+    def resource_name(self, dataset_name: str) -> str:
+        return self.name or dataset_name
 
     def validate(self, *, dataset_name: str, produces: tuple[str, ...]) -> None:
         """Checks what can be checked without touching the database.

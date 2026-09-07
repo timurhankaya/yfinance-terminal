@@ -129,13 +129,15 @@ class InstitutionalHoldersDataset(_HolderListDataset):
     # `fixed` is what keeps the two datasets apart on the read surface:
     # both write this table and only holder_type tells them apart, so
     # without it asking for one would also return the other's rows.
-    api = ApiExposure(
-        family=DataFamily.HOLDERS,
-        table=TABLE,
-        sort_key=("as_of_date", "holder"),
-        descending=True,
-        fixed=(("holder_type", HolderType.INSTITUTION.value),),
-        description="Institutional holders and their reported positions.",
+    api = (
+        ApiExposure(
+            family=DataFamily.HOLDERS,
+            table=TABLE,
+            sort_key=("as_of_date", "holder"),
+            descending=True,
+            fixed=(("holder_type", HolderType.INSTITUTION.value),),
+            description="Institutional holders and their reported positions.",
+        ),
     )
 
 
@@ -143,13 +145,15 @@ class MutualFundHoldersDataset(_HolderListDataset):
     name = "mutualfund_holders"
     api_method = "get_mutualfund_holders"
     holder_type = HolderType.MUTUALFUND
-    api = ApiExposure(
-        family=DataFamily.HOLDERS,
-        table=TABLE,
-        sort_key=("as_of_date", "holder"),
-        descending=True,
-        fixed=(("holder_type", HolderType.MUTUALFUND.value),),
-        description="Mutual fund holders and their reported positions.",
+    api = (
+        ApiExposure(
+            family=DataFamily.HOLDERS,
+            table=TABLE,
+            sort_key=("as_of_date", "holder"),
+            descending=True,
+            fixed=(("holder_type", HolderType.MUTUALFUND.value),),
+            description="Mutual fund holders and their reported positions.",
+        ),
     )
 
 

@@ -23,11 +23,13 @@ class HistoryMetadataDataset(Dataset[MetadataPayload]):
     name = "history_metadata"
     depends_on = ("symbols",)
     produces = ("history_metadata",)
-    api = ApiExposure(
-        family=DataFamily.REFERENCE,
-        table="history_metadata",
-        sort_key=("symbol",),
-        description="Exchange, timezone and trading-period metadata.",
+    api = (
+        ApiExposure(
+            family=DataFamily.REFERENCE,
+            table="history_metadata",
+            sort_key=("symbol",),
+            description="Exchange, timezone and trading-period metadata.",
+        ),
     )
 
     def fetch(self, ctx: SyncContext) -> MetadataPayload:

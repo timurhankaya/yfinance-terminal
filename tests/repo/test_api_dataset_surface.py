@@ -245,7 +245,7 @@ def test_a_dataset_that_declares_nothing_is_INVISIBLE(client: TestClient) -> Non
     from yfin.datasets import SYMBOL_DATASETS
 
     unexposed = [
-        name for name in SYMBOL_DATASETS if getattr(SYMBOL_DATASETS[name], "api", None) is None
+        name for name in SYMBOL_DATASETS if not getattr(SYMBOL_DATASETS[name], "api", ())
     ]
     assert unexposed, "fixture assumes at least one dataset opts out"
     assert unexposed[0] not in catalog.CATALOG

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import DOMAIN_GATE_TABLE, asof_produces
 from yfin.datasets.base import NormalizedResult
@@ -28,6 +29,7 @@ from yfin.datasets.domain.common import (
     warn_unmapped,
 )
 from yfin.datasets.domain.payloads import DomainPayload
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.registry import register_domain
 from yfin.storage.contracts import RowWriter, TableWrite, WriteStats
 
@@ -142,6 +144,28 @@ class SectorRankingsDataset(_DomainRankingsDataset):
     depends_on = ("domain_taxonomy",)
     scope = "sector"
     produces = asof_produces(TOP_COMPANIES_TABLE, TOP_FUNDS_TABLE, gate=DOMAIN_GATE_TABLE)
+    api = (
+        ApiExposure(
+            name="domain_top_companies",
+            family=DataFamily.DOMAINS,
+            table="domain_top_companies",
+            sort_key=("as_of_date", "domain_key", "region", "symbol"),
+            descending=True,
+            filters=("domain_key", "region"),
+            symbol_optional=True,
+            description="Largest companies in a sector or industry.",
+        ),
+        ApiExposure(
+            name="domain_top_funds",
+            family=DataFamily.DOMAINS,
+            table="domain_top_funds",
+            sort_key=("as_of_date", "domain_key", "region", "fund_type", "symbol"),
+            descending=True,
+            filters=("domain_key", "region", "fund_type"),
+            symbol_optional=True,
+            description="Largest funds tracking a sector or industry.",
+        ),
+    )
 
     def normalize(self, raw: DomainPayload, key: str) -> NormalizedResult:
         return NormalizedResult(
@@ -190,6 +214,18 @@ class IndustryRankingsDataset(_DomainRankingsDataset):
     depends_on = ("domain_taxonomy",)
     scope = "industry"
     produces = asof_produces(TOP_MOVERS_TABLE, TOP_COMPANIES_TABLE, gate=DOMAIN_GATE_TABLE)
+    api = (
+        ApiExposure(
+            name="domain_top_movers",
+            family=DataFamily.DOMAINS,
+            table="domain_top_movers",
+            sort_key=("as_of_date", "domain_key", "region", "rank_type", "symbol"),
+            descending=True,
+            filters=("domain_key", "region", "rank_type"),
+            symbol_optional=True,
+            description="Gainers, losers and most active names in a domain.",
+        ),
+    )
 
     def normalize(self, raw: DomainPayload, key: str) -> NormalizedResult:
         # `infrastructure-operations`: none of the three blocks are

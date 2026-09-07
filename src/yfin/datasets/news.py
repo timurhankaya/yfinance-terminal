@@ -6,8 +6,10 @@ from typing import Any
 
 from yfin.core import normalize as nz
 from yfin.core.config import get_settings
+from yfin.core.families import DataFamily
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.common import key_value, mark_known
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import NewsPayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_yahoo, make_ticker
@@ -80,6 +82,28 @@ class NewsDataset(Dataset[NewsPayload]):
     name = "news"
     depends_on = ("symbols",)
     produces = ("news", "news_symbols")
+    api = (
+        ApiExposure(
+            name="news",
+            family=DataFamily.NEWS,
+            table="news",
+            sort_key=("pub_date", "news_id"),
+            descending=True,
+            description="Articles, newest first, across the whole universe.",
+        ),
+        # The article and the symbols it mentions are separate rows, so
+        # "news about AAPL" is two calls: this one for the ids, then the
+        # articles. The generic surface does not join, and teaching it to
+        # would be a query planner nobody asked for.
+        ApiExposure(
+            name="news_symbols",
+            family=DataFamily.NEWS,
+            table="news_symbols",
+            sort_key=("news_id",),
+            descending=True,
+            description="Which symbols an article mentions.",
+        ),
+    )
 
     def fetch(self, ctx: SyncContext) -> NewsPayload:
         settings = get_settings()

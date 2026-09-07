@@ -35,15 +35,8 @@ from yfin.core.logging_setup import configure_logging, get_logger
 from yfin.datasets import SYMBOL_DATASETS
 from yfin.ingest.client import configure_yfinance
 from yfin.models import Proxy
-from yfin.pipeline.runner import (
-    RunTally,
-    SymbolSource,
-    finalize_run,
-    list_source,
-    open_run,
-    record_not_attempted,
-    run_shard,
-)
+from yfin.pipeline.audit import RunTally, finalize_run, open_run, record_not_attempted
+from yfin.pipeline.runner import SymbolSource, list_source, run_shard
 from yfin.proxy import (
     HealthEvent,
     PasswordUndecryptable,
@@ -364,7 +357,6 @@ class _ProxyPlan:
     proxy_id: int
     proxy_label: str
     dsn: str | None
-    error: str | None = None
 
 
 def _build_specs(

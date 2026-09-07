@@ -67,12 +67,14 @@ class InsiderTransactionsDataset(Dataset[RangedFramePayload]):
     depends_on = ("symbols",)
     produces = (TABLE,)
     date_range = "filter"
-    api = ApiExposure(
-        family=DataFamily.HOLDERS,
-        table="insider_transactions",
-        sort_key=("start_date", "fact_hash"),
-        descending=True,
-        description="Individual insider transactions.",
+    api = (
+        ApiExposure(
+            family=DataFamily.HOLDERS,
+            table="insider_transactions",
+            sort_key=("start_date", "fact_hash"),
+            descending=True,
+            description="Individual insider transactions.",
+        ),
     )
 
     def fetch(self, ctx: SyncContext) -> RangedFramePayload:

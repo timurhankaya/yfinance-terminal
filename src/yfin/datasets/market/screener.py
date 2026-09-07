@@ -22,12 +22,14 @@ import yfinance as yf
 
 from yfin.core import normalize as nz
 from yfin.core.config import Settings, get_settings
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult
 from yfin.datasets.common import (
     project_fields,
     warn_unmapped,
 )
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.hash_gated import HashGate
 from yfin.datasets.market.base import GlobalDataset, MarketContext
 from yfin.datasets.registry import register_market
@@ -177,6 +179,26 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
         "screen_quotes",
         GATE_TABLE,
         CHILD_TABLE,
+    )
+    api = (
+        ApiExposure(
+            name="screen_members",
+            family=DataFamily.DISCOVERY,
+            table="screen_members",
+            sort_key=("as_of_date", "screen_key", "symbol"),
+            descending=True,
+            filters=("screen_key",),
+            symbol_optional=True,
+            description="Symbols a predefined screen matched on a given day.",
+        ),
+        ApiExposure(
+            name="screen_quotes",
+            family=DataFamily.DISCOVERY,
+            table="screen_quotes",
+            sort_key=("as_of_date", "symbol"),
+            descending=True,
+            description="Quote snapshot captured with a screen run.",
+        ),
     )
 
     gate_table = GATE_TABLE

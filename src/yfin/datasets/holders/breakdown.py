@@ -39,12 +39,14 @@ class MajorHoldersDataset(AsOfDataset[AsOfFramePayload]):
     name = "major_holders"
     depends_on = ("symbols",)
     produces = asof_produces(TABLE)
-    api = ApiExposure(
-        family=DataFamily.HOLDERS,
-        table=TABLE,
-        sort_key=("as_of_date",),
-        descending=True,
-        description="Ownership split between insiders and institutions.",
+    api = (
+        ApiExposure(
+            family=DataFamily.HOLDERS,
+            table=TABLE,
+            sort_key=("as_of_date",),
+            descending=True,
+            description="Ownership split between insiders and institutions.",
+        ),
     )
 
     def fetch(self, ctx: SyncContext) -> AsOfFramePayload:

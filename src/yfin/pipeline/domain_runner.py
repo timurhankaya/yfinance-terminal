@@ -21,7 +21,6 @@ Lock is `yfin_domain_sync`; doesn't conflict with `yfin_sync` or
 from __future__ import annotations
 
 import re
-import time
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -30,33 +29,23 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import sessionmaker
 
 from yfin.core.config import Settings, get_settings
-from yfin.core.errors import classify_error
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import GLOBAL_REGION_MARKER
 from yfin.datasets.domain.base import DomainContext, DomainDataset
 from yfin.datasets.domain.common import as_of_day, fetch_domain
 from yfin.datasets.registry import DOMAIN_DATASETS
-from yfin.ingest.client import configure_yfinance
 from yfin.models import Domain, DomainType, RunScope
-from yfin.pipeline.runner import (
+from yfin.pipeline.audit import (
     ItemRecord,
-    ProxyTracker,
     RunTally,
-    _failed_records,
-    _record_items,
     finalize_run,
     open_run,
     write_items,
 )
-from yfin.proxy import (
-    PasswordUndecryptable,
-    ProxyPolicy,
-    ShardProxyTracker,
-    endpoint_of,
-    select_eligible,
-)
+from yfin.pipeline.runner import ProxyTracker
+from yfin.pipeline.single_proxy import setup_single_proxy
+from yfin.pipeline.turn import Turn, run_turn
 from yfin.storage.db import advisory_lock
-from yfin.storage.persistence import PostgresRowWriter
 
 log = get_logger(__name__)
 
@@ -179,18 +168,6 @@ def domain_parents(factory: sessionmaker[Any]) -> dict[str, str]:
     return {str(key): str(parent) for key, parent in rows if parent is not None}
 
 
-def _fail(
-    dataset: DomainDataset[Any], symbol: str, region: str, exc: Exception
-) -> list[ItemRecord]:
-    return _failed_records(
-        symbol,
-        dataset.name,
-        f"{type(exc).__name__}: {exc}",
-        DOMAIN_DATASETS,
-        region=region,
-    )
-
-
 def _run_turn(
     factory: sessionmaker[Any],
     dataset: DomainDataset[Any],
@@ -199,46 +176,26 @@ def _run_turn(
     symbol: str,
     tracker: ProxyTracker | None = None,
 ) -> list[ItemRecord]:
-    """One turn: fetch -> normalize -> upsert, in its own transaction."""
-    started = time.perf_counter()
-    region = ctx.region
-    try:
-        raw = dataset.fetch(ctx)
-        result = dataset.normalize(raw, key)
-    except Exception as exc:  # noqa: BLE001 - boundary is (dataset x key x region)
-        kind = classify_error(exc)
-        log.warning(
-            "domain dataset failed",
-            dataset=dataset.name,
-            domain_key=key,
-            region=region,
-            kind=kind.value,
-            error=str(exc),
-        )
-        if tracker is not None:
-            tracker.record_error(kind, str(exc))
-        return _fail(dataset, symbol, region, exc)
-    if tracker is not None:
-        tracker.record_success()
+    """One turn: fetch -> normalize -> upsert, in its own transaction.
 
-    fetched = sum(len(w.rows) for w in result.writes)
-    duration = int((time.perf_counter() - started) * 1000)
-
-    with factory() as session:
-        try:
-            stats = dataset.upsert(PostgresRowWriter(session), result)
-            session.commit()
-        except Exception as exc:  # noqa: BLE001
-            session.rollback()
-            log.error(
-                "domain turn failed",
-                dataset=dataset.name,
-                domain_key=key,
-                region=region,
-                error=str(exc),
-            )
-            return _fail(dataset, symbol, region, exc)
-    return _record_items(dataset, symbol, stats, fetched, duration, region=region)
+    The error boundary is (dataset x key x region): one sector failing
+    must not mark the next sector failed.
+    """
+    return run_turn(
+        factory,
+        Turn(
+            dataset=dataset,
+            fetch=lambda: dataset.fetch(ctx),
+            normalize=lambda raw: dataset.normalize(raw, key),
+            upsert=dataset.upsert,
+            audit_key=symbol,
+            registry=DOMAIN_DATASETS,
+            kind="domain",
+            log_context={"domain_key": key, "region": ctx.region},
+            region=ctx.region,
+        ),
+        tracker,
+    )
 
 
 def run_domain_sync(
@@ -250,7 +207,7 @@ def run_domain_sync(
 ) -> RunTally:
     """Order is load-bearing.
 
-    1. `_setup_proxy()` -- one proxy from the pool, `configure_yfinance`
+    1. `setup_single_proxy()` -- one proxy from the pool, `configure_yfinance`
     2. `domain_regions()` -- region validation; after the proxy step
        (otherwise the probe would go out over a direct connection, bypassing
        pool policy), before `open_run` (so bad config doesn't leave a
@@ -268,7 +225,7 @@ def run_domain_sync(
             return run_domain_sync(engine, datasets, settings=cfg, acquire_lock=False)
 
     factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
-    proxy_id, proxy_label, tracker = _setup_proxy(factory, cfg)
+    proxy_id, proxy_label, tracker = setup_single_proxy(factory, cfg, label="domain")
 
     cache: dict[str, Any] = {}
     regions = domain_regions(cfg, cache=cache)
@@ -334,29 +291,3 @@ def run_domain_sync(
     return finalize_run(factory, run_id, symbol_count=0, dataset_count=len(datasets))
 
 
-def _setup_proxy(
-    factory: sessionmaker[Any], settings: Settings
-) -> tuple[int | None, str | None, ProxyTracker | None]:
-    """Picks one proxy from the pool and points yfinance at it.
-
-    Same policy as `market_runner._setup_proxy`: falls back to a direct
-    connection if no proxy is eligible; a proxy whose password can't be
-    decrypted is skipped, not marked dead.
-    """
-    with factory() as session:
-        for row in select_eligible(session, limit=1):
-            try:
-                endpoint = endpoint_of(row, settings)
-            except PasswordUndecryptable as exc:
-                log.error("could not decrypt the proxy password", proxy=row.label, error=str(exc))
-                continue
-            configure_yfinance(endpoint.dsn(), proxy_key=f"proxy-{row.id}", settings=settings)
-            log.info("domain sync proxy", proxy=row.label)
-            return (
-                int(row.id),
-                row.label,
-                ShardProxyTracker(int(row.id), ProxyPolicy.from_settings(settings)),
-            )
-    configure_yfinance(None, proxy_key="direct", settings=settings)
-    log.info("domain sync is connecting directly")
-    return None, None, None

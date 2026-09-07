@@ -24,10 +24,12 @@ import pandas as pd
 from yfinance.exceptions import YFDataException
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext
 from yfin.datasets.common import key_value, mark_known, to_fact_value
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import FundsPayload
 from yfin.datasets.registry import register
 from yfin.datasets.symbols import fetch_fast_info, fetch_history_metadata
@@ -164,6 +166,44 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
     name = "funds_data"
     depends_on = ("symbols",)
     produces = asof_produces(PROFILE_TABLE, METRICS_TABLE, WEIGHTINGS_TABLE, HOLDINGS_TABLE)
+    # Four resources from one dataset. Before exposures could be named,
+    # every one of these was unreachable.
+    api = (
+        ApiExposure(
+            name="fund_profile",
+            family=DataFamily.HOLDERS,
+            table="fund_profile",
+            sort_key=("as_of_date",),
+            descending=True,
+            description="Fund family, category and fee profile.",
+        ),
+        ApiExposure(
+            name="fund_metrics",
+            family=DataFamily.HOLDERS,
+            table="fund_metrics",
+            sort_key=("as_of_date", "section", "metric"),
+            descending=True,
+            filters=("section",),
+            description="Fund performance and risk metrics.",
+        ),
+        ApiExposure(
+            name="fund_weightings",
+            family=DataFamily.HOLDERS,
+            table="fund_weightings",
+            sort_key=("as_of_date", "category", "item_key"),
+            descending=True,
+            filters=("category",),
+            description="Sector, asset-class and bond-rating weightings.",
+        ),
+        ApiExposure(
+            name="fund_top_holdings",
+            family=DataFamily.HOLDERS,
+            table="fund_top_holdings",
+            sort_key=("as_of_date", "holding_symbol"),
+            descending=True,
+            description="The fund's largest positions.",
+        ),
+    )
 
     def fetch(self, ctx: SyncContext) -> FundsPayload:
         quote_type = _resolve_quote_type(ctx)

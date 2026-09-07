@@ -35,12 +35,14 @@ class RecommendationsDataset(PeriodFrameDataset):
     )
     # All five counters are NOT NULL; measured int64 with no NaN on 19/19 symbols.
     required = ("strong_buy", "buy", "hold", "sell", "strong_sell")
-    api = ApiExposure(
-        family=DataFamily.FUNDAMENTALS,
-        table="analyst_recommendations",
-        sort_key=("as_of_date", "period"),
-        descending=True,
-        description="Buy/hold/sell recommendation counts by period.",
+    api = (
+        ApiExposure(
+            family=DataFamily.FUNDAMENTALS,
+            table="analyst_recommendations",
+            sort_key=("as_of_date", "period"),
+            descending=True,
+            description="Buy/hold/sell recommendation counts by period.",
+        ),
     )
 
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 from functools import partial
 from typing import Any
 
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult
 from yfin.datasets.domain.base import DomainContext, DomainDataset
@@ -24,6 +25,7 @@ from yfin.datasets.domain.common import (
     text_of,
 )
 from yfin.datasets.domain.payloads import TaxonomyPayload
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.registry import register_domain
 from yfin.storage.contracts import TableWrite
 
@@ -61,6 +63,16 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
     regional = False
     per_key = False
     produces = (SYMBOLS_TABLE, DOMAINS_TABLE)
+    api = (
+        ApiExposure(
+            name="domains",
+            family=DataFamily.DOMAINS,
+            table="domains",
+            sort_key=("domain_key",),
+            filters=("domain_type", "parent_key"),
+            description="The sector and industry taxonomy.",
+        ),
+    )
 
     def fetch(self, ctx: DomainContext) -> TaxonomyPayload:
         region = ctx.fetch_region

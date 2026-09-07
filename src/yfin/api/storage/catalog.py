@@ -37,7 +37,11 @@ SCOPE_DOMAIN = "domain"
 
 @dataclass(frozen=True)
 class CatalogEntry:
+    #: The resource name, which is the dataset's name unless the dataset
+    #: exposes several things and had to name them apart.
     name: str
+    #: The dataset that writes it. Kept so a clash names both sides.
+    dataset: str
     family: DataFamily
     kind: str
     table: Table
@@ -71,37 +75,55 @@ def _build() -> dict[str, CatalogEntry]:
         # indexing is its published shape, not a second accessor.
         for name in registry:
             dataset = registry[name]
-            exposure: ApiExposure | None = getattr(dataset, "api", None)
-            if exposure is None:
-                continue
-
-            table = Base.metadata.tables.get(exposure.table)
-            if table is None:
-                raise ValueError(
-                    f"{dataset.name}: api.table {exposure.table!r} is not a known table"
-                )
-            unknown = [
-                column
-                for column in (
-                    *exposure.sort_key,
-                    *exposure.filters,
-                    *(name for name, _ in exposure.fixed),
-                )
-                if column not in table.c
-            ]
-            if unknown:
-                raise ValueError(
-                    f"{dataset.name}: api declares columns {unknown} that "
-                    f"{table.name} does not have"
-                )
-            entries[dataset.name] = CatalogEntry(
-                name=dataset.name,
-                family=exposure.family,
-                kind=kind,
-                table=table,
-                exposure=exposure,
-            )
+            for exposure in getattr(dataset, "api", ()):
+                _add(entries, kind, dataset.name, exposure)
     return entries
+
+
+def _add(
+    entries: dict[str, CatalogEntry], kind: str, dataset_name: str, exposure: ApiExposure
+) -> None:
+    """Registers one readable resource, checked against the real schema.
+
+    Validation happens here, at import, so a dataset naming a column its
+    table does not have stops the process from starting rather than
+    surfacing as a 500 to whoever calls it first.
+    """
+    resource = exposure.resource_name(dataset_name)
+    if resource in entries:
+        raise ValueError(
+            f"{dataset_name}: resource {resource!r} is already registered by "
+            f"{entries[resource].dataset}; give one of them an explicit api name"
+        )
+
+    table = Base.metadata.tables.get(exposure.table)
+    if table is None:
+        raise ValueError(
+            f"{dataset_name}: api.table {exposure.table!r} is not a known table"
+        )
+    unknown = [
+        column
+        for column in (
+            *exposure.sort_key,
+            *exposure.filters,
+            *(name for name, _ in exposure.fixed),
+        )
+        if column not in table.c
+    ]
+    if unknown:
+        raise ValueError(
+            f"{dataset_name}: api declares columns {unknown} that "
+            f"{table.name} does not have"
+        )
+
+    entries[resource] = CatalogEntry(
+        name=resource,
+        dataset=dataset_name,
+        family=exposure.family,
+        kind=kind,
+        table=table,
+        exposure=exposure,
+    )
 
 
 #: Built at import so a bad declaration stops the process from starting.

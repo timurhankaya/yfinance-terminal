@@ -81,8 +81,7 @@ class Registry[D: Registrable]:
         # and domain dataset hierarchies are registrable without being
         # exposable, and widening the protocol would force both to carry
         # fields they never use.
-        exposure = getattr(ds, "api", None)
-        if exposure is not None:
+        for exposure in getattr(ds, "api", ()):
             # Validated here, at import time. A misdeclared dataset should
             # stop the process from starting rather than surface as a 500
             # to whoever calls it first.

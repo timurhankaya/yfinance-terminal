@@ -13,7 +13,6 @@ Lock name is 'yfin_market_sync', distinct from symbol sync's
 
 from __future__ import annotations
 
-import time
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -22,31 +21,21 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import sessionmaker
 
 from yfin.core.config import Settings, get_settings
-from yfin.core.errors import classify_error
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.market.base import GlobalDataset, MarketContext
 from yfin.datasets.registry import MARKET_DATASETS
-from yfin.ingest.client import configure_yfinance
 from yfin.models import RunScope
-from yfin.pipeline.runner import (
+from yfin.pipeline.audit import (
     ItemRecord,
-    ProxyTracker,
     RunTally,
-    _failed_records,
-    _record_items,
     finalize_run,
     open_run,
     write_items,
 )
-from yfin.proxy import (
-    PasswordUndecryptable,
-    ProxyPolicy,
-    ShardProxyTracker,
-    endpoint_of,
-    select_eligible,
-)
+from yfin.pipeline.runner import ProxyTracker
+from yfin.pipeline.single_proxy import setup_single_proxy
+from yfin.pipeline.turn import Turn, run_turn
 from yfin.storage.db import advisory_lock
-from yfin.storage.persistence import PostgresRowWriter
 from yfin.storage.variants import ScreenVariantState
 
 log = get_logger(__name__)
@@ -84,17 +73,6 @@ def default_window(settings: Settings | None = None) -> tuple[date, date]:
     )
 
 
-def _fail(dataset: GlobalDataset[Any], scope_label: str, exc: Exception) -> list[ItemRecord]:
-    """One audit record per table for a failed turn.
-
-    Reuses the symbol side's function; `_failed_records` takes the
-    registry as a parameter so table names resolve from MARKET_DATASETS.
-    """
-    return _failed_records(
-        scope_label, dataset.name, f"{type(exc).__name__}: {exc}", MARKET_DATASETS
-    )
-
-
 def _run_turn(
     factory: sessionmaker[Any],
     dataset: GlobalDataset[Any],
@@ -102,38 +80,25 @@ def _run_turn(
     scope_label: str,
     tracker: ProxyTracker | None = None,
 ) -> list[ItemRecord]:
-    """One turn: fetch -> normalize -> upsert, in its own transaction."""
-    started = time.perf_counter()
-    try:
-        raw = dataset.fetch(mctx)
-        result = dataset.normalize(raw)
-    except Exception as exc:  # noqa: BLE001 - (dataset x region) error boundary
-        kind = classify_error(exc)
-        log.warning(
-            "market dataset failed",
-            dataset=dataset.name,
-            scope=scope_label,
-            kind=kind.value,
-            error=str(exc),
-        )
-        if tracker is not None:
-            tracker.record_error(kind, str(exc))
-        return _fail(dataset, scope_label, exc)
-    if tracker is not None:
-        tracker.record_success()
+    """One turn: fetch -> normalize -> upsert, in its own transaction.
 
-    fetched = sum(len(w.rows) for w in result.writes)
-    duration = int((time.perf_counter() - started) * 1000)
-
-    with factory() as session:
-        try:
-            stats = dataset.upsert(PostgresRowWriter(session), result)
-            session.commit()
-        except Exception as exc:  # noqa: BLE001
-            session.rollback()
-            log.error("market turn failed", dataset=dataset.name, scope=scope_label, error=str(exc))
-            return _fail(dataset, scope_label, exc)
-    return _record_items(dataset, scope_label, stats, fetched, duration)
+    `scope_label` goes into `sync_run_items.symbol`: on this runner a
+    "cell" is (dataset x region) or (dataset x screen), not a symbol.
+    """
+    return run_turn(
+        factory,
+        Turn(
+            dataset=dataset,
+            fetch=lambda: dataset.fetch(mctx),
+            normalize=dataset.normalize,
+            upsert=dataset.upsert,
+            audit_key=scope_label,
+            registry=MARKET_DATASETS,
+            kind="market",
+            log_context={"scope": scope_label},
+        ),
+        tracker,
+    )
 
 
 def run_market_sync(
@@ -162,7 +127,7 @@ def run_market_sync(
     # Market datasets aren't symbol-oriented: queueing and sharding are
     # meaningless here (each dataset is already a single global call).
     # A proxy is still used -- one process, one proxy from the pool.
-    proxy_id, proxy_label, tracker = _setup_proxy(factory, cfg)
+    proxy_id, proxy_label, tracker = setup_single_proxy(factory, cfg, label="market")
 
     # symbol_count=0 is required: exit_code() only produces code 1 when
     # symbol_count is nonzero; writing the region count would silently
@@ -211,29 +176,3 @@ def run_market_sync(
     return finalize_run(factory, run_id, symbol_count=0, dataset_count=len(datasets))
 
 
-def _setup_proxy(
-    factory: sessionmaker[Any], settings: Settings
-) -> tuple[int | None, str | None, ProxyTracker | None]:
-    """Pick one proxy from the pool and point yfinance at it.
-
-    Falls back to a direct connection if none is eligible, same policy
-    as the symbol side. A proxy whose password can't be decrypted is
-    skipped and reported, not marked dead.
-    """
-    with factory() as session:
-        for row in select_eligible(session, limit=1):
-            try:
-                endpoint = endpoint_of(row, settings)
-            except PasswordUndecryptable as exc:
-                log.error("could not decrypt the proxy password", proxy=row.label, error=str(exc))
-                continue
-            configure_yfinance(endpoint.dsn(), proxy_key=f"proxy-{row.id}", settings=settings)
-            log.info("market sync proxy", proxy=row.label)
-            return (
-                int(row.id),
-                row.label,
-                ShardProxyTracker(int(row.id), ProxyPolicy.from_settings(settings)),
-            )
-    configure_yfinance(None, proxy_key="direct", settings=settings)
-    log.info("market sync is connecting directly")
-    return None, None, None

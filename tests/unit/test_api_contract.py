@@ -126,3 +126,16 @@ def test_no_operation_answers_with_an_unhandled_error(case: Any) -> None:
     assert response.status_code < 500, (
         f"{case.method} {case.formatted_path} answered {response.status_code}"
     )
+
+
+def test_no_published_scope_grants_access_to_NOTHING() -> None:
+    """A scope in the document is a promise. Three of them used to grant a
+    client an empty catalogue and a 404 on everything, which is a contract
+    that does not hold."""
+    from yfin.api.storage.catalog import CATALOG
+    from yfin.core.families import DataFamily
+
+    # Families the hand-written endpoints serve directly.
+    curated = {DataFamily.REFERENCE, DataFamily.BARS, DataFamily.FUNDAMENTALS}
+    served = {entry.family for entry in CATALOG.values()} | curated
+    assert set(DataFamily) - served == set()
