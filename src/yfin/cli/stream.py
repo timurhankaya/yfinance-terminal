@@ -346,3 +346,54 @@ def stream_relay(
     if relay.stats.last_error:
         typer.echo(f"last error: {relay.stats.last_error}")
         raise typer.Exit(code=1)
+
+
+# --- reconcile --------------------------------------------------------------
+
+
+@stream_app.command("reconcile")
+def stream_reconcile(
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    limit: Annotated[int | None, typer.Option("--limit", help="Gaps per pass")] = None,
+) -> None:
+    """Fill open 1m bar gaps from the tick archive.
+
+    Takes the `yfin_sync` lock, not the stream's: this writes price_bars
+    and bar_gaps, which is exactly what a scheduled sync writes. The
+    stream process and a sync can run together precisely because they do
+    not share tables -- this command does, so it queues behind sync.
+
+    `retention_expired` gaps are included, and they are the reason this
+    exists: Yahoo drops 1m data after 29 days, so those windows can never
+    be fetched again and the tick archive is the only thing left that
+    knows what happened in them.
+    """
+    from sqlalchemy import Engine
+
+    from yfin.storage.db import SYNC_LOCK_NAME, advisory_lock
+    from yfin.stream.reconcile import reconcile_gaps
+    from yfin.stream.runner import session_factory_for
+
+    engine = _engine()
+    assert isinstance(engine, Engine)
+    factory = session_factory_for(engine)
+
+    with advisory_lock(engine, SYNC_LOCK_NAME):
+        stats = reconcile_gaps(factory, dry_run=dry_run, limit=limit)
+
+    typer.echo(stats.summary)
+    if stats.minutes_skipped_existing:
+        typer.echo(
+            f"{stats.minutes_skipped_existing} minute(s) already had a bar and were left alone"
+        )
+    if stats.gaps_without_timezone:
+        # Refused rather than guessed: local_date is the exchange's
+        # calendar day, and deriving it from UTC lands a day early for
+        # positive-offset exchanges.
+        unique = sorted(set(stats.gaps_without_timezone))
+        typer.echo(
+            f"{len(unique)} symbol(s) skipped for having no timezone: "
+            f"{', '.join(unique[:10])}"
+        )
+    if dry_run:
+        typer.echo("(dry run: nothing was written)")

@@ -97,6 +97,9 @@ def bars_table_for(interval: str) -> str:
 GAP_RETENTION_EXPIRED = "retention_expired"
 GAP_FETCH_FAILED = "fetch_failed"
 
+# bar_gaps.resolved_by values
+RESOLVED_BY_TICKS = "ticks"
+
 
 class PriceBar(Base):
     """Intraday bars (1m/5m/15m/60m). Sibling of price_history.
@@ -223,8 +226,22 @@ class BarGap(Base):
     # every run; without this feedback bar_gaps would be a mere
     # tombstone: if a middle slice is dropped but later ones are written,
     # the watermark moves past the gap and that window is never
-    # requested again. retention_expired rows always stay NULL here.
+    # requested again.
+    #
+    # retention_expired rows used to stay NULL forever, because Yahoo can
+    # never serve that window again. That is no longer true: the live tick
+    # archive can, and `yfin stream reconcile` closes them from it. Those
+    # are in fact the windows the reconciliation exists for -- a
+    # fetch_failed gap is still refetchable, a retention_expired one is
+    # not.
     resolved_at: Mapped[datetime | None] = mapped_column(TsType())
+
+    # What closed the gap. A separate column rather than a `reason` value:
+    # `reason` is inside the gap write's update_columns
+    # (datasets/bars.py), so the next detection of the same key would
+    # overwrite it and the provenance would be lost. This column is never
+    # in that scope.
+    resolved_by: Mapped[str | None] = mapped_column(AsciiKeyType(16))
 
 
 class BarRescale(Base):
