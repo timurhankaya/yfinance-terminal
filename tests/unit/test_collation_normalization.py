@@ -99,6 +99,6 @@ def test_cli_filter_input_is_normalized(given: str) -> None:
     uppercases, both sides meet in the same form and the
     `ix_symbols_exchange` index stays usable (wrapping the column in
     func.upper would make it unusable)."""
-    from yfin.cli.app import _normalize_filter_values
+    from yfin.cli.common import normalize_filter_values
 
-    assert _normalize_filter_values([given]) == ["NMS"]
+    assert normalize_filter_values([given]) == ["NMS"]

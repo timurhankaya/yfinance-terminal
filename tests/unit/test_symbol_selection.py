@@ -10,7 +10,8 @@ from datetime import date
 
 from typer.testing import CliRunner
 
-from yfin.cli.app import _csv_upper, _selector, app
+from yfin.cli import common
+from yfin.cli.app import app
 from yfin.datasets import SYMBOL_DATASETS
 
 runner = CliRunner()
@@ -20,14 +21,14 @@ runner = CliRunner()
 
 
 def test_csv_upper_trims_and_uppercases() -> None:
-    assert _csv_upper(" nms , nyq ,, ist ") == ["NMS", "NYQ", "IST"]
-    assert _csv_upper(None) == []
+    assert common.csv_upper(" nms , nyq ,, ist ") == ["NMS", "NYQ", "IST"]
+    assert common.csv_upper(None) == []
 
 
 def test_selector_records_universe_and_range() -> None:
     """`scope` only carries the symbols/market distinction; otherwise which
     universe a given run covered could never be known retroactively."""
-    selector = _selector(
+    selector = common.selector(
         exchange=["IST"],
         quote_type=["EQUITY"],
         suffix=None,
@@ -39,11 +40,11 @@ def test_selector_records_universe_and_range() -> None:
 
 def test_selector_is_none_when_unfiltered() -> None:
     """Stays NULL for an unfiltered run; that means "no filter"."""
-    assert _selector(exchange=[], quote_type=[], suffix=None, start=None, end=None) is None
+    assert common.selector(exchange=[], quote_type=[], suffix=None, start=None, end=None) is None
 
 
 def test_selector_fits_varchar_255() -> None:
-    selector = _selector(
+    selector = common.selector(
         exchange=[f"EX{i}" for i in range(200)],
         quote_type=[],
         suffix=None,

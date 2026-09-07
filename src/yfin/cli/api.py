@@ -29,6 +29,7 @@ from yfin.api.core.config import get_api_settings
 from yfin.api.models.clients import ApiScope
 from yfin.api.ratelimit.revocation import WrongRedis, publish_revocation
 from yfin.api.storage import clients as repo
+from yfin.cli.common import session_factory
 from yfin.core.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -45,11 +46,7 @@ EXIT_NOT_PROPAGATED = 3
 
 
 def _session_factory() -> sessionmaker[Session]:
-    # Imported here, not at module level: cli.app mounts this group, so a
-    # top-level import would be circular.
-    from yfin.cli.app import _session_factory as factory
-
-    return factory()
+    return session_factory()
 
 
 def _scope_values() -> list[str]:

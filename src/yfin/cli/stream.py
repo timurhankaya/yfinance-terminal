@@ -21,6 +21,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, sessionmaker
 
+from yfin.cli.common import engine, session_factory
 from yfin.core import normalize as nz
 from yfin.core.config import get_settings
 from yfin.models import Symbol
@@ -34,16 +35,11 @@ stream_app.add_typer(stream_scope_app, name="scope")
 
 
 def _factory() -> sessionmaker[Session]:
-    # Lazy import: cli/app.py imports this module.
-    from yfin.cli.app import _session_factory
-
-    return _session_factory()
+    return session_factory()
 
 
 def _engine() -> object:
-    from yfin.cli.app import _engine as engine_factory
-
-    return engine_factory()
+    return engine()
 
 
 # --- run --------------------------------------------------------------------
