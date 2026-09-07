@@ -415,3 +415,43 @@ the smallest. A design that opens one connection per exchange would run
 a 5-symbol connection side by side with a 698-symbol connection. The
 exchange count (9) being close to the connection ceiling is also a
 coincidence, and it changes as the universe grows.
+
+## Browser fan-out: commit → screen
+
+**Not yet measured.** The spec makes this the gate on one open design
+question, so it is written down rather than assumed.
+
+**The question.** The publisher sends N `PUBLISH` commands in one
+pipeline, one per accepted tick (`stream/publish.py`). The alternative is
+one message per SYMBOL carrying an array of that symbol's ticks in the
+batch. At 500 rows a batch and a universe where most symbols tick once
+per batch, the two are nearly the same; the array form only wins where a
+few symbols dominate a batch. Which is true here is a measurement, and
+until it exists the simpler form stands.
+
+**What to measure.** End-to-end latency for one symbol, from
+`session.commit()` returning in the writer to the tick being applied in
+the browser store, p50 and p99. The path has four hops worth separating:
+
+1. commit → `pipeline.execute()` returning (the publisher's own cost),
+2. Redis → the API's `get_message` (`BUS_POLL_SECONDS` bounds this at
+   200 ms in the worst case, and it is the term most likely to dominate),
+3. the API's queue → `send_json` (the sender task),
+4. `onmessage` → the `requestAnimationFrame` flush (one frame, ~16 ms).
+
+**Method.** `t` is already in the body and is Yahoo's timestamp, not
+ours, so it cannot measure any of this. Add a temporary field carrying
+`time.time_ns()` at publish, read `performance.timeOrigin + performance.now()`
+at the rAF flush, and take the difference; the clock is the same machine
+in a single-host run, which is the setup this is for. A hundred ticks of
+a liquid symbol during the regular session is enough for p99.
+
+**When.** Needs an open equity market: pre-market equities do not stream
+at all (measured above), so a run outside 13:30–20:00 UTC on a weekday
+measures nothing. `BTC-USD` streams 24/7 and is the fallback, with the
+caveat that one symbol's cadence is not a busy batch.
+
+**What the result decides.** If hop 2 dominates, `BUS_POLL_SECONDS` comes
+down or the reader moves to `listen()` with a separate connection for
+subscribe. If hop 1 dominates at a realistic batch size, the per-symbol
+array form is worth the second code path.

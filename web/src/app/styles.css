@@ -73,3 +73,22 @@ dl.des dd { margin: 0; word-break: break-word; }
 .guide td { vertical-align: top; }
 .load-more { margin: 8px 0; list-style: none; }
 .dataset.split { align-items: start; height: auto; }
+.strip-price { font-weight: 600; }
+.strip-change.up { color: #4cc38a; }
+.strip-change.down { color: #ff6b6b; }
+.strip-link { color: #ff6b6b; }
+.chart { height: 62vh; min-height: 320px; width: 100%; }
+.chart-note { display: flex; gap: 12px; align-items: baseline; margin: 0 0 6px; color: var(--muted); }
+.chart-legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 6px 0 0; color: var(--muted); }
+.swatch { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: baseline; }
+.swatch-gap { background: rgba(242, 181, 68, .22); border: 1px solid var(--accent); }
+.swatch-live { background: var(--accent); }
+.tape { height: 70vh; overflow: auto; position: relative; }
+.tape-rows { position: relative; width: 100%; }
+.tape-row { position: absolute; left: 0; right: 0; display: grid; grid-template-columns: 96px 1fr 1fr 1fr; gap: 8px; padding: 2px 8px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.tape-row .num { text-align: right; }
+.tape-break { color: var(--accent); }
+.tape-head { display: grid; grid-template-columns: 96px 1fr 1fr 1fr; gap: 8px; padding: 2px 8px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.tape-head .num { text-align: right; }
+.tape-line { display: grid; grid-template-columns: 96px 1fr 1fr 1fr; gap: 8px; }
+.tape-line .num { text-align: right; font-variant-numeric: tabular-nums; }

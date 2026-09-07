@@ -2778,6 +2778,7 @@ dependencies = [
     { name = "protobuf" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
+    { name = "redis" },
     { name = "sqlalchemy" },
     { name = "structlog" },
     { name = "tenacity" },
@@ -2794,7 +2795,6 @@ api = [
     { name = "prometheus-fastapi-instrumentator" },
     { name = "pyjwt" },
     { name = "python-multipart" },
-    { name = "redis" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 dev = [
@@ -2848,7 +2848,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "python-multipart", marker = "extra == 'api'", specifier = ">=0.0.9" },
-    { name = "redis", marker = "extra == 'api'", specifier = ">=5.1" },
+    { name = "redis", specifier = ">=5.1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "schemathesis", marker = "extra == 'dev'", specifier = ">=3.36" },
     { name = "sqlalchemy", specifier = ">=2.0" },

@@ -23,10 +23,16 @@ def install(app: FastAPI, settings: ApiSettings, dist_dir: Path | None = None) -
     /ui/api/v1/* and is the 404 for every other /ui/api path), then the
     pages. Starlette matches in registration order, so the mount must
     come after the routes it would otherwise swallow, and before the pages
-    so /ui/api/* can never fall through to index.html."""
-    from yfin.ui import data, pages, public
+    so /ui/api/* can never fall through to index.html.
+
+    `/ui/ws` sits outside all of that: it is a different scope type, so
+    no HTTP route can shadow it and the `RequestBrake` below never sees
+    it (a WebSocket does not pass through BaseHTTPMiddleware). Its own
+    guard is the Origin check in `live.py`."""
+    from yfin.ui import data, live, pages, public
 
     app.include_router(data.router)
+    app.include_router(live.router)
     app.mount(public.MOUNT_PATH, public.build_data_api(settings), name="ui-data")
     # On the outer app so it covers the UI-only routes above as well as
     # the mount. `add_middleware` prepends, so added last it ends up

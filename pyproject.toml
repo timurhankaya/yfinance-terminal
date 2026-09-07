@@ -29,6 +29,12 @@ dependencies = [
     # reads PricingData off the wire. Same reasoning as curl_cffi above.
     "websockets>=13",
     "protobuf>=5.27",
+    # Not in the `api` extra any more. `stream/publish.py` runs in the
+    # STREAM process, which has no reason to install FastAPI, and a
+    # deployment that runs the pipeline without the HTTP layer would have
+    # found the publish path importing something it does not have. redis-py
+    # is pure Python, so carrying it in the base install costs a directory.
+    "redis>=5.1",
 ]
 
 [project.optional-dependencies]
@@ -39,7 +45,6 @@ api = [
     "uvicorn[standard]>=0.32",
     "pyjwt>=2.9",
     "argon2-cffi>=23.1",
-    "redis>=5.1",
     # Not optional: RFC 6749 requires the token endpoint to accept
     # application/x-www-form-urlencoded, and FastAPI's Form() refuses to
     # parse a body without this installed.

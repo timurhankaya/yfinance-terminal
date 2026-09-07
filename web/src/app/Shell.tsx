@@ -4,8 +4,10 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { ApiError, getSymbol } from "../api/client";
 import { DEFAULT_CODE, NO_SYMBOL, commandToPath, parse, ParseKind, pathToCommand, SYMBOL_RE } from "../commands/parser";
 import { getPanel, isMnemonic, listPanels } from "../commands/registry";
+import { Layout } from "../commands/types";
 import type { PanelArgs } from "../commands/types";
 import { CommandPalette } from "./CommandPalette";
+import { Strip } from "./Strip";
 import { useGlobalKeys } from "./keys";
 
 export const LAST_KEY = "yfin.ui.last";
@@ -149,10 +151,12 @@ export function Shell() {
           );
         })}
       </nav>
-      {hasSymbol && (
-        <div className="strip">
-          <span className="strip-symbol">{command.symbol}</span>
-        </div>
+      {hasSymbol && command.symbol !== null && (
+        // `headed` is what turns the strip live. A `single` panel gets
+        // the symbol and nothing else, so opening a statement or a
+        // filing list does not hold a subscription for a price nobody is
+        // looking at.
+        <Strip symbol={command.symbol} live={spec?.layout === Layout.Headed} />
       )}
       <main className="panel">{body}</main>
       <footer className="credits" aria-label="credits">

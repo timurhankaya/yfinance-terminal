@@ -13,10 +13,18 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+import pytest
+
 from yfin.stream.rejects import REJECT_DECODE_FAILED, REJECT_UNKNOWN_SYMBOL, Reject
 from yfin.stream.repository import ScopeEntry
 from yfin.stream.supervisor import StreamSupervisor, SupervisorConfig
-from yfin.stream.writer import TICK_COLUMNS, RejectSampler, StreamWriter, WriterConfig
+from yfin.stream.writer import (
+    TICK_COLUMNS,
+    RejectSampler,
+    StreamWriter,
+    TickWrite,
+    WriterConfig,
+)
 
 TS = datetime(2026, 9, 7, 14, 30, tzinfo=UTC)
 
@@ -253,3 +261,85 @@ def test_dedupe_without_a_guard_is_unchanged() -> None:
     first = {"symbol": "AAPL", "value": 1}
     second = {"symbol": "AAPL", "value": 2}
     assert dedupe_rows([first, second], ("symbol",), ())[0]["value"] == 2
+
+
+# --- the browser fan-out ----------------------------------------------------
+#
+# Ordering, not delivery: `publish.py` owns what a tick body looks like and
+# what happens when Redis is down (test_stream_publish.py). What is decided
+# HERE is that nothing is published until the archive has the row.
+
+
+class _RecordingPublisher:
+    def __init__(self) -> None:
+        self.batches: list[list[dict[str, Any]]] = []
+
+    def publish(self, rows: Any) -> None:
+        self.batches.append(list(rows))
+
+    def close(self) -> None:
+        pass
+
+
+class _FakeSession:
+    def __init__(self, *, commit_fails: bool = False) -> None:
+        self._commit_fails = commit_fails
+        self.committed = False
+
+    def __enter__(self) -> _FakeSession:
+        return self
+
+    def __exit__(self, *_: object) -> bool:
+        return False
+
+    def commit(self) -> None:
+        if self._commit_fails:
+            raise RuntimeError("the transaction was rolled back")
+        self.committed = True
+
+
+def _publishing_writer(*, commit_fails: bool = False) -> tuple[StreamWriter, _RecordingPublisher]:
+    """A writer whose database side is stubbed out.
+
+    Everything below `_write` needs a real PostgreSQL (COPY into a temp
+    table through the raw driver connection), and it is covered in
+    tests/repo. The decision under test is above all of that.
+    """
+    session = _FakeSession(commit_fails=commit_fails)
+    writer, _, _ = _writer()
+    writer._session_factory = lambda: session  # type: ignore[assignment,method-assign]
+    writer._write_ticks = lambda _s, rows: TickWrite(  # type: ignore[method-assign]
+        len(rows), [], list(rows)
+    )
+    writer._write_rejects = lambda _s, _r: None  # type: ignore[assignment,method-assign]
+    writer._write_quotes = lambda _s: None  # type: ignore[assignment,method-assign]
+    writer._flush_counters = lambda **_k: None  # type: ignore[assignment,method-assign]
+    publisher = _RecordingPublisher()
+    writer._publisher = publisher  # type: ignore[assignment]
+    return writer, publisher
+
+
+def test_accepted_rows_are_published_after_the_commit() -> None:
+    writer, publisher = _publishing_writer()
+    rows = [_row(), _row(symbol="MSFT")]
+    writer._write(rows, [])
+    assert publisher.batches == [rows]
+
+
+def test_a_failed_commit_publishes_nothing() -> None:
+    """A tick on the page that the archive does not have is a price that,
+    once the transaction rolls back, it never will."""
+    writer, publisher = _publishing_writer(commit_fails=True)
+    with pytest.raises(RuntimeError):
+        writer._write([_row()], [])
+    assert publisher.batches == []
+
+
+def test_rows_the_foreign_key_refused_are_not_published() -> None:
+    """`accepted` is the publish list, and it is what passed the filter."""
+    writer, publisher = _publishing_writer()
+    writer._write_ticks = lambda _s, _rows: TickWrite(  # type: ignore[method-assign]
+        0, [Reject(reason=REJECT_UNKNOWN_SYMBOL, symbol="NOPE", detail="no row")], []
+    )
+    writer._write([_row(symbol="NOPE")], [])
+    assert publisher.batches == [[]]

@@ -11,6 +11,7 @@ import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
 //: here still shows, under "Other".
 const GROUPS: ReadonlyArray<[title: string, codes: string[]]> = [
   ["About one symbol", ["DES", "FA", "ANR", "N", "CF", "CA", "PX", "HDS", "ERN", "FUND", "REF"]],
+  ["Charts and the tape", ["GP", "GIP", "QR"]],
   ["Market-wide", ["CAL", "MKT", "SCR", "SRCH", "DOM"]],
   ["Everything in the archive", ["DS"]],
   ["This page", ["HELP"]],
@@ -23,6 +24,10 @@ const EXAMPLES: ReadonlyArray<[command: string, what: string]> = [
   ["MSFT N", "Symbol and function in one line: Microsoft's news."],
   ["HDS trades", "Holders panel, opened on the insider-transactions tab."],
   ["PX 5m 100", "The newest 100 five-minute bars as a table."],
+  ["GP", "Daily candles for the symbol on the strip: two years, with dividends and splits marked."],
+  ["GP 5", "The same chart over five years."],
+  ["AAPL GIP 5m", "Five-minute candles for the last few sessions, with the archive's gaps shaded."],
+  ["QR", "Time and sales: the last few hundred ticks, then live as they arrive."],
   ["CAL economic region=US", "A market-wide panel with a tab and a filter."],
   ["DS", "The catalogue: every dataset the archive holds, by family."],
   ["DS earnings_calendar", "Any dataset by name, filtered to the strip's symbol when it has one."],

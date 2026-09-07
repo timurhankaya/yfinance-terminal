@@ -1,3 +1,5 @@
+import type { Tick } from "../live/types";
+
 // One fetch wrapper for the page. Same-origin and never cached: the API's
 // Vary header names Authorization, which this page never sends, so a cached
 // response could be served for far longer than the data behind it lives.
@@ -281,5 +283,71 @@ export const NEWS_MAX = 200;
 export async function getNews(symbol: string, limit: number = NEWS_PAGE): Promise<NewsItem[]> {
   const code = encodeURIComponent(symbol.trim().toUpperCase());
   const page = await apiFetch<Page<NewsItem>>(`/ui/api/symbols/${code}/news?limit=${limit}`);
+  return page.data;
+}
+
+// --- the charts and the tape ------------------------------------------------
+
+/** Bars over a WINDOW rather than a row count.
+ *
+ *  `getBars` asks for "the newest N", which is what a table wants. A
+ *  chart wants "the last two years" or "the last five sessions", and the
+ *  difference matters at the edges: a row count over a thin symbol
+ *  reaches back years, and over a busy one stops mid-session. */
+export async function getBarsWindow(
+  symbol: string,
+  interval: string,
+  fromISO: string,
+  session?: string,
+): Promise<Row[]> {
+  const code = encodeURIComponent(symbol.trim().toUpperCase());
+  const search = new URLSearchParams({ interval, from: fromISO, limit: String(PAGE_LIMIT) });
+  // `session` is intraday-only; passing it above daily is a 422 rather
+  // than a silent no-op, so the caller decides.
+  if (session !== undefined) search.set("session", session);
+  const all = await followPages(`${DATA_BASE}/symbols/${code}/bars?${search}`, MAX_PAGES);
+  return all.rows;
+}
+
+/** ISO 8601 for a window that starts `days` ago. */
+export function daysAgo(days: number, now = Date.now()): string {
+  return new Date(now - days * 86_400_000).toISOString();
+}
+
+export interface GapRow {
+  bar_interval: string;
+  gap_start_utc: string;
+  gap_end_utc: string;
+  reason: string;
+  detected_at: string;
+}
+
+/** Windows the archive knows it is missing, open ones only.
+ *
+ *  Not under `/ui/api/v1`: `bar_gaps` has no `/v1` route (it is in the
+ *  contract's NEVER_EXPOSED list), so this is one of the terminal's own
+ *  reads, like `news`. */
+export async function getGaps(
+  symbol: string,
+  interval: string,
+  fromISO: string,
+): Promise<GapRow[]> {
+  const code = encodeURIComponent(symbol.trim().toUpperCase());
+  const search = new URLSearchParams({ interval, from: fromISO });
+  const page = await apiFetch<Page<GapRow>>(`/ui/api/symbols/${code}/gaps?${search}`);
+  return page.data;
+}
+
+//: What `QR` opens on before the socket takes over. The route's own
+//: ceiling is 2000.
+export const TICKS_DEFAULT = 500;
+
+/** The newest ticks for one symbol, newest first, in the socket's own
+ *  body shape -- so the opening page and the live rows render alike. */
+export async function getTicks(symbol: string, limit = TICKS_DEFAULT): Promise<Tick[]> {
+  const code = encodeURIComponent(symbol.trim().toUpperCase());
+  const page = await apiFetch<Page<Tick>>(
+    `/ui/api/symbols/${code}/ticks?limit=${String(limit)}`,
+  );
   return page.data;
 }

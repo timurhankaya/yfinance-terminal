@@ -604,3 +604,55 @@ senaryosu: `AAPL GIP 5m` → mum görünür.
   şekilde genişletildi.
 - 100 sembol CPU ölçümü faz 1.5'e; `HP`/`EE` listeden çıkarıldı;
   dockview araştırma tablosundan "Kapsam dışı"na.
+
+2026-09-08, 1c ve 1d uygulandı:
+
+- **Zaman dilimi UTC.** Grafik ekseni, tooltip, `QR` saatleri ve şerit
+  hepsi UTC ve etiketi yazılı. Spec'in "faz 1'de tarayıcı yerel saati"
+  ifadesi düştü: aynı sayfadaki `PX` tablosu ve satır detayı 1e'de UTC'ye
+  geçti, iki saat yan yana durmaz.
+- **Yayın URL'i env-only, anahtar DB-managed.** `yf_stream_publish_enabled`
+  `yfin config set` ile açılır; `yf_stream_publish_redis_url` `_cfg`
+  taşımaz ve `ENV_ONLY_FIELDS`'tedir — bir Redis URL'i parolasını
+  dizenin içinde taşır, `settings` tablosu düz metin tutar. API süreci
+  aynı iki değeri okur: kanal adını iki uç da tek ayardan alır.
+- **Ondalıklar `normalize()` edilir.** `price` `NUMERIC(28,12)`, yani
+  `live_quotes`'tan okunan bir fiyat `232.500000000000`. Bu on iki sıfır
+  her tick'te tel üzerinde ve `QR` listesinde görünürdü; `format(d.normalize(), "f")`
+  hem onları düşürür hem `1E-12`'yi engeller.
+- **Fiyatsız tick yayınlanmaz.** `p` zorunlu ve sütun nullable; çizilecek
+  ya da listelenecek bir şeyi olmayan tick sayfayı hiçbir şey yapamayacağı
+  bir duruma sokardı.
+- **`_write_ticks` `TickWrite` döner** (`written`, `unknown`, `accepted`);
+  yayın `session.commit()` sonrasında ve `yfin_stream_batch_seconds`
+  histogramının **içinde** — yayın writer thread'inde koştuğu için
+  histogramın dışına alınsaydı kuyruk büyürken histogram sağlıklı görünürdü.
+- **`GP` argümanı yıl sayısı** (`GP 5`), varsayılan 2; `GIP` penceresi
+  9 takvim günü (beş seansı kapsamak için; seans takvimi sayfada yok).
+- **Günlük grafikte canlı mum yalnız uzatır.** Günlük barın anı seansın
+  açılışıdır (13:30Z), UTC gece yarısı değil; 86.400'e yuvarlamak gerçek
+  mumun yanına ikinci bir mum çizerdi. Yarının barını sayfa uyduramaz —
+  hangi ana düşeceği borsanın takvimi. `BucketMode.Session` bu.
+- **Gap overlay whitespace ile çizilir.** Zaman ölçeğinde yalnız bir
+  serinin andığı anların koordinatı vardır ve gap tanımı gereği barsız;
+  boş yuvalar açılır, bant onların üstünde tam yükseklik bir overlay
+  histogramdır (`GAP_SLOT_LIMIT` 3000, aşılırsa bant çizilmez ve panel
+  bunu yazar).
+- **`QR` sanallaştırılmadı.** `@tanstack/react-virtual` mutlak
+  konumlandırma ister, o da terminalin tek inline stili olurdu (konvansiyon:
+  `web/src`'de `style=` yok). Bunun yerine tape 2000 satırla sınırlı ve
+  panel en yeni 300'ü çizip "show more" ile büyütüyor — terminalin
+  başka yerlerinde kullanılan `.load-more` kalıbı.
+- **Kopukluk ayırıcısı istemci tarafında.** Soket düşünce sayfanın o anki
+  en yeni satırı işaretlenir; kopukluk sırasındaki tick'ler geri
+  doldurulmaz (hiç teslim edilmediler) ve sessiz bir birleştirme sakin
+  bir piyasa gibi okunurdu.
+- **`GIP` iki durumda REST'i yeniler:** canlı mum arşivin yazmadığı bir
+  kovaya döndüğünde (hacim orada) ve soket geri geldiğinde (kopukluktaki
+  barlar yalnız arşivde).
+- **CI'a üçüncü bir kilit:** `scripts/dump_tick_fields.py --check`.
+  `web/src/live/tick-fields.json` `stream/publish.py`'den üretilir;
+  vitest TS tipinin anahtarlarını ve kodlamalarını bu dosyayla
+  karşılaştırır.
+- E2E CI'da koşmaz (arşiv, `dist` ve intraday barı olan bir sembol
+  ister): `web/playwright.config.ts` gerekçeyi ve komutları taşıyor.

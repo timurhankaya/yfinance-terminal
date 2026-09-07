@@ -109,9 +109,16 @@ services:
       YFAPI_UI_REQUESTS_PER_MINUTE: ${YFAPI_UI_REQUESTS_PER_MINUTE:-600}
       # The admin page at /admin; off while empty.
       YFAPI_ADMIN_PASSWORD: ${YFAPI_ADMIN_PASSWORD:-}
-      # Published as the first `servers` entry and, in 1c, checked as the
-      # WebSocket Origin. Leave empty on plain-HTTP localhost.
+      # Published as the first `servers` entry, and what /ui/ws checks
+      # the browser's Origin against. Leave empty on plain-HTTP
+      # localhost, where the request's own Host is used instead.
       YFAPI_PUBLIC_BASE_URL: ${YFAPI_PUBLIC_BASE_URL:-}
+      # The live tick bus, shared with the `stream` service. Both ends
+      # read the SAME setting -- this is the channel's address, not a
+      # per-service preference -- and database 2 keeps the fan-out off
+      # the rate limiter's keyspace in database 0. Empty means the
+      # terminal falls back to snapshots and says so.
+      YF_STREAM_PUBLISH_REDIS_URL: ${YF_STREAM_PUBLISH_REDIS_URL:-redis://redis:6379/2}
       TZ: UTC
     ports:
       # /docs (Swagger UI) and /redoc read the same document the API
@@ -244,6 +251,12 @@ services:
     command: ["yfin", "stream", "run"]
     environment:
       <<: *yfin-db
+      # The publishing half of the same bus the API subscribes to. The
+      # switch that turns publishing on is `yf_stream_publish_enabled` in
+      # the settings table (`yfin config set`); this is only where to
+      # publish, and it is env-only because a Redis URL carries its
+      # password inside the string.
+      YF_STREAM_PUBLISH_REDIS_URL: ${YF_STREAM_PUBLISH_REDIS_URL:-redis://redis:6379/2}
       TZ: UTC
     init: true
     # The writer drains its queue on SIGTERM. Cut short, the ticks still in

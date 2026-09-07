@@ -22,3 +22,9 @@ public-*.png
 # Stack credentials. The committed .env.example next to it documents the
 # names; the values are per-install.
 deploy/observability/.env
+
+# Playwright's local run: the browsers it downloads and what a failed
+# run leaves behind. The E2E suite is a local acceptance criterion, not
+# a CI job (web/playwright.config.ts says why).
+web/test-results/
+web/playwright-report/

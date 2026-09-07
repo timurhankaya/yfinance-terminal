@@ -324,7 +324,17 @@ format is set. Custom counters:
 
 **`stream run`.** `yfin_stream_messages_total`, `yfin_stream_rejects_total{reason}`,
 `yfin_stream_reconnects_total`, `yfin_stream_batch_seconds` (histogram),
-`yfin_stream_copy_rows_total{table}`, `yfin_cache_ops_total{cache="symbol_filter"}`.
+`yfin_stream_copy_rows_total{table}`, `yfin_cache_ops_total{cache="symbol_filter"}`,
+`yfin_stream_publish_total{result="ok"|"failed"|"disabled"}`.
+
+The last one is the web terminal's fan-out (`stream/publish.py`), counted
+per BATCH rather than per tick: the question it answers is whether open
+browser tabs are getting prices, and a batch of 500 that failed is one
+failure. `disabled` is a real result rather than an absent series --
+"nobody is publishing" and "publishing is broken" look identical on a
+graph that only counts failures. The publish runs inside
+`yfin_stream_batch_seconds`, so a slow Redis shows up in the histogram
+the batch interval is compared against rather than hiding behind it.
 
 **Relays.** `yfin_relay_published_total{outbox}`, `yfin_relay_failures_total{outbox}`,
 `yfin_relay_pass_seconds{outbox}`, `yfin_relay_chunks_dropped_total{outbox}`.

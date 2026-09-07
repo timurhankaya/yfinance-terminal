@@ -98,8 +98,42 @@ FA balance quarterly  # statements: income|balance|cash, annual|quarterly|ttm
 ANR                   # analyst ratings on the current symbol
 N                     # news; j/k to move, Enter to open
 CF 10-K               # SEC filings of one type; Enter expands exhibits
+GP                    # daily candles, two years, dividends and splits marked
+GIP 5m                # intraday candles; the archive's gaps are shaded
+QR                    # time and sales: the last ticks, then live
 HELP                  # every function and shortcut; Esc goes back
 ```
+
+Times are UTC everywhere -- axes, tooltips, tables and the strip -- and
+labelled as such. The archive keys everything by UTC, so a terminal in
+another city reads the same numbers.
+
+`GIP` shades the windows the archive knows it is missing. An hour with
+no candles otherwise means two very different things, a closed market or
+a missed fetch, and only `bar_gaps` can tell them apart; without the
+shading the chart draws a continuous line across a hole.
+
+### Live prices in the browser
+
+Off by default. Two settings turn it on, and they are deliberately on
+different sides: the switch is DB-managed, the Redis URL is env-only
+because it carries a credential.
+
+```bash
+yfin config set yf_stream_publish_enabled true
+export YF_STREAM_PUBLISH_REDIS_URL=redis://localhost:6379/2   # both processes
+```
+
+`yfin stream run` publishes each committed batch to `yfin:tick:{SYMBOL}`,
+after the transaction, never before; the API subscribes an open page to
+the symbols it is looking at over `/ui/ws`. Every failure on that path is
+swallowed, counted (`yfin_stream_publish_total{result}`) and logged once
+per outage: a browser that misses a tick repaints on the next one, and
+the archive is the writer's commit, which has already happened.
+
+With it off -- or with Redis unreachable, or for a symbol outside
+`yfin stream scope` -- the terminal says so rather than showing a price
+that will never move, and every REST panel works as before.
 
 ### Admin page
 
@@ -160,7 +194,7 @@ the secret on every request.
 |---|---|---|
 | **Kafka producer** | **TODO** | Publish each verified write as an event so downstream consumers do not poll the database. Open questions: topic per table vs per dataset, and whether the outbox lives in `sync_run_items` or a dedicated table. |
 | **WebSocket streaming** | **TODO** | Yahoo's live quote socket for intraday updates between scheduled runs, plus an outbound socket so clients can subscribe to symbols instead of polling. Needs a decision on how live ticks reconcile with the bar archive. |
-| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default. Every dataset in the archive is readable: `DS` browses the whole catalogue, `DES`/`FA`/`ANR`/`N`/`CF`/`CA`/`PX` and the tabbed `HDS`/`ERN`/`FUND`/`CAL`/`MKT`/`SCR`/`SRCH`/`DOM`/`REF` panels cover it by family; live ticks and charts follow (`docs/superpowers/specs/2026-09-07-web-terminal-design.md`). |
+| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default. Every dataset in the archive is readable: `DS` browses the whole catalogue, `DES`/`FA`/`ANR`/`N`/`CF`/`CA`/`PX` and the tabbed `HDS`/`ERN`/`FUND`/`CAL`/`MKT`/`SCR`/`SRCH`/`DOM`/`REF` panels cover it by family; `GP`/`GIP` chart it and `QR` is the tape, live over a WebSocket when the stream is publishing (`docs/superpowers/specs/2026-09-07-web-terminal-design.md`). |
 
 ---
 
