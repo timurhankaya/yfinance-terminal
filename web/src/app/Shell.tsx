@@ -47,7 +47,7 @@ export function Shell() {
       )}
       <main className="panel">
         {code === "DES" ? (
-          hasSymbol ? <DES symbol={symbol} /> : <p className="muted">Type a symbol to begin.</p>
+          hasSymbol ? <DES symbol={symbol} args={{}} /> : <p className="muted">Type a symbol to begin.</p>
         ) : (
           <p className="muted">Unknown function {code}.</p>
         )}

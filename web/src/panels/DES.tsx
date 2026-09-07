@@ -1,12 +1,7 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, UnauthorizedError, getSymbol, type SymbolDetail } from "../api/client";
-import { useSession } from "../app/session";
-
-type State =
-  | { kind: "loading" }
-  | { kind: "ready"; detail: SymbolDetail }
-  | { kind: "missing" }
-  | { kind: "error" };
+import { Fragment } from "react";
+import { getSymbol, type SymbolDetail } from "../api/client";
+import type { PanelProps, PanelSpec } from "../commands/types";
+import { ErrorCard, MissingCard, usePanelData } from "./common";
 
 type Kind = "text" | "big" | "num" | "pct";
 
@@ -35,7 +30,7 @@ export function formatBig(value: number): string {
   return value.toFixed(0);
 }
 
-function asNumber(value: unknown): number | null {
+export function asNumber(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value === "string" && value.trim() !== "") {
     const parsed = Number(value);
@@ -54,60 +49,21 @@ function format(value: unknown, kind: Kind): string | null {
   return n.toFixed(2);
 }
 
-export function DES({ symbol }: { symbol: string }) {
-  const { me, requireLogin } = useSession();
-  const authenticated = me?.authenticated === true;
-  const [state, setState] = useState<State>({ kind: "loading" });
+export function DES({ symbol }: PanelProps) {
+  // symbol can be null in the general PanelProps shape (a panel row can be
+  // rendered before a symbol is chosen); guard the load itself rather than
+  // skipping the hook call, which React's rules of hooks forbid.
+  const { state, retry } = usePanelData<SymbolDetail>(symbol ?? "", () =>
+    symbol === null ? Promise.reject(new Error("no symbol")) : getSymbol(symbol),
+  );
 
-  // `token.cancelled` guards against a stale response overwriting fresher
-  // data: when `symbol` changes (or Retry starts a new attempt) while a
-  // fetch is in flight, the old call's token is marked cancelled and its
-  // `setState`s after the await are skipped. Held in a ref, not state, so
-  // Retry can reach the CURRENT token without re-running the effect.
-  const tokenRef = useRef<{ cancelled: boolean }>({ cancelled: false });
-
-  const load = useCallback(async (token: { cancelled: boolean }) => {
-    setState({ kind: "loading" });
-    try {
-      const detail = await getSymbol(symbol);
-      if (token.cancelled) return;
-      setState({ kind: "ready", detail });
-    } catch (err) {
-      if (token.cancelled) return;
-      if (err instanceof UnauthorizedError) requireLogin();
-      else if (err instanceof ApiError && err.status === 404) setState({ kind: "missing" });
-      else setState({ kind: "error" });
-    }
-  }, [symbol, requireLogin]);
-
-  // Runs when the symbol changes AND when the session comes back after a
-  // login: the spec's "the last command re-runs after a successful login".
-  useEffect(() => {
-    if (!authenticated) return;
-    const token = { cancelled: false };
-    tokenRef.current = token;
-    void load(token);
-    return () => {
-      token.cancelled = true;
-    };
-  }, [load, authenticated]);
-
-  function retry() {
-    const token = { cancelled: false };
-    tokenRef.current = token;
-    void load(token);
-  }
-
+  if (symbol === null) return null;
   if (state.kind === "loading") return <p className="muted">Loading {symbol}…</p>;
-  if (state.kind === "missing") return <p className="error">No such symbol: {symbol}</p>;
-  if (state.kind === "error")
-    return (
-      <p className="error">
-        Could not load {symbol}. <button onClick={retry}>Retry</button>
-      </p>
-    );
+  if (state.kind === "missing") return <MissingCard symbol={symbol} />;
+  if (state.kind === "error") return <ErrorCard message={state.message} onRetry={retry} />;
+  if (state.kind === "empty") return null;
 
-  const d = state.detail;
+  const d = state.data;
   const info = d.info ?? {};
   return (
     <section>
@@ -134,3 +90,12 @@ export function DES({ symbol }: { symbol: string }) {
     </section>
   );
 }
+
+export const DES_PANEL: PanelSpec = {
+  code: "DES",
+  title: "Description",
+  needsSymbol: true,
+  layout: "headed",
+  parseArgs: () => ({}),
+  component: DES,
+};

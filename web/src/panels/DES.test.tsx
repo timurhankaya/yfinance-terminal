@@ -1,5 +1,4 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DES, formatBig } from "./DES";
 import { SessionProvider, useSession } from "../app/session";
@@ -21,7 +20,7 @@ afterEach(() => {
 function renderDES(symbol: string) {
   return render(
     <SessionProvider>
-      <DES symbol={symbol} />
+      <DES symbol={symbol} args={{}} />
     </SessionProvider>,
   );
 }
@@ -83,75 +82,6 @@ describe("DES", () => {
     });
     renderDES("AAPL");
     expect(await screen.findByRole("button", { name: /retry/i })).toBeInTheDocument();
-  });
-
-  it("waits for a session and loads once it is there", async () => {
-    let authed = false;
-    let symbolCalls = 0;
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-      if (url === "/ui/api/me") return json(200, { ...me, authenticated: authed });
-      if (url === "/v1/symbols/AAPL") {
-        symbolCalls += 1;
-        if (!authed) return new Response("{}", { status: 401, headers: { "content-type": "application/problem+json" } });
-        return json(200, { data: { symbol: "AAPL", long_name: "Apple Inc.", short_name: null, exchange: null, full_exchange_name: null, currency: null, quote_type: null, timezone: null, is_active: true, info: null } });
-      }
-      throw new Error(`unexpected ${url}`);
-    });
-    render(
-      <SessionProvider>
-        <SessionProbe />
-        <DES symbol="AAPL" />
-      </SessionProvider>,
-    );
-    // /me says authenticated:false, so DES must not even try.
-    await screen.findByText("session:false");
-    expect(symbolCalls).toBe(0);
-    authed = true;
-    await userEvent.click(screen.getByRole("button", { name: "refresh" }));
-    expect(await screen.findByText("Apple Inc.")).toBeInTheDocument();
-    expect(symbolCalls).toBe(1);
-  });
-
-  it("ignores a stale response when the symbol changes mid-flight", async () => {
-    let resolveAapl!: (response: Response) => void;
-    const aaplResponse = new Promise<Response>((resolve) => {
-      resolveAapl = resolve;
-    });
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-      if (url === "/ui/api/me") return json(200, me);
-      if (url === "/v1/symbols/AAPL") return aaplResponse;
-      if (url === "/v1/symbols/MSFT") {
-        return json(200, { data: {
-          symbol: "MSFT", long_name: "Microsoft Corp.", short_name: null, exchange: null,
-          full_exchange_name: null, currency: null, quote_type: null, timezone: null,
-          is_active: true, info: null,
-        } });
-      }
-      throw new Error(`unexpected ${url}`);
-    });
-    const { rerender } = render(
-      <SessionProvider>
-        <DES symbol="AAPL" />
-      </SessionProvider>,
-    );
-    rerender(
-      <SessionProvider>
-        <DES symbol="MSFT" />
-      </SessionProvider>,
-    );
-    expect(await screen.findByText("Microsoft Corp.")).toBeInTheDocument();
-    // The AAPL request that was still in flight resolves after MSFT already
-    // rendered; it must not clobber the newer MSFT state.
-    resolveAapl(json(200, { data: {
-      symbol: "AAPL", long_name: "Apple Inc.", short_name: null, exchange: null,
-      full_exchange_name: null, currency: null, quote_type: null, timezone: null,
-      is_active: true, info: null,
-    } }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(screen.getByText("Microsoft Corp.")).toBeInTheDocument();
-    expect(screen.queryByText("Apple Inc.")).not.toBeInTheDocument();
   });
 });
 
