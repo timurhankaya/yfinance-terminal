@@ -172,6 +172,10 @@ INFRASTRUCTURE_TABLES: Final[frozenset[str]] = (
             "stream_connection_health",
             "stream_outbox",
             "stream_relay_offset",
+            # The change outbox is not itself a change: publishing an event
+            # about queueing an event is the obvious infinite regress.
+            "pipeline_outbox",
+            "pipeline_relay_offset",
         }
     )
     | GATE_TABLES

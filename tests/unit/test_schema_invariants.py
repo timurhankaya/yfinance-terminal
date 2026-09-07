@@ -178,6 +178,12 @@ def test_child_tables_inherit_their_parent_timestamp() -> None:
         "stream_rejects",
         "stream_sessions",
         "stream_connection_health",
+        # The pipeline's change outbox, same category as stream_outbox:
+        # `created_at` is when the event was queued, not when anything was
+        # fetched. The event carries the row in its payload, and the run
+        # that wrote it is in the envelope's `run_id`.
+        "pipeline_outbox",
+        "pipeline_relay_offset",
     }
     for table in Base.metadata.tables.values():
         # The API's own tables (api_*) hold credentials, plans and usage

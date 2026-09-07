@@ -34,6 +34,12 @@ from yfin.models.bars import (
     timescale_ddl,
 )
 from yfin.models.base import Base
+from yfin.models.changes import (
+    PIPELINE_RELAY_LOCK_NAME,
+    PipelineOutbox,
+    PipelineRelayOffset,
+    changes_timescale_ddl,
+)
 from yfin.models.discovery import (
     DiscoveryAsOfState,
     LookupResult,
@@ -209,6 +215,10 @@ __all__ = [
     "BarGap",
     "BarRescale",
     "Base",
+    "PIPELINE_RELAY_LOCK_NAME",
+    "PipelineOutbox",
+    "PipelineRelayOffset",
+    "changes_timescale_ddl",
     "CalendarEarnings",
     "CalendarEconomic",
     "CalendarIpo",
@@ -304,4 +314,4 @@ def all_timescale_ddl() -> tuple[str, ...]:
     started returning DDL for tables it does not create. Test fixtures,
     which build the whole schema at once, use this one.
     """
-    return (*timescale_ddl(), *stream_timescale_ddl())
+    return (*timescale_ddl(), *stream_timescale_ddl(), *changes_timescale_ddl())

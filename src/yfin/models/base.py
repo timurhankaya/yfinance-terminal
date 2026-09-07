@@ -5,9 +5,10 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import VARCHAR, ForeignKey, MetaData, Numeric, Text
+from sqlalchemy import VARCHAR, ForeignKey, MetaData, Numeric, Text, cast
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import DeclarativeBase, MappedColumn, mapped_column
+from sqlalchemy.types import UserDefinedType
 
 # Constraint names must be deterministic. Unnamed constraints get a fresh
 # name from Alembic on every run, so `alembic revision --autogenerate`
@@ -180,6 +181,53 @@ def RawJsonType() -> Text:  # noqa: N802
     which content_hash depends on.
     """
     return Text()
+
+
+class Xid8Type(UserDefinedType[int]):
+    """PostgreSQL's 64-bit transaction id, as a column type.
+
+    The pipeline outbox stores the transaction that wrote each row, because
+    its relay walks transaction ids rather than row ids: symbol transactions
+    commit concurrently, so `id` order is not commit order and an
+    `id`-ordered walk would skip the rows of a transaction that took its ids
+    early and committed late.
+
+    `xid8` needs help on both sides of the driver, which is why this is a
+    type rather than a raw `TEXT` column plus casts at every call site:
+
+    * PostgreSQL offers no implicit `bigint -> xid8` cast, so a bound
+      parameter has to be cast in the SQL. `bind_expression` wraps every
+      parameter in `CAST(... AS xid8)`.
+    * psycopg 3 has no loader for it, so the value arrives as text and goes
+      back out as text. The processors convert on the Python side, so the
+      relay compares and orders integers -- as text, '9' sorts after '10'.
+
+    Not `xid`: the 32-bit type wraps around, and a cursor that wraps is a
+    cursor that silently republishes or silently skips. `xid8` is monotonic
+    for the life of the cluster and has a btree opclass, which the relay's
+    `(xid, id)` ordering needs. PostgreSQL 13+ provides all of it; the
+    project pins 18.
+    """
+
+    cache_ok = True
+
+    def get_col_spec(self, **_: Any) -> str:
+        return "xid8"
+
+    def bind_expression(self, bindvalue: Any) -> Any:
+        return cast(bindvalue, self)
+
+    def bind_processor(self, dialect: Any) -> Any:
+        def process(value: int | None) -> str | None:
+            return None if value is None else str(value)
+
+        return process
+
+    def result_processor(self, dialect: Any, coltype: Any) -> Any:
+        def process(value: Any) -> int | None:
+            return None if value is None else int(value)
+
+        return process
 
 
 def symbol_fk_column(**kwargs: Any) -> MappedColumn[str]:
