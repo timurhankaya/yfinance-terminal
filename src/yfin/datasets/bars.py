@@ -7,14 +7,14 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import pandas as pd
 
 from yfin.core import normalize as nz
 from yfin.core.config import get_settings
-from yfin.core.errors import DatasetOutOfScope
+from yfin.core.errors import DatasetOutOfScope, is_no_data
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.registry import register
@@ -552,10 +552,24 @@ class IntervalBarDataset(Dataset[BarPayload]):
                 fetched.append(window)
 
         if errors and not frames:
-            # If no slice came back at all, this is a real error: returning
-            # empty silently would conflate `empty` with `failed` and also
-            # break proxy health accounting.
-            raise errors[0]
+            if all(is_no_data(exc) for exc in errors):
+                # Every slice was answered, and the answer was "nothing
+                # here": a symbol Yahoo holds no bars of at this interval
+                # (measured: dozens of .IS / .KS names every run). That is
+                # an EMPTY result, and recording it as FAILED run after run
+                # hid the real failures in the audit. The windows still go
+                # to bar_gaps as fetch_failed so a later run retries them.
+                log.info(
+                    "bars: yahoo holds no data",
+                    symbol=ctx.symbol,
+                    interval=self.interval,
+                    windows=len(failed),
+                )
+            else:
+                # No slice came back and at least one failed for a real
+                # reason: returning empty silently would conflate `empty`
+                # with `failed` and break proxy health accounting.
+                raise errors[0]
 
         non_empty = [f for f in frames if not nz.is_empty_result(f)]
         frame = pd.concat(non_empty) if non_empty else pd.DataFrame()
@@ -589,8 +603,13 @@ class IntervalBarDataset(Dataset[BarPayload]):
         if window is None:
             kwargs["period"] = "max"
         else:
-            kwargs["start"] = window[0].isoformat()
-            kwargs["end"] = window[1].isoformat()
+            # Localised HERE, not by yfinance: it localises a date string
+            # with the strict default and raises on a day the exchange's
+            # clock skips (measured: 2024-09-08 00:00 does not exist in
+            # America/Santiago, and every 60m fill of that range failed).
+            tz = _ticker_tz(ctx.ticker)
+            kwargs["start"] = _local_bound(window[0], tz)
+            kwargs["end"] = _local_bound(window[1], tz)
         what = f"bars_{self.interval}:{ctx.symbol}"
         return call_yahoo(lambda: ctx.ticker.history(**kwargs), what=what)
 
@@ -606,6 +625,32 @@ class IntervalBarDataset(Dataset[BarPayload]):
 
     def normalize(self, raw: BarPayload, symbol: str) -> NormalizedResult:
         return normalize_bars(raw, symbol)
+
+
+def _ticker_tz(ticker: Any) -> str | None:
+    """The exchange's zone, from yfinance's own per-symbol cache -- the
+    same lookup `history()` makes first, so it costs no extra request.
+    None when the ticker cannot say; the bound then goes as a date string
+    and yfinance localises it as before."""
+    lookup = getattr(ticker, "_get_ticker_tz", None)
+    if lookup is None:
+        return None
+    try:
+        zone = lookup(timeout=10)
+    except Exception:  # noqa: BLE001 - a missing zone must not fail the fetch
+        return None
+    return zone if isinstance(zone, str) and zone else None
+
+
+def _local_bound(day: date, tz: str | None) -> pd.Timestamp | str:
+    """Midnight of `day` on the exchange's clock, stepping over a DST
+    gap instead of raising in it. yfinance converts an aware timestamp
+    rather than localising it, so this is the only place the zone is
+    applied."""
+    if tz is None:
+        return day.isoformat()
+    naive = pd.Timestamp(datetime.combine(day, time.min))
+    return naive.tz_localize(tz, nonexistent="shift_forward", ambiguous=True)
 
 
 def _as_datetime(value: date | datetime | None) -> datetime | None:

@@ -7,7 +7,7 @@
 // was closed, or a fetch was missed -- and only `bar_gaps` can tell them
 // apart. Without it the chart quietly draws a continuous line across a
 // hole and the reader has no way to know.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { daysAgo, getBarsWindow, getGaps, type GapRow, type Row } from "../api/client";
 import { useLinkState } from "../live/hooks";
 import { LinkState } from "../live/types";
@@ -77,21 +77,31 @@ export function GIP({ symbol, args }: PanelProps) {
   const gaps = useMemo(() => (state.kind === LoadState.Ready ? state.data.gaps : NO_GAPS), [state]);
   const step = INTERVAL_SECONDS[interval] ?? 300;
   const base = useMemo(() => toCandles(bars), [bars]);
-  const { candles, rolled } = useLiveSeries(base, symbol, step, BucketMode.Interval, true);
+  const { candles, rolledAt } = useLiveSeries(base, symbol, step, BucketMode.Interval, true);
   const volume = useMemo(() => toVolume(base, bars), [base, bars]);
   const bands = useMemo(() => gapBands(gaps, step, base), [gaps, step, base]);
 
   // A rolled bucket means the archive is about to have that bar, with
-  // the volume this page cannot know. One refetch per roll.
+  // the volume this page cannot know. One refetch per bucket: the ref
+  // remembers which bucket was already fetched for, so the tick that
+  // re-opens it on the fresh base does not fetch again.
+  const fetchedFor = useRef<number | null>(null);
   useEffect(() => {
-    if (rolled > 0) setReload((count) => count + 1);
-  }, [rolled]);
+    if (rolledAt === null || rolledAt === fetchedFor.current) return;
+    fetchedFor.current = rolledAt;
+    setReload((count) => count + 1);
+  }, [rolledAt]);
 
-  // A reconnect leaves a hole this page cannot fill from ticks: what
+  // A RE-connect leaves a hole this page cannot fill from ticks: what
   // arrived while the socket was down was never delivered. The archive
-  // has it.
+  // has it. The first Open is not a reconnect: the page just loaded.
+  const wasClosed = useRef(false);
   useEffect(() => {
-    if (link === LinkState.Open) setReload((count) => count + 1);
+    if (link === LinkState.Closed) wasClosed.current = true;
+    if (link === LinkState.Open && wasClosed.current) {
+      wasClosed.current = false;
+      setReload((count) => count + 1);
+    }
   }, [link]);
 
   if (symbol === null) return null;

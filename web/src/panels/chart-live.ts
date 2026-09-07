@@ -12,10 +12,14 @@ import type { Candle } from "./chart-data";
 export interface LiveSeries {
   /** The archive's bars with the live bar folded in. */
   candles: Candle[];
-  /** Increments when a tick opened a bucket the archive has no bar for.
-   *  A caller refetches on it: the pipeline writes that bar within a
-   *  batch or two, and the REST copy is the one with volume in it. */
-  rolled: number;
+  /** The open time of the newest bucket a tick opened beyond the
+   *  archive's last bar, or null while no tick has. A caller refetches
+   *  when this moves to a LATER bucket: the pipeline writes that bar
+   *  within a batch or two, and the REST copy is the one with volume.
+   *  A bucket time, not a counter: after the refetch the same opening
+   *  tick folds onto the new base and opens the same bucket again, and a
+   *  counter would count that as a second roll -- a refetch loop. */
+  rolledAt: number | null;
 }
 
 /** `base` plus whatever the socket has said since it was loaded. */
@@ -28,7 +32,7 @@ export function useLiveSeries(
 ): LiveSeries {
   const quote = useQuote(live ? symbol : null);
   const [bar, setBar] = useState<Candle | null>(null);
-  const [rolled, setRolled] = useState(0);
+  const [rolledAt, setRolledAt] = useState<number | null>(null);
 
   // A fresh REST load supersedes whatever was folded on top of the old
   // one: those ticks are in the bars now, and keeping the running bar
@@ -44,7 +48,8 @@ export function useLiveSeries(
       const applied = applyTick(anchor, quote, intervalSeconds, mode);
       if (applied === null) return current;
       if (applied.isNew && anchor !== undefined && applied.candle.time !== anchor.time) {
-        setRolled((count) => count + 1);
+        const opened = applied.candle.time;
+        setRolledAt((previous) => (previous === null || opened > previous ? opened : previous));
       }
       return applied.candle;
     });
@@ -58,5 +63,5 @@ export function useLiveSeries(
     return [...base, bar];
   }, [base, bar]);
 
-  return { candles, rolled };
+  return { candles, rolledAt };
 }

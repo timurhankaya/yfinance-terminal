@@ -134,6 +134,17 @@ def _kind_from_status(code: int) -> ErrorKind:
     return ErrorKind.DATA
 
 
+#: Yahoo answering "nothing in that range" for a price request. The
+#: message names a cause it does not actually know (retention, a period
+#: the symbol does not support), and in every measured case the honest
+#: reading is: an empty result, not a broken fetch.
+NO_DATA_EXC = (yf_exceptions.YFPricesMissingError, yf_exceptions.YFInvalidPeriodError)
+
+
+def is_no_data(exc: BaseException) -> bool:
+    return isinstance(exc, NO_DATA_EXC)
+
+
 def classify_error(exc: BaseException) -> ErrorKind:
     """Map an exception to the class the proxy policy understands.
 
@@ -157,12 +168,7 @@ def classify_error(exc: BaseException) -> ErrorKind:
     #    unknown_symbol.
     if isinstance(exc, yf_exceptions.YFTzMissingError):
         return ErrorKind.UNKNOWN_SYMBOL
-    if isinstance(
-        exc,
-        yf_exceptions.YFPricesMissingError
-        | yf_exceptions.YFInvalidPeriodError
-        | yf_exceptions.YFDataException,
-    ):
+    if is_no_data(exc) or isinstance(exc, yf_exceptions.YFDataException):
         return ErrorKind.DATA
     if isinstance(exc, yf_exceptions.YFTickerMissingError):
         return ErrorKind.UNKNOWN_SYMBOL

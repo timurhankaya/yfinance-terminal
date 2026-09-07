@@ -351,3 +351,63 @@ export async function getTicks(symbol: string, limit = TICKS_DEFAULT): Promise<T
   );
   return page.data;
 }
+
+// --- the screener -----------------------------------------------------------
+
+export interface ScreenSummary {
+  screen_key: string;
+  title: string;
+  description: string | null;
+  kind: string;
+  quote_type: string;
+  sort_field: string;
+  sort_asc: boolean;
+  as_of_date: string | null;
+  fetched_at: string | null;
+  total: number | null;
+  row_count: number | null;
+}
+
+/** A type alias rather than an interface, on purpose: `DataTable` is
+ *  generic over `Record<string, unknown>`, and only a type alias gets the
+ *  implicit index signature that satisfies it. */
+export type ScreenRow = {
+  rank_index: number;
+  symbol: string;
+  is_known: boolean;
+  short_name: string | null;
+  currency: string | null;
+  exchange: string | null;
+  market_state: string | null;
+  price: string | null;
+  change: string | null;
+  change_percent: string | null;
+  volume: number | null;
+  market_cap: string | null;
+  trailing_pe: string | null;
+  fifty_two_week_change_percent: string | null;
+};
+
+export interface ScreenDetail {
+  screen: ScreenSummary;
+  rows: ScreenRow[];
+  truncated: boolean;
+}
+
+/** Every screen this deployment runs, with its latest run.
+ *
+ *  One of the terminal's own reads, like `news` and `gaps`: a screen is
+ *  four tables, and `/v1` does not join. Reading it through the generic
+ *  surface means four calls and a client-side join over the hundred-odd
+ *  columns of `screen_quotes` to show twelve. */
+export async function getScreens(): Promise<ScreenSummary[]> {
+  const page = await apiFetch<Page<ScreenSummary>>("/ui/api/screens");
+  return page.data;
+}
+
+/** One screen's latest roster, in the screen's own order. */
+export async function getScreen(key: string): Promise<ScreenDetail> {
+  const code = encodeURIComponent(key.trim().toLowerCase());
+  const envelope = await apiFetch<{ data: ScreenDetail }>(`/ui/api/screens/${code}`);
+  return envelope.data;
+}

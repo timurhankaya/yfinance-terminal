@@ -143,15 +143,26 @@ const ACTION_PREFIX: Record<MarkerKind, string> = {
  *  moved in. An action after the last candle has no bar to sit on and is
  *  dropped rather than piled onto the right edge, where it would claim
  *  to have happened at a time it did not. */
+/** `0.270000000000` -> `0.27`, `2.000000000000` -> `2`; anything that is
+ *  not a decimal string is shown as it came. */
+export function trimDecimal(value: unknown): string {
+  const text = String(value ?? "").trim();
+  return /^-?\d+\.\d+$/.test(text) ? text.replace(/0+$/, "").replace(/\.$/, "") : text;
+}
+
 export function toMarkers(actions: Row[], candles: Candle[]): ActionMarker[] {
   if (candles.length === 0) return [];
   const times = candles.map((candle) => candle.time);
+  // An action before the first candle belongs to a session this window
+  // does not show; snapping it onto the first bar would put every
+  // dividend of the last decade on one candle.
+  const first = times[0] ?? 0;
   const markers: ActionMarker[] = [];
   for (const action of actions) {
     const raw = action.action_date;
     if (typeof raw !== "string") continue;
     const at = Date.parse(`${raw.slice(0, 10)}T00:00:00Z`) / 1000;
-    if (Number.isNaN(at)) continue;
+    if (Number.isNaN(at) || at < first) continue;
     const kind = ACTION_KINDS[String(action.action_type).toUpperCase()];
     if (kind === undefined) continue;
     const index = times.findIndex((time) => time >= at);
@@ -161,7 +172,7 @@ export function toMarkers(actions: Row[], candles: Candle[]): ActionMarker[] {
     markers.push({
       time,
       kind,
-      text: `${ACTION_PREFIX[kind]} ${String(action.action_value ?? "").trim()}`.trim(),
+      text: `${ACTION_PREFIX[kind]} ${trimDecimal(action.action_value)}`.trim(),
     });
   }
   return markers;
