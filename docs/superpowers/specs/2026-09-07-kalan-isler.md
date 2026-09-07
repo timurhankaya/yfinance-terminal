@@ -23,7 +23,7 @@ uv run ruff check . && uv run mypy src/yfin
 uv run pytest -q tests/unit && uv run pytest -q -m repo tests/repo
 uv run python scripts/dump_openapi.py --check
 ```
-Şu an hepsi yeşil: unit 1527, repo 492.
+Şu an hepsi yeşil: unit 1911, repo 640.
 
 ## Birinci turda tamamlananlar (2026-09-07)
 
@@ -143,7 +143,9 @@ gerekçesini koda yaz.
   sıfırlamanın tek yolu, ikincisi modül düzeyi singleton'a yapılan test
   kayıtlarını geri alıyor, üçüncüsü olmasa testler `registry._opt_in`'e uzanır.
 
-- `uvicorn` ölü değil — `Dockerfile:65` konteyner komutu olarak çalıştırıyor.
+- `uvicorn` ölü değil — Dockerfile'ın `CMD`'i konteyner komutu olarak
+  çalıştırıyor (image artık `docker/entrypoint.sh`'i ENTRYPOINT olarak
+  taşıyor; `CMD` ona argüman).
 - `storage/contracts.py` protokolleri (`RowSink`/`HashReader`/`SymbolLookup`/
   `SnapshotWriter`) erken soyutlama değil; katman sınırı gerçek, iki agent
   savundu.

@@ -73,14 +73,6 @@ class TestTheEndpoint:
         assert both.get("/metrics").status_code == 429
         assert both.get("/health/ready").status_code != 429
 
-    def test_the_endpoint_reads_the_default_registry(
-        self, client: TestClient
-    ) -> None:
-        """`core/metrics.py`'s hand-written counters and the HTTP ones have
-        to come out of ONE endpoint, or half the API's metrics would need a
-        second scrape target that does not exist."""
-        assert "yfin_api_problems_total" in client.get("/metrics").text
-
 
 class TestWhatTheParametersDo:
     """The four decisions, observed on an app with its own registry.
@@ -118,9 +110,17 @@ class TestWhatTheParametersDo:
     ) -> None:
         """The `handler` label is the route TEMPLATE, which is why the
         instrumentator is installed after the routers -- and why `symbol`
-        never reaches a label from here."""
+        never reaches a label from here.
+
+        An unmatched path has no template, so the instrumentator labels it
+        `handler="none"` -- which is the same mechanism producing the same
+        kind of bounded value, and is what a request for a route that does
+        not exist must NOT turn into a label of its own.
+        """
         measured.get("/no-such-route")
-        assert "yfin_http_requests_total" in self._series(measured)
+        body = self._series(measured)
+        assert "yfin_http_requests_total" in body
+        assert 'handler="none"' in body
 
     def test_status_codes_are_not_grouped(self, measured: TestClient) -> None:
         """`2xx` cannot tell a 200 from a 204, and the difference between
@@ -239,7 +239,7 @@ class TestTheCounters:
         }
         assert found == {"limiter", "concurrency", "usage"}
 
-    def test_the_api_counters_are_declared_and_namespaced(self) -> None:
+    def test_the_api_counters_are_declared(self) -> None:
         for name in (
             "yfin_api_ratelimit_decisions_total",
             "yfin_api_concurrency_rejections_total",

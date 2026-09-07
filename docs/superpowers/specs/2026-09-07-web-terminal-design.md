@@ -1,6 +1,6 @@
 # Web terminal: tarayıcıda klavye odaklı finans terminali
 
-Status: approved, not yet implemented
+Status: partially implemented, 2026-09-07 (phase 1a: login and DES)
 Date: 2026-09-07
 Revised 2026-09-07 after two independent reviews (see "Revizyonlar").
 `2026-09-07-observability-design.md` ve

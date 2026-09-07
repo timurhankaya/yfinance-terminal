@@ -340,18 +340,28 @@ groups:
         annotations:
           summary: A relay is not draining its outbox
           description: >-
-            Growing rows with a growing age means the relay is stopped;
-            growing rows alone means it is behind. `yfin changes status`
-            shows the third case -- blocked behind an open writing
-            transaction, which is not a relay problem at all.
+            Old AND STILL GROWING. Age alone is not enough: an outbox
+            whose feature is switched off is never drained, so the rows
+            left in it when it was last on stay there and keep ageing
+            forever. Measured on the live stack -- two `pipeline_outbox`
+            rows from a `yf_changes_enabled` that had since been turned
+            off held this alert on permanently, which is how an alert
+            channel becomes one nobody reads. A backlog that is growing
+            means somebody is still writing to the queue, which is the
+            only situation where a relay not draining it is a problem.
+            `yfin changes status` separates the third case -- blocked
+            behind an open writing transaction, not a relay fault at all.
         labels:
           severity: warning
         data:
           - refId: query
-            relativeTimeRange: {from: 900, to: 0}
+            relativeTimeRange: {from: 1800, to: 0}
             datasourceUid: yfin-prometheus
             model:
-              expr: max by (outbox) (yfin_outbox_oldest_age_seconds)
+              expr: |
+                (max by (outbox) (yfin_outbox_oldest_age_seconds) > 900)
+                  and
+                (max by (outbox) (increase(yfin_outbox_unpublished_rows[30m])) > 0)
               instant: true
               refId: query
           - refId: threshold

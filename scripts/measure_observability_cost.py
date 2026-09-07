@@ -46,18 +46,16 @@ def _timed(work: Callable[[], None], repeat: int) -> float:
     return best / repeat
 
 
-def _silence() -> io.StringIO:
-    """A root handler that formats fully and writes nowhere.
+def _silence() -> None:
+    """Points the root handler at a buffer instead of the terminal.
 
     Writing to /dev/null would still pay for the syscall, and writing to a
     terminal would measure the terminal. The formatter runs in full either
     way, which is the part under test.
     """
     sink = io.StringIO()
-    root = logging.getLogger()
-    for handler in root.handlers:
+    for handler in logging.getLogger().handlers:
         handler.setStream(sink)  # type: ignore[attr-defined]
-    return sink
 
 
 def measure_logging() -> tuple[float, float]:

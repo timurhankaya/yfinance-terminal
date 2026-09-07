@@ -15,9 +15,13 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     jsonData:
+      # Matches the scrape interval, so a graph does not interpolate
+      # between points that were never separately measured.
       timeInterval: 15s
-      # Lets Prometheus accept the remote_write Alloy sends it for the
-      # postgres and redis exporters.
+      # How GRAFANA issues its own queries -- nothing to do with the
+      # remote_write Alloy sends Prometheus, which is enabled by a flag on
+      # the server. POST because a dashboard expression with a long label
+      # matcher outgrows what a GET URL can carry.
       httpMethod: POST
 
   - name: Loki

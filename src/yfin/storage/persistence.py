@@ -55,8 +55,7 @@ INSERT_CHUNK = 2000
 # psycopg.OperationalError "number of parameters must be between 0 and
 # 65535" and the whole dataset fails. Measured: screen_quotes has 107
 # columns, so 2000 rows asked for 214,000 parameters and every screener
-# run died. pymysql interpolated client-side and never hit this, which is
-# why the limit only appeared after the PostgreSQL migration.
+# run died.
 MAX_BIND_PARAMS = 65535
 
 

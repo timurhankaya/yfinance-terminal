@@ -16,6 +16,11 @@ services:
     # worthless if it silently runs against a different engine.
     image: timescale/timescaledb:2.29.2-pg18
     container_name: yfin-timescaledb
+    # The same policy the scheduler and the stream carry, and it has to be:
+    # those two return when the host does, and without this they return to
+    # a database that never started. The four services holding the state
+    # were the ones missing it.
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-yfin}
       # `:?` refuses to start without a password.
@@ -53,6 +58,7 @@ services:
     # "works from scratch" meaningless. Upgrading is a deliberate edit.
     image: redis:7.4.2-alpine
     container_name: yfin-redis
+    restart: unless-stopped
     command:
       - redis-server
       # Counters and the revocation epoch are the whole workload, and all
@@ -84,6 +90,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: yfin-api
+    restart: unless-stopped
     environment:
       # The pipeline settings the API needs to reach the database; it reads
       # the same keys as the CLI.
@@ -134,6 +141,7 @@ services:
     # KRaft: no ZooKeeper. Pinned like every other image here.
     image: apache/kafka:3.9.0
     container_name: yfin-kafka
+    restart: unless-stopped
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller

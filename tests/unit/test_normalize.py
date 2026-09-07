@@ -92,7 +92,7 @@ class TestEpochMap:
 
 
 class TestCanonicalJson:
-    def test_nan_never_reaches_mysql(self) -> None:
+    def test_nan_never_reaches_the_database(self) -> None:
         """If NaN leaked through with allow_nan=True, content_hash would
         diverge on every run and roll back the whole symbol's transaction."""
         out = nz.canonical_json({"x": float("nan"), "y": np.float64("inf")})

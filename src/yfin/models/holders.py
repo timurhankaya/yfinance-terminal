@@ -77,7 +77,7 @@ class InstitutionalHolder(Base):
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     holder_type: Mapped[HolderType] = mapped_column(HOLDER_TYPE_ENUM, primary_key=True)
-    # Measured max 70 chars (JPM mutualfund). PK total 548 bytes (measured in MySQL).
+    # Measured max 70 chars (JPM mutualfund).
     holder: Mapped[str] = mapped_column(KeyTextType(128), primary_key=True)
     # Varies per row: AAPL mutualfund has 4 different dates in one list.
     # Nullable: not measured to always be populated, and a single NaT
@@ -178,7 +178,6 @@ class InsiderRosterHolder(Base):
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
-    # PK total 1055 bytes (measured in MySQL, limit 3072).
     name: Mapped[str] = mapped_column(PersonNameType(), primary_key=True)
     position: Mapped[str | None] = mapped_column(KeyTextType(64))
     url: Mapped[str | None] = mapped_column(Text)

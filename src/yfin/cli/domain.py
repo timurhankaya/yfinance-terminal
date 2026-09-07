@@ -89,11 +89,11 @@ def domain_audit(
         f"(the API reports: {report.expected_industries})"
     )
     if report.cells_by_status:
-        typer.echo("hucreler  : " + "  ".join(
+        typer.echo("cells     : " + "  ".join(
             f"{k}={v}" for k, v in sorted(report.cells_by_status.items())
         ))
     for problem in report.problems:
-        typer.echo(f"SORUN: {problem}", err=True)
+        typer.echo(f"PROBLEM: {problem}", err=True)
     if not report.ok:
         raise typer.Exit(code=report.exit_code())
     typer.echo("audit ok")

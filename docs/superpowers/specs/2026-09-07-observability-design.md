@@ -1,6 +1,6 @@
 # Observability: scheduler, metrics, logs, traces and dashboards
 
-Status: approved, not yet implemented
+Status: implemented, 2026-09-08 (see "Revisions" for what changed while building it)
 Date: 2026-09-07
 Revised 2026-09-07 after two rounds of independent review (see "Revisions" at the end).
 Sibling of `2026-09-07-pipeline-change-events-design.md` ("the changes

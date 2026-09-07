@@ -31,7 +31,7 @@ def db_upgrade(
     configure_logging(settings.log_level, settings.log_format)
     cfg = Config("alembic.ini")
     command.upgrade(cfg, revision)
-    typer.echo(f"migration uygulandi: {revision}")
+    typer.echo(f"migrations applied: {revision}")
     _warn_missing_settings_rows()
 
 
@@ -108,7 +108,7 @@ def db_create() -> None:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb"))
         db_engine.dispose()
 
-    typer.echo(f"veritabani hazir: {settings.db_name}, {settings.db_test_name}")
+    typer.echo(f"databases ready: {settings.db_name}, {settings.db_test_name}")
 
 
 @db_app.command("revision")

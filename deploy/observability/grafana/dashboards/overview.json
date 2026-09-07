@@ -509,7 +509,7 @@
       "description": "Every service renders through one chain, so a yfinance record and a structlog call look the same here -- and both are redacted. A line carrying a trace_id links to Tempo.",
       "gridPos": {
         "x": 0,
-        "y": 19,
+        "y": 27,
         "w": 24,
         "h": 10
       },
@@ -539,6 +539,166 @@
         "showTime": true,
         "wrapLogMessage": true
       }
+    },
+    {
+      "type": "stat",
+      "title": "postgres connections",
+      "description": "Against `max_connections=200`. db.py caps each process at 2 x max(5, workers+4), so a number climbing towards the limit means processes are not exiting rather than that the cap is too low.",
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "sum(pg_stat_database_numbackends)",
+          "refId": "A",
+          "legendFormat": "__auto"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "database size",
+      "description": "Every table, including the hypertable chunks. volume.md has the per-interval projections this is checked against.",
+      "gridPos": {
+        "x": 6,
+        "y": 19,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "sum(pg_database_size_bytes)",
+          "refId": "A",
+          "legendFormat": "__auto"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "postgres and redis reachability",
+      "description": "Exported BY ALLOY, which pushes them to Prometheus by remote_write rather than being scraped. That receiver is off unless Prometheus is started with `--web.enable-remote-write-receiver`; without the flag every push is answered 404 and this panel is the only thing that would show it.",
+      "gridPos": {
+        "x": 12,
+        "y": 19,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "pg_up",
+          "refId": "A",
+          "legendFormat": "postgres"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "redis_up",
+          "refId": "B",
+          "legendFormat": "redis"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "redis memory",
+      "description": "Bounded on purpose (`--maxmemory`, allkeys-lru): the counters and the revocation epoch are all reconstructible, and an unbounded keyspace is what a client-id spray would grow until the process is OOM-killed.",
+      "gridPos": {
+        "x": 18,
+        "y": 19,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "redis_memory_used_bytes",
+          "refId": "A",
+          "legendFormat": "used"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "redis_memory_max_bytes",
+          "refId": "B",
+          "legendFormat": "max"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {}
     }
   ]
 }

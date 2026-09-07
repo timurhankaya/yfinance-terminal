@@ -159,7 +159,8 @@ class CalendarEconomic(Base):
     period_for: Mapped[str | None] = mapped_column(String(16, collation="C"))
     actual: Mapped[Decimal | None] = mapped_column(PriceType())
     expected: Mapped[Decimal | None] = mapped_column(PriceType())
-    # 'last_value' is a reserved word in MySQL 8 (ERROR 1064).
+    # Not `last_value`: the name is a leftover guard from the MySQL era
+    # (and `last_value` is a window function in PostgreSQL too).
     last_reported: Mapped[Decimal | None] = mapped_column(PriceType())
     revised: Mapped[Decimal | None] = mapped_column(PriceType())
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)

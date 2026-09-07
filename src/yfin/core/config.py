@@ -3,7 +3,7 @@
 Two layers:
 
   1. `.env` + model default -- pydantic-settings' own resolution.
-  2. `settings` TABLE -- a DB override for the 55 fields declared with
+  2. `settings` TABLE -- a DB override for the 71 fields declared with
      `_cfg`. A field without `_cfg` (the `db_*` connection fields, the
      proxy secret key) is environment-only on purpose.
 
@@ -39,7 +39,7 @@ log = get_logger(__name__)
 # `os.getenv`.
 SETTINGS_SOURCE_VAR = "YF_SETTINGS_SOURCE"
 
-# The 12 groups the admin panel organizes by. Adding a new group name is a
+# The 14 groups the admin panel organizes by. Adding a new group name is a
 # deliberate decision; `tests/unit/test_settings_split.py` rejects unknown
 # groups.
 SETTING_GROUPS: tuple[str, ...] = (

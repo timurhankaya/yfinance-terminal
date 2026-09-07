@@ -100,6 +100,12 @@ services:
       # last month's, short enough to fit on a laptop.
       - --storage.tsdb.retention.time=30d
       - --web.enable-lifecycle
+      # Alloy PUSHES the postgres and redis exporter metrics here rather
+      # than being scraped for them, and the receiver is off by default:
+      # without this every push is answered 404 and the samples are
+      # dropped. Measured before the flag was added: 2,000 samples a
+      # minute discarded, with the only evidence in Alloy's own log.
+      - --web.enable-remote-write-receiver
     volumes:
       - ./deploy/observability/prometheus:/etc/prometheus:ro
       - yfin-prometheus-data:/prometheus

@@ -541,7 +541,7 @@ class IntervalBarDataset(Dataset[BarPayload]):
                 if window is not None:
                     failed.append(window)
                 log.warning(
-                    "bar dilimi dustu",
+                    "bar slice dropped",
                     symbol=ctx.symbol,
                     interval=self.interval,
                     window=str(window),

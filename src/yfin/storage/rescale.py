@@ -193,7 +193,7 @@ def apply_pending(
         except RescaleSkipped as exc:
             # No record written: writing one would count the split as
             # "applied", and the correct data would never be rescaled again.
-            log.error("rescale atlandi", symbol=symbol, split_date=str(split_day), reason=str(exc))
+            log.error("rescale skipped", symbol=symbol, split_date=str(split_day), reason=str(exc))
             continue
         one = _apply_one(
             session, symbol, split_day, ratio, price_factor, volume_factor, boundary
@@ -287,7 +287,7 @@ def _apply_one(
         {"rows": rows, "symbol": symbol, "split_date": split_day},
     )
     log.info(
-        "rescale uygulandi",
+        "rescale applied",
         symbol=symbol,
         split_date=str(split_day),
         ratio=str(ratio),

@@ -58,6 +58,13 @@ COPY --from=builder --chown=yfin:yfin /app/.venv /app/.venv
 COPY --from=builder --chown=yfin:yfin /app/src /app/src
 COPY --from=web --chown=yfin:yfin /app/src/yfin/ui/static/dist /app/src/yfin/ui/static/dist
 COPY --chown=yfin:yfin docker/entrypoint.sh /app/docker/entrypoint.sh
+# Without these the image cannot migrate itself: `cli/db.py` builds an
+# Alembic `Config("alembic.ini")` on a RELATIVE path, so
+# `docker compose exec api yfin db upgrade head` fails and every schema
+# change needs a host with the repository checked out. For a deployment
+# whose whole story is compose, that is the wrong place to need one.
+COPY --chown=yfin:yfin alembic.ini /app/alembic.ini
+COPY --chown=yfin:yfin migrations /app/migrations
 RUN chmod +x /app/docker/entrypoint.sh
 
 # yfinance's tz/cookie/ISIN cache is SQLite and it WRITES. The default is
