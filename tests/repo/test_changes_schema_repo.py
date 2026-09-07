@@ -8,11 +8,14 @@ actually do with it.
 
 from __future__ import annotations
 
+import json
+
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from yfin.models.changes import PipelineOutbox, PipelineRelayOffset
+from yfin.storage.changes import ChangeCollector, ChangeContext
 
 pytestmark = pytest.mark.repo
 
@@ -105,6 +108,86 @@ def test_a_new_offset_row_starts_at_zero(db_session: Session) -> None:
         select(PipelineRelayOffset.last_published_xid, PipelineRelayOffset.last_published_id)
     ).one()
     assert row == (0, 0)
+
+
+class TestFlush:
+    """`flush` is the only collector method that needs a server."""
+
+    def _collector(self) -> ChangeCollector:
+        return ChangeCollector(ChangeContext(run_id=99, range_threshold=1000))
+
+    def test_events_land_in_the_outbox(self, db_session: Session) -> None:
+        collector = self._collector()
+        collector.enter_dataset("news")
+        collector.record("news", "insert", {"news_id": "a"}, {"news_id": "a"})
+        collector.record("symbols", "update", {"symbol": "AAPL"}, {"symbol": "AAPL"})
+
+        assert collector.flush(db_session) == 2
+        rows = db_session.execute(
+            select(PipelineOutbox.family, PipelineOutbox.partition_key).order_by(
+                PipelineOutbox.id
+            )
+        ).all()
+        assert rows == [("news", "a"), ("reference", "AAPL")]
+
+    def test_the_flush_empties_the_collector(self, db_session: Session) -> None:
+        """Otherwise a retry after a serialisation failure would write the
+        first attempt's events a second time."""
+        collector = self._collector()
+        collector.record("symbols", "insert", {"symbol": "AAPL"}, {"symbol": "AAPL"})
+        collector.flush(db_session)
+        assert collector.pending == []
+        assert collector.flush(db_session) == 0
+
+    def test_an_empty_collector_writes_nothing(self, db_session: Session) -> None:
+        before = db_session.execute(
+            select(func.count()).select_from(PipelineOutbox)
+        ).scalar_one()
+        assert self._collector().flush(db_session) == 0
+        after = db_session.execute(
+            select(func.count()).select_from(PipelineOutbox)
+        ).scalar_one()
+        assert after == before
+
+    def test_occurred_at_matches_created_at(self, db_session: Session) -> None:
+        """Both come from one `clock_timestamp()`, so a consumer ordering by
+        the envelope agrees with the relay ordering by the row."""
+        collector = self._collector()
+        collector.record("symbols", "insert", {"symbol": "AAPL"}, {"symbol": "AAPL"})
+        collector.flush(db_session)
+        created_at, payload = db_session.execute(
+            select(PipelineOutbox.created_at, PipelineOutbox.payload)
+            .order_by(PipelineOutbox.id.desc())
+            .limit(1)
+        ).one()
+        assert json.loads(payload)["occurred_at"] == created_at.isoformat()
+
+    def test_the_timestamp_is_the_statement_clock_not_the_transaction_start(
+        self, db_session: Session
+    ) -> None:
+        """`now()` is the transaction start time, so every event of a long
+        symbol transaction would claim to predate the writes it describes."""
+        started = db_session.execute(text("SELECT now()")).scalar_one()
+        collector = self._collector()
+        collector.record("symbols", "insert", {"symbol": "AAPL"}, {"symbol": "AAPL"})
+        collector.flush(db_session)
+        created_at = db_session.execute(
+            select(PipelineOutbox.created_at).order_by(PipelineOutbox.id.desc()).limit(1)
+        ).scalar_one()
+        assert created_at > started
+
+    def test_a_payload_with_a_tab_survives_the_copy(self, db_session: Session) -> None:
+        """The payload is one COPY field; an unescaped tab would shift every
+        following column by one and corrupt the row."""
+        collector = self._collector()
+        collector.record(
+            "news", "insert", {"news_id": "a"}, {"news_id": "a", "title": "x\ty\nz"}
+        )
+        collector.flush(db_session)
+        payload = db_session.execute(
+            select(PipelineOutbox.payload).order_by(PipelineOutbox.id.desc()).limit(1)
+        ).scalar_one()
+        assert json.loads(payload)["row"]["title"] == "x\ty\nz"
 
 
 def test_the_outbox_is_a_hypertable(db_session: Session) -> None:

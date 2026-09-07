@@ -10,8 +10,16 @@ routing is exhaustive and is checked to be.
 
 The partition column follows one rule, applied per table:
 
-    `symbol` if the table has one, else `domain_key`, else `region`, else
-    the table's own identifier.
+    the FIRST of `symbol`, `domain_key`, `region`, the table's own
+    identifier that is PART OF THE PRIMARY KEY.
+
+The primary-key qualifier is not decoration. A delete event carries the key
+and nothing else -- there is no row left to read a column from -- so a
+partition column outside the key would leave deletes on that table with
+nowhere to be routed. Three tables take their second choice because of it:
+`market_summary` and `market_summary_history` carry the index symbol but are
+keyed by `(region, board_code)`, and `domains` carries the domain's index
+symbol but is keyed by `domain_key`.
 
 The map is nevertheless written out in full rather than derived, so the
 result of that rule is reviewable in a diff. `tests/unit/test_routing.py`
@@ -64,8 +72,10 @@ ROUTES: Final[Mapping[str, Route]] = {
     "company_officers": Route(_REFERENCE, "symbol"),
     "market_status": Route(_REFERENCE, "region"),
     "market_status_history": Route(_REFERENCE, "region"),
-    "market_summary": Route(_REFERENCE, "symbol"),
-    "market_summary_history": Route(_REFERENCE, "symbol"),
+    # `symbol` here is the index symbol (^GSPC), but it is not in either
+    # table's primary key -- see the partition-key rule in the docstring.
+    "market_summary": Route(_REFERENCE, "region"),
+    "market_summary_history": Route(_REFERENCE, "region"),
     # --- bars -----------------------------------------------------------
     # `price_bars` and `periodic_bars` carry `bar_interval`; the rest are
     # keyed by a date, which is what makes a range event need `ts_column`.
@@ -126,7 +136,9 @@ ROUTES: Final[Mapping[str, Route]] = {
     # `domains` and the three `domain_top_*` tables carry a company (or
     # index) `symbol`, so the rule keys them by it; only the two tables
     # without one fall through to `domain_key`.
-    "domains": Route(_DOMAINS, "symbol"),
+    # `domains.symbol` is the domain's index symbol and is unique, but the
+    # primary key is `domain_key`, so that is what a delete can be routed by.
+    "domains": Route(_DOMAINS, "domain_key"),
     "domain_metrics": Route(_DOMAINS, "domain_key"),
     "domain_report_links": Route(_DOMAINS, "domain_key"),
     "domain_top_companies": Route(_DOMAINS, "symbol"),

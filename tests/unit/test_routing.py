@@ -72,6 +72,21 @@ def test_every_partition_column_exists_on_its_table() -> None:
         )
 
 
+def test_every_partition_column_is_part_of_the_primary_key() -> None:
+    """A delete event has the key and nothing else.
+
+    There is no row left to read a column from, so a partition column
+    outside the primary key would leave deletes on that table unroutable --
+    and the failure would only appear the first time something was deleted.
+    """
+    for table, route in ROUTES.items():
+        key = [c.name for c in Base.metadata.tables[table].primary_key]
+        assert route.partition_column in key, (
+            f"{table}: partition column {route.partition_column!r} is not in the "
+            f"primary key {key}, so a delete could not be routed"
+        )
+
+
 def test_infrastructure_covers_every_table_no_dataset_produces() -> None:
     """Nothing falls between the two lists.
 
