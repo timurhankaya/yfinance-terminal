@@ -17,11 +17,6 @@ behind a three-hour `sync` either runs late -- and the lateness is
 `started_at - scheduled_at` in `scheduler_runs` -- or is dropped as
 `misfired`. A second firing of a job that is itself still running is
 `skipped`.
-
-Settings are re-read on their own clock rather than through
-`get_settings()`, which by design never re-reads: a scheduler that needed a
-restart to pick up a new cron would defeat the reason cron expressions are
-settings at all.
 """
 
 from __future__ import annotations
@@ -97,10 +92,8 @@ class SchedulerService:
         self._lock = threading.Lock()
         self._stopping = threading.Event()
         self._scheduler: Any = None
-        # The database exporter runs in THIS process: it already has an
-        # engine, and it is the one part of the stack that is up whether or
-        # not anything else is. Built in `run()`, so a `build()`-only test
-        # never starts a thread.
+        # Built in `run()` rather than here, so a `build()`-only test never
+        # starts a thread. Why it lives in this process: see `exporter.py`.
         self._exporter: Exporter | None = None
 
     # --- configuration -----------------------------------------------------
@@ -270,9 +263,6 @@ class SchedulerService:
         state = self._states.get(job_name)
         if state is not None:
             state.results[result] = state.results.get(result, 0) + 1
-        # Counted like any other result. A firing that was dropped is the
-        # thing `scheduler_runs` and this counter exist to make visible;
-        # leaving it out of the metric would put it only in a log line.
         inc("yfin_job_runs_total", job_name=job_name, result=result)
 
     def build(self) -> Any:

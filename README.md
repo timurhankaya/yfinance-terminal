@@ -9,14 +9,45 @@ available if you would rather not run it yourself — see
 
 ---
 
+## Name
+
+**yfin** is the project, the Python distribution (`pip install yfin`), the
+importable package (`import yfin`) and the CLI (`yfin sync`). One name in
+all four places, on purpose.
+
+It is deliberately *not* `yfinance`. **yfinance** is
+[ranaroussi/yfinance](https://github.com/ranaroussi/yfinance) — a separate,
+independently maintained project that yfin depends on and does not fork,
+vendor or replace. yfin is not affiliated with or endorsed by it, nor by
+Yahoo.
+
+| | yfinance | yfin |
+|---|---|---|
+| Owner | [ranaroussi](https://github.com/ranaroussi/yfinance) | this project |
+| Job | talk to Yahoo, return DataFrames | normalise, persist, verify, audit |
+| Output | in-memory objects | PostgreSQL 18 + TimescaleDB tables |
+| State | none | watermarks, run audit, gap ledger, split-adjustment ledger |
+| Licence | Apache-2.0 | AGPL-3.0-or-later |
+
+Docs for the upstream library: <https://ranaroussi.github.io/yfinance/>.
+
+---
+
 ## What it actually does
 
-`yfinance` gives you DataFrames. This gives you a **queryable, auditable,
+`yfinance` gives you DataFrames. yfin gives you a **queryable, auditable,
 incrementally-maintained archive**:
 
-- **61 datasets** across 74 tables — prices, fundamentals, analyst
-  estimates, ownership, funds, news, filings, sector/industry taxonomy,
-  market calendars, screeners.
+- **61 datasets** writing 68 tables — 49 per-symbol, 7 market-wide, 5
+  sector/industry: prices, fundamentals, analyst estimates, ownership,
+  funds, news, filings, taxonomy, market calendars, screeners. `yfin
+  datasets` lists 72 names because aliases (`bars`, `actions`,
+  `financials`, `analysis`, …) expand to several datasets each.
+  The schema holds 91 tables; the other 23 are infrastructure — the run
+  audit (2), the scheduler's own audit and per-shard counters (2), the
+  proxy pool, the settings store, the intraday scope and rescale ledgers,
+  the pipeline change outbox and its cursor (2), the five API client/plan
+  tables and the eight live-stream tables.
 - **Intraday bar archive.** Yahoo drops 1-minute data after 29 days. The
   pipeline stores it before that happens, and records the gaps it could
   not fill so "no data" and "we missed it" stay distinguishable.
@@ -42,7 +73,18 @@ git clone <repo> && cd yfin
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 cp .env.example .env        # set DB_PASSWORD at minimum
-docker compose up -d        # PostgreSQL 18.6 + TimescaleDB 2.29.2
+# Six services: PostgreSQL 18.6 + TimescaleDB 2.29.2, Redis (API rate
+# limit and quota counters), the API, a single-node Kafka broker for the
+# relays, and the two processes that keep the archive current — the
+# `scheduler` (replaces cron) and the live `stream`. Both carry
+# `restart: unless-stopped`, so the pipeline runs for as long as Docker
+# does. `docker compose up -d timescaledb` is enough if you only want a
+# database to sync into by hand.
+docker compose up -d
+
+# The two Kafka relays are opt-in, because both refuse to start while
+# their feature is off:
+#   docker compose --profile kafka up -d
 
 .venv/bin/yfin db create
 .venv/bin/yfin db upgrade head
@@ -51,7 +93,10 @@ docker compose up -d        # PostgreSQL 18.6 + TimescaleDB 2.29.2
 .venv/bin/yfin sync --symbols AAPL
 ```
 
-A single-symbol full sync writes ~37,000 rows across ~40 tables.
+A single-symbol full sync of AAPL wrote 37,295 verified rows across 36
+tables. The spread is real: SPY, an ETF, wrote 30,248 rows across 18 —
+an ETF has no income statement and a stock has no fund holdings, and
+`sync_run_items` records the difference as `empty`, not as failure.
 
 ### Common commands
 
@@ -61,11 +106,56 @@ yfin sync --datasets history,info # a subset
 yfin sync --exchange NMS          # filter the universe
 yfin market sync                  # market-wide (calendars, status, summary)
 yfin domain sync                  # sector / industry taxonomy
-yfin bars scope add AAPL 1m       # opt a symbol into the 1m archive
+yfin scope add AAPL --interval 1m # opt a symbol into the 1m archive
 yfin bars gaps                    # unfilled intraday windows
-yfin rescale --seed               # baseline the split-adjustment ledger
+yfin bars rescale --seed          # baseline the split-adjustment ledger
 yfin config list                  # effective settings and their source
+
+yfin stream scope add AAPL        # opt a symbol into the live tick stream
+yfin stream run                   # ingest Yahoo's pricing socket
+yfin stream relay                 # publish stream_outbox to Kafka
+yfin stream status                # connection health, scope, relay lag
+
+yfin scheduler jobs               # every job, its cron and its next firing
+yfin scheduler run                # the process that replaces cron
+yfin changes relay                # publish pipeline_outbox to Kafka
+yfin changes status               # change-event lag, and what is holding it
+yfin prune --audit-days 3         # bound the audit tables (see below)
 ```
+
+### Monitoring
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml \
+  --profile observability up -d
+```
+
+Prometheus, Grafana, Loki, Tempo and Alloy, plus a Postgres and a Redis
+exporter running inside the collector. Copy
+`deploy/observability/.env.example` to `.env` beside it first — Grafana's
+admin password has no default, and the read-only database role the
+exporters log in as is created by `yfin db monitor-role
+--password-env MONITOR_DB_PASSWORD`.
+
+Grafana is on `${GRAFANA_PORT:-3000}` with five provisioned dashboards
+(Overview, Sync, Freshness, Bars, Stream and API) and thirteen alert
+rules. **Every alert threshold in
+`deploy/observability/grafana/provisioning/alerting/rules.yml` is a
+starting value, not a measurement** — a month of real data is what
+replaces them.
+
+The second `-f` is not optional. `scheduler` and `stream` live in the
+base file so the pipeline runs without the monitoring stack, but their
+`METRICS_PORT` and `LOG_FORMAT` come from the override; started with one
+`-f` they run fine and publish nothing. Setting
+`COMPOSE_FILE=docker-compose.yml:docker-compose.observability.yml` in
+`.env` makes both the default.
+
+Retention is a requirement here, not a nicety: the freshness query the
+exporter runs every five minutes costs 2.35 s over three nights of audit
+history and 4.89 s over seven, against a 5 s budget. `yfin prune
+--audit-days N` is what bounds it — see
+[`docs/measurements/observability.md`](docs/measurements/observability.md).
 
 ### Web terminal
 
@@ -125,6 +215,12 @@ the secret on every request.
 
 ### Data sources
 
+Every row below is fetched through
+[`yfinance`](https://github.com/ranaroussi/yfinance) — that library owns
+the HTTP calls, the endpoint quirks and the price-repair logic. yfin owns
+what happens after the DataFrame: normalisation, upsert, verification and
+audit. When Yahoo breaks something, the fix usually belongs upstream.
+
 | Integration | Status | Notes |
 |---|---|---|
 | Yahoo Finance — prices & history | **Stable** | `history`, `dividends`, `splits`, `capital_gains`, `shares_full`, `history_metadata` |
@@ -147,10 +243,13 @@ the secret on every request.
 | PostgreSQL 18 | **Stable** | `postgresql+psycopg` (psycopg 3) |
 | TimescaleDB 2.29 | **Stable** | Hypertables for `price_bars` and `price_history` |
 | Alembic migrations | **Stable** | Single squashed baseline; `revision --autogenerate` must produce an empty diff |
-| Docker Compose | **Stable** | Pinned image, healthcheck, tuned `max_connections` |
-| Proxy pool | **Stable** | HTTP/HTTPS/SOCKS5, Fernet-encrypted credentials, health & cooldown |
+| Docker Compose | **Stable** | Six services by default (database, Redis, API, Kafka, scheduler, stream) plus the two relays under the `kafka` profile; every image pinned, tuned `max_connections`. The scheduler and stream disable the image's API healthcheck and get a probe on their own `/metrics` port from the observability override. |
+| Proxy pool | **Stable** | HTTP/HTTPS/SOCKS5, Fernet-encrypted credentials, health & cooldown. One OS process per proxy, so a full pass over the universe divides by the pool size — the measured 176 symbols/hour on a single IP is what makes this the lever for freshness at scale. |
+| Scheduler | **Stable** | `yfin scheduler run` replaces cron: seven jobs, two executors (a single-threaded `yahoo` queue so nothing splits one IP's rate budget), per-job misfire grace derived from the cron's own cadence, and a `scheduler_runs` row per firing — including the ones that never became a subprocess. Exit codes map to `ok`/`partial`/`locked`/`failed`, so a job that merely collided with another is not reported as a failure. |
+| Metrics, logs, traces | **Stable** | Prometheus + Grafana + Loki + Tempo + Alloy under `--profile observability`. A daemon thread in the scheduler turns nine database queries into gauges every five minutes so a scrape never touches a connection; every process renders one JSON log line through one redacting chain; four hand-drawn spans cover the boundaries the automatic instrumentation cannot see. Costs are measured in [`docs/measurements/observability.md`](docs/measurements/observability.md). |
 | Sharded parallel sync | **Stable** | Process-per-shard, advisory-lock guarded |
-| Settings in database | **Stable** | 39 settings overridable at runtime; `yfin config` |
+| Settings in database | **Stable** | 71 settings overridable at runtime across 14 groups; `yfin config`. Ten more are env-only, because they are read before a database exists. |
+| CI | **Stable** | GitHub Actions: ruff, `mypy --strict`, pytest, an OpenAPI contract diff, a change-event schema diff, and `promtool` / `alloy fmt` / `docker compose config` over the deploy files through their pinned images; a second job runs `-m repo` and `alembic check` against a pinned PostgreSQL 18 + TimescaleDB service; a third builds the web terminal |
 | Compression / retention policies | **Not enabled** | Deliberate: the rescale path rewrites historical rows. Needs measurement first. |
 | Continuous aggregates | **Not enabled** | Out of scope so far |
 
@@ -158,8 +257,9 @@ the secret on every request.
 
 | Integration | Status | Notes |
 |---|---|---|
-| **Kafka producer** | **TODO** | Publish each verified write as an event so downstream consumers do not poll the database. Open questions: topic per table vs per dataset, and whether the outbox lives in `sync_run_items` or a dedicated table. |
-| **WebSocket streaming** | **TODO** | Yahoo's live quote socket for intraday updates between scheduled runs, plus an outbound socket so clients can subscribe to symbols instead of polling. Needs a decision on how live ticks reconcile with the bar archive. |
+| **Read-only HTTP API** | **In progress** | FastAPI, OAuth2 `client_credentials`, scopes derived from data families, rate limiting and quota metering. Client management via `yfin api client`. Self-service signup and billing are separate subsystems and out of scope for now. |
+| **Kafka producer** | **In progress** | Live ticks publish through a transactional outbox: `stream_outbox` is written inside the tick transaction, and `yfin stream relay` drains it to Kafka in `id` order, advancing `stream_relay_offset` only after every delivery is acknowledged. **Topic per exchange, partition key per symbol** — a topic per symbol would take the broker's metadata down, a single topic would give up per-exchange isolation, and keying on the symbol is what makes ordering per-symbol. The contract is at-least-once; consumers dedupe on `live_ticks`' primary key. Off by default (`yf_kafka_enabled`), and `confluent-kafka` is an extra (`pip install "yfin[kafka]"`). Publishing *pipeline* writes — as opposed to ticks — is not started. |
+| **WebSocket streaming** | **In progress** | Ingest side is complete and driven from `yfin stream`: `run` (single asyncio loop, 100 symbols per connection), `relay`, `status`, `reconcile`, and `yfin stream scope add/disable/list`. `src/yfin/stream/` holds connection, protocol, supervisor, topology, writer, repository, reconcile, relay and kafka; 8 tables (`live_ticks`, `live_quotes`, `stream_scope`, `stream_outbox`, `stream_relay_offset`, `stream_rejects`, `stream_sessions`, `stream_connection_health`), with measurements in [`docs/measurements/websocket.md`](docs/measurements/websocket.md). `yfin stream reconcile` fills open 1m bar gaps from the tick archive, which matters most for `retention_expired` windows Yahoo can no longer serve. The outbound socket, so clients subscribe instead of polling, is not started. |
 | **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default. Every dataset in the archive is readable: `DS` browses the whole catalogue, `DES`/`FA`/`ANR`/`N`/`CF`/`CA`/`PX` and the tabbed `HDS`/`ERN`/`FUND`/`CAL`/`MKT`/`SCR`/`SRCH`/`DOM`/`REF` panels cover it by family; live ticks and charts follow (`docs/superpowers/specs/2026-09-07-web-terminal-design.md`). |
 
 ---
@@ -167,31 +267,54 @@ the secret on every request.
 ## Architecture
 
 ```
-CLI (typer)
-  └── runner / market_runner / domain_runner
-        ├── Registry          dataset resolution, dependency order, opt-in
-        ├── Dataset           fetch → normalize → upsert   (no SQLAlchemy)
-        │     └── RowWriter   protocol
-        └── PostgresRowWriter ON CONFLICT, chunking, dedupe, verification
+cli/          typer command groups
+  |
+pipeline/     runner, shard, prune, market/domain runners
+              audit (sync_runs + exit code), persist (one symbol =
+              one transaction), turn, readers, payload
+  |
+datasets/     one module per dataset: fetch -> normalize -> upsert
+  |           (imports no SQLAlchemy; enforced by a test)
+storage/      contracts, engine, upsert mechanics, rescale, settings
+  |
+models/       SQLAlchemy models, type factories, views
+
+core/         config, errors, logging, normalisation, data families
+ingest/       upstream client and screen definitions
+proxy/        pool, health, encrypted credentials
+api/          read-only HTTP API (FastAPI): auth, rate limit, routers
+stream/       live tick ingest: connection, protocol, topology, supervisor,
+              writer, repository; reconcile (ticks -> 1m gaps) and
+              relay + kafka (outbox -> broker) run as separate processes
 ```
 
-The dataset layer depends on the `RowWriter` **protocol**, never on
-SQLAlchemy. That boundary is why the MySQL → PostgreSQL migration touched
-none of the 40+ dataset modules.
+The dataset layer depends on the protocols in `storage/contracts.py`
+(`RowWriter` for writes, `VariantState` for the little stored state a
+dataset needs to read), never on SQLAlchemy. That boundary is why
+migrating the engine touched none of the 20+ dataset modules, and
+`tests/unit/test_dataset_layer_boundary.py` fails the build if a dataset
+module imports the ORM again.
 
-Datasets declare what they produce; the registry resolves names, expands
-aliases and topologically orders dependencies. Adding a dataset means
-adding a module and registering it — no other file changes.
+Datasets declare what they produce and which **family** they belong to.
+The registry resolves names, expands aliases and topologically orders
+dependencies; the API derives its authorisation scopes from the same
+family declaration, so registering a dataset does not mean editing a
+scope map somewhere else.
 
 ### Layout
 
 | Path | Contents |
 |---|---|
-| `src/yfin/datasets/` | One module per dataset; engine-agnostic |
+| `src/yfin/cli/` | Command groups: `app`, `bars`, `settings`, `api`, `stream` |
+| `src/yfin/core/` | Config, errors, logging, normalisation, data families |
+| `src/yfin/ingest/` | Upstream client, screen definitions |
+| `src/yfin/datasets/` | One module per dataset; storage-agnostic |
+| `src/yfin/pipeline/` | Orchestration, sharding, pruning; `audit`, `persist`, `turn`, `readers` split by reason to change |
+| `src/yfin/storage/` | Write contract, engine, upsert, rescale, settings store |
 | `src/yfin/models/` | SQLAlchemy models, type factories, views |
-| `src/yfin/persistence.py` | Write mechanics: upsert, chunking, verification |
-| `src/yfin/runner.py` | Orchestration, retries, audit records |
 | `src/yfin/proxy/` | Pool, health, encrypted credentials |
+| `src/yfin/api/` | Read-only HTTP API |
+| `src/yfin/stream/` | Live WebSocket tick ingest, bar reconciliation, Kafka outbox relay |
 | `src/yfin/ui/` | Web terminal: the public `/ui/api` mount, its own read routes, SPA pages |
 | `web/` | The SPA source (React + Vite); builds into `src/yfin/ui/static/dist` |
 | `migrations/` | Alembic |
@@ -209,8 +332,14 @@ adding a module and registering it — no other file changes.
 .venv/bin/pytest -m live         # against the real Yahoo API
 ```
 
-Unit tests run without a database or network. `-m repo` tests create a
-schema per process, so parallel runs cannot collide.
+Unit tests reach nothing outside the process, and that is enforced
+rather than assumed: `tests/unit/conftest.py` fails any test that opens a
+non-loopback connection. `-m repo` tests create a schema per process, so
+parallel runs cannot collide.
+
+CI runs ruff, `mypy --strict` and pytest on every push and pull request,
+and diffs the committed `openapi.json` against the generated one so the
+API contract cannot drift silently.
 
 **Conventions**
 
@@ -232,9 +361,22 @@ managed ingestion, backfilled history and API access on paid plans.
 
 Self-hosting is not a degraded tier: it is the same code, the same
 schema, and the same migrations. The hosted product sells operation, not
-capability — running this well means a database you maintain, a proxy
-pool you keep healthy, and a scheduler that does not miss the 29-day
-window on 1-minute bars.
+capability — running this well means a database you maintain and enough
+proxies that a full pass finishes inside its own cadence. The scheduler
+ships here; the IPs do not, and on one address a 5,888-symbol universe
+takes 33 hours per pass against a nightly window of 24.
+
+---
+
+## Credits
+
+- **[yfinance](https://github.com/ranaroussi/yfinance)** by Ran Aroussi
+  (Apache-2.0) — the client library every Yahoo request in this project
+  goes through. Documentation:
+  <https://ranaroussi.github.io/yfinance/>.
+- Yahoo Finance data is subject to Yahoo’s own terms of use. Neither
+  yfin nor yfinance is affiliated with, endorsed by, or in any way
+  officially connected to Yahoo.
 
 ---
 

@@ -69,8 +69,8 @@ class Proxy(Base):
     __tablename__ = "proxies"
     __table_args__ = (
         # This constraint actually holds because username is
-        # NOT NULL DEFAULT '': MySQL does not enforce UNIQUE across rows
-        # containing NULL, so a nullable username would let the same
+        # NOT NULL DEFAULT '': PostgreSQL does not enforce UNIQUE across
+        # rows containing NULL, so a nullable username would let the same
         # proxy be added repeatedly.
         UniqueConstraint("scheme", "host", "port", "username", name="uq_proxies_endpoint"),
         Index("ix_proxies_eligibility", "is_enabled", "health"),

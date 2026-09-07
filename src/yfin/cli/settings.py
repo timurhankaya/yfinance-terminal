@@ -87,7 +87,8 @@ def config_list(
 ) -> None:
     """Effective value and source for each DB-managed setting.
 
-    The 8 env-only fields (db_*, yf_proxy_secret_key, log_level) are NOT
+    The 10 env-only fields (db_*, yf_proxy_secret_key, log_level,
+    log_format, metrics_port) are NOT
     LISTED HERE: they can't be managed from the panel. `--changed` asks
     "is the effective value different from the default", not "does a row
     exist" -- that's the question an operator actually has; use
@@ -304,7 +305,8 @@ def config_schema(
     from yfin.storage.settings_store import serialize
 
     note = (
-        "Note: the 8 env-only fields (db_*, yf_proxy_secret_key, log_level) "
+        "Note: the 10 env-only fields (db_*, yf_proxy_secret_key, "
+        "log_level, log_format, metrics_port) "
         "are NOT listed here; they stay in .env."
     )
     items = settings_schema()

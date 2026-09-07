@@ -454,7 +454,8 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
                     "holding_symbol": holding,
                     "holding_name": nz.to_str(record.get("Name"), max_len=128),
                     "holding_percent": nz.to_decimal(record.get("Holding Percent")),
-                    # Cannot be named `rank`: reserved word in MySQL 8.
+                    # Not `rank`: the name is a leftover guard from the MySQL
+                    # era and renaming it now would be a migration for no gain.
                     "holding_rank": rank,
                     # Filled from the DB during upsert.
                     "is_known": False,

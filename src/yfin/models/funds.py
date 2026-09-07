@@ -98,9 +98,9 @@ class FundMetric(Base):
     `section` is part of the PK. Without it, the same `metric` name
     appearing in both sections would fail to write the second row:
       uniqueness violation: 'SPY-2026-09-04-price_to_earnings'
-    (confirmed on real MySQL 8.3). Today's 9 names do not collide, but
-    that is only Yahoo's naming choice -- the sibling table
-    fund_weightings already puts `category` in its PK for the same reason.
+    Today's 9 names do not collide, but that is only Yahoo's naming
+    choice -- the sibling table fund_weightings already puts `category`
+    in its PK for the same reason.
     """
 
     __tablename__ = "fund_metrics"
@@ -141,14 +141,14 @@ class FundTopHolding(Base):
     universe (BRK-B, 2330.TW, 005930.KQ, 0700.HK, even fund symbols like
     VRTPX, BISXX). An FK would roll back a fund's entire row set over one
     foreign symbol -- same reasoning as news_symbols. `is_known` marks the
-    membership; an explicit index on (holding_symbol) exists because there
-    is no FK to create one implicitly, and the column is the last
+    membership; an explicit index on (holding_symbol) exists because
+    PostgreSQL creates none on its own, and the column is the last
     component of the PK so it cannot be searched alone.
     """
 
     __tablename__ = "fund_top_holdings"
     __table_args__ = (
-        # No FK -> no implicit index; confirmed with SHOW INDEX.
+        # PostgreSQL creates no index for this column on its own.
         Index("ix_fund_top_holdings_holding", "holding_symbol"),
         Index("ix_fund_top_holdings_as_of", "as_of_date"),
     )
@@ -159,8 +159,8 @@ class FundTopHolding(Base):
     # Measured max 51 chars (ARKK).
     holding_name: Mapped[str | None] = mapped_column(KeyTextType(128))
     holding_percent: Mapped[Decimal | None] = mapped_column(PriceType())
-    # Cannot be named `rank`: reserved as a window function in MySQL 8
-    # (also a window function in PostgreSQL). Source order is the data
+    # Not `rank`: it is a window function in PostgreSQL (and was reserved
+    # in MySQL 8, where the guard originated). Source order is the data
     # itself (the "top 10" ranking).
     holding_rank: Mapped[int] = mapped_column(
         SmallInteger,

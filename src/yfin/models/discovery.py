@@ -300,19 +300,18 @@ class LookupTotal(Base):
 
     query_term: Mapped[str] = _query_term_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
-    # Deliberately not normalized. This column was a plain `String(...)`
-    # under MySQL, taking the table default `utf8mb4_0900_ai_ci` -- the
-    # only case-insensitive column in the PK. Now COLLATE "C".
+    # Deliberately not normalized. COLLATE "C", like every other key
+    # column here.
     #
     # The value is exactly Yahoo's response dict key
     # (`raw.totals.items()`: 'equity', 'mutualfund', 'privateCompany').
     # `.lower()` is not applied, for two reasons:
     #   1. `privateCompany` is camelCase; lowercasing it breaks the
     #      source identifier and any code matching on that key.
-    #   2. The behavior difference is visible, not silent: under ai_ci a
-    #      source reporting 'Equity' one day would silently update the
-    #      same row; under "C" it creates a second row and the mismatch
-    #      shows up in an audit. A loud failure is the intended tradeoff.
+    #   2. The behavior difference is visible, not silent: a source
+    #      reporting 'Equity' one day creates a second row under "C" and
+    #      the mismatch shows up in an audit, instead of silently
+    #      updating the same row. A loud failure is the intended tradeoff.
     lookup_type: Mapped[str] = mapped_column(
         String(LOOKUP_TYPE_LENGTH, collation="C"), primary_key=True
     )

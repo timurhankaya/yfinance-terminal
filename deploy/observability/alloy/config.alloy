@@ -25,12 +25,14 @@ discovery.relabel "yfin" {
 	// developer's machine ships its logs here -- which is both a surprise
 	// and, for anything with credentials in its output, a leak into a store
 	// nobody expected to hold them.
+	// Two rules, not a duplicated pair: the first DROPS everything that is
+	// not ours, the second NAMES what survives. `action = "keep"` ignores
+	// `target_label` and `replacement`, so the labelling cannot ride along
+	// on the same rule.
 	rule {
 		source_labels = ["__meta_docker_container_name"]
 		regex         = "/(yfin-.*)"
-		target_label  = "container"
 		action        = "keep"
-		replacement   = "$1"
 	}
 
 	rule {

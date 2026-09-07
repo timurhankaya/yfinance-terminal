@@ -81,6 +81,21 @@ class TestWhenItIsOff:
     def test_attributes_on_a_no_op_span_are_ignored(self) -> None:
         tracing.set_attributes(None, rows_written=17)
 
+    def test_a_failing_attribute_does_not_break_the_block(self) -> None:
+        """Instrumentation that can fail is instrumentation that turns a
+        working sync into a broken one.
+
+        Here rather than under `TestWhenItIsOn`: the hostile object supplies
+        the whole span interface itself, so taking the `spans` fixture would
+        have skipped this without the `[otel]` extra -- exactly the
+        installation where a raising `set_attributes` matters most."""
+
+        class _Hostile:
+            def set_attribute(self, *_args: object) -> None:
+                raise RuntimeError("nope")
+
+        tracing.set_attributes(_Hostile(), rows_written=1)
+
     def test_instrumenting_does_nothing(self) -> None:
         tracing.instrument_fastapi(object())
         tracing.instrument_sqlalchemy(object())
@@ -158,16 +173,6 @@ class TestWhenItIsOn:
             raise ValueError("boom")
         (recorded,) = spans()  # type: ignore[operator]
         assert recorded.name == "sync.symbol"
-
-    def test_a_failing_attribute_does_not_break_the_block(self, spans: object) -> None:
-        """Instrumentation that can fail is instrumentation that turns a
-        working sync into a broken one."""
-
-        class _Hostile:
-            def set_attribute(self, *_args: object) -> None:
-                raise RuntimeError("nope")
-
-        tracing.set_attributes(_Hostile(), rows_written=1)
 
 
 class TestTheEnvironmentContract:

@@ -72,7 +72,8 @@ def test_fund_metrics_pk_includes_section() -> None:
 
 
 def test_holding_rank_is_not_named_rank() -> None:
-    """`rank` is a reserved word in MySQL 8: CREATE TABLE ... rank -> ERROR 1064."""
+    """`rank` is a window function in PostgreSQL, and was reserved in MySQL 8
+    where the guard originated; the name stays as it is."""
     cols = Base.metadata.tables["fund_top_holdings"].c
     assert "rank" not in cols
     assert "holding_rank" in cols

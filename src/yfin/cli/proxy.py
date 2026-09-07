@@ -263,7 +263,7 @@ def proxy_check(
     with factory() as session:
         for proxy_id, name, result in outcomes:
             if result.event is None:
-                typer.echo(f"{name:<20} ATLANDI  {result.detail}")
+                typer.echo(f"{name:<20} SKIPPED  {result.detail}")
                 continue
             px.persist_event(
                 session,

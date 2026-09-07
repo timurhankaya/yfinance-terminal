@@ -680,9 +680,6 @@ def inc(name: str, amount: int = 1, **labels: str) -> None:
     than the run.
     """
     accumulator = _accumulator
-    # `suppress` rather than a bare except: see the docstring. Every failure
-    # here -- an undeclared metric, a missing extra, a registry clash -- is
-    # worth less than the run it would otherwise take down.
     if accumulator is not None:
         with suppress(Exception):
             accumulator.inc(name, amount, **labels)
@@ -695,10 +692,9 @@ def inc(name: str, amount: int = 1, **labels: str) -> None:
 def _object(name: str) -> Any:
     """The Prometheus object for a declared metric, created on first use.
 
-    Creating one twice in a process raises "Duplicated timeseries in
-    CollectorRegistry", so they are cached. Raises when the extra is not
-    installed -- every caller here is already inside a `suppress`, because
-    metrics are optional everywhere and a missing extra must not stop a run.
+    Raises when the extra is not installed -- every caller here is already
+    inside a `suppress`, because metrics are optional everywhere and a
+    missing extra must not stop a run.
     """
     existing = _OBJECTS.get(name)
     if existing is not None:

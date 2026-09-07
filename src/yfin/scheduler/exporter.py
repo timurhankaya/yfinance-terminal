@@ -91,7 +91,6 @@ class Exporter:
         self._job_samples = job_samples
         self._queries = queries
         self._stopping = threading.Event()
-        self._thread: threading.Thread | None = None
 
     # --- one pass ----------------------------------------------------------
 
@@ -127,8 +126,6 @@ class Exporter:
                     error=str(exc),
                 )
                 continue
-            # Cleared only now, after the query returned: a failure must
-            # leave the previous refresh's numbers standing.
             for name in query.gauges:
                 clear_gauge(name)
             publish(samples)
@@ -161,7 +158,6 @@ class Exporter:
         endpoint that reads as "everything is zero".
         """
         thread = threading.Thread(target=self._loop, name="yfin-exporter", daemon=True)
-        self._thread = thread
         thread.start()
         return thread
 
