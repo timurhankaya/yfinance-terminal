@@ -276,6 +276,13 @@ def prune(
     orphan_news: Annotated[
         bool, typer.Option("--orphan-news/--no-orphan-news", help="Delete orphaned news")
     ] = True,
+    audit_days: Annotated[
+        int | None,
+        typer.Option(
+            "--audit-days",
+            help="Delete finished sync and scheduler runs older than N days",
+        ),
+    ] = None,
     orphan_reports: Annotated[
         bool,
         typer.Option(
@@ -302,6 +309,8 @@ def prune(
     deleted, that gap would persist even while the source still serves the
     data.
     """
+    from datetime import UTC, datetime, timedelta
+
     from yfin.pipeline.prune import PruneDisabledError, run_prune
 
     settings = get_settings()
@@ -316,6 +325,11 @@ def prune(
                 calendars_before=parse_date(calendars_before),
                 history_before=parse_date(history_before),
                 asof_before=parse_date(asof_before),
+                audit_before=(
+                    datetime.now(UTC) - timedelta(days=audit_days)
+                    if audit_days is not None
+                    else None
+                ),
                 dry_run=dry_run,
             )
     except PruneDisabledError as exc:

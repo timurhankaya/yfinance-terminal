@@ -151,6 +151,11 @@ def test_child_tables_inherit_their_parent_timestamp() -> None:
         "symbols",
         "sync_runs",
         "sync_run_items",
+        # The scheduler's own log: scheduled_at / started_at / finished_at
+        # are when the JOB happened, not when anything was fetched.
+        "scheduler_runs",
+        # Counters, dated by the run they belong to.
+        "run_metrics",
         "proxies",
         "alembic_version",
         "intraday_scope",  # added_at: when it entered the intraday scope list

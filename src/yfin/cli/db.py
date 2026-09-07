@@ -130,3 +130,79 @@ def db_revision(message: Annotated[str, typer.Option("-m", "--message")]) -> Non
     os.environ[SETTINGS_SOURCE_VAR] = "env"
     command.revision(Config("alembic.ini"), message=message, autogenerate=True)
 
+
+
+@db_app.command("monitor-role")
+def db_monitor_role(
+    role: Annotated[str, typer.Option("--role", help="Role name")] = "yfin_monitor",
+    password_env: Annotated[
+        str,
+        typer.Option("--password-env", help="Environment variable holding the password"),
+    ] = "MONITOR_DB_PASSWORD",
+) -> None:
+    """Creates the read-only role the metrics exporters log in as.
+
+    A COMMAND rather than a migration, for four reasons that each rule it
+    out on their own: a role is cluster-wide while migrations run against a
+    database, the repo tests run migrations in parallel per-process schemas,
+    a password written into a migration lands in `log_statement`, and
+    rotating one would need a new revision forever.
+
+    Idempotent, so it can be re-run to rotate the password: `CREATE ROLE`
+    has no `IF NOT EXISTS`, so existence is checked in a `DO $$` block and
+    the password is set either way.
+
+    `pg_monitor` and nothing else. It is enough for Alloy's default
+    postgres collectors -- `pg_stat_*`, sizes, replication -- and it grants
+    no `SELECT` on any data table. The exporter is meant to see how the
+    database is doing, not what is in it; when a custom query eventually
+    needs a table, that grant should be visible in a diff rather than
+    already in place.
+    """
+    import os
+
+    from sqlalchemy import text
+
+    from yfin.cli.common import engine
+
+    password = os.environ.get(password_env)
+    if not password:
+        typer.echo(f"{password_env} is not set; refusing to create a role without a password")
+        raise typer.Exit(code=1)
+
+    db = engine()
+    with db.connect() as conn:
+        # Role names and passwords cannot be bind parameters: CREATE ROLE and
+        # ALTER ROLE are utility statements and PostgreSQL rejects a
+        # placeholder in them. So POSTGRESQL does the quoting, through
+        # `quote_ident` and `quote_literal` in ordinary SELECTs that do take
+        # parameters, and only the already-quoted text is interpolated.
+        # Quoting either by hand here would be an injection waiting for a
+        # password with an apostrophe in it.
+        #
+        # The password does end up in the text of the statement that sets it,
+        # and `log_statement = all` would record it. That is unavoidable for
+        # ALTER ROLE, and it is one more reason this is an operator command
+        # run once rather than a migration -- which would keep the password
+        # in the repository and replay it on every deployment.
+        ident = conn.execute(text("SELECT quote_ident(:r)"), {"r": role}).scalar_one()
+        secret = conn.execute(
+            text("SELECT quote_literal(:p)"), {"p": password}
+        ).scalar_one()
+
+        # `CREATE ROLE` has no `IF NOT EXISTS`, so the branch is here. Two
+        # operators running this at the same second would have one of them
+        # see "role already exists"; that is a legible failure for a command
+        # a person runs by hand, and not worth a lock.
+        exists = conn.execute(
+            text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": role}
+        ).scalar_one_or_none()
+        if not exists:
+            conn.execute(text(f"CREATE ROLE {ident} LOGIN"))
+
+        # Runs whether or not the role was just created, so re-running the
+        # command rotates the password.
+        conn.execute(text(f"ALTER ROLE {ident} WITH LOGIN PASSWORD {secret}"))
+        conn.execute(text(f"GRANT pg_monitor TO {ident}"))
+        conn.commit()
+    typer.echo(f"role ready: {role} (pg_monitor, no data access)")

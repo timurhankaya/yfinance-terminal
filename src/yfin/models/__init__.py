@@ -112,6 +112,7 @@ from yfin.models.market import (
 )
 from yfin.models.news import News, NewsSymbol
 from yfin.models.officers import CompanyOfficer
+from yfin.models.ops import SCHEDULER_RESULTS, RunMetric, SchedulerRun
 from yfin.models.prices import CapitalGain, Dividend, PriceHistory, SharesFull, Split
 from yfin.models.proxies import Proxy, ProxyHealth, ProxyScheme
 from yfin.models.settings import SETTING_KEY_LENGTH, SettingRow
@@ -255,6 +256,9 @@ __all__ = [
     "PeriodicBar",
     "PriceBar",
     "PriceHistory",
+    "RunMetric",
+    "SCHEDULER_RESULTS",
+    "SchedulerRun",
     "Proxy",
     "ProxyHealth",
     "ProxyScheme",

@@ -163,6 +163,8 @@ INFRASTRUCTURE_TABLES: Final[frozenset[str]] = (
             # Audit and run bookkeeping.
             "sync_runs",
             "sync_run_items",
+            "scheduler_runs",
+            "run_metrics",
             # Operational state.
             "proxies",
             "settings",

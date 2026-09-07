@@ -62,6 +62,9 @@ class PruneReport:
     # the default would produce the wrong protected set.
     discovery_asof: dict[str, int] = field(default_factory=dict)
     screens: dict[str, int] = field(default_factory=dict)
+    # The run audit itself. Nothing pruned it before, so it grew without
+    # bound -- and the freshness query reads it every five minutes.
+    audit: dict[str, int] = field(default_factory=dict)
     dry_run: bool = False
 
     @property
@@ -75,6 +78,7 @@ class PruneReport:
             + sum(self.domain_asof.values())
             + sum(self.discovery_asof.values())
             + sum(self.screens.values())
+            + sum(self.audit.values())
         )
 
 
@@ -427,6 +431,57 @@ def prune_screens(session: Session, before: date, *, dry_run: bool = False) -> d
     return removed
 
 
+def prune_audit(
+    session: Session,
+    before: datetime,
+    *,
+    dry_run: bool = False,
+) -> dict[str, int]:
+    """Deletes finished runs older than `before`, and their scheduler rows.
+
+    Nothing pruned these before, so they grew without bound -- and they are
+    not idle tables: the freshness query walks `sync_run_items` every five
+    minutes, and `scheduler_runs` backs the job dashboard.
+
+    `sync_run_items` and `run_metrics` are NOT deleted here. Both cascade
+    from `sync_runs`, so deleting them explicitly would do the same work
+    twice and could only disagree with the FK about what happened.
+
+    A RUNNING row is never deleted, whatever its age. A run older than the
+    window that has not finished is either still going or was interrupted,
+    and both are things an operator needs to still be able to see.
+
+    No change events: the audit tables are infrastructure, and `delete_rows`
+    would refuse to publish them anyway.
+    """
+    removed: dict[str, int] = {}
+    runs = Base.metadata.tables["sync_runs"]
+    scheduler = Base.metadata.tables["scheduler_runs"]
+
+    run_where = and_(runs.c["started_at"] < before, runs.c["finished_at"].is_not(None))
+    scheduler_where = and_(
+        scheduler.c["scheduled_at"] < before, scheduler.c["finished_at"].is_not(None)
+    )
+
+    if dry_run:
+        for name, table, where in (
+            ("sync_runs", runs, run_where),
+            ("scheduler_runs", scheduler, scheduler_where),
+        ):
+            removed[name] = int(
+                session.execute(
+                    select(func.count()).select_from(table).where(where)
+                ).scalar_one()
+            )
+        return removed
+
+    removed["sync_runs"] = rowcount(session.execute(runs.delete().where(run_where)))
+    removed["scheduler_runs"] = rowcount(
+        session.execute(scheduler.delete().where(scheduler_where))
+    )
+    return removed
+
+
 def run_prune(
     session: Session,
     *,
@@ -436,6 +491,7 @@ def run_prune(
     calendars_before: datetime | None = None,
     history_before: datetime | None = None,
     asof_before: datetime | None = None,
+    audit_before: datetime | None = None,
     dry_run: bool = False,
     collector: ChangeCollector | None = None,
 ) -> PruneReport:
@@ -444,12 +500,14 @@ def run_prune(
     Date-limited pruning does nothing while `enabled` is False: this is the
     one place that enforces "the feature exists but defaults to off".
     """
-    if (calendars_before or history_before or asof_before) and not enabled:
+    if (calendars_before or history_before or asof_before or audit_before) and not enabled:
         raise PruneDisabledError(
             "pruning is disabled: set YF_PRUNE_ENABLED=true or pass --force"
         )
 
     report = PruneReport(dry_run=dry_run)
+    if audit_before:
+        report.audit = prune_audit(session, audit_before, dry_run=dry_run)
     if orphan_news:
         report.orphan_news = prune_orphan_news(session, dry_run=dry_run, collector=collector)
     if calendars_before:

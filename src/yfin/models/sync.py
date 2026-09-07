@@ -5,6 +5,7 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
+import sqlalchemy as sa
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -20,6 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yfin.models.base import (
+    AsciiKeyType,
     Base,
     ProxyLabelType,
     RegionType,
@@ -99,6 +101,16 @@ class SyncRun(Base):
     rows_verified: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     rows_skipped: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
 
+    # `scheduler_runs.id`, when a scheduled job produced this run. Read from
+    # `YF_JOB_RUN_ID` by `audit.open_run`, so a scheduler run and the sync
+    # it started are joinable without touching any command signature.
+    #
+    # No FK on purpose: the scheduler and the sync are separate processes
+    # and a sync must not fail because the scheduler's row was pruned first.
+    # It is also NULL for every manual run, which is the other half of the
+    # `kind` split the exporter reports on.
+    job_run_id: Mapped[int | None] = mapped_column(BigInteger)
+
 
 class SyncRunItem(Base):
     """For datasets writing to multiple tables, one row is written per table."""
@@ -108,6 +120,17 @@ class SyncRunItem(Base):
         Index("ix_sync_run_items_run_status", "run_id", "status"),
         Index("ix_sync_run_items_symbol_dataset", "symbol", "dataset"),
         Index("ix_sync_run_items_proxy", "proxy_id", "status"),
+        # The freshness query walks one CELL -- (symbol, region, dataset) --
+        # backwards to its latest run. Without this it is a full scan of a
+        # table that grows by symbols x datasets every night, on a query the
+        # exporter runs every five minutes.
+        Index(
+            "ix_sync_run_items_cell_run",
+            "symbol",
+            "region",
+            "dataset",
+            sa.desc("run_id"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
@@ -131,6 +154,14 @@ class SyncRunItem(Base):
     rows_skipped: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
+
+    # The `ErrorKind` behind that message, when one was classified. The text
+    # is for a human; this is what a dashboard can group by, and grouping by
+    # free text would give one bucket per Yahoo error string.
+    #
+    # NULL where no kind is known -- a `not_attempted` row, or a failure
+    # that never reached `classify_error`.
+    error_kind: Mapped[str | None] = mapped_column(AsciiKeyType(16))
     # Region axis for domain cells; NULL for symbol and market runs.
     # `symbol` holds the domain SYMBOL (`^YH31130020`), not the key: the
     # column is VARCHAR(32) and five industry keys exceed that (longest 37).
