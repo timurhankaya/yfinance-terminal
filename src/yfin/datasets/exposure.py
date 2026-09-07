@@ -76,6 +76,19 @@ class ApiExposure:
     #: own name", which is right when a dataset exposes exactly one thing.
     name: str = ""
 
+    #: Columns this resource does NOT serve.
+    #:
+    #: Without it a table is all or nothing, and one operational column is
+    #: enough to make an otherwise useful resource unpublishable. `screens`
+    #: is the case that forced it: a caller can filter three resources by
+    #: `screen_key` but had no way to discover which keys exist, purely
+    #: because the same row carries the screen's query definition.
+    #:
+    #: Hiding, not projecting: the default stays "everything the table
+    #: has", so a column added later is served unless someone decides
+    #: otherwise. An allow-list would silently drop new columns instead.
+    hidden: tuple[str, ...] = field(default_factory=tuple)
+
     #: One line for the catalogue.
     description: str = ""
 
@@ -103,6 +116,15 @@ class ApiExposure:
             )
         if not self.sort_key:
             raise ValueError(f"{dataset_name}: api.sort_key must not be empty")
+        conflicting = set(self.hidden) & (
+            set(self.sort_key) | set(self.filters) | {name for name, _ in self.fixed}
+        )
+        if conflicting:
+            raise ValueError(
+                f"{dataset_name}: {sorted(conflicting)} are hidden but also used to "
+                "sort, filter or slice; a caller cannot page on a column they "
+                "never see"
+            )
         overlap = {name for name, _ in self.fixed} & set(self.filters)
         if overlap:
             raise ValueError(

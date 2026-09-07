@@ -34,8 +34,8 @@ INSERT_CHUNK = 2000
 # statement, and a multi-row INSERT binds one per column per row. This is
 # a HARD limit, unlike INSERT_CHUNK: exceeding it raises
 # psycopg.OperationalError "number of parameters must be between 0 and
-# 65535" and the whole dataset fails. Measured: screen_quotes has 92
-# columns, so 2000 rows asked for 184,000 parameters and every screener
+# 65535" and the whole dataset fails. Measured: screen_quotes has 107
+# columns, so 2000 rows asked for 214,000 parameters and every screener
 # run died. pymysql interpolated client-side and never hit this, which is
 # why the limit only appeared after the PostgreSQL migration.
 MAX_BIND_PARAMS = 65535

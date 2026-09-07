@@ -182,6 +182,21 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
     )
     api = (
         ApiExposure(
+            name="screens",
+            family=DataFamily.DISCOVERY,
+            table="screens",
+            sort_key=("screen_key",),
+            filters=("kind", "quote_type"),
+            symbol_optional=True,
+            # The screen's own query body is our configuration, not
+            # product data -- the same reason `settings` is not readable.
+            # Everything else on the row is what makes the other three
+            # resources usable: `screen_key` is a filter on all of them,
+            # and nothing else told a caller which keys exist.
+            hidden=("definition_json",),
+            description="The screens this deployment runs, and what each one is.",
+        ),
+        ApiExposure(
             name="screen_members",
             family=DataFamily.DISCOVERY,
             table="screen_members",

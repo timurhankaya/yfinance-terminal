@@ -190,7 +190,7 @@ def list_symbols(
     limit: LimitQuery = None,
     cursor: CursorQuery = None,
 ) -> Collection[SymbolSummary] | Response:
-    """Symbols in the universe.
+    """Symbols in the universe, ordered by symbol.
 
     `active` defaults to true: an inactive row is one discovery found but
     an operator never activated, so the pipeline does not fetch it and it
@@ -302,7 +302,7 @@ def list_bars(
     limit: LimitQuery = None,
     cursor: CursorQuery = None,
 ) -> Collection[Bar] | Response:
-    """Bars for one symbol.
+    """Bars for one symbol, oldest first.
 
     `session` applies to intraday intervals only, and defaults to
     `regular`. That default is accident prevention: extended-hours bars
@@ -426,7 +426,7 @@ def list_actions(
     limit: LimitQuery = None,
     cursor: CursorQuery = None,
 ) -> Collection[Action] | Response:
-    """Dividends, splits and capital gains for one symbol, newest first.
+    """Dividends, splits and capital gains for one symbol, OLDEST FIRST.
 
     Ranges are half-open and capped like a monthly series; the action
     value's meaning depends on `action_type` -- a cash amount for a
@@ -514,7 +514,7 @@ def list_financials(
     limit: LimitQuery = None,
     cursor: CursorQuery = None,
 ) -> Collection[FinancialFactOut] | Response:
-    """Line items for one statement.
+    """Line items for one statement, newest period first.
 
     `statement` and `freq` are both required, and that is a performance
     contract rather than a stylistic choice: `financial_facts` is keyed on

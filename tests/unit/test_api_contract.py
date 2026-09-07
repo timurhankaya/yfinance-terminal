@@ -554,8 +554,11 @@ def test_every_resource_publishes_its_columns() -> None:
     for entry in CATALOG.values():
         published = CatalogEntryOut.of(entry)
         assert published.columns, entry.name
+        # Against what the route SELECTS, not against the table: a
+        # resource may hide a column, and the two lists must agree on
+        # exactly which.
         assert [c.name for c in published.columns] == [
-            column.name for column in entry.table.columns
+            column.name for column in entry.served_columns
         ]
 
 
@@ -740,3 +743,48 @@ def test_the_introduction_says_what_this_api_does_NOT_serve(
     text = document["info"]["description"]
     assert "Live ticks are not served here" in text
     assert "ACME" in text
+
+
+def test_a_hidden_column_is_served_nowhere() -> None:
+    """`hidden` has to reach BOTH the query and the catalogue, or the
+    document describes a row the route does not send -- or worse, the route
+    sends a column the document never mentioned."""
+    from yfin.api.routers.v1.datasets import CatalogEntryOut
+    from yfin.api.storage.catalog import CATALOG
+
+    for entry in CATALOG.values():
+        hidden = set(entry.exposure.hidden)
+        if not hidden:
+            continue
+        served = {column.name for column in entry.served_columns}
+        assert served & hidden == set(), entry.name
+        published = {column.name for column in CatalogEntryOut.of(entry).columns}
+        assert published == served, entry.name
+
+
+def test_a_hidden_column_cannot_also_be_paged_on() -> None:
+    """Filtering or sorting on a column a caller never receives leaves them
+    holding a cursor they cannot reason about."""
+    from yfin.datasets.exposure import ApiExposure
+
+    exposure = ApiExposure(
+        family=DataFamily.DISCOVERY,
+        table="screens",
+        sort_key=("screen_key",),
+        hidden=("screen_key",),
+    )
+    with pytest.raises(ValueError, match="hidden but also used"):
+        exposure.validate(dataset_name="x", produces=("screens",))
+
+
+def test_the_screen_keys_are_discoverable() -> None:
+    """Three resources take `screen_key` as a filter, and until this
+    resource existed nothing told a caller which keys there are. It was
+    unpublishable only because the same row carries the query definition."""
+    from yfin.api.storage.catalog import CATALOG
+
+    entry = CATALOG["screens"]
+    served = {column.name for column in entry.served_columns}
+    assert "screen_key" in served
+    assert "title" in served
+    assert "definition_json" not in served

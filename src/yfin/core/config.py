@@ -3,7 +3,9 @@
 Two layers:
 
   1. `.env` + model default -- pydantic-settings' own resolution.
-  2. `settings` TABLE -- a DB override for 38 fields.
+  2. `settings` TABLE -- a DB override for the 55 fields declared with
+     `_cfg`. A field without `_cfg` (the `db_*` connection fields, the
+     proxy secret key) is environment-only on purpose.
 
 Precedence `CLI flag > settings table > .env > model default` falls out
 for free: passing init kwargs to `Settings(**overrides)` overrides pydantic's

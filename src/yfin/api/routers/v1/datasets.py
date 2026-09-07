@@ -103,16 +103,15 @@ class CatalogEntryOut(BaseModel):
             filters=list(entry.exposure.filters),
             symbol_scoped=entry.has_symbol,
             description=entry.exposure.description,
-            # Every column, because `catalog.query` selects the whole
-            # table. Listing a subset would describe a response nobody
-            # sends.
+            # The same property the query selects from, so the document
+            # cannot describe a row shape the route does not send.
             columns=[
                 ColumnOut(
                     name=column.name,
                     type=catalog.wire_type(column),
                     nullable=bool(column.nullable),
                 )
-                for column in entry.table.columns
+                for column in entry.served_columns
             ],
         )
 

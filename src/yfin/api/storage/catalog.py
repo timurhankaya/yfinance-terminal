@@ -53,6 +53,18 @@ class CatalogEntry:
         return scope_for(self.family)
 
     @property
+    def served_columns(self) -> tuple[Column[Any], ...]:
+        """The columns a caller receives, in table order.
+
+        One definition, used by both the query and the catalogue's column
+        list -- otherwise the document would describe a row shape the
+        route does not send, which is the failure the whole exposure
+        mechanism exists to prevent.
+        """
+        hidden = set(self.exposure.hidden)
+        return tuple(c for c in self.table.columns if c.name not in hidden)
+
+    @property
     def sort_columns(self) -> tuple[Column[Any], ...]:
         return tuple(self.table.c[name] for name in self.exposure.sort_key)
 
@@ -107,6 +119,7 @@ def _add(
         for column in (
             *exposure.sort_key,
             *exposure.filters,
+            *exposure.hidden,
             *(name for name, _ in exposure.fixed),
         )
         if column not in table.c
@@ -171,7 +184,7 @@ CATALOG: dict[str, CatalogEntry] = _build()
 # columns here: a dataset exposing a type the API cannot describe is a
 # startup failure, not a surprise for whoever calls it first.
 for _entry in CATALOG.values():
-    for _column in _entry.table.columns:
+    for _column in _entry.served_columns:
         wire_type(_column)
 
 
@@ -198,7 +211,7 @@ def query(
     limit: int,
     after: tuple[Any, ...] | None,
 ) -> tuple[list[dict[str, Any]], tuple[Any, ...] | None]:
-    statement: Select[Any] = select(entry.table)
+    statement: Select[Any] = select(*entry.served_columns)
     for name, value in entry.exposure.fixed:
         # The dataset's own slice of a shared table. Applied before
         # anything the caller sent, and not overridable by them.

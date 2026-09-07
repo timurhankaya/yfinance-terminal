@@ -42,8 +42,6 @@ from yfin.api.core.config import ApiSettings
 #: below only changes what a running deployment serves.
 PRODUCTION_URL = "https://yfinance.monafy.com"
 
-JSON_MEDIA_TYPE = "application/json"
-
 #: The icon both documentation pages use, inline.
 #:
 #: FastAPI's default points at `fastapi.tiangolo.com`, which means every

@@ -181,10 +181,5 @@ def current_principal(
     return Principal(client_id=claims.client_id, scopes=held, jti=claims.jti)
 
 
-def scoped(*scopes: str) -> Principal:
-    """Declares the scopes an endpoint needs, for OpenAPI and for the check."""
-    return Security(current_principal, scopes=list(scopes))  # type: ignore[no-any-return]
-
-
 #: For endpoints that need a caller but no particular scope.
 Authenticated = Annotated[Principal, Security(current_principal)]
