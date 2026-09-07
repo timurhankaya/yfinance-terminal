@@ -17,7 +17,7 @@ import signal
 import types
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import date
 from queue import Empty
 from typing import TYPE_CHECKING, Any
 
@@ -34,19 +34,15 @@ from yfin.core.config import (
 from yfin.core.logging_setup import configure_logging, get_logger
 from yfin.datasets import SYMBOL_DATASETS
 from yfin.ingest.client import configure_yfinance
-from yfin.models import Proxy
 from yfin.pipeline.audit import RunTally, finalize_run, open_run, record_not_attempted
-from yfin.pipeline.runner import SymbolSource, list_source, run_shard
-from yfin.proxy import (
-    HealthEvent,
-    PasswordUndecryptable,
-    ProxyPolicy,
-    ShardProxyTracker,
-    count_all,
-    endpoint_of,
-    persist_event,
-    select_eligible,
+from yfin.pipeline.proxy_plan import (
+    ProxyPlan,
+    build_plans,
+    eligible_proxies,
+    record_crashes,
+    tracker_for,
 )
+from yfin.pipeline.runner import SymbolSource, list_source, run_shard
 from yfin.storage.db import advisory_lock, create_db_engine
 
 if TYPE_CHECKING:
@@ -61,10 +57,6 @@ SENTINEL = "\x00"
 # serializes reads with its own lock, plus the main thread's symbol
 # transaction). Invariant: (shard_count x 5) + 2 <= max_connections.
 CHILD_POOL_SIZE = 3
-
-
-class NoEligibleProxy(RuntimeError):
-    """--require-proxy was given but no eligible proxy exists."""
 
 
 @dataclass(frozen=True)
@@ -144,7 +136,7 @@ def shard_main(spec: ShardSpec, queue: MPQueue[str]) -> None:
     configure_yfinance(spec.proxy_dsn, proxy_key=spec.proxy_key, settings=settings)
 
     engine = create_db_engine(settings, spec.database, pool_size=CHILD_POOL_SIZE)
-    tracker = ShardProxyTracker(spec.proxy_id, ProxyPolicy.from_settings(settings))
+    tracker = tracker_for(spec.proxy_id, settings)
     try:
         counters = run_shard(
             engine,
@@ -170,53 +162,6 @@ def shard_main(spec: ShardSpec, queue: MPQueue[str]) -> None:
         )
     finally:
         engine.dispose()
-
-
-def _effective_shards(
-    session: Session,
-    *,
-    settings: Settings,
-    max_shards: int | None,
-    no_proxy: bool,
-    require_proxy: bool,
-) -> list[Proxy]:
-    """Eligible proxies; an empty list means a single, direct connection.
-
-    Formula:
-        shard_count = 1                              if --no-proxy
-                    = max(1, min(N, |eligible|))      otherwise
-    A shard is never opened without a proxy; the one exception is a
-    single-shard direct connection when the pool is empty or has no
-    eligible entries.
-    """
-    if no_proxy:
-        if require_proxy:
-            # The two together are meaningless, and silently letting
-            # --no-proxy win would take on ban risk without telling the user.
-            raise ValueError("--no-proxy and --require-proxy cannot be given together")
-        if max_shards is not None and max_shards > 1:
-            # Running N shards from the same egress IP multiplies effective
-            # rate by N; the rate limit is defined per shard.
-            log.warning("--no-proxy reduced the shard count to 1", requested=max_shards)
-        return []
-
-    limit = max_shards if max_shards is not None else settings.yf_max_shards
-    eligible = select_eligible(session, max(1, limit))
-    if eligible:
-        return eligible
-
-    total = count_all(session)
-    if require_proxy:
-        raise NoEligibleProxy(
-            f"no eligible proxy ({total} rows in the pool); --require-proxy was given"
-        )
-    if total:
-        # Silently connecting directly would take on ban risk without
-        # telling the user.
-        log.warning("the pool has proxies but none are eligible; connecting directly", total=total)
-    else:
-        log.info("proxy pool is empty; connecting directly")
-    return []
 
 
 def _drain(queue: MPQueue[str]) -> list[str]:
@@ -277,7 +222,7 @@ def run_sharded(
 
     with advisory_lock(engine):
         with factory() as session:
-            eligible = _effective_shards(
+            eligible = eligible_proxies(
                 session,
                 settings=cfg,
                 max_shards=max_shards,
@@ -286,22 +231,7 @@ def run_sharded(
             )
             # Endpoints are resolved under the lock; Proxy objects are
             # session-bound, while ShardSpec is plain data.
-            specs_source = _build_specs(session, eligible, cfg)
-            if require_proxy and eligible and not specs_source:
-                # The SQL eligibility query found proxies, but none of their
-                # passwords could be decrypted (typically: YF_PROXY_SECRET_KEY
-                # rotated). `_effective_shards`'s check runs before this
-                # point, so it's re-checked here; otherwise the flow falls
-                # into the "no proxy" branch and the entire universe gets
-                # fetched from the operator's own IP -- exactly the scenario
-                # --require-proxy exists to prevent (and the exit code would
-                # be 0/2 instead of 5).
-                raise NoEligibleProxy(
-                    f"none of the {len(eligible)} eligible proxies could be "
-                    "decrypted; --require-proxy was given "
-                    "(is YF_PROXY_SECRET_KEY correct?)"
-                )
-
+            specs_source = build_plans(session, eligible, cfg, require_proxy=require_proxy)
         shard_count = max(1, len(specs_source))
         run_id = open_run(
             factory,
@@ -352,31 +282,8 @@ def run_sharded(
         )
 
 
-@dataclass(frozen=True)
-class _ProxyPlan:
-    proxy_id: int
-    proxy_label: str
-    dsn: str | None
-
-
-def _build_specs(
-    session: Session, eligible: Sequence[Proxy], settings: Settings
-) -> list[_ProxyPlan]:
-    plans: list[_ProxyPlan] = []
-    for row in eligible:
-        try:
-            endpoint = endpoint_of(row, settings)
-        except PasswordUndecryptable as exc:
-            # Doesn't mark the proxy dead: reported explicitly to avoid a
-            # wrong diagnosis, and it's just skipped for this run.
-            log.error("could not decrypt the proxy password", proxy=row.label, error=str(exc))
-            continue
-        plans.append(_ProxyPlan(proxy_id=int(row.id), proxy_label=row.label, dsn=endpoint.dsn()))
-    return plans
-
-
 def _spawn_and_wait(
-    plans: Sequence[_ProxyPlan],
+    plans: Sequence[ProxyPlan],
     symbols: Sequence[str],
     dataset_names: Sequence[str],
     *,
@@ -453,7 +360,7 @@ def _spawn_and_wait(
     # stays in one place. SHARD_CRASH triggers a cooldown regardless of
     # threshold.
     if crashed:
-        _record_crashes(factory, [plan for plan, _ in crashed], settings)
+        record_crashes(factory, [plan for plan, _ in crashed], settings)
 
     leftover = _drain(queue)
     queue.cancel_join_thread()
@@ -461,22 +368,3 @@ def _spawn_and_wait(
     if cancelled:
         log.warning("unprocessed symbols", count=len(leftover))
     return leftover
-
-
-def _record_crashes(
-    factory: sessionmaker[Session], plans: Sequence[_ProxyPlan], settings: Settings
-) -> None:
-    policy = ProxyPolicy.from_settings(settings)
-    now = datetime.now(UTC)
-    with factory() as session:
-        for plan in plans:
-            log.error("shard terminated unexpectedly", proxy=plan.proxy_label)
-            persist_event(
-                session,
-                plan.proxy_id,
-                HealthEvent.SHARD_CRASH,
-                policy=policy,
-                now=now,
-                error="shard terminated or timed out",
-            )
-        session.commit()

@@ -9,15 +9,16 @@ import pytest
 from yfin.core.config import Settings
 from yfin.datasets import SYMBOL_DATASETS
 from yfin.models import ItemStatus
-from yfin.pipeline.runner import (
+from yfin.pipeline.audit import (
     EXIT_ALL_FAILED,
     EXIT_NO_SYMBOL_RESOLVED,
     EXIT_OK,
     EXIT_PARTIAL,
     RunTally,
-    list_source,
 )
-from yfin.pipeline.shard import NoEligibleProxy, ShardSpec, _effective_shards
+from yfin.pipeline.proxy_plan import NoEligibleProxy, eligible_proxies
+from yfin.pipeline.runner import list_source
+from yfin.pipeline.shard import ShardSpec
 
 
 def _tally(counts: dict[ItemStatus, int], *, symbols: int = 1, resolved: int = 1) -> RunTally:
@@ -98,7 +99,7 @@ class TestShardSelection:
     def test_no_proxy_forces_single_direct_shard(self) -> None:
         settings = Settings(_env_file=None)  # type: ignore[call-arg]
         assert (
-            _effective_shards(
+            eligible_proxies(
                 None,  # type: ignore[arg-type]  # no session is used on the no_proxy path
                 settings=settings,
                 max_shards=8,
@@ -121,7 +122,7 @@ class TestShardSelection:
                 return _R()
 
         with pytest.raises(NoEligibleProxy):
-            _effective_shards(
+            eligible_proxies(
                 _EmptyPool(),  # type: ignore[arg-type]
                 settings=settings,
                 max_shards=None,

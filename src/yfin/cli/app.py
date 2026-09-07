@@ -40,9 +40,10 @@ from yfin.pipeline.audit import EXIT_LOCK_NOT_ACQUIRED, EXIT_NO_PROXY
 from yfin.pipeline.domain_audit import audit_domains
 from yfin.pipeline.domain_runner import RegionValidationError, run_domain_sync
 from yfin.pipeline.market_runner import run_market_sync
+from yfin.pipeline.proxy_plan import NoEligibleProxy
 from yfin.pipeline.prune import PruneDisabledError, run_prune
 from yfin.pipeline.runner import run_sync
-from yfin.pipeline.shard import NoEligibleProxy, run_sharded
+from yfin.pipeline.shard import run_sharded
 from yfin.storage.db import LockNotAcquired, create_db_engine
 
 log = get_logger(__name__)
