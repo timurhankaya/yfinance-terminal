@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from yfin.stream.protocol import REJECT_DECODE_FAILED, REJECT_UNKNOWN_SYMBOL, Reject
+from yfin.stream.rejects import REJECT_DECODE_FAILED, REJECT_UNKNOWN_SYMBOL, Reject
 from yfin.stream.repository import ScopeEntry
 from yfin.stream.supervisor import StreamSupervisor, SupervisorConfig
 from yfin.stream.writer import (

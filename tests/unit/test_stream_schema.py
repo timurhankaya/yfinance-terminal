@@ -50,13 +50,20 @@ def test_live_quotes_carries_the_same_measurement_as_live_ticks() -> None:
 
 
 def test_reject_reasons_match_the_decoder_constants() -> None:
-    """The enum is the storage side of protocol.py's REJECT_* constants."""
-    from_protocol = {
+    """The enum is the storage side of rejects.py's REJECT_* constants.
+
+    Read off `rejects` rather than `protocol`: protocol imports the ones
+    it raises, so scanning its namespace would silently stop covering a
+    constant the decoder does not happen to use.
+    """
+    from yfin.stream import rejects as rj
+
+    declared = {
         value
-        for name, value in vars(pr).items()
+        for name, value in vars(rj).items()
         if name.startswith("REJECT_") and isinstance(value, str)
     }
-    assert {r.value for r in StreamRejectReason} == from_protocol
+    assert {r.value for r in StreamRejectReason} == declared
 
 
 # --- keys ------------------------------------------------------------------

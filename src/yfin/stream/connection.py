@@ -36,7 +36,8 @@ from datetime import UTC, datetime
 from typing import Any, Final, Protocol
 
 from yfin.core.logging_setup import get_logger
-from yfin.stream.protocol import DecodeResult, Reject, decode_envelope, validate_subscription
+from yfin.stream.protocol import decode_envelope, validate_subscription
+from yfin.stream.rejects import DecodeResult, Reject
 from yfin.stream.topology import ConnectionPlan
 
 log = get_logger(__name__)

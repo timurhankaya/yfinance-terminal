@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
-from yfin.stream.protocol import REJECT_DECODE_FAILED, REJECT_UNKNOWN_SYMBOL, Reject
+from yfin.stream.rejects import REJECT_DECODE_FAILED, REJECT_UNKNOWN_SYMBOL, Reject
 from yfin.stream.repository import StreamRepository
 from yfin.stream.supervisor import StreamSupervisor, SupervisorConfig
 from yfin.stream.writer import TICK_COLUMNS, StreamWriter, SymbolFilter, WriterConfig

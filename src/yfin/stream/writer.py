@@ -46,7 +46,7 @@ from yfin.core.logging_setup import get_logger
 from yfin.models.stream import LiveQuote, LiveTick
 from yfin.storage.contracts import TableWrite, WriteStats, apply_write
 from yfin.storage.persistence import PostgresRowWriter
-from yfin.stream.protocol import Reject
+from yfin.stream.rejects import Reject
 from yfin.stream.repository import StreamRepository
 from yfin.stream.supervisor import StreamSupervisor
 
@@ -89,6 +89,15 @@ class SymbolFilter:
     miss, which would have discarded every tick of a newly added symbol
     for a whole TTL window -- and the reject sampling could have thrown
     away the evidence too.
+
+    The `symbols` SELECTs below are deliberately NOT in `repository.py`,
+    against the package rule. They ask whether a row EXISTS, which is the
+    foreign key's question; `repository.load_scope` asks whether a symbol
+    is ELIGIBLE (`is_active` plus the scope join). An inactive symbol
+    still satisfies the FK, so reusing the repository query here would
+    reject ticks the database would have accepted. Same table, different
+    question. The cache also has to outlive a batch, so it owns its own
+    session factory rather than borrowing the batch session.
     """
 
     def __init__(self, session_factory: sessionmaker[Session], ttl_seconds: float) -> None:
@@ -483,6 +492,13 @@ class StreamWriter:
         nobody. Using it would let one exchange arrive as both `nms` and
         `NMS` and split a single Kafka topic in two, which quietly halves
         the per-symbol ordering guarantee.
+
+        Not in `repository.py`, again against the package rule, and for a
+        different reason than `SymbolFilter`'s: this runs on the BATCH
+        session so the topic assignment is decided inside the same
+        transaction as the outbox row it labels. Every `repository.py`
+        method opens its own session, which would put this read outside
+        that transaction.
         """
         if not symbols:
             return {}

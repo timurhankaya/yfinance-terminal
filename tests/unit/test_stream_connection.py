@@ -30,7 +30,7 @@ from yfin.stream.connection import (
     StreamConnection,
     _Backoff,
 )
-from yfin.stream.protocol import DecodeResult
+from yfin.stream.rejects import DecodeResult
 from yfin.stream.topology import ConnectionPlan
 
 PLAN = ConnectionPlan(key="NMS", exchange="NMS", symbols=("AAPL", "MSFT"))

@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from yfin.stream.connection import STATE_OPEN, ConnectionHealth
-from yfin.stream.protocol import REJECT_DECODE_FAILED, DecodeResult, Reject
+from yfin.stream.rejects import REJECT_DECODE_FAILED, DecodeResult, Reject
 from yfin.stream.repository import ScopeEntry
 from yfin.stream.supervisor import (
     LatestBox,

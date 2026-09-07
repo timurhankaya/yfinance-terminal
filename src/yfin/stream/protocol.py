@@ -1,13 +1,33 @@
 """Yahoo's pricing protobuf -> a row for `live_ticks`.
 
-The only module in `yfin.stream` that imports yfinance, and it imports
-exactly one thing: the generated `PricingData` message. Everything the
-upstream client does around it (connecting, reconnecting, heartbeats) is
-reimplemented in `connection.py` -- see the design's K2 for why.
+The only module in `yfin.stream` with a yfinance import statement, and it
+imports exactly one thing: the generated `PricingData` message.
+Everything the upstream client does around it (connecting, reconnecting,
+heartbeats) is reimplemented in `connection.py` -- see the design's K2
+for why.
 
-No SQLAlchemy here, and no database concepts: this module turns bytes
-into a plain dict and a list of rejects. What happens to them is
-`writer.py`'s problem.
+That import statement being the only one does NOT mean the package is
+free of yfinance, and the difference is worth stating because it is easy
+to assume otherwise. `connection.py` imports `decode_envelope` from here
+to read a frame, `supervisor.py` imports `connection.py`, and `writer.py`
+imports `supervisor.py` to drain its queue -- so importing the writer
+loads yfinance and protobuf too (measured). That chain is functional and
+not worth breaking.
+
+What was worth breaking: `Reject` and `DecodeResult` used to live here,
+which meant every module that merely NAMED a dropped tick imported the
+decoder. They are in `rejects.py` now, a leaf with no `yfin` imports.
+Keep them there.
+
+This module opens no session and emits no SQL, but "knows nothing about
+the database" would be false twice over. `SYMBOL_LENGTH` comes from
+`models/base.py`, and `yfin.models` eagerly imports every model module to
+populate `Base.metadata` -- so importing this module loads SQLAlchemy and
+the full ORM to obtain one integer. Conceptually it is also the authority
+on the `live_ticks` row shape: the reject strings are
+`stream_rejects.reason` values, `FIELD_COLUMNS` names `live_ticks`
+columns, and the range guards are PostgreSQL's INTEGER bounds.
+`tests/unit/test_stream_schema.py` holds the two halves to each other.
 
 Two rules in here are load-bearing and easy to get wrong later:
 
@@ -28,7 +48,6 @@ import hashlib
 import json
 import math
 import struct
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Final
@@ -37,17 +56,18 @@ from yfinance.pricing_pb2 import PricingData
 
 from yfin.core import normalize as nz
 from yfin.models.base import SYMBOL_LENGTH
-
-# --- reject reasons (stream_rejects.reason) --------------------------------
-
-REJECT_DECODE_FAILED: Final = "decode_failed"
-REJECT_NO_TIMESTAMP: Final = "no_timestamp"
-REJECT_UNKNOWN_SYMBOL: Final = "unknown_symbol"
-REJECT_SYMBOL_TOO_LONG: Final = "symbol_too_long"
-REJECT_NON_FINITE: Final = "non_finite_field"
-REJECT_OUT_OF_RANGE: Final = "field_out_of_range"
-REJECT_EXPIRE_DATE_RANGE: Final = "expire_date_range"
-REJECT_MALFORMED_SUBSCRIPTION: Final = "malformed_subscription"
+from yfin.stream.rejects import (
+    REJECT_DECODE_FAILED,
+    REJECT_EXPIRE_DATE_RANGE,
+    REJECT_MALFORMED_SUBSCRIPTION,
+    REJECT_NO_TIMESTAMP,
+    REJECT_NON_FINITE,
+    REJECT_OUT_OF_RANGE,
+    REJECT_SYMBOL_TOO_LONG,
+    REJECT_UNKNOWN_SYMBOL,
+    DecodeResult,
+    Reject,
+)
 
 #: The only envelope type observed on the wire. yfinance never checks it.
 ENVELOPE_TYPE_PRICING: Final = "pricing"
@@ -85,11 +105,15 @@ QUOTE_TYPE_NAMES: Final[dict[int, str]] = {
 def is_extended_session(market_hours_code: int) -> bool:
     """Anything that is not the regular session counts as extended.
 
-    Used by the bar_gaps reconciliation to fill price_bars.is_extended,
-    which is NOT NULL. This is the reason market_hours is in
-    MEANINGFUL_ZERO: PRE_MARKET is code 0, so the generic
-    "default value -> NULL" rule would blank out exactly the rows that
-    most need the flag.
+    Called by `reconcile.py` to fill `price_bars.is_extended`, which is
+    NOT NULL. This is the reason market_hours is in MEANINGFUL_ZERO:
+    PRE_MARKET is code 0, so the generic "default value -> NULL" rule
+    would blank out exactly the rows that most need the flag.
+
+    It classifies the code Yahoo sent, which is not the same as the
+    market's real state: every message in the 2026-09-07 round carried
+    REGULAR on a day the US market was closed for a holiday (see
+    docs/measurements/websocket.md).
     """
     return market_hours_code != MARKET_HOURS_REGULAR
 
@@ -174,30 +198,6 @@ _INT_MAX: Final = 2_147_483_647
 #: unit mix-up rather than a date and dropped.
 _EXPIRE_MIN: Final = 0
 _EXPIRE_MAX: Final = 4_102_444_800  # 2100-01-01
-
-
-@dataclass(frozen=True)
-class Reject:
-    """One thing that was dropped, and why.
-
-    Mirrors stream_rejects. A reject is not always fatal to the row:
-    non_finite_field and field_out_of_range null one column and keep the
-    rest, because losing 32 good fields over one bad one would be worse
-    than the bad field.
-    """
-
-    reason: str
-    symbol: str | None = None
-    detail: str | None = None
-    raw_base64: str | None = None
-
-
-@dataclass
-class DecodeResult:
-    """A decoded message: at most one row, plus whatever was dropped."""
-
-    row: dict[str, Any] | None = None
-    rejects: list[Reject] = field(default_factory=list)
 
 
 def f32_decimal(value: float) -> Decimal:

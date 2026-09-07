@@ -32,7 +32,7 @@ from typing import Any
 
 from yfin.core.logging_setup import get_logger
 from yfin.stream.connection import ConnectionHealth, Connector, StreamConnection
-from yfin.stream.protocol import DecodeResult, Reject
+from yfin.stream.rejects import DecodeResult, Reject
 from yfin.stream.repository import ScopeEntry, StreamRepository
 from yfin.stream.topology import ConnectionPlan, plan_connections, plan_diff
 

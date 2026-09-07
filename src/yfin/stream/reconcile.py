@@ -41,7 +41,7 @@ from yfin.core.logging_setup import get_logger
 from yfin.models.bars import RESOLVED_BY_TICKS
 from yfin.storage.contracts import TableWrite, WriteStats, apply_write
 from yfin.storage.persistence import PostgresRowWriter
-from yfin.stream.protocol import MARKET_HOURS_REGULAR
+from yfin.stream.protocol import is_extended_session
 
 log = get_logger(__name__)
 
@@ -265,7 +265,7 @@ class GapReconciler:
                     # Anything outside the regular session counts as
                     # extended. This is why market_hours_code is NOT NULL
                     # and exempt from the presence rule: PRE_MARKET is 0.
-                    "is_extended": group[-1][2] != MARKET_HOURS_REGULAR,
+                    "is_extended": is_extended_session(group[-1][2]),
                 }
             )
         return bars
