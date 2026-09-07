@@ -30,12 +30,14 @@ from sqlalchemy.orm import sessionmaker
 
 from yfin.core.config import Settings, get_settings
 from yfin.core.logging_setup import get_logger
+from yfin.core.metrics import Accumulator, use_accumulator
 from yfin.core.text import comma_list
 from yfin.datasets.asof_base import GLOBAL_REGION_MARKER
 from yfin.datasets.domain.base import DomainContext, DomainDataset
 from yfin.datasets.domain.common import as_of_day, fetch_domain
 from yfin.datasets.registry import DOMAIN_DATASETS
 from yfin.models import Domain, DomainType, RunScope
+from yfin.pipeline import run_metrics
 from yfin.pipeline.audit import (
     ItemRecord,
     RunTally,
@@ -229,6 +231,9 @@ def run_domain_sync(
             return run_domain_sync(engine, datasets, settings=cfg, acquire_lock=False)
 
     factory = session_factory(engine)
+    # One process, so one shard: `shard_index=0`, and the exporter's
+    # sum over shards is a sum of one.
+    use_accumulator(Accumulator())
     proxy_id, proxy_label, tracker = setup_single_proxy(factory, cfg, label="domain")
 
     cache: dict[str, Any] = {}
@@ -317,6 +322,7 @@ def run_domain_sync(
     if tracker is not None:
         with factory() as session:
             tracker.flush(session)
+    run_metrics.flush(factory, run_id, shard_index=0)
     return finalize_run(factory, run_id, symbol_count=0, dataset_count=len(datasets))
 
 

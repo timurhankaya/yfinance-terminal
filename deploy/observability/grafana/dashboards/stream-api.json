@@ -1,0 +1,533 @@
+{
+  "uid": "yfin-stream-api",
+  "id": null,
+  "title": "yfin / Stream and API",
+  "description": "The two long-lived services that answer in real time. The stream's counters and its gauges say different things: the gauges are the CURRENT session as the tables record it, the counters are what this process has seen since it started.",
+  "tags": [
+    "yfin",
+    "stream",
+    "api"
+  ],
+  "timezone": "utc",
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "connections",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "sum(yfin_stream_connections)",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "subscribed",
+      "description": "What was actually SENT. Yahoo silently truncates past 100 per connection, so this is the number to check, not the scope size.",
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "yfin_stream_subscribed_symbols",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "canary age",
+      "description": "The canary sits at the END of each list. Silence here is the only signal that Yahoo truncated it.",
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "yfin_stream_canary_age_seconds",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": [],
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "heartbeat age",
+      "description": "",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "yfin_stream_heartbeat_age_seconds",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": [],
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "reconnects",
+      "description": "",
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "yfin_stream_reconnects",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "rejects",
+      "description": "",
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "yfin_stream_rejects",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "messages and rows",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "rate(yfin_stream_messages_total[5m])",
+          "refId": "A",
+          "legendFormat": "messages/s"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "sum by (table) (rate(yfin_stream_copy_rows_total[5m]))",
+          "refId": "B",
+          "legendFormat": "{{table}} rows/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "batch duration",
+      "description": "The number the batch interval has to stay under. Above it the queue grows, and an overflowing queue is how ticks are lost.",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(yfin_stream_batch_seconds_bucket[5m])))",
+          "refId": "A",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(yfin_stream_batch_seconds_bucket[5m])))",
+          "refId": "B",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": [],
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "rejects by reason",
+      "description": "Counted BEFORE the sampler that caps how many rows one (symbol, reason) pair may write -- so this is the number the `stream_rejects` table deliberately under-reports.",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "sum by (reason) (rate(yfin_stream_rejects_total[5m]))",
+          "refId": "A",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "relay passes",
+      "description": "A failure is a pass that did NOT advance the offset: the rows are retried, so it counts refusals to lose them.",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "sum by (outbox) (rate(yfin_relay_published_total[5m]))",
+          "refId": "A",
+          "legendFormat": "{{outbox}} published/s"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "sum by (outbox) (rate(yfin_relay_failures_total[5m]))",
+          "refId": "B",
+          "legendFormat": "{{outbox}} failures/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "API latency",
+      "description": "`handler` is the route TEMPLATE, never the path -- a symbol in a label would be a series per symbol.",
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, handler) (rate(yfin_http_request_duration_seconds_bucket[5m])))",
+          "refId": "A",
+          "legendFormat": "{{handler}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": [],
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "rate limiting",
+      "description": "Fail-open means the request was served UNMETERED because Redis was unreachable. It is counted as `allowed` too -- it really was -- and this is what says the count cannot be trusted.",
+      "gridPos": {
+        "x": 12,
+        "y": 19,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yfin-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "sum by (reason) (rate(yfin_api_ratelimit_decisions_total[5m]))",
+          "refId": "A",
+          "legendFormat": "{{reason}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "rate(yfin_api_concurrency_rejections_total[5m])",
+          "refId": "B",
+          "legendFormat": "concurrency"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yfin-prometheus"
+          },
+          "expr": "sum by (where) (rate(yfin_api_redis_failopen_total[5m]))",
+          "refId": "C",
+          "legendFormat": "fail-open {{where}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {}
+    }
+  ]
+}

@@ -1,0 +1,201 @@
+# The monitoring stack, and the environment that points the services at it.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml \
+#     --profile observability up -d
+#
+# A SECOND file rather than a profile inside the first, because it does two
+# different things: it adds seven containers, AND it adds environment to the
+# services in the base file. A profile can only do the first. Without this
+# file loaded, nothing tries to reach a collector that is not there --
+# METRICS_PORT stays 0, OTEL_EXPORTER_OTLP_ENDPOINT stays empty, and both
+# are read as "off" by design.
+#
+# The scheduler and the stream are NOT here. They live in the base file
+# because they are what keeps the data fresh, not part of what watches it;
+# this file only gives them a metrics port and a collector to talk to.
+
+x-otel-pipeline: &otel-pipeline
+  # 1.0 for the pipeline services: a sync runs a few thousand times a day,
+  # not a few million, and a sampled trace of a nightly job is a trace of
+  # the wrong night.
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4317
+  OTEL_TRACES_SAMPLER: parentbased_traceidratio
+  OTEL_TRACES_SAMPLER_ARG: "1.0"
+  LOG_FORMAT: json
+
+services:
+  # --- the base services, told where to publish ------------------------------
+
+  api:
+    environment:
+      # 0.1 here and 1.0 everywhere else. The API answers far more often
+      # than anything else in the stack, and a tenth of its traffic is
+      # already a representative sample.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4317
+      OTEL_TRACES_SAMPLER: parentbased_traceidratio
+      OTEL_TRACES_SAMPLER_ARG: "0.1"
+      LOG_FORMAT: json
+      # THE API ALONE. `prometheus_client` reads this at import time,
+      # process-wide, so setting it anywhere else would put that service
+      # into multiprocess mode too -- writing mmap files nobody collects
+      # while its own /metrics goes quiet. The entrypoint empties the
+      # directory before uvicorn starts, or files from dead workers would
+      # accumulate across restarts and be summed into every value.
+      PROMETHEUS_MULTIPROC_DIR: /tmp/yfin-prometheus
+      # No METRICS_PORT: the API serves /metrics on its own port through
+      # the instrumentator, and `serve_metrics` is never called there.
+
+  scheduler:
+    environment:
+      <<: *otel-pipeline
+      # The port Prometheus scrapes for everything the exporter reads out
+      # of a table -- freshness, the audit gauges, bar gaps, outbox lag.
+      METRICS_PORT: "9101"
+    healthcheck:
+      # Replaces the `disable: true` in the base file with a probe on the
+      # port this process actually listens on. `/metrics` answering means
+      # the exporter thread is alive, which is the thing worth checking.
+      disable: false
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9101/metrics').read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  stream:
+    environment:
+      <<: *otel-pipeline
+      METRICS_PORT: "9102"
+    healthcheck:
+      disable: false
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9102/metrics').read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  stream-relay:
+    environment:
+      <<: *otel-pipeline
+      METRICS_PORT: "9103"
+
+  changes-relay:
+    environment:
+      <<: *otel-pipeline
+      # 9104, not 9103. Two relays run the same code in two processes and
+      # would otherwise fight for one port -- the loser logs a warning and
+      # serves nothing, which is the quietest possible failure.
+      METRICS_PORT: "9104"
+
+  # --- the stack itself ------------------------------------------------------
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    container_name: yfin-prometheus
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 30 days. Long enough to compare this month's freshness against
+      # last month's, short enough to fit on a laptop.
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/observability/prometheus:/etc/prometheus:ro
+      - yfin-prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.2.1
+    container_name: yfin-grafana
+    profiles: ["observability"]
+    env_file:
+      # GF_SECURITY_ADMIN_PASSWORD and GRAFANA_ALERT_WEBHOOK live here
+      # rather than in compose's `${...}`: `env_file` does not feed
+      # interpolation, and these are secrets that should not be in a file
+      # that is committed.
+      - ./deploy/observability/.env
+    environment:
+      # Anonymous access off. The dashboards show the shape of the
+      # universe, the error rates and the proxy pool -- none of which is
+      # public information about a private pipeline.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: ""
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - yfin-grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.7.7
+    container_name: yfin-loki
+    profiles: ["observability"]
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./deploy/observability/loki:/etc/loki:ro
+      - yfin-loki-data:/loki
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:3.0.3
+    container_name: yfin-tempo
+    profiles: ["observability"]
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./deploy/observability/tempo:/etc/tempo:ro
+      - yfin-tempo-data:/var/tempo
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.19.2
+    container_name: yfin-alloy
+    profiles: ["observability"]
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    env_file:
+      - ./deploy/observability/.env
+    environment:
+      # Read by `sys.env` in config.alloy for the postgres exporter's DSN.
+      DB_HOST: timescaledb
+      DB_NAME: ${DB_NAME:-yfinance}
+    volumes:
+      - ./deploy/observability/alloy:/etc/alloy:ro
+      # READ-ONLY, and still root-equivalent access to the host for
+      # anything inside this container: the Docker API can start a
+      # privileged container. Accepted because the stack is local and
+      # optional; a socket proxy is the mitigation if that changes.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - yfin-alloy-data:/var/lib/alloy/data
+    ports:
+      - "${ALLOY_PORT:-12345}:12345"
+    restart: unless-stopped
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    container_name: yfin-kafka-exporter
+    profiles: ["observability"]
+    command: ["--kafka.server=kafka:9092"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  yfin-prometheus-data:
+  yfin-grafana-data:
+  yfin-loki-data:
+  yfin-tempo-data:
+  yfin-alloy-data:

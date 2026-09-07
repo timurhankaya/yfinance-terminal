@@ -44,7 +44,7 @@ def screen_sync(
         settings = settings.model_copy(update={"yf_screen_keys": screens})
     if max_pages is not None:
         settings = settings.model_copy(update={"yf_screen_max_pages": max_pages})
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_format)
     engine = create_db_engine(settings)
 
     selected = MARKET_DATASETS.resolve(["screener"])
@@ -143,7 +143,7 @@ def market_sync(
     from yfin.storage.db import LockNotAcquired, create_db_engine
 
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_format)
     engine = create_db_engine(settings)
 
     selected = MARKET_DATASETS.resolve(None if datasets.strip() == "all" else comma_list(datasets))

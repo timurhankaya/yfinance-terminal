@@ -1,0 +1,473 @@
+# What is worth waking someone for.
+#
+# Every threshold here is a STARTING VALUE, not a measurement. The design
+# says so and README repeats it: nothing in this file has been calibrated
+# against a month of real data yet, and the first thing to do after that
+# month is to replace these numbers and delete this paragraph.
+#
+# Two rules the whole file follows.
+#
+# **Nothing alerts on a service that may legitimately be off.** The relays
+# and the whole observability profile are opt-in; `up == 0` for them is a
+# panel on Overview, not a page. The scheduler and the exporter are
+# different -- if either is down, everything else here goes quiet and says
+# nothing, which is the worst failure mode a monitoring stack has.
+#
+# **`for:` is long on purpose.** A sync run takes hours and a scrape takes
+# fifteen seconds; almost every expression below is briefly true during a
+# normal run. The wait is what tells a transient from a condition.
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: yfin-availability
+    folder: yfin
+    interval: 1m
+    rules:
+      - uid: yfin-scheduler-down
+        title: SchedulerDown
+        condition: threshold
+        for: 5m
+        annotations:
+          summary: The scheduler is not being scraped
+          description: >-
+            No job will run and no gauge will refresh while this is true.
+            Every other alert in this file goes quiet with it, which is why
+            this one is first.
+        labels:
+          severity: critical
+        data:
+          - refId: query
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: yfin-prometheus
+            model:
+              expr: up{job="yfin-scheduler"}
+              instant: true
+              refId: query
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: query
+              conditions:
+                - evaluator: {type: lt, params: [1]}
+              refId: threshold
+        # OK rather than Alerting: a target that has never been scraped
+        # has no series, and `up` absent is the observability profile
+        # being off -- which is a choice, not an outage.
+        noDataState: OK
+        execErrState: Error
+
+      - uid: yfin-exporter-stale
+        title: ExporterStale
+        condition: threshold
+        for: 15m
+        annotations:
+          summary: The database exporter has not completed a clean pass
+          description: >-
+            A failing query keeps its previous gauges, so nothing looks
+            wrong -- the numbers simply stop moving. This timestamp is the
+            only thing that says so.
+        labels:
+          severity: warning
+        data:
+          - refId: query
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: yfin-prometheus
+            model:
+              # Three intervals of slack: the exporter refreshes every 300s
+              # and one slow pass must not page anyone.
+              expr: time() - yfin_exporter_last_success_timestamp
+              instant: true
+              refId: query
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: query
+              conditions:
+                - evaluator: {type: gt, params: [900]}
+              refId: threshold
+        noDataState: OK
+        execErrState: Error
+
+  - orgId: 1
+    name: yfin-pipeline
+    folder: yfin
+    interval: 1m
+    rules:
+      - uid: yfin-sync-failed
+        title: SyncFailed
+        condition: threshold
+        for: 5m
+        annotations:
+          summary: The last finished run of a scope failed
+          description: >-
+            2 is `failed`, 1 is `partial`. Only FINISHED runs carry a
+            verdict, so a long sync in flight cannot trip this.
+        labels:
+          severity: critical
+        data:
+          - refId: query
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: yfin-prometheus
+            model:
+              expr: max by (scope) (yfin_audit_status{kind="scheduled"})
+              instant: true
+              refId: query
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: query
+              conditions:
+                - evaluator: {type: gt, params: [1]}
+              refId: threshold
+        noDataState: OK
+        execErrState: Error
+
+      - uid: yfin-job-overdue
+        title: JobOverdue
+        condition: threshold
+        for: 30m
+        annotations:
+          summary: A scheduled job has not succeeded within twice its cadence
+          description: >-
+            The same factor the freshness rule uses. Seeded from
+            scheduler_runs at start-up, so a restart does not fire this for
+            every job at once.
+        labels:
+          severity: warning
+        data:
+          - refId: query
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: yfin-prometheus
+            model:
+              # `> 0` on the interval excludes a job with no cron: an
+              # unscheduled job cannot be overdue, and dividing by its
+              # cadence of zero would make it infinitely so.
+              expr: |
+                (time() - yfin_job_last_success_timestamp)
+                  > (2 * yfin_job_interval_seconds > 0)
+              instant: true
+              refId: query
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: query
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+              refId: threshold
+        noDataState: OK
+        execErrState: Error
+
+      - uid: yfin-job-partial
+        title: JobPartial
+        condition: threshold
+        for: 5m
+        annotations:
+          summary: A job is finishing partial or locked more often than not
+          description: >-
+            `locked` means the previous run was still going -- expected
+            once, a sign the cadence is too fast if it keeps happening.
+        labels:
+          severity: warning
+        data:
+          - refId: query
+            relativeTimeRange: {from: 21600, to: 0}
+            datasourceUid: yfin-prometheus
+            model:
+              expr: |
+                sum by (job_name) (increase(yfin_job_runs_total{result=~"partial|locked"}[6h]))
+                  > sum by (job_name) (increase(yfin_job_runs_total{result="ok"}[6h]))
+              instant: true
+              refId: query
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: query
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+              refId: threshold
+        noDataState: OK
+        execErrState: Error
+
+      - uid: yfin-cells-stale
+        title: CellsStale
+        condition: threshold
+        for: 1h
+        annotations:
+          summary: More than a tenth of the universe is stale
+          description: >-
+            A cell is stale when its last verified write is older than
+            yf_freshness_factor times the cadence of the job that writes
+            it. A ratio, not a count, so it means the same thing after the
+            universe grows.
+        labels:
+          severity: warning
+        data:
+          - refId: query
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: yfin-prometheus
+            model:
+              expr: yfin:cells_stale_ratio
+              instant: true
+              refId: query
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: query
+              conditions:
+                - evaluator: {type: gt, params: [0.1]}
+              refId: threshold
+        noDataState: OK
+        execErrState: Error
+
+      - uid: yfin-gaps-expiring
+        title: BarGapsExpiring
+        condition: threshold
+        for: 1h
+        annotations:
+          summary: Open bar gaps are approaching Yahoo's retention edge
+          description: >-
+            Past that edge the window can never be fetched again. For 1m
+            `yfin stream reconcile` can still close it from the tick
+            archive; for every other interval the data is gone for good.
+        labels:
+          severity: warning
+        data:
+          - refId: query
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: yfin-prometheus
+            model:
+              expr: sum(yfin_bar_gaps_expiring)
+              instant: true
+              refId: query
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: query
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+              refId: threshold
+        noDataState: OK
+        execErrState: Error
+
+      - uid: yfin-proxies-exhausted
+        title: ProxyPoolExhausted
+        condition: threshold
+        for: 15m
+        annotations:
+          summary: No eligible proxy is left
+          description: >-
+            Eligible is healthy plus unknown. At zero the pipeline either
+            runs on one IP or refuses to run, depending on
+            --require-proxy -- and both are slower than anybody expects.
+        labels:
+          severity: warning
+        data:
+          - refId: query
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: yfin-prometheus
+            model:
+              expr: sum(yfin_proxies{state=~"healthy|unknown"})
+              instant: true
+              refId: query
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: query
+              conditions:
+                - evaluator: {type: lt, params: [1]}
+              refId: threshold
+        # OK, not Alerting: a deployment with an empty pool by design --
+        # a single direct connection -- has no series here at all, and
+        # paging it about a pool it never had would be noise forever.
+        noDataState: OK
+        execErrState: Error
+
+  - orgId: 1
+    name: yfin-stream
+    folder: yfin
+    interval: 1m
+    rules:
+      - uid: yfin-stream-stale
+        title: StreamStale
+        condition: threshold
+        for: 10m
+        annotations:
+          summary: The stream canary has gone quiet
+          description: >-
+            The canary sits at the END of each subscription list, because
+            Yahoo truncates from the front and never says so. Silence here
+            is the only signal that the quota was exceeded or the
+            subscription was dropped -- message counts stay healthy while
+            the symbols past the cut receive nothing.
+        labels:
+          severity: warning
+        data:
+          - refId: query
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: yfin-prometheus
+            model:
+              expr: yfin_stream_canary_age_seconds
+              instant: true
+              refId: query
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: query
+              conditions:
+                # 10 minutes. Long enough to survive a quiet mid-session
+                # minute on a thin symbol, short enough to catch a
+                # truncation within one market open.
+                - evaluator: {type: gt, params: [600]}
+              refId: threshold
+        noDataState: OK
+        execErrState: Error
+
+      - uid: yfin-outbox-lag
+        title: OutboxLag
+        condition: threshold
+        for: 15m
+        annotations:
+          summary: A relay is not draining its outbox
+          description: >-
+            Growing rows with a growing age means the relay is stopped;
+            growing rows alone means it is behind. `yfin changes status`
+            shows the third case -- blocked behind an open writing
+            transaction, which is not a relay problem at all.
+        labels:
+          severity: warning
+        data:
+          - refId: query
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: yfin-prometheus
+            model:
+              expr: max by (outbox) (yfin_outbox_oldest_age_seconds)
+              instant: true
+              refId: query
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: query
+              conditions:
+                - evaluator: {type: gt, params: [900]}
+              refId: threshold
+        noDataState: OK
+        execErrState: Error
+
+  - orgId: 1
+    name: yfin-api
+    folder: yfin
+    interval: 1m
+    rules:
+      - uid: yfin-api-errors
+        title: ApiErrors
+        condition: threshold
+        for: 10m
+        annotations:
+          summary: More than 5% of API responses are 5xx
+          description: >-
+            5xx only. A 4xx is the client being told something true, and
+            counting it here would make a well-behaved API look broken
+            every time somebody mistyped a symbol.
+        labels:
+          severity: critical
+        data:
+          - refId: query
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: yfin-prometheus
+            model:
+              expr: yfin:api_error_ratio
+              instant: true
+              refId: query
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: query
+              conditions:
+                - evaluator: {type: gt, params: [0.05]}
+              refId: threshold
+        noDataState: OK
+        execErrState: Error
+
+      - uid: yfin-redis-failopen
+        title: RedisFailOpen
+        condition: threshold
+        for: 5m
+        annotations:
+          summary: Requests are being served unmetered
+          description: >-
+            The limiter, the concurrency guard and the usage counters all
+            fail OPEN by design -- a Redis outage must not take the API
+            down. The cost is that quotas are not enforced while it lasts
+            and the day's usage rows are marked estimated.
+        labels:
+          severity: warning
+        data:
+          - refId: query
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: yfin-prometheus
+            model:
+              expr: sum(rate(yfin_api_redis_failopen_total[5m]))
+              instant: true
+              refId: query
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: query
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+              refId: threshold
+        noDataState: OK
+        execErrState: Error
+
+  - orgId: 1
+    name: yfin-errors
+    folder: yfin
+    interval: 1m
+    rules:
+      - uid: yfin-error-logs
+        title: ErrorLogs
+        condition: threshold
+        for: 10m
+        annotations:
+          summary: Errors are being logged steadily
+          description: >-
+            There is no error-tracking service in this stack; this rule and
+            yfin_exceptions_total are what replace one. The structured
+            traceback is in Loki, and the log line links to its trace.
+        labels:
+          severity: warning
+        data:
+          - refId: query
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: yfin-loki
+            model:
+              expr: sum(count_over_time({stack="yfin", level="error"}[10m]))
+              queryType: instant
+              refId: query
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: query
+              conditions:
+                # 20 in ten minutes. A failing symbol logs one error and a
+                # nightly run over thousands of them legitimately logs
+                # some; this is meant to catch a loop, not a bad ticker.
+                - evaluator: {type: gt, params: [20]}
+              refId: threshold
+        noDataState: OK
+        execErrState: Error

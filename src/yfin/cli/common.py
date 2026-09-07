@@ -150,7 +150,11 @@ def engine() -> Engine:
     # package in behind it.
     from yfin.storage.db import create_db_engine
 
-    configure_logging(get_settings().log_level)
+    settings = get_settings()
+    # No `service` here. This is the shared engine helper behind two dozen
+    # commands, and naming one of them would name the wrong one for the
+    # rest; the entry points that ARE a service claim it themselves.
+    configure_logging(settings.log_level, settings.log_format)
     return create_db_engine()
 
 

@@ -32,8 +32,10 @@ from yfin.core.config import (
     settings_from_overrides,
 )
 from yfin.core.logging_setup import configure_logging, get_logger
+from yfin.core.metrics import Accumulator, use_accumulator
 from yfin.datasets import SYMBOL_DATASETS
 from yfin.ingest.client import configure_yfinance
+from yfin.pipeline import run_metrics
 from yfin.pipeline.audit import RunTally, finalize_run, open_run, record_not_attempted
 from yfin.pipeline.proxy_plan import (
     ProxyPlan,
@@ -127,16 +129,23 @@ def shard_main(spec: ShardSpec, queue: MPQueue[str]) -> None:
     settings = settings_from_overrides(spec.settings_overrides)
     install_settings(settings, spec.settings_overrides)
 
-    # First step: structlog runs with cache_logger_on_first_use=True, and
-    # module-level loggers cache configuration on first use. Logging before
-    # this silently falls back to an unconfigured PrintLogger in the child.
-    configure_logging(settings.log_level)
+    # First step, and the child names ITSELF: a shard's lines are `sync`,
+    # not the `scheduler` that started the process it was forked from.
+    # `spawn` gives the child no logging configuration at all, so anything
+    # logged before this would go to an unconfigured logger.
+    configure_logging(settings.log_level, settings.log_format, "sync")
 
     datasets = SYMBOL_DATASETS.resolve(list(spec.dataset_names))
     configure_yfinance(spec.proxy_dsn, proxy_key=spec.proxy_key, settings=settings)
 
     engine = create_db_engine(settings, spec.database, pool_size=CHILD_POOL_SIZE)
     tracker = tracker_for(spec.proxy_id, settings)
+
+    # From here on every `metrics.inc` in this process lands in memory. A
+    # shard exits long before any scrape could reach it, so the counters go
+    # to `run_metrics` on the way out and the exporter reads the table.
+    accumulator = Accumulator()
+    use_accumulator(accumulator)
     try:
         counters = run_shard(
             engine,
@@ -161,6 +170,16 @@ def shard_main(spec: ShardSpec, queue: MPQueue[str]) -> None:
             withdrawn=counters.withdrawn,
         )
     finally:
+        # In `finally`, so a shard that crashed still leaves the counters it
+        # managed to collect -- those are the ones worth having. `flush`
+        # swallows its own errors, so this cannot turn a failed run into a
+        # failed process.
+        run_metrics.flush(
+            sessionmaker(bind=engine, expire_on_commit=False, future=True),
+            spec.run_id,
+            spec.shard_index,
+            accumulator,
+        )
         engine.dispose()
 
 

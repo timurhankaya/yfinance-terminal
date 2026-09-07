@@ -11,6 +11,9 @@ can log or fail with it.
 
 from __future__ import annotations
 
+from importlib.metadata import version
+from typing import Any
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import (
@@ -29,6 +32,12 @@ from yfin.api.ratelimit.dependencies import UsageMiddleware
 from yfin.api.ratelimit.revocation import mark_api_redis
 from yfin.api.routers import meta, oauth
 from yfin.api.routers.v1 import datasets, market
+from yfin.core.config import bootstrap_settings
+from yfin.core.logging_setup import configure_logging, get_logger
+from yfin.core.metrics import set_build_info
+from yfin.core.tracing import configure_tracing, instrument_fastapi
+
+log = get_logger(__name__)
 
 TITLE = "yfin Data API"
 SUMMARY = "Read-only access to the yfin market data warehouse."
@@ -74,8 +83,102 @@ def _install_documentation_pages(app: FastAPI) -> None:
         )
 
 
+def build_instrumentator(registry: object | None = None) -> Any:
+    """The instrumentator, configured. Returns None without the package.
+
+    Split out so the four decisions below are one object a test can point
+    at its OWN registry -- which is the only way to observe them. The
+    default registry is process-wide, and `prometheus-fastapi-instrumentator`
+    answers a duplicate registration by returning None from its metric
+    factory and attaching no instrumentation at all: the SECOND app built
+    in one process gets a `/metrics` endpoint that will never move. That is
+    harmless in production, where there is one app per process, and it is
+    exactly what makes a second app in a test suite silently record
+    nothing.
+
+    Four parameters, each turning off something whose default would cost
+    more than it explains:
+
+    * `should_group_status_codes=False` -- `2xx` cannot tell a 200 from a
+      204, and the difference between 401 and 403 is the whole auth story.
+    * `should_instrument_requests_inprogress=False` -- an in-progress GAUGE
+      is meaningless under `PROMETHEUS_MULTIPROC_DIR`, where four workers
+      write four files and the collector takes one value per series.
+    * `excluded_handlers` -- at a fifteen-second scrape and a ten-second
+      probe, these two would be most of the traffic the API reports on.
+    * the default registry -- shared with `core/metrics.py`, so the
+      hand-written counters and the HTTP ones come out of one endpoint.
+    """
+    try:
+        from prometheus_fastapi_instrumentator import Instrumentator
+    except ImportError as exc:  # pragma: no cover - the package is in [api]
+        log.warning("http metrics not installed", error=str(exc))
+        return None
+
+    kwargs: dict[str, Any] = {} if registry is None else {"registry": registry}
+    return Instrumentator(
+        should_group_status_codes=False,
+        should_instrument_requests_inprogress=False,
+        excluded_handlers=["/metrics", "/health"],
+        **kwargs,
+    )
+
+
+def _install_metrics(app: FastAPI) -> None:
+    """HTTP metrics, and the `/metrics` endpoint that serves them.
+
+    After the routers, before the UI mount: the instrumentator names its
+    `handler` label from the route TEMPLATE, so it has to see the routes;
+    and the UI is a static mount with no templates to name.
+
+    `include_in_schema=False`: `/metrics` is not part of the published
+    contract. `test_api_contract.py` filters paths by the `("/v1",
+    "/oauth", "/health")` prefixes and would not have noticed either way,
+    which is why it now asserts the absence explicitly.
+
+    The endpoint carries the same per-IP cap as `/health/ready`: it is
+    unauthenticated and renders every series the process holds.
+
+    Imported here rather than at module level, so a deployment missing the
+    package still builds an app. The miss is a warning and the API runs
+    without `/metrics`, on the same rule as `serve_metrics`: observability
+    never blocks the work.
+    """
+    try:
+        from fastapi import Depends
+    except ImportError as exc:  # pragma: no cover - the package is in [api]
+        log.warning("http metrics not installed", error=str(exc))
+        return
+
+    instrumentator = build_instrumentator()
+    if instrumentator is None:
+        return
+
+    from yfin.api.core.window import metrics_window
+
+    instrumentator.instrument(app, metric_namespace="yfin")
+    instrumentator.expose(
+        app,
+        include_in_schema=False,
+        dependencies=[Depends(metrics_window)],
+    )
+
+
 def create_app(settings: ApiSettings | None = None) -> FastAPI:
     settings = settings or get_api_settings()
+
+    # Explicitly, and here, rather than leaving it to whichever engine
+    # happens to be built first. Two reasons: the API is the process that
+    # has to call itself `api` on every line, and uvicorn installs its own
+    # handlers on import -- configuring after that would leave the access
+    # log rendering through a chain that does not redact.
+    #
+    # `bootstrap_settings` because `log_level` and `log_format` are
+    # env-only: reading them must not require a database, and `create_app`
+    # runs in `dump_openapi.py` where there is none.
+    configure_logging(
+        bootstrap_settings().log_level, bootstrap_settings().log_format, "api"
+    )
 
     app = FastAPI(
         title=TITLE,
@@ -142,6 +245,13 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.include_router(oauth.router)
     app.include_router(market.router)
     app.include_router(datasets.router)
+
+    _install_metrics(app)
+    # After the routers, like the instrumentator: the span name is the
+    # route template, so the routes have to exist first.
+    configure_tracing("api")
+    instrument_fastapi(app)
+    set_build_info(version("yfin"))
 
     if settings.ui_enabled:
         # Imported here, not at module level, so a deployment with the UI

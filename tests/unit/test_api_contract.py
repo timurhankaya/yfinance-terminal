@@ -261,6 +261,25 @@ def test_every_route_is_named(document: dict[str, Any]) -> None:
     assert routed - set(OPERATION_IDS) == set()
 
 
+def test_metrics_is_NOT_in_the_document(document: dict[str, Any]) -> None:
+    """`/metrics` is operational, not part of what a client is promised:
+    it publishes internal handler names and its format is Prometheus's to
+    change, not ours.
+
+    Explicit, because nothing else here would notice. Every path check
+    above filters on the `("/v1", "/oauth", "/health")` prefixes, so a
+    `/metrics` that leaked into the document would pass all of them and
+    then be a route we had promised to keep.
+    """
+    from yfin.api.core.openapi import walk_routes
+
+    assert "/metrics" not in document["paths"]
+    # And it really is mounted: an assertion that only checked the absence
+    # would still pass if the endpoint were never installed at all.
+    app = create_app(api_settings())
+    assert "/metrics" in {route.path for route in walk_routes(app.routes)}
+
+
 def test_operation_ids_are_camel_case_and_unique(document: dict[str, Any]) -> None:
     ids = [
         operation["operationId"]

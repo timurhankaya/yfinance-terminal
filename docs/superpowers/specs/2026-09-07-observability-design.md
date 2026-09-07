@@ -915,3 +915,262 @@ After the second review:
   the prefix-filter fact, entrypoint file, grant narrowed, interval
   computation, `apply_write` location, env-only count, measurements
   index, line references.
+
+While implementing step 6 (the exporter):
+
+- **The freshness statement is one aggregation, not two `DISTINCT ON`
+  CTEs joined together.** The literal shape in "The database exporter"
+  above was implemented first and measured at 4.24 s median on the
+  synthetic 10,000 × 49 table; the join could only merge on `symbol`
+  (`region IS NOT DISTINCT FROM` is not mergeable) and discarded 23.0 of
+  23.5 million rows in a join filter. Replacing it with a single
+  `GROUP BY (symbol, region, dataset)` carrying
+  `(array_agg(worst ORDER BY run_id DESC))[1]` and
+  `MAX(started_at) FILTER (WHERE worst IN good)` gives the same numbers --
+  the 65 repo cases passed unchanged across the swap -- at **2.35 s**.
+  `docs/measurements/observability.md`.
+- **The acceptance criterion holds only with `--audit-days` set.** The
+  cost scales with `sync_run_items` rows, not with cells: three nights of
+  history is 2.35 s, seven is 4.89 s and fails the 5 s criterion. Audit
+  retention is therefore a requirement of running the exporter, not an
+  option, and the README note has to say so.
+- **`ix_sync_run_items_cell_run` is not used by the freshness query.** It
+  reads every cell, so the planner scans sequentially. Measured, recorded,
+  and deliberately not acted on: the index still serves a single-cell
+  "why is this symbol stale" lookup, and dropping it is a migration.
+- **`asof_state` is the right shape and the wrong contents.** The same
+  question over it costs 0.048 s -- forty-nine times faster -- but it
+  carries no status and no region, so neither the universe rule nor a
+  domain cell can be expressed. If freshness outgrows its budget the next
+  design is a watermark table carrying both, and the measurement is the
+  evidence it would run in milliseconds.
+- **The exporter republishes the shard counters without `_total`.**
+  `yfin_sync_yahoo_requests_total` in `run_metrics` becomes the gauge
+  `yfin_sync_yahoo_requests{scope,dataset,outcome}`, which is what the
+  `yfin_sync_<name>{scope,...labels}` line above already spelled. The
+  suffix has to go: the value is the latest run's, not a monotonic total
+  of the scheduler process, and keeping it would register one name with
+  two label sets. Derived from the counter declarations rather than
+  listed, so a new counter is exported with no second edit.
+  `yfin_cells_total` keeps its `_total` -- there it is the denominator of
+  `yfin_cells_stale`, not the counter suffix.
+- **Three labels join the closed set**: `error_kind` (because
+  `yfin_audit_errors` already spends `kind` on the scheduled/manual
+  split), `query` (the exporter's self-health) and `version`. `version`
+  makes the code match this document's own `yfin_build_info{version}`;
+  step 1 had declared it with `type`.
+- **Both outboxes are exported.** The changes design has landed, so
+  `relay_lag(spec)` is generalised and the exporter reports
+  `stream_outbox` and `pipeline_outbox` rather than the first alone.
+- **`yfin_job_runs_total` is a real counter**, incremented in the
+  scheduler where the result is decided, including for the `misfired` and
+  `skipped` firings that never become a subprocess. The other five job
+  metrics are gauges the exporter reads from `SchedulerService` through a
+  callable -- `job_samples()` -- rather than from a table, and a job that
+  has never run or never succeeded reports NO timestamp rather than 0,
+  which would read as the epoch and fire `JobOverdue` on the day a job is
+  added.
+- **A query owns the gauges it clears.** Clearing happens only after the
+  query returned, so a failure leaves the previous refresh standing; and
+  it is per query rather than global, so a failing query cannot wipe
+  numbers another one filled in the same pass. A test asserts no two
+  queries own the same gauge.
+
+While implementing step 7 (logging):
+
+- **`service` is a processor, not a contextvar.** The design says it is
+  bound with `bind_contextvars` at each entry point. It cannot be:
+  `ThreadPoolExecutor` does not copy the context into its workers -- which
+  is why `bind_shard_context` exists and is called again in every thread --
+  so a `service` bound that way would be missing from exactly the fetch and
+  normalise lines a dashboard filters by service to find. It is module
+  state written by `configure_logging(service=...)` and added by
+  `_add_service`, which puts it on every line including foreign records and
+  worker threads. A test submits a log call to a pool and asserts the field
+  survives.
+- **`cache_logger_on_first_use=False`.** A cached logger keeps the chain it
+  was built with, and `configure_logging` is deliberately called more than
+  once per process -- by a CLI command, then by `create_app`, then by a
+  shard once it has read its settings. The design worked around this by
+  requiring `create_app` to configure first; the explicit call is still
+  there, for the uvicorn access log rather than for the cache.
+- **Exception rendering lives in the formatter, not the shared chain.** The
+  two renderers want it in different shapes -- `ConsoleRenderer` formats
+  `exc_info` itself, `JSONRenderer` needs it already turned into data -- and
+  `ProcessorFormatter` has moved `record.exc_info` into the event dict by
+  then, so a stdlib record's traceback is still rendered by the same code
+  as a structlog one's. `show_locals=False` on BOTH sides rather than only
+  the JSON one: a console traceback on a terminal is one `2>` away from a
+  file. Two tests raise inside a function holding a DSN local and assert
+  neither rendering leaks it.
+- **The `[otel]` extra lands here rather than in step 9.**
+  `_add_trace_context` is step 7's, and it has to type-check; the extra is
+  also the repo's existing answer to an optional dependency (the `kafka`
+  pattern), where the alternative would have been a mypy override claiming
+  a package with `py.typed` has none. `configure_tracing` and the manual
+  spans stay in step 9.
+- **`_add_trace_context` imports the FUNCTION**, `from
+  opentelemetry.trace import get_current_span`, not the module:
+  `opentelemetry` is a namespace package and importing `trace` from it
+  leaves mypy resolving the name against the namespace rather than against
+  `opentelemetry-api`. The miss is latched in a module flag so a process
+  without the extra pays one `ImportError`, not one per line.
+- **A missing span adds nothing, not zeros.** An all-zero id is what
+  OpenTelemetry returns for the invalid span, and Grafana's
+  `derivedFields` would turn it into a link to a trace that does not exist.
+
+While implementing step 8 (the API):
+
+- **The instrumentator is built by `build_instrumentator(registry=None)`,
+  separate from installing it.** Not decoration: on a duplicate metric
+  registration `prometheus-fastapi-instrumentator` returns `None` from its
+  metric factory and attaches NO instrumentation, so the SECOND app built
+  in one process serves a `/metrics` that never moves. Production has one
+  app per process and is unaffected; a test suite builds dozens, and
+  against the default registry every assertion about the series would pass
+  or fail on collection order. The split lets a test point the same four
+  parameters at its own registry and actually observe what they do.
+- **Two windows, not one.** `api/core/window.py` keeps a FixedWindow PER
+  ENDPOINT NAME rather than one shared instance. A Prometheus scraping
+  every fifteen seconds is four requests a minute; sharing a bucket with
+  `/health/ready` would let the scrape spend a Kubernetes probe's
+  allowance, and the two failures would be indistinguishable.
+- **`yfin_api_problems_total` is incremented BEFORE the token-endpoint
+  branch** in `problem_response`. An error that leaves in the RFC 6749
+  shape is still an error the dashboard has to see, and counting after the
+  branch would make `/oauth/token` the one path whose failures are
+  invisible.
+- **The fail-open counter is incremented alongside the decision, not
+  instead of it.** A request the limiter let through because Redis was
+  gone is counted as `reason="allowed"` AND as
+  `where="limiter"`: it really was allowed, and the second counter is what
+  says the first one cannot be trusted for that minute.
+- **`_is_noise` skips `/health` by prefix and `/metrics` exactly.** The
+  request-log skip is a prefix match on `/health/` plus two literals rather
+  than a blanket `startswith`, so a future `/healthcheck-report` would be
+  logged like any other route.
+- **`prometheus-fastapi-instrumentator` is in the `[api]` extra**, floored
+  at 8.1.0 rather than pinned: unlike `prometheus-client`, it does not
+  decide anything at import time, and the thing worth pinning exactly is
+  the library whose value class the whole process inherits.
+
+While implementing step 9 (stream, relays, tracing):
+
+- **`metrics.timed(name, **labels)`** joins `inc` and `set_gauge`: a
+  context manager that records into a histogram and records EVEN WHEN THE
+  BLOCK RAISES. A pass that failed is still a pass that took time, and
+  dropping its duration would flatten the histogram exactly when something
+  is going wrong. There is no accumulator branch -- `run_metrics` stores
+  integers keyed by name and labels, which is a counter's shape and not a
+  histogram's, and a shard's durations already go to
+  `sync_run_items.duration_ms`.
+- **`yfin_stream_rejects_total` is incremented BEFORE the sampler.**
+  `RejectSampler` caps how many rows one `(symbol, reason)` pair may write,
+  so `stream_rejects` deliberately under-reports a storm. Counting after it
+  would make the metric agree with the table and both be wrong; the metric
+  is the number that is not sampled.
+- **`yfin_cache_ops_total{cache="symbol_filter"}` counts SYMBOLS, not
+  calls.** A batch of 500 ticks holding one unknown symbol is 499 hits and
+  one miss; counting calls would report that batch as a 100 % miss and the
+  ratio would be unreadable.
+- **An empty relay pass is not timed and draws no span.** At the idle poll
+  rate empty passes would be most of the histogram and would pull the
+  median to zero on exactly the graph that answers "is the relay keeping
+  up".
+- **`scheduler.job` sets `result` INSIDE the span.** A span that has ended
+  takes no further attributes, and `result` is the one thing anybody would
+  filter these traces by -- so the exit-code mapping moved inside the
+  `with` block. The subprocess is deliberately not a child of this span:
+  no context crosses the fork, and pretending otherwise would draw a trace
+  the collector never receives.
+- **`sync.dataset.fetch` covers fetch AND normalize.** They are not
+  separable from the outside, and both run on the worker thread no
+  automatic instrumentation reaches -- yfinance talks through `curl_cffi`,
+  which has no OTel instrumentation at all.
+- **`yfin_build_info` is set in the scheduler and the API** from
+  `importlib.metadata.version`, which is the first thing that actually
+  writes the gauge step 1 declared.
+
+While implementing step 10 (image, compose, provisioning) and running the
+stack against a live pipeline:
+
+- **`job` is a RESERVED Prometheus label, and `yfin_job_*{job}` was
+  broken.** A scrape stamps `job` and `instance` from the scrape config; a
+  metric carrying its own `job` is not rejected but silently RENAMED to
+  `exported_job`, and `job` becomes the scrape job's name. So every
+  `by (job)` in a dashboard grouped by a label with one value and
+  `JobOverdue` matched nothing. Found on the running stack, not in review:
+  the exposition text looked right and only the ingested series was wrong.
+  The label is now `job_name`, `job` and `instance` are OUT of
+  `ALLOWED_LABELS`, and a test asserts no metric uses either.
+- **`scheduler` and `stream` are in the BASE compose file, unprofiled,
+  with `restart: unless-stopped`.** The design put `scheduler` in the
+  `observability` profile and `stream` in a `stream` profile. Both are
+  wrong for what they are: these two processes are what keeps the
+  warehouse current, not part of the stack that watches it, and gating
+  them behind a monitoring profile means the data stops being fresh
+  whenever somebody brings the stack up without it. The two RELAYS keep a
+  profile (`kafka`) -- both refuse to start when their feature is off, and
+  a service that exits 1 under `restart: unless-stopped` is a crash loop
+  rather than a disabled feature.
+- **Non-API services disable the inherited HEALTHCHECK in the base file.**
+  The image's check asks `127.0.0.1:8000/health`, which only the API
+  serves; inherited, every other service reports permanently unhealthy,
+  which is worse than no check. The observability override replaces it
+  with a probe on the service's own `/metrics` port -- which also makes
+  "the exporter thread is alive" a thing Docker checks.
+- **Tempo 3.0 is not a 2.x config.** `grafana/tempo:3.0.3` replaced the
+  ingester/compactor pair with a block-builder, a live-store and a backend
+  scheduler/worker; the top-level `ingester:` and `compactor:` keys are a
+  hard parse error (`field ingester not found in type app.Config`) and the
+  container restarts forever. Retention is `backend_worker.compaction.
+  block_retention`; `trace_idle_period` has no 3.x equivalent at this
+  level and is dropped. Verified against the pinned image.
+- **`alloy fmt --test`, not `--check`.** The flag in the design does not
+  exist in v1.19.2. CI runs `fmt --test` through the pinned image, along
+  with `promtool check config`, `promtool check rules`, and a
+  `docker compose config` over both files.
+- **Ports the stack publishes are parameterised.** `PROMETHEUS_PORT`,
+  `GRAFANA_PORT` and `ALLOY_PORT` join the existing `DB_PORT`,
+  `REDIS_PORT` and `API_PORT`, because a developer machine very often
+  already has something on 9090 and 3000 -- this one did, and the stack
+  would not start.
+- **`tests/unit/test_observability_stack.py`** checks the two things a
+  YAML linter cannot: that every metric named in a dashboard panel or an
+  alert expression is DECLARED in `core/metrics.py`, and that the wiring
+  between the compose files agrees with itself (one service per metrics
+  port, `PROMETHEUS_MULTIPROC_DIR` on the API alone, every published port
+  scraped).
+
+While implementing step 11 (measurements and the integration run):
+
+- **`stream reconcile` reported `failed` where the design says `locked`.**
+  It takes the SYNC advisory lock and did not catch `LockNotAcquired`, so
+  a collision reached the generic handler, exited 1, and the scheduler
+  recorded `failed`. Found on the running stack: an hourly
+  `stream_reconcile` behind a 33-hour backfill did this every hour, and
+  would have fired `SyncFailed` and `JobPartial` for what is the advisory
+  lock working exactly as designed. It now exits
+  `EXIT_LOCK_NOT_ACQUIRED`; a test asserts every command that takes a lock
+  maps it.
+- **JSON logging is CHEAPER than console**, by about 20 % (15.3 µs against
+  18.9 µs per line). The design assumed the opposite. `ConsoleRenderer`
+  pads keys, aligns columns and decides colours; `JSONRenderer` is one
+  `json.dumps` -- and the console figure was measured with colours OFF,
+  which is the favourable case. The format is therefore chosen for who
+  reads it and not for what it costs, which is what `LOG_FORMAT`'s default
+  already does.
+- **Tracing at sampling 1.0 costs 0.004 % of a symbol's wall clock.** 47
+  spans per symbol at 16.7 µs each is 0.78 ms, against a symbol that takes
+  20 seconds. The design's worry that a span per dataset was too many is
+  not borne out.
+- **The metrics endpoint holds the GIL for 0.0062 % of wall clock** at a
+  15-second scrape: 0.93 ms to render 323 lines. Against `websocket.md`'s
+  22,291 ticks/s ceiling that is 1.4 ticks of delay per scrape, inside a
+  batch carrying hundreds. The regular-session comparison is still open --
+  this was measured with the equity markets closed.
+- **A full pass over 5,888 symbols on ONE IP takes 33 hours** at the
+  measured 176 symbols/hour, so a nightly cadence cannot complete and
+  every firing after the first exits `locked`. Freshness at that universe
+  size is a proxy-pool decision, not a scheduler one: the pipeline shards
+  one process per proxy, so the pass time divides by the pool size.

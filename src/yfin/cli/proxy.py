@@ -51,7 +51,7 @@ def proxy_add(
     from yfin.models import Proxy, ProxyScheme
 
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_format)
     try:
         endpoint = px.parse_dsn(url)
     except ValueError as exc:
@@ -230,7 +230,7 @@ def proxy_check(
     from yfin.models import Proxy
 
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_format)
     policy = px.ProxyPolicy.from_settings(settings)
     factory = session_factory()
 

@@ -27,15 +27,18 @@ def scheduler_run() -> None:
     job, but each job's own lock is what stops the damage -- and running two
     is an operator error that a lock here would only half-hide.
     """
+    from importlib.metadata import version
+
     from sqlalchemy import Engine
 
     from yfin.core.config import get_settings
     from yfin.core.logging_setup import configure_logging
-    from yfin.core.metrics import serve_metrics
+    from yfin.core.metrics import serve_metrics, set_build_info
+    from yfin.core.tracing import configure_tracing, instrument_sqlalchemy
     from yfin.scheduler.service import SchedulerService
 
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_format, "scheduler")
 
     db = engine()
     assert isinstance(db, Engine)
@@ -44,6 +47,9 @@ def scheduler_run() -> None:
     # its port is the one Prometheus scrapes for everything read from a
     # table. 0 means off, which is the default.
     serve_metrics(settings.metrics_port)
+    set_build_info(version("yfin"))
+    configure_tracing("scheduler")
+    instrument_sqlalchemy(db)
 
     SchedulerService(db, settings=settings).run()
 

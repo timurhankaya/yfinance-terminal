@@ -24,6 +24,7 @@ from yfin.api.models.clients import ApiClient
 from yfin.api.models.plans import ApiPlan
 from yfin.api.storage.session import get_session_factory
 from yfin.core.logging_setup import get_logger
+from yfin.core.metrics import inc
 
 log = get_logger(__name__)
 
@@ -80,6 +81,13 @@ _cache = _TtlCache(CACHE_TTL_SECONDS)
 
 def limits_for_client(client_id: str) -> PlanLimits:
     cached = _cache.get(client_id)
+    # A miss is a two-table join on the request path, so the ratio is the
+    # number that says whether the TTL is set anywhere near right.
+    inc(
+        "yfin_cache_ops_total",
+        cache="plan_limits",
+        result="miss" if cached is None else "hit",
+    )
     if cached is not None:
         return cached
 

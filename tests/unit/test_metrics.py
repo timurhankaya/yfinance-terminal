@@ -186,3 +186,187 @@ class TestCountException:
 def test_a_spec_can_be_declared_without_labels() -> None:
     spec = MetricSpec(name="yfin_probe_total", documentation="x", kind="counter")
     assert spec.labelnames == ()
+
+
+class TestGauges:
+    """The exporter's side of the API.
+
+    A gauge is a NUMBER READ FROM A TABLE, republished on the scheduler's
+    `/metrics`. It has no `_total`, it can go down, and the set of label
+    combinations it carries changes between refreshes -- a dataset can leave
+    the universe, a proxy can be deleted, a stream connection can close.
+    """
+
+    def test_gauges_do_not_carry_the_total_suffix(self) -> None:
+        """`yfin_cells_total` is the one exception, and it is the spec's own
+        name: there `_total` is the denominator of `yfin_cells_stale`, not
+        the Prometheus counter suffix. Everything else read from a table
+        drops it, so a gauge never looks like a monotonic counter."""
+        from yfin.core.metrics import METRICS
+
+        for spec in METRICS.values():
+            if spec.kind == "gauge" and spec.name != "yfin_cells_total":
+                assert not spec.name.endswith("_total"), spec.name
+
+    def test_no_name_is_both_a_counter_and_a_gauge(self) -> None:
+        """The whole reason the exported names drop `_total`: one name with
+        two label sets cannot be registered, and would not mean one thing."""
+        from yfin.core.metrics import METRICS
+
+        assert len({spec.name for spec in METRICS.values()}) == len(METRICS)
+
+    def test_setting_one_does_not_raise(self) -> None:
+        from yfin.core.metrics import set_gauge
+
+        set_gauge("yfin_cells_total", 3, scope="symbols", dataset="info")
+
+    def test_an_undeclared_label_is_refused(self) -> None:
+        """Same contract as the counters: `set_gauge` swallows it, but the
+        validation underneath is what a test can see."""
+        from yfin.core.metrics import METRICS, _validate
+
+        with pytest.raises(ValueError, match="label"):
+            _validate("yfin_cells_total", {"symbol": "AAPL"})
+        assert "scope" in METRICS["yfin_cells_total"].labelnames
+
+    def test_setting_a_gauge_never_raises(self) -> None:
+        """An exporter that crashed on a bad label would take the scheduler
+        process with it, and the scheduler is what runs the jobs."""
+        from yfin.core.metrics import set_gauge
+
+        set_gauge("yfin_not_declared_at_all", 1)
+        set_gauge("yfin_cells_total", 1, nonsense="x")
+
+    def test_clearing_one_never_raises(self) -> None:
+        from yfin.core.metrics import clear_gauge
+
+        clear_gauge("yfin_not_declared_at_all")
+
+    def test_a_vanished_label_set_can_be_dropped(self) -> None:
+        """A cell that leaves the universe must stop being reported, or the
+        last value it had would sit on the dashboard forever."""
+        from yfin.core.metrics import _object, clear_gauge, set_gauge
+
+        def series() -> list[tuple[str, ...]]:
+            """This gauge's label combinations, and no other metric's.
+
+            Read off the object rather than out of `generate_latest()`: the
+            whole registry is process-wide, so any other test that ever
+            published a `market_status` label would make a text search pass
+            or fail for reasons that have nothing to do with clearing.
+            """
+            return [
+                tuple(sample.labels.values())
+                for metric in _object("yfin_cells_total").collect()
+                for sample in metric.samples
+            ]
+
+        set_gauge("yfin_cells_total", 7, scope="market", dataset="market_status")
+        assert ("market", "market_status") in series()
+        clear_gauge("yfin_cells_total")
+        assert series() == []
+
+
+class TestTheRepublishedSyncCounters:
+    """What a shard accumulated, read back out of `run_metrics`.
+
+    The exporter publishes them as GAUGES with an extra `scope` label, and
+    without `_total`: the value is the latest run's, not a monotonic total
+    of this process's, and a name must never carry two label sets.
+    """
+
+    def test_every_shard_counter_has_an_exported_gauge(self) -> None:
+        from yfin.core.metrics import METRICS, exported_name
+
+        for spec in METRICS.values():
+            if spec.name.startswith("yfin_sync_") and spec.kind == "counter":
+                gauge = METRICS[exported_name(spec.name)]
+                assert gauge.kind == "gauge"
+                assert gauge.labelnames == ("scope", *spec.labelnames)
+
+    def test_the_exported_name_drops_the_total(self) -> None:
+        from yfin.core.metrics import exported_name
+
+        assert exported_name("yfin_sync_retries_total") == "yfin_sync_retries"
+
+
+class TestTheServiceCounters:
+    """What the long-lived services count, and why the names differ from
+    the exporter's gauges for the same thing."""
+
+    def test_a_histogram_can_be_observed(self) -> None:
+        from yfin.core.metrics import observe
+
+        observe("yfin_stream_batch_seconds", 0.012)
+
+    def test_observing_never_raises(self) -> None:
+        """A batch that failed to be timed is still a batch that was
+        written, and the timing is worth less than the write."""
+        from yfin.core.metrics import observe
+
+        observe("yfin_not_declared", 1.0)
+        observe("yfin_stream_batch_seconds", 1.0, nonsense="x")
+
+    def test_timed_records_even_when_the_block_raises(self) -> None:
+        """A pass that failed is still a pass that took time; dropping it
+        would flatten the histogram exactly when something is going wrong."""
+        from prometheus_client import generate_latest
+
+        from yfin.core.metrics import timed
+
+        with pytest.raises(ValueError, match="boom"), timed(
+            "yfin_relay_pass_seconds", outbox="stream_outbox"
+        ):
+            raise ValueError("boom")
+        assert b"yfin_relay_pass_seconds_count" in generate_latest()
+
+    def test_the_stream_counter_and_the_stream_gauge_are_different_names(
+        self,
+    ) -> None:
+        """The table says what the CURRENT session has seen; the counter
+        says what this process has seen since it started. A reconnect storm
+        that ends in a new session shows in one and not the other."""
+        assert METRICS["yfin_stream_reconnects_total"].kind == "counter"
+        assert METRICS["yfin_stream_reconnects"].kind == "gauge"
+
+    def test_every_relay_metric_is_labelled_by_outbox(self) -> None:
+        """Two relays run the same code in two processes. Without the
+        label a tick backlog and a change backlog would be one number."""
+        for name, spec in METRICS.items():
+            if name.startswith("yfin_relay_"):
+                assert "outbox" in spec.labelnames, name
+
+    def test_the_histograms_are_declared_as_histograms(self) -> None:
+        for name in ("yfin_stream_batch_seconds", "yfin_relay_pass_seconds"):
+            assert METRICS[name].kind == "histogram"
+
+
+class TestTheReservedLabels:
+    """`job` and `instance` belong to Prometheus, not to us.
+
+    A scrape stamps both from the scrape config. A metric that carries its
+    own is not rejected -- it is silently RENAMED to `exported_job` while
+    `job` becomes the scrape job's name, so every `by (job)` in a dashboard
+    groups by a label with one value and every alert that filters on it
+    matches nothing.
+
+    Found on the running stack, not in review: the series looked right in
+    the exposition text and wrong only after Prometheus had ingested it.
+    """
+
+    def test_no_metric_uses_a_reserved_label(self) -> None:
+        for spec in METRICS.values():
+            assert "job" not in spec.labelnames, spec.name
+            assert "instance" not in spec.labelnames, spec.name
+
+    def test_the_closed_set_does_not_offer_them(self) -> None:
+        """Removed from ALLOWED_LABELS too, so the next metric that wants
+        to name a job cannot reach for `job` and pass validation."""
+        assert "job" not in ALLOWED_LABELS
+        assert "instance" not in ALLOWED_LABELS
+        assert "job_name" in ALLOWED_LABELS
+
+    def test_the_scheduler_metrics_use_job_name(self) -> None:
+        for name, spec in METRICS.items():
+            if name.startswith("yfin_job_"):
+                assert "job_name" in spec.labelnames, name

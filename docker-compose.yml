@@ -1,3 +1,14 @@
+# The database block every yfin service needs. One anchor rather than five
+# copies: `db_host` is the service name here rather than localhost, and a
+# password that drifted between two of them would be a container that
+# starts, passes its health check and cannot read anything.
+x-yfin-db: &yfin-db
+  DB_HOST: timescaledb
+  DB_PORT: 5432
+  DB_USER: ${DB_USER:-yfin}
+  DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+  DB_NAME: ${DB_NAME:-yfinance}
+
 services:
   timescaledb:
     # Pinned on purpose: `latest-pg18` is a moving tag and returned
@@ -74,14 +85,9 @@ services:
       dockerfile: Dockerfile
     container_name: yfin-api
     environment:
-      # The pipeline settings the API needs to reach the database. It
-      # reads the same keys as the CLI; `db_host` is the service name
-      # here rather than localhost.
-      DB_HOST: timescaledb
-      DB_PORT: 5432
-      DB_USER: ${DB_USER:-yfin}
-      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
-      DB_NAME: ${DB_NAME:-yfinance}
+      # The pipeline settings the API needs to reach the database; it reads
+      # the same keys as the CLI.
+      <<: *yfin-db
       # The signing key has no default on purpose: an API that starts
       # with a guessable key is worse than one that refuses to start.
       YFAPI_JWT_SIGNING_KEY: ${YFAPI_JWT_SIGNING_KEY:?YFAPI_JWT_SIGNING_KEY is required}
@@ -165,6 +171,151 @@ services:
       retries: 30
       start_period: 30s
 
+  # --- the processes that keep the data fresh --------------------------------
+  #
+  # `scheduler` and `stream` are in the BASE file and carry no profile: they
+  # are what makes the warehouse current, not part of the monitoring stack
+  # that watches it. `docker compose up -d` brings them up with the
+  # database, and `restart: unless-stopped` brings them back after a reboot
+  # or a crash -- so the pipeline runs for as long as Docker does.
+  #
+  # The two relays DO carry a profile. Both refuse to start when their
+  # feature is off (`yf_kafka_enabled`, `yf_changes_enabled`, both false by
+  # default), and a service that exits 1 under `restart: unless-stopped` is
+  # a crash loop rather than a disabled feature.
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: yfin-scheduler
+    # The image's HEALTHCHECK is the API's: it asks 127.0.0.1:8000/health,
+    # which this process does not serve. Inherited, it would report every
+    # scheduler as permanently unhealthy -- worse than no check, because an
+    # `unhealthy` that is always wrong is one nobody reads.
+    #
+    # The observability override replaces this with a real probe on the
+    # service's own /metrics port, which is the port it actually listens on.
+    healthcheck:
+      disable: true
+    command: ["yfin", "scheduler", "run"]
+    environment:
+      <<: *yfin-db
+      # The API usage flush is one of its jobs, and that job reads Redis
+      # through the API's own settings rather than the pipeline's.
+      YFAPI_REDIS_URL: redis://redis:6379/0
+      YFAPI_JWT_SIGNING_KEY: ${YFAPI_JWT_SIGNING_KEY:?YFAPI_JWT_SIGNING_KEY is required}
+      TZ: UTC
+    # PID 1 in a container does not reap orphans, and this process spawns
+    # one subprocess per firing. Without an init, a shard whose parent
+    # exited first would sit in the table as a zombie until the container
+    # is replaced.
+    init: true
+    # Above the scheduler's own `yf_schedule_stop_grace_seconds` (600 by
+    # default), so its bounded wait for a running job finishes BEFORE
+    # Docker loses patience. Reversed, `docker stop` would SIGKILL a sync
+    # holding the advisory lock, and the next run would find it held.
+    stop_grace_period: ${SCHEDULER_STOP_GRACE:-620s}
+    restart: unless-stopped
+    volumes:
+      # yfinance's SQLite tz/cookie cache. On a volume so a rebuilt
+      # container does not re-fetch every timezone it already knew.
+      - yfin-cache:/var/cache/yfin
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  stream:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: yfin-stream
+    # The image's HEALTHCHECK is the API's: it asks 127.0.0.1:8000/health,
+    # which this process does not serve. Inherited, it would report every
+    # scheduler as permanently unhealthy -- worse than no check, because an
+    # `unhealthy` that is always wrong is one nobody reads.
+    #
+    # The observability override replaces this with a real probe on the
+    # service's own /metrics port, which is the port it actually listens on.
+    healthcheck:
+      disable: true
+    command: ["yfin", "stream", "run"]
+    environment:
+      <<: *yfin-db
+      TZ: UTC
+    init: true
+    # The writer drains its queue on SIGTERM. Cut short, the ticks still in
+    # it are lost -- and unlike a sync, there is no re-fetch: Yahoo's socket
+    # does not replay.
+    stop_grace_period: 60s
+    restart: unless-stopped
+    volumes:
+      - yfin-cache:/var/cache/yfin
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+
+  stream-relay:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: yfin-stream-relay
+    # The image's HEALTHCHECK is the API's: it asks 127.0.0.1:8000/health,
+    # which this process does not serve. Inherited, it would report every
+    # scheduler as permanently unhealthy -- worse than no check, because an
+    # `unhealthy` that is always wrong is one nobody reads.
+    #
+    # The observability override replaces this with a real probe on the
+    # service's own /metrics port, which is the port it actually listens on.
+    healthcheck:
+      disable: true
+    command: ["yfin", "stream", "relay"]
+    profiles: ["kafka"]
+    environment:
+      <<: *yfin-db
+      TZ: UTC
+    init: true
+    restart: unless-stopped
+    volumes:
+      - yfin-cache:/var/cache/yfin
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  changes-relay:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: yfin-changes-relay
+    # The image's HEALTHCHECK is the API's: it asks 127.0.0.1:8000/health,
+    # which this process does not serve. Inherited, it would report every
+    # scheduler as permanently unhealthy -- worse than no check, because an
+    # `unhealthy` that is always wrong is one nobody reads.
+    #
+    # The observability override replaces this with a real probe on the
+    # service's own /metrics port, which is the port it actually listens on.
+    healthcheck:
+      disable: true
+    command: ["yfin", "changes", "relay"]
+    profiles: ["kafka"]
+    environment:
+      <<: *yfin-db
+      TZ: UTC
+    init: true
+    restart: unless-stopped
+    volumes:
+      - yfin-cache:/var/cache/yfin
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
 volumes:
   yfin-pgdata:
   yfin-kafka-data:
+  yfin-cache:

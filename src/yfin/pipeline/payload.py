@@ -28,7 +28,10 @@ class SymbolPayload:
     # it could not repair.
     full_refresh: bool = False
     results: list[tuple[Dataset[Any], NormalizedResult, int, int]] = field(default_factory=list)
-    failures: list[tuple[str, str]] = field(default_factory=list)
+    # (dataset, message, kind). The kind is what a dashboard can group by;
+    # `error_kinds` below is the same information flattened for proxy
+    # health, which needs the sequence and not the dataset it came from.
+    failures: list[tuple[str, str, str | None]] = field(default_factory=list)
     # Datasets excluded before running (name, reason). A third channel is
     # needed because these are neither results nor errors; dropping them
     # silently would make datasets vanish from the audit on a --start run.

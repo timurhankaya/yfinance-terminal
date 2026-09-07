@@ -1,0 +1,61 @@
+# Three datasources and the two links between them.
+#
+# The links are the reason this file is worth reading: a metric that spikes
+# is a question, and the answer is in a log line or a trace. Without
+# `derivedFields` and `tracesToLogsV2` an operator copies a trace id
+# between two tabs by hand at 3am.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: yfin-prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+      # Lets Prometheus accept the remote_write Alloy sends it for the
+      # postgres and redis exporters.
+      httpMethod: POST
+
+  - name: Loki
+    type: loki
+    uid: yfin-loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      derivedFields:
+        # `trace_id` is a FIELD in the line body, not a label -- Alloy
+        # keeps it as structured metadata precisely so it does not become
+        # one stream per trace. So the regex reads the JSON, which is why
+        # it is anchored on the quoted key rather than on a bare word.
+        - name: TraceID
+          matcherType: regex
+          matcherRegex: '"trace_id"\s*:\s*"([a-f0-9]{32})"'
+          url: "$${__value.raw}"
+          datasourceUid: yfin-tempo
+          urlDisplayLabel: "View trace"
+
+  - name: Tempo
+    type: tempo
+    uid: yfin-tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: yfin-loki
+        # By service and time window rather than by trace id: a span's
+        # logs include the ones written before the trace context was
+        # attached, and matching on the id alone would hide exactly the
+        # start-up lines that explain a slow first request.
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+        filterByTraceID: false
+        filterBySpanID: false
+        tags:
+          - key: service.name
+            value: service
+      serviceMap:
+        datasourceUid: yfin-prometheus

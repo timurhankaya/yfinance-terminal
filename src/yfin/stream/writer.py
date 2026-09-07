@@ -41,6 +41,7 @@ from typing import Any, Final
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
+from yfin.core import metrics
 from yfin.core.logging_setup import get_logger
 from yfin.models.stream import LiveQuote, LiveTick
 from yfin.storage.contracts import TableWrite, WriteStats, apply_write
@@ -108,6 +109,14 @@ class SymbolFilter:
             return set()
         hits = candidates & self._known
         misses = candidates - self._known
+        # Counted per SYMBOL, not per call: a batch of 500 ticks holding one
+        # unknown symbol is 499 hits and one miss, and the ratio of calls
+        # would report that as a 100 % miss.
+        metrics.inc("yfin_cache_ops_total", len(hits), cache="symbol_filter", result="hit")
+        if misses:
+            metrics.inc(
+                "yfin_cache_ops_total", len(misses), cache="symbol_filter", result="miss"
+            )
         if misses and self._is_stale():
             self._refresh()
             hits = candidates & self._known
@@ -274,7 +283,10 @@ class StreamWriter:
     def _write(self, rows: Sequence[dict[str, Any]], rejects: Sequence[Reject]) -> None:
         """One batch, one transaction."""
         self._batches += 1
-        with self._session_factory() as session:
+        # The number the batch interval has to stay under. Above it the
+        # queue grows, and the queue overflowing is how ticks are lost --
+        # so this histogram is the stream's single most important metric.
+        with metrics.timed("yfin_stream_batch_seconds"), self._session_factory() as session:
             written, unknown = self._write_ticks(session, rows)
             if self._config.kafka_enabled:
                 self._write_outbox(session, rows)
@@ -288,6 +300,7 @@ class StreamWriter:
                 self._write_quotes(session)
             session.commit()
         self.rows_written += written
+        metrics.inc("yfin_stream_copy_rows_total", written, table="live_ticks")
         self._flush_counters(written=written)
 
     def _write_ticks(
@@ -391,6 +404,12 @@ class StreamWriter:
         return int(found)
 
     def _write_rejects(self, session: Session, rejects: Sequence[Reject]) -> None:
+        # Counted BEFORE the sampler, and that is the point of counting them
+        # here at all: the sampler caps how many rows one (symbol, reason)
+        # pair may write, so `stream_rejects` deliberately under-reports a
+        # storm. The metric is the number that does not.
+        for reject in rejects:
+            metrics.inc("yfin_stream_rejects_total", reason=reject.reason)
         sampled = [reject for reject in rejects if self._sampler.allow(reject)]
         if not sampled:
             return
@@ -534,6 +553,11 @@ class StreamWriter:
         if self._session_id is None:
             return
         counters = self._supervisor.drain_counters()
+        # Drained here whether or not there is a row to write: the counters
+        # cross the thread boundary exactly once per batch, and returning
+        # early below must not be what decides whether they are published.
+        if counters.messages:
+            metrics.inc("yfin_stream_messages_total", counters.messages)
         if not (counters.messages or counters.dropped or counters.rejected or written):
             return
         self._repository.add_session_counters(

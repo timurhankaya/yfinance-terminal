@@ -661,11 +661,11 @@ def _load() -> Settings:
     _overrides = {}
     env_only = bootstrap_settings()
 
-    # FIRST: `log_level` is ENV_ONLY so it's ready here. structlog runs with
-    # cache_logger_on_first_use=True; any line logged before this falls into
-    # the unconfigured PrintLogger and the redact_credentials processor
-    # doesn't run.
-    configure_logging(env_only.log_level)
+    # FIRST: `log_level` and `log_format` are ENV_ONLY, so both are ready
+    # here -- which is the reason they are. Anything logged before this
+    # goes out through whatever handler stdlib logging fell back to, and
+    # the redact_credentials processor is not in that path.
+    configure_logging(env_only.log_level, env_only.log_format)
 
     if source_is_env():
         return env_only

@@ -29,6 +29,7 @@ from yfin.api.models.clients import ApiClient
 from yfin.api.models.plans import ApiUsageDaily
 from yfin.api.ratelimit.connection import get_redis
 from yfin.core.logging_setup import get_logger
+from yfin.core.metrics import inc
 
 log = get_logger(__name__)
 
@@ -69,6 +70,9 @@ def record(
         pipe.execute()
     except Exception as exc:  # noqa: BLE001 - measurement never breaks a request
         log.error("usage_not_recorded", client_id=client_id, error=str(exc))
+        # The request is served either way; what is lost is the count, and
+        # the day's row is marked estimated because of exactly this.
+        inc("yfin_api_redis_failopen_total", where="usage")
 
 
 @dataclass(frozen=True)

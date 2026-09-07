@@ -238,3 +238,21 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Rewrite the committed API examples from real responses.",
     )
+
+@pytest.fixture(autouse=True)
+def _isolate_metrics() -> Iterator[None]:
+    """No test inherits another's counters.
+
+    `core/metrics` keeps the accumulator as PROCESS state, which is right in
+    production -- a shard installs one at start-up and every `metrics.inc`
+    anywhere in it lands there, with no handle threaded through five layers.
+    In a test process that same property means a runner test leaves one
+    installed for whatever runs next, and `flush(..., None)` then finds rows
+    it never wrote.
+    """
+    from yfin.core import metrics
+
+    previous = metrics.current_accumulator()
+    metrics.use_accumulator(None)
+    yield
+    metrics.use_accumulator(previous)

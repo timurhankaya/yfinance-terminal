@@ -16,12 +16,14 @@ from sqlalchemy import Engine
 from yfin.core.config import Settings, get_settings
 from yfin.core.errors import PROXY_FAULT_KINDS, DatasetOutOfScope, ErrorKind, classify_error
 from yfin.core.logging_setup import bind_shard_context, get_logger
+from yfin.core.metrics import Accumulator, use_accumulator
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
 from yfin.datasets.registry import SYMBOL_DATASETS
 from yfin.ingest.client import configure_yfinance, make_ticker
 from yfin.models import (
     ItemStatus,
 )
+from yfin.pipeline import run_metrics
 from yfin.pipeline.audit import (
     ItemRecord,
     RunTally,
@@ -134,7 +136,9 @@ def _worker(
                 kind=kind.value,
                 error=str(exc),
             )
-            payload.failures.append((dataset.name, f"{type(exc).__name__}: {exc}"))
+            payload.failures.append(
+                (dataset.name, f"{type(exc).__name__}: {exc}", kind.value)
+            )
             payload.error_kinds.append(kind)
             continue
         elapsed = int((time.perf_counter() - started) * 1000)
@@ -396,6 +400,10 @@ def run_sync(
         shard_count=1,
         selector=selector,
     )
+    # The unsharded path is its own "shard 0". It has the same reason a
+    # child does -- this process exits before a scrape reaches it -- and the
+    # exporter sums over shards either way.
+    use_accumulator(Accumulator())
     run_shard(
         engine,
         list_source(symbols),
@@ -406,4 +414,5 @@ def run_sync(
         start=start,
         end=end,
     )
+    run_metrics.flush(factory, run_id, shard_index=0)
     return finalize_run(factory, run_id, symbol_count=len(symbols), dataset_count=len(datasets))

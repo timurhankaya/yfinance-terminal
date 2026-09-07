@@ -51,11 +51,23 @@ def stream_run() -> None:
     from sqlalchemy import Engine
 
     from yfin.core.config import get_settings
+    from yfin.core.logging_setup import configure_logging
+    from yfin.core.metrics import serve_metrics
+    from yfin.core.tracing import configure_tracing, instrument_sqlalchemy
     from yfin.stream.runner import StreamDisabled, run_stream
 
     engine = _engine()
     assert isinstance(engine, Engine)
     settings = get_settings()
+    # `_engine()` already configured logging; this renames the process now
+    # that it is known to be the stream rather than any other command.
+    configure_logging(settings.log_level, settings.log_format, "stream")
+    # A long-lived process, so Prometheus can reach it where it stands.
+    # 0 means off, which is the default: METRICS_PORT is env-only because
+    # one value in the settings table would bind five services to one port.
+    serve_metrics(settings.metrics_port)
+    configure_tracing("stream")
+    instrument_sqlalchemy(engine)
     try:
         result = run_stream(engine, settings)
     except StreamDisabled as exc:
@@ -332,12 +344,18 @@ def stream_relay(
     from sqlalchemy import Engine
 
     from yfin.core.config import get_settings
+    from yfin.core.logging_setup import configure_logging
+    from yfin.core.metrics import serve_metrics
+    from yfin.core.tracing import configure_tracing
     from yfin.outbox.relay import OutboxRelay, RelayConfig
     from yfin.outbox.spec import TICK_OUTBOX
     from yfin.storage.db import advisory_lock
     from yfin.storage.db import session_factory as session_factory_for
 
     settings = get_settings()
+    configure_logging(settings.log_level, settings.log_format, "relay")
+    serve_metrics(settings.metrics_port)
+    configure_tracing("relay")
     if not settings.yf_kafka_enabled:
         typer.echo(
             "yf_kafka_enabled is off; enable it with "
@@ -404,7 +422,8 @@ def stream_reconcile(
     """
     from sqlalchemy import Engine
 
-    from yfin.storage.db import SYNC_LOCK_NAME, advisory_lock
+    from yfin.pipeline.audit import EXIT_LOCK_NOT_ACQUIRED
+    from yfin.storage.db import SYNC_LOCK_NAME, LockNotAcquired, advisory_lock
     from yfin.storage.db import session_factory as session_factory_for
     from yfin.stream.reconcile import reconcile_gaps
 
@@ -412,8 +431,21 @@ def stream_reconcile(
     assert isinstance(engine, Engine)
     factory = session_factory_for(engine)
 
-    with advisory_lock(engine, SYNC_LOCK_NAME):
-        stats = reconcile_gaps(factory, dry_run=dry_run, limit=limit)
+    try:
+        with advisory_lock(engine, SYNC_LOCK_NAME):
+            stats = reconcile_gaps(factory, dry_run=dry_run, limit=limit)
+    except LockNotAcquired:
+        # Exit 4, not 1. This job runs hourly and takes the SYNC lock, so a
+        # sync that outlives an hour makes it collide -- which is the
+        # design working, not a failure. Left as exit 1 the scheduler
+        # records `failed`, and a nightly run that legitimately overran
+        # would fire SyncFailed and JobPartial every hour until it
+        # finished. Measured: a 33-hour backfill did exactly that.
+        typer.echo(
+            "another sync holds the lock; the gaps stay open for the next pass",
+            err=True,
+        )
+        raise typer.Exit(code=EXIT_LOCK_NOT_ACQUIRED) from None
 
     typer.echo(stats.summary)
     if stats.minutes_skipped_existing:

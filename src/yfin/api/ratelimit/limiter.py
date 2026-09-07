@@ -35,6 +35,7 @@ from yfin.api.core.config import ApiSettings
 from yfin.api.ratelimit.connection import get_redis
 from yfin.api.ratelimit.policy import PlanLimits
 from yfin.core.logging_setup import get_logger
+from yfin.core.metrics import inc
 
 log = get_logger(__name__)
 
@@ -44,6 +45,15 @@ QUOTA_KEY = "quota:{client_id}:{period}"
 REASON_ALLOWED = 0
 REASON_RATE = 1
 REASON_QUOTA = 2
+
+#: The Lua script speaks in integers because that is what fits in a Redis
+#: reply; a metric labelled `reason="1"` would be a number nobody can read
+#: on a dashboard, so the mapping happens once, here.
+REASON_NAMES: dict[int, str] = {
+    REASON_ALLOWED: "allowed",
+    REASON_RATE: "rate",
+    REASON_QUOTA: "quota",
+}
 
 # KEYS: bucket, quota
 # ARGV: now_ms, rate, burst, quota_limit, quota_ttl_seconds
@@ -142,6 +152,11 @@ def consume(settings: ApiSettings, client_id: str, limits: PlanLimits) -> Verdic
         )
     except Exception as exc:  # noqa: BLE001 - fail open, see the module docstring
         log.error("rate_limit_failed_open", client_id=client_id, error=str(exc))
+        # Two counters, because they answer two questions. The request WAS
+        # allowed, so it belongs in the decisions; and it was allowed
+        # because the store was gone, which is what `where=limiter` says.
+        inc("yfin_api_redis_failopen_total", where="limiter")
+        inc("yfin_api_ratelimit_decisions_total", reason=REASON_NAMES[REASON_ALLOWED])
         return Verdict(
             allowed=True,
             reason=REASON_ALLOWED,
@@ -154,6 +169,10 @@ def consume(settings: ApiSettings, client_id: str, limits: PlanLimits) -> Verdic
             degraded=True,
         )
 
+    inc(
+        "yfin_api_ratelimit_decisions_total",
+        reason=REASON_NAMES.get(int(reason), "allowed"),
+    )
     return Verdict(
         allowed=bool(allowed),
         reason=int(reason),

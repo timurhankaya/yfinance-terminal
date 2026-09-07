@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from yfin.api.core.config import ApiSettings
 from yfin.api.ratelimit.connection import get_redis
 from yfin.core.logging_setup import get_logger
+from yfin.core.metrics import inc
 
 log = get_logger(__name__)
 
@@ -45,9 +46,11 @@ def acquire(settings: ApiSettings, client_id: str, limit: int) -> Slot:
         held, _ = pipe.execute()
     except Exception as exc:  # noqa: BLE001 - fails open, like the counters
         log.error("concurrency_failed_open", client_id=client_id, error=str(exc))
+        inc("yfin_api_redis_failopen_total", where="concurrency")
         return Slot(acquired=True, degraded=True)
 
     if int(held) > limit:
+        inc("yfin_api_concurrency_rejections_total")
         # Give the slot straight back; the request is being refused, so it
         # must not keep occupying one.
         release(settings, client_id)

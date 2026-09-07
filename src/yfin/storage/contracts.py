@@ -173,7 +173,18 @@ def distinct_key_count(write: TableWrite) -> int:
 
 
 def apply_write(writer: RowSink, write: TableWrite, stats: WriteStats) -> None:
-    """Applies one TableWrite and updates the stats."""
+    """Applies one TableWrite and updates the stats.
+
+    Also the single place every pipeline write passes through, which is why
+    the row counters are here rather than at 57 call sites. `attempted` is
+    the DISTINCT-KEY count the writer proposes, and keeps that meaning
+    under the change design's distinctness predicate.
+    """
+    from yfin.core import metrics
+
     attempted = distinct_key_count(write)
+    verified = writer.write(write)
     stats.attempted[write.table] = stats.attempted.get(write.table, 0) + attempted
-    stats.verified[write.table] = stats.verified.get(write.table, 0) + writer.write(write)
+    stats.verified[write.table] = stats.verified.get(write.table, 0) + verified
+    metrics.inc("yfin_sync_write_rows_total", attempted, table=write.table, op="attempted")
+    metrics.inc("yfin_sync_write_rows_total", verified, table=write.table, op="verified")

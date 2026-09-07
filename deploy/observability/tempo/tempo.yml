@@ -1,0 +1,49 @@
+# Single binary, filesystem storage; OTLP gRPC only.
+#
+# Alloy receives OTLP from the services and forwards it here, so this
+# listens on the internal network alone -- the services never talk to Tempo
+# directly, which keeps the collector the one place sampling and batching
+# are configured.
+#
+# **This is a Tempo 3.x config and it is not a 2.x one.** 3.0 replaced the
+# ingester/compactor pair with a block-builder, a live-store and a
+# backend scheduler/worker, and the old top-level `ingester:` and
+# `compactor:` keys are now a hard parse error rather than a deprecation:
+#
+#     failed parsing config: field ingester not found in type app.Config
+#
+# The container then restarts forever, which is how this was found. Every
+# key below was verified against `grafana/tempo:3.0.3` itself.
+#
+# `target` is left at its default of `all`: one process runs every
+# component. The "Worker address is empty in single binary mode" warning
+# at start-up is Tempo wiring itself to 127.0.0.1 and is expected here.
+
+server:
+  http_listen_port: 3200
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+backend_worker:
+  compaction:
+    # 7 days, shorter than logs and metrics on purpose. Traces are the
+    # bulkiest of the three and the least useful once cold: a week covers
+    # "what was slow last night", which is what they are for here.
+    block_retention: 168h
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal
+
+usage_report:
+  reporting_enabled: false

@@ -1,0 +1,152 @@
+// Log shipping, trace collection and the two infrastructure exporters.
+//
+// Alloy rather than Promtail: Promtail reached end of life on 2026-03-02.
+// Rather than the Docker Loki log driver, because that driver is
+// "third-party client" support and can block the daemon on retries -- a
+// logging backend that can stall the thing it logs is a worse failure than
+// losing lines.
+
+logging {
+	level  = "warn"
+	format = "logfmt"
+}
+
+// --- logs ------------------------------------------------------------------
+
+discovery.docker "containers" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "15s"
+}
+
+discovery.relabel "yfin" {
+	targets = discovery.docker.containers.targets
+
+	// Only this stack's containers. Without it, every container on the
+	// developer's machine ships its logs here -- which is both a surprise
+	// and, for anything with credentials in its output, a leak into a store
+	// nobody expected to hold them.
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(yfin-.*)"
+		target_label  = "container"
+		action        = "keep"
+		replacement   = "$1"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(yfin-.*)"
+		target_label  = "container"
+	}
+}
+
+loki.source.docker "yfin" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.yfin.output
+	forward_to = [loki.process.yfin.receiver]
+	labels     = {stack = "yfin"}
+}
+
+loki.process "yfin" {
+	forward_to = [loki.write.default.receiver]
+
+	// The lines are the JSON the services emit: `configure_logging` puts
+	// every one of them -- structlog calls, yfinance's stdlib records,
+	// uvicorn's -- through one renderer. A line that is not JSON (a
+	// container's startup banner) simply does not match and passes through
+	// with its container label alone.
+	stage.json {
+		expressions = {
+			level      = "level",
+			service    = "service",
+			event      = "event",
+			run_id     = "run_id",
+			request_id = "request_id",
+			trace_id   = "trace_id",
+		}
+	}
+
+	// THREE labels, and the restraint is the point. Every label value is a
+	// separate stream in Loki; `run_id` as a label would be one stream per
+	// sync run forever, and `request_id` one per request. Both stay as
+	// structured metadata, which is queryable without being indexed.
+	stage.labels {
+		values = {
+			level   = "",
+			service = "",
+			event   = "",
+		}
+	}
+
+	stage.structured_metadata {
+		values = {
+			run_id     = "",
+			request_id = "",
+			trace_id   = "",
+		}
+	}
+}
+
+loki.write "default" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}
+
+// --- traces ----------------------------------------------------------------
+
+otelcol.receiver.otlp "default" {
+	grpc {
+		endpoint = "0.0.0.0:4317"
+	}
+
+	output {
+		traces = [otelcol.processor.batch.default.input]
+	}
+}
+
+otelcol.processor.batch "default" {
+	output {
+		traces = [otelcol.exporter.otlp.tempo.input]
+	}
+}
+
+otelcol.exporter.otlp "tempo" {
+	client {
+		endpoint = "tempo:4317"
+
+		tls {
+			insecure = true
+		}
+	}
+}
+
+// --- infrastructure --------------------------------------------------------
+
+// The read-only role `yfin db monitor-role` creates. `pg_monitor` is
+// enough for the default collectors and grants no SELECT on the data
+// tables -- an exporter that could read `symbols` would be a second copy
+// of the warehouse behind a Grafana login.
+prometheus.exporter.postgres "yfin" {
+	data_source_names = [
+		"postgresql://yfin_monitor:" + sys.env("MONITOR_DB_PASSWORD") + "@" + sys.env("DB_HOST") + ":5432/" + sys.env("DB_NAME") + "?sslmode=disable",
+	]
+}
+
+prometheus.exporter.redis "yfin" {
+	redis_addr = "redis:6379"
+}
+
+prometheus.scrape "infra" {
+	targets = concat(
+		prometheus.exporter.postgres.yfin.targets,
+		prometheus.exporter.redis.yfin.targets,
+	)
+	forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+	endpoint {
+		url = "http://prometheus:9090/api/v1/write"
+	}
+}

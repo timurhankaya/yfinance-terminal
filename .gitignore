@@ -18,3 +18,7 @@ build/
 web/node_modules/
 .playwright-mcp/
 public-*.png
+
+# Stack credentials. The committed .env.example next to it documents the
+# names; the values are per-install.
+deploy/observability/.env

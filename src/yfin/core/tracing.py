@@ -1,0 +1,222 @@
+"""Traces, and the four places this codebase draws one by hand.
+
+Optional twice over. Without the `[otel]` extra every function here is a
+no-op that imports nothing; with the extra but no
+`OTEL_EXPORTER_OTLP_ENDPOINT` it installs the API's own no-op provider,
+which is what makes `with span(...)` free in a process nobody is collecting
+from. A pipeline must never slow down or fail because a collector is
+absent.
+
+Two things are read from the ENVIRONMENT and deliberately not from
+settings:
+
+**`OTEL_SEMCONV_STABILITY_OPT_IN`** is set here, before any
+`opentelemetry.instrumentation` module is imported. The value is read once,
+when the first instrumentor initialises, and an instrumentation that has
+already read it will not read it again -- so setting it later means the
+spans carry the old attribute names and every dashboard built on the stable
+ones is silently empty.
+
+**The sampler** is NOT passed as an argument. Give `TracerProvider` a
+`sampler=` and it stops honouring `OTEL_TRACES_SAMPLER` and
+`OTEL_TRACES_SAMPLER_ARG`, so the compose override that sets 0.1 for the
+API and 1.0 for the pipeline would be read, ignored, and hard to notice.
+Leaving the argument off is the feature.
+
+`BatchSpanProcessor` drops on backlog rather than blocking. A trace is
+worth less than the write it describes, and that is the same rule
+`core/metrics.py` follows.
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
+
+from yfin.core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
+#: The one variable that has to be set before an import rather than before
+#: a call. `http` gives the stable HTTP attribute names, `database` the
+#: stable SQL ones -- both instrumentations are in the `migration` phase,
+#: where the old names are the default.
+SEMCONV_VAR = "OTEL_SEMCONV_STABILITY_OPT_IN"
+SEMCONV_VALUE = "http,database"
+
+#: Empty means off, which is the default everywhere. The compose override
+#: points it at Alloy's OTLP gRPC receiver.
+ENDPOINT_VAR = "OTEL_EXPORTER_OTLP_ENDPOINT"
+
+#: The span export gives up after this and drops the batch. Five seconds is
+#: longer than any healthy export and shorter than anything a caller would
+#: notice, because no caller ever waits for it.
+EXPORT_TIMEOUT_MS = 5_000
+
+#: Set once tracing is on, so `span()` can skip the tracer lookup entirely
+#: in the overwhelmingly common case where it is not.
+_enabled = False
+
+
+def configure_tracing(service: str) -> bool:
+    """Sets up the SDK. Returns whether spans will actually be exported.
+
+    Called once per process, at the entry point, before the first engine is
+    built -- SQLAlchemy instrumentation patches the library, and an engine
+    created earlier is not retroactively traced.
+    """
+    global _enabled  # noqa: PLW0603 - one provider per process, by design
+
+    endpoint = os.environ.get(ENDPOINT_VAR, "").strip()
+    if not endpoint:
+        # Not an error and not a warning: off is the default, and a line
+        # about it on every CLI invocation would be noise.
+        return False
+
+    # BEFORE the instrumentation imports below. `setdefault`, so an
+    # operator who deliberately set something else keeps it.
+    os.environ.setdefault(SEMCONV_VAR, SEMCONV_VALUE)
+
+    try:
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+            OTLPSpanExporter,
+        )
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    except ImportError as exc:
+        # Worth a warning here, unlike the empty endpoint: an endpoint was
+        # configured, so somebody expected traces and is not getting any.
+        log.warning(
+            'tracing endpoint set but the extra is missing; install "yfin[otel]"',
+            error=str(exc),
+        )
+        return False
+
+    provider = TracerProvider(
+        resource=Resource.create({"service.name": service}),
+        # No `sampler=`: see the module docstring. The SDK reads
+        # OTEL_TRACES_SAMPLER and OTEL_TRACES_SAMPLER_ARG itself.
+    )
+    provider.add_span_processor(
+        BatchSpanProcessor(
+            OTLPSpanExporter(), export_timeout_millis=EXPORT_TIMEOUT_MS
+        )
+    )
+    trace.set_tracer_provider(provider)
+    _enabled = True
+    log.info("tracing enabled", service=service, endpoint=endpoint)
+    return True
+
+
+def instrument_fastapi(app: Any) -> None:
+    """Traces every request, with the route template as the span name."""
+    if not _enabled:
+        return
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    except ImportError:  # pragma: no cover - guarded by `_enabled`
+        return
+    FastAPIInstrumentor.instrument_app(app)
+
+
+def instrument_sqlalchemy(engine: Any) -> None:
+    """Traces every statement the engine issues.
+
+    Per engine rather than globally: the API, the scheduler and a shard
+    each build their own, and instrumenting the library would trace the
+    ones a test built too.
+
+    psycopg is deliberately NOT instrumented. It would nest a second span
+    under every statement span to say the same thing twice, doubling the
+    volume for no new information.
+    """
+    if not _enabled:
+        return
+    try:
+        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+    except ImportError:  # pragma: no cover - guarded by `_enabled`
+        return
+    SQLAlchemyInstrumentor().instrument(engine=engine)
+
+
+@contextmanager
+def span(name: str, **attributes: Any) -> Iterator[Any]:
+    """One manual span. A no-op, and a cheap one, when tracing is off.
+
+    The four this codebase draws are the boundaries the automatic
+    instrumentation cannot see: a symbol's whole persist, one dataset's
+    fetch on a worker thread, a relay pass, and a scheduled job's
+    subprocess. Everything between them is HTTP and SQL, which fastapi and
+    sqlalchemy already cover.
+
+    Attributes are set at ENTRY, so a span that ends in an exception still
+    carries what it was about. `symbol` is allowed here and forbidden as a
+    metric label, and the difference is real: a trace is sampled and
+    thrown away, a series is kept forever.
+    """
+    if not _enabled:
+        yield None
+        return
+    try:
+        from opentelemetry import trace
+    except ImportError:  # pragma: no cover - guarded by `_enabled`
+        yield None
+        return
+
+    tracer = trace.get_tracer("yfin")
+    with tracer.start_as_current_span(name) as current:
+        for key, value in attributes.items():
+            if value is not None:
+                current.set_attribute(key, value)
+        yield current
+
+
+def set_attributes(current: Any, **attributes: Any) -> None:
+    """Adds attributes to a span once they are known.
+
+    `rows_written` cannot be set at entry -- the whole point of the span is
+    that the number does not exist yet. `None` is the no-op span, so this
+    is safe to call unconditionally at the end of a `with span(...)` block.
+    """
+    if current is None:
+        return
+    with _quiet():
+        for key, value in attributes.items():
+            if value is not None:
+                current.set_attribute(key, value)
+
+
+@contextmanager
+def _quiet() -> Iterator[None]:
+    """Swallows anything the tracing layer raises. Same rule as metrics."""
+    try:
+        yield
+    except Exception as exc:  # noqa: BLE001 - a trace never breaks the work
+        log.debug("tracing failed", error=str(exc))
+
+
+def enabled() -> bool:
+    return _enabled
+
+
+def _reset_for_tests() -> None:
+    global _enabled  # noqa: PLW0603 - the tests own this flag
+    _enabled = False
+
+
+__all__ = [
+    "ENDPOINT_VAR",
+    "EXPORT_TIMEOUT_MS",
+    "SEMCONV_VALUE",
+    "SEMCONV_VAR",
+    "configure_tracing",
+    "enabled",
+    "instrument_fastapi",
+    "instrument_sqlalchemy",
+    "set_attributes",
+    "span",
+]

@@ -1,0 +1,66 @@
+# Single binary, filesystem storage. Enough for one stack on one host;
+# anything larger wants the microservices layout and object storage, which
+# is a different design.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    # v13 + tsdb is required, not preferred: Loki 3.x refuses to start on
+    # the older boltdb-shipper schemas, and a v12 config here is the most
+    # common way this container fails to come up at all.
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # 14 days, matching the design. Longer than the 30-day metrics retention
+  # would be wrong-way-round: a log line is only worth keeping while the
+  # number that made you look at it is still there.
+  retention_period: 336h
+  # A sync at DEBUG writes a great deal in a short time. The defaults
+  # (4 MB/s, 6 MB burst) drop lines during exactly the run being debugged.
+  ingestion_rate_mb: 16
+  ingestion_burst_size_mb: 32
+  # Alloy promotes only `level`, `service` and `event` to labels; the rest
+  # is structured metadata. This is the ceiling that keeps a future
+  # `run_id` label from becoming a stream per run.
+  max_label_names_per_series: 15
+  allow_structured_metadata: true
+
+compactor:
+  working_directory: /loki/compactor
+  # Nothing deletes anything without this. `retention_period` alone is a
+  # promise the compactor has to be told to keep.
+  retention_enabled: true
+  delete_request_store: filesystem
+
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+
+analytics:
+  reporting_enabled: false

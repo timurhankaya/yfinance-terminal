@@ -170,3 +170,127 @@ class TestCrons:
         service = SchedulerService.__new__(SchedulerService)
         service._settings = Settings.model_construct(yf_schedule_prune="   ")  # type: ignore[attr-defined]
         assert service.crons()["prune"] == ""  # type: ignore[attr-defined]
+
+
+class TestTheJobGauges:
+    """What the exporter publishes on the scheduler's behalf.
+
+    These numbers are in this process's memory and in no table -- which is
+    why the exporter takes a callable rather than querying for them, and why
+    the rules about what is ABSENT matter as much as the values.
+    """
+
+    def _service(self, **state: object) -> object:
+        from yfin.scheduler.service import JobState, SchedulerService
+
+        service = SchedulerService.__new__(SchedulerService)
+        service._scheduler = None  # type: ignore[attr-defined]
+        service._states = {  # type: ignore[attr-defined]
+            "sync": JobState(job=JOBS_BY_NAME["sync"], cron="0 2 * * *", **state)  # type: ignore[arg-type]
+        }
+        return service
+
+    def _samples(self, **state: object) -> dict[str, float]:
+        service = self._service(**state)
+        return {s.name: s.value for s in service.job_samples()}  # type: ignore[attr-defined]
+
+    def test_a_job_that_has_never_run_still_reports_its_cadence(self) -> None:
+        """Otherwise a job whose cron was just set would be invisible until
+        its first firing, which for `prune` is a month."""
+        samples = self._samples(interval_seconds=86400.0)
+        assert samples["yfin_job_interval_seconds"] == 86400.0
+        assert samples["yfin_job_running"] == 0.0
+
+    def test_a_job_that_has_never_succeeded_reports_no_timestamp(self) -> None:
+        """A 0 there would read as "last succeeded at the epoch", which is
+        overdue by fifty-six years and would fire `JobOverdue` on every
+        job the day it is added."""
+        assert "yfin_job_last_success_timestamp" not in self._samples()
+        assert "yfin_job_last_duration_seconds" not in self._samples()
+
+    def test_a_finished_job_reports_both(self) -> None:
+        when = datetime(2026, 9, 7, 2, 30, tzinfo=UTC)
+        samples = self._samples(last_success=when, last_duration_seconds=91.5)
+        assert samples["yfin_job_last_success_timestamp"] == when.timestamp()
+        assert samples["yfin_job_last_duration_seconds"] == 91.5
+
+    def test_a_running_job_says_so(self) -> None:
+        assert self._samples(running=True)["yfin_job_running"] == 1.0
+
+    def test_no_next_run_without_a_scheduler(self) -> None:
+        """`build()` has not run, so nothing knows when the trigger fires."""
+        assert "yfin_job_next_run_timestamp" not in self._samples()
+
+    def test_the_next_firing_comes_from_apscheduler(self) -> None:
+        """It is the only thing that knows, and a job with no cron has none
+        rather than a zero that would read as the epoch."""
+
+        class _Job:
+            next_run_time = datetime(2026, 9, 8, 2, 0, tzinfo=UTC)
+
+        class _Scheduler:
+            @staticmethod
+            def get_job(name: str) -> object:
+                return _Job() if name == "sync" else None
+
+        service = self._service()
+        service._scheduler = _Scheduler()  # type: ignore[attr-defined]
+        samples = {s.name: s.value for s in service.job_samples()}  # type: ignore[attr-defined]
+        assert samples["yfin_job_next_run_timestamp"] == _Job.next_run_time.timestamp()
+
+    def test_every_gauge_it_publishes_is_declared(self) -> None:
+        from yfin.core.metrics import METRICS
+
+        service = self._service(last_success=NOW, last_duration_seconds=1.0)
+        for sample in service.job_samples():  # type: ignore[attr-defined]
+            spec = METRICS[sample.name]
+            assert spec.kind == "gauge"
+            assert set(sample.labels) == set(spec.labelnames)
+
+    def test_the_cadences_are_what_the_exporter_divides_by(self) -> None:
+        service = self._service(interval_seconds=3600.0)
+        assert service.intervals() == {"sync": 3600.0}  # type: ignore[attr-defined]
+
+
+class TestEveryScheduledCommandMapsTheLock:
+    """A job that collided with another must be `locked`, not `failed`.
+
+    `scheduler_runs.result` distinguishes them and the alerts read the
+    difference: `locked` is the advisory lock doing its job, `failed` is
+    something to look at. A command that lets `LockNotAcquired` reach the
+    generic handler exits 1, is recorded as `failed`, and fires SyncFailed
+    and JobPartial for what is a normal overlap.
+
+    Found on the running stack: an hourly `stream_reconcile` behind a
+    33-hour backfill recorded `failed` every hour.
+    """
+
+    def test_the_mapping_reserves_a_code_for_it(self) -> None:
+        from yfin.pipeline.audit import EXIT_LOCK_NOT_ACQUIRED
+
+        assert result_for(EXIT_LOCK_NOT_ACQUIRED) == "locked"
+        assert result_for(EXIT_LOCK_NOT_ACQUIRED) != "failed"
+
+    def test_every_locking_command_translates_it(self) -> None:
+        """Static, because the alternative is a repo test that has to hold
+        the lock from another connection for each of them."""
+        import inspect
+
+        from yfin.cli import app, domain, market, stream
+
+        for module in (app, domain, market, stream):
+            source = inspect.getsource(module)
+            if "advisory_lock" not in source and "run_sync" not in source:
+                continue
+            assert "LockNotAcquired" in source, module.__name__
+            assert "EXIT_LOCK_NOT_ACQUIRED" in source, module.__name__
+
+    def test_reconcile_catches_it_where_it_takes_the_lock(self) -> None:
+        """The one that did not, until a live run showed it."""
+        import inspect
+
+        from yfin.cli.stream import stream_reconcile
+
+        source = inspect.getsource(stream_reconcile)
+        assert "except LockNotAcquired" in source
+        assert "EXIT_LOCK_NOT_ACQUIRED" in source

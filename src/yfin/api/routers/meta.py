@@ -21,11 +21,11 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from yfin.api.core import window
 from yfin.api.core.config import ApiSettings
-from yfin.api.core.errors import TYPE_RATE_LIMIT, ApiProblem
 from yfin.api.core.openapi import contract
-from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.core.logging_setup import get_logger
+from yfin.core.metrics import inc
 
 log = get_logger(__name__)
 
@@ -52,9 +52,13 @@ class _ReadinessCache:
 
     def get(self) -> Readiness | None:
         with self._lock:
-            if self._value is not None and time.monotonic() < self._expires:
-                return self._value
-            return None
+            hit = self._value is not None and time.monotonic() < self._expires
+        # Counted here rather than at the call site: this is the only place
+        # that knows whether the entry was still live, and a miss is what
+        # turns a probe into two connections.
+        inc("yfin_cache_ops_total", cache="readiness", result="hit" if hit else "miss")
+        with self._lock:
+            return self._value if hit else None
 
     def put(self, value: Readiness, ttl: float) -> None:
         with self._lock:
@@ -62,7 +66,6 @@ class _ReadinessCache:
             self._expires = time.monotonic() + ttl
 
 
-_limiter = FixedWindow()
 _cache = _ReadinessCache()
 
 
@@ -116,14 +119,10 @@ def health_ready(request: Request) -> Readiness:
     endpoint carries its own per-IP limit, because it is unauthenticated
     and touches both dependencies on every call."""
     settings: ApiSettings = request.app.state.api_settings
-    client_ip = getattr(request.state, "client_ip", "unknown")
-    if not _limiter.allow(client_ip, settings.health_rate_limit_per_minute):
-        raise ApiProblem(
-            429,
-            TYPE_RATE_LIMIT,
-            "Too many readiness probes",
-            headers={"Retry-After": "60"},
-        )
+    # The same code `/metrics` is capped with, in its own window: a
+    # Prometheus scraping every fifteen seconds must not eat a Kubernetes
+    # probe's budget.
+    window.check("readiness", request)
 
     cached = _cache.get()
     if cached is not None:
