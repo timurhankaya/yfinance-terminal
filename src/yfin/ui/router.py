@@ -150,5 +150,12 @@ def me(request: Request) -> Me:
 def not_found(path: str) -> None:
     """Registered last in this router, and this router before the SPA
     pages, so an unknown /ui/api path is a problem document, never
-    index.html."""
+    index.html.
+
+    This catch-all also answers a wrong method on a real route (e.g.
+    `GET /ui/api/login`) with 404 rather than 405, since FastAPI only
+    tries the next matching route, not a method-mismatch handler,
+    before falling through to this one. Deliberate: one operator does
+    not need Allow-header precision here, and 404 keeps the same "no
+    such route" story for both cases."""
     raise ApiProblem(404, TYPE_NOT_FOUND, "No such route")

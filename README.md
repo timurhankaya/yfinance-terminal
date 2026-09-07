@@ -81,7 +81,12 @@ One password, one operator. Behind a reverse proxy set
 rate-limit bucket. Set `YFAPI_PUBLIC_BASE_URL` to the `https://` origin
 so the session cookie is marked `Secure`; with it empty the cookie
 travels over plain HTTP, which is acceptable on localhost and nowhere
-else.
+else. Changing `YFAPI_UI_PASSWORD` signs every browser session out;
+changing `YFAPI_JWT_SIGNING_KEY` does that AND revokes every API token.
+
+Use `npm ci` in `web/`; plain `npm install` crashes on the npm that
+ships with Node 22 (an npm 10.9 resolver bug) -- the committed
+lockfile is the source of truth.
 
 ---
 

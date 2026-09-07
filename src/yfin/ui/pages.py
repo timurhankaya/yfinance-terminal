@@ -23,7 +23,8 @@ from starlette.staticfiles import StaticFiles
 #: browser; no `ws:` scheme is listed because that would allow any host.
 CSP = (
     "default-src 'self'; connect-src 'self'; img-src 'self' data:; "
-    "style-src 'self'; frame-ancestors 'none'"
+    "style-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
+    "form-action 'self'"
 )
 
 _PAGE_HEADERS = {
@@ -41,6 +42,8 @@ def default_dist_dir() -> Path:
 
 
 def install_pages(app: FastAPI, dist_dir: Path) -> None:
+    # Read once at install, not per-request: the shell is static and a
+    # rebuilt index.html needs a process restart to be picked up anyway.
     index = (dist_dir / "index.html").read_text(encoding="utf-8")
     pages = APIRouter(include_in_schema=False)
 

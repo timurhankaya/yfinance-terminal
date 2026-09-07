@@ -19,18 +19,21 @@ def test_enabled_without_a_password_is_REFUSED() -> None:
     """A UI with an empty password is not "no auth", it is a lie: the login
     form would accept the empty string. Refuse at startup instead."""
     with pytest.raises(ValueError, match="YFAPI_UI_PASSWORD"):
-        ApiSettings(ui_enabled=True, ui_password="").validate_ui()
+        ApiSettings(_env_file=None, ui_enabled=True, ui_password="").validate_ui()
 
 
 def test_enabled_with_a_password_validates() -> None:
-    ApiSettings(ui_enabled=True, ui_password=PW).validate_ui()
+    ApiSettings(_env_file=None, ui_enabled=True, ui_password=PW).validate_ui()
 
 
 def test_disabled_never_validates_the_password() -> None:
-    ApiSettings(ui_enabled=False, ui_password="").validate_ui()
+    ApiSettings(_env_file=None, ui_enabled=False, ui_password="").validate_ui()
 
 
 def test_cookie_is_secure_only_behind_https() -> None:
-    assert ApiSettings(public_base_url="https://yfin.example").ui_cookie_secure() is True
-    assert ApiSettings(public_base_url="http://localhost:8000").ui_cookie_secure() is False
-    assert ApiSettings(public_base_url="").ui_cookie_secure() is False
+    https = ApiSettings(_env_file=None, public_base_url="https://yfin.example")
+    http = ApiSettings(_env_file=None, public_base_url="http://localhost:8000")
+    none = ApiSettings(_env_file=None, public_base_url="")
+    assert https.ui_cookie_secure() is True
+    assert http.ui_cookie_secure() is False
+    assert none.ui_cookie_secure() is False

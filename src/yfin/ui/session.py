@@ -10,10 +10,21 @@ the other.
 Stateless on purpose: `uvicorn --workers 4` gives four processes and no
 shared memory, and a session table for one operator is a table nobody
 would ever read.
+
+The session is also bound to the password by a `pwf` claim (a truncated
+SHA-256 fingerprint of `settings.ui_password`, never the password
+itself). This is deliberate: for a single operator, rotating
+`YFAPI_UI_PASSWORD` is the only incident response available (there is no
+per-session revocation list), so it must invalidate every outstanding
+session immediately, not just block new logins. Rotating
+`YFAPI_JWT_SIGNING_KEY` also invalidates every session -- and, because
+that key is shared with `api/auth/jwt.py`, every `/v1` access token too.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 import time
 from dataclasses import dataclass
@@ -31,7 +42,13 @@ UI_AUDIENCE = "yfin-ui"
 #: a burden on a single operator.
 SESSION_TTL_SECONDS = 86_400
 
-REQUIRED_CLAIMS = ("exp", "iat", "iss", "aud", "jti")
+REQUIRED_CLAIMS = ("exp", "iat", "iss", "aud", "jti", "pwf")
+
+
+def _password_fingerprint(password: str) -> str:
+    """First 16 hex characters of SHA-256(password): enough to detect a
+    rotation, not enough to be useful for anything else."""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()[:16]
 
 
 class SessionInvalid(Exception):
@@ -55,6 +72,7 @@ def issue(settings: ApiSettings) -> tuple[str, int]:
         "exp": expires_at,
         # 128 random bits, hex: the spec's "jti login'de 128 bit rastgele".
         "jti": secrets.token_hex(16),
+        "pwf": _password_fingerprint(settings.ui_password),
     }
     encoded = jwt.encode(
         payload,
@@ -85,5 +103,9 @@ def verify(settings: ApiSettings, token: str) -> UiClaims:
         )
     except InvalidTokenError as exc:
         raise SessionInvalid("rejected") from exc
+
+    expected_pwf = _password_fingerprint(settings.ui_password)
+    if not hmac.compare_digest(str(payload["pwf"]), expected_pwf):
+        raise SessionInvalid("password rotated")
 
     return UiClaims(jti=str(payload["jti"]), expires_at=int(payload["exp"]))

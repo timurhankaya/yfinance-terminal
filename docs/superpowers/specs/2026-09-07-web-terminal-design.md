@@ -340,12 +340,16 @@ gösterir.
   karşılaştırma; başarı 204 + `Set-Cookie: yfin_ui`; hata mevcut
   problem gövdesi.
 - Çerez JWT claims: `iss` (mevcut), `aud="yfin-ui"`, `iat`, `exp`
-  (+24 saat, kayan yenileme yok), `jti` (login'de 128 bit rastgele).
-  `sub` yok. `session.py` kendi `jwt.decode(audience="yfin-ui",
-  options={"require": ["exp","iat","jti"]})`'unu yazar; mevcut `verify`
-  `sid`/`epc` istediği için yeniden kullanılamaz. Mevcut `verify`
-  `audience=jwt_audience` doğruladığından UI çerezi Bearer olarak
-  reddedilir; ters yön `aud` uyuşmazlığıyla reddedilir.
+  (+24 saat, kayan yenileme yok), `jti` (login'de 128 bit rastgele),
+  `pwf` (şifrenin SHA-256 parmak izinin ilk 16 hex karakteri). `sub`
+  yok. `session.py` kendi `jwt.decode(audience="yfin-ui",
+  options={"require": ["exp","iat","jti","pwf"]})`'unu yazar; mevcut
+  `verify` `sid`/`epc` istediği için yeniden kullanılamaz. Mevcut
+  `verify` `audience=jwt_audience` doğruladığından UI çerezi Bearer
+  olarak reddedilir; ters yön `aud` uyuşmazlığıyla reddedilir. Şifre
+  değiştirilince tüm oturumlar anında geçersiz olur (tek operatörün
+  sahip olduğu tek olay müdahalesi budur); `jwt_signing_key`
+  rotasyonu ise ayrıca her `/v1` token'ını da öldürür.
 - `POST /ui/api/logout` çerezi siler. `GET /ui/api/me` her zaman 200:
   `{"authenticated": bool, "expires_at": <UNIX epoch saniye>|null, "live_enabled": bool}`.
 - Çerez: `HttpOnly`, `SameSite=Lax`, `Path=/`; `Secure` yalnız

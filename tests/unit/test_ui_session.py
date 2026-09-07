@@ -3,6 +3,7 @@ access token and an access token is not a session."""
 
 from __future__ import annotations
 
+import hashlib
 import time
 
 import jwt as pyjwt
@@ -72,11 +73,15 @@ def _raw(claims: dict[str, object]) -> str:
     )
 
 
+def _pwf(password: str = PW) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()[:16]
+
+
 def test_an_expired_session_is_rejected() -> None:
     now = int(time.time())
     token = _raw(
         {"iss": settings().jwt_issuer, "aud": session.UI_AUDIENCE, "iat": now - 100_000,
-         "exp": now - 90_000, "jti": "a" * 32}
+         "exp": now - 90_000, "jti": "a" * 32, "pwf": _pwf()}
     )
     with pytest.raises(session.SessionInvalid):
         session.verify(settings(), token)
@@ -89,6 +94,30 @@ def test_a_session_without_jti_is_rejected() -> None:
         "aud": session.UI_AUDIENCE,
         "iat": now,
         "exp": now + 100,
+        "pwf": _pwf(),
     })
     with pytest.raises(session.SessionInvalid):
         session.verify(settings(), token)
+
+
+def test_a_session_without_pwf_is_rejected() -> None:
+    now = int(time.time())
+    token = _raw({
+        "iss": settings().jwt_issuer,
+        "aud": session.UI_AUDIENCE,
+        "iat": now,
+        "exp": now + 100,
+        "jti": "a" * 32,
+    })
+    with pytest.raises(session.SessionInvalid):
+        session.verify(settings(), token)
+
+
+def test_a_session_issued_under_one_password_is_rejected_after_rotation() -> None:
+    token, _ = session.issue(settings())
+    rotated = ApiSettings(
+        _env_file=None, jwt_signing_key=KEY, jwt_kid="k1", jwt_issuer="yfin-api",
+        ui_enabled=True, ui_password="a-different-password",
+    )
+    with pytest.raises(session.SessionInvalid):
+        session.verify(rotated, token)
