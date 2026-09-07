@@ -45,6 +45,9 @@ api = [
     # parse a body without this installed.
     "python-multipart>=0.0.9",
 ]
+# Optional publish path. librdkafka rather than a pure-Python client: the
+# relay is a synchronous process, so an async client would buy nothing.
+kafka = ["confluent-kafka>=2.5"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.5",

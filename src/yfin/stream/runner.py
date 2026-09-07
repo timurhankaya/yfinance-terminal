@@ -75,6 +75,7 @@ def writer_config(settings: Settings) -> WriterConfig:
         quotes_every_n_batches=settings.yf_stream_quotes_every_n_batches,
         reject_sample_per_hour=settings.yf_stream_reject_sample_per_hour,
         symbol_cache_seconds=float(settings.yf_stream_rescan_seconds),
+        kafka_enabled=settings.yf_kafka_enabled,
     )
 
 

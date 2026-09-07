@@ -29,6 +29,7 @@ a meaningful bill.
 from __future__ import annotations
 
 import io
+import json
 import queue
 import threading
 import time
@@ -71,6 +72,9 @@ class WriterConfig:
     quotes_every_n_batches: int = 4
     reject_sample_per_hour: int = 100
     symbol_cache_seconds: float = 60.0
+    #: With Kafka off the outbox is never written, so the second write
+    #: path costs exactly nothing. Only whoever uses it pays for it.
+    kafka_enabled: bool = False
 
 
 class SymbolFilter:
@@ -178,6 +182,18 @@ def _copy_value(value: Any) -> str:
         .replace("\n", "\\n")
         .replace("\r", "\\r")
     )
+
+
+def _jsonable(value: Any) -> Any:
+    """Decimal and datetime as text, so the payload round-trips exactly.
+
+    A float here would undo f32_decimal for every consumer downstream --
+    the artefact this pipeline exists to remove would be reintroduced on
+    the way out.
+    """
+    if isinstance(value, Decimal | datetime):
+        return str(value)
+    return value
 
 
 def copy_body(rows: Sequence[dict[str, Any]], columns: Sequence[str] = TICK_COLUMNS) -> str:
@@ -295,6 +311,8 @@ class StreamWriter:
         self._batches += 1
         with self._session_factory() as session:
             written = self._write_ticks(session, rows)
+            if self._config.kafka_enabled:
+                self._write_outbox(session, rows)
             self._write_rejects(session, rejects)
             if self._batches % self._config.quotes_every_n_batches == 0:
                 self._write_quotes(session)
@@ -390,6 +408,72 @@ class StreamWriter:
                 for reject in sampled
             ],
         )
+
+    def _write_outbox(self, session: Session, rows: Sequence[dict[str, Any]]) -> None:
+        """Queues the batch for Kafka, in the tick's own transaction.
+
+        Atomic with the archive by construction: a row is in the outbox if
+        and only if it is in live_ticks. That is the whole reason for an
+        outbox rather than producing straight from the writer -- with a
+        direct producer, a broker outage would leave ticks in the database
+        that no consumer ever sees, and nothing would record the gap.
+
+        Written with COPY like the ticks are. Measured: once live_ticks
+        moved to COPY the bottleneck moved here, and an INSERT outbox held
+        the whole path at 13.6k rows/s against 22.3k with both on COPY.
+
+        `created_at` is this thread's clock, not the tick's received_at.
+        The relay walks `id` but drops chunks by `created_at`, so the two
+        have to agree -- a late tick carrying an old timestamp with a new
+        id would land in a chunk the relay already considers finished.
+        """
+        if not rows:
+            return
+        now = datetime.now(UTC)
+        exchanges = self._exchange_lookup(session, {row["symbol"] for row in rows})
+
+        buffer = io.StringIO()
+        for row in rows:
+            payload = json.dumps(
+                {k: _jsonable(v) for k, v in row.items()},
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            buffer.write(
+                "\t".join(
+                    (
+                        _copy_value(now),
+                        _copy_value(row["symbol"]),
+                        _copy_value(exchanges.get(row["symbol"])),
+                        _copy_value(payload),
+                    )
+                )
+                + "\n"
+            )
+
+        raw = session.connection().connection.driver_connection
+        with raw.cursor().copy(  # type: ignore[union-attr]
+            "COPY stream_outbox (created_at, symbol, exchange, payload) FROM STDIN"
+        ) as copy:
+            copy.write(buffer.getvalue())
+
+    def _exchange_lookup(
+        self, session: Session, symbols: set[str]
+    ) -> dict[str, str | None]:
+        """Exchange per symbol, from `symbols` -- never from the tick.
+
+        The tick carries its own `exchange` field, raw and uppercased by
+        nobody. Using it would let one exchange arrive as both `nms` and
+        `NMS` and split a single Kafka topic in two, which quietly halves
+        the per-symbol ordering guarantee.
+        """
+        if not symbols:
+            return {}
+        rows = session.execute(
+            text("SELECT symbol, exchange FROM symbols WHERE symbol = ANY(:s)"),
+            {"s": sorted(symbols)},
+        ).all()
+        return {row[0]: row[1] for row in rows}
 
     def _write_quotes(self, session: Session) -> None:
         """Upserts the latest quote per symbol, guarded on ts_utc.

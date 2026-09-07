@@ -1,0 +1,166 @@
+"""Optional Kafka producer, behind an import guard.
+
+`confluent-kafka` is an extra. This module is importable without it; only
+building a producer requires it, and then the failure is loud and
+immediate rather than a stream that quietly publishes nothing.
+
+Topic layout is the part worth arguing about, and it is settled here:
+**topic per exchange, partition key per symbol.** A topic per symbol would
+be thousands of topics and would take the broker's metadata down with it;
+a single topic would give up per-exchange isolation. Keying on the symbol
+is what makes ordering per-symbol rather than per-topic.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any, Final, Protocol
+
+from yfin.core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
+#: Kafka accepts [a-zA-Z0-9._-] in topic names, up to 249 characters.
+_TOPIC_SAFE: Final = re.compile(r"[^a-zA-Z0-9._-]")
+_TOPIC_MAX: Final = 249
+
+#: Where an unknown exchange lands. The same label the connection topology
+#: uses, deliberately: two spellings of "unknown" would split one stream
+#: into two places for no reason.
+UNKNOWN_EXCHANGE: Final = "unknown"
+
+
+class KafkaUnavailable(RuntimeError):
+    """Kafka is enabled but the extra is not installed, or is misconfigured."""
+
+
+@dataclass(frozen=True)
+class OutboxMessage:
+    """One row on its way to a topic."""
+
+    id: int
+    symbol: str
+    exchange: str | None
+    payload: str
+
+
+def topic_for(pattern: str, exchange: str | None) -> str:
+    """Renders a topic name and makes it legal.
+
+    Sanitising rather than trusting the exchange code: it comes from
+    `symbols.exchange`, which discovery paths populate, so a value with a
+    slash or a space is not impossible. An illegal name would fail at
+    produce time, one message at a time.
+    """
+    label = (exchange or "").strip().upper() or UNKNOWN_EXCHANGE
+    name = pattern.replace("{exchange}", label)
+    # `_` next to `.` triggers Kafka's metric-collision warning, so the
+    # separator is normalised to `-`.
+    name = _TOPIC_SAFE.sub("-", name).replace("._", ".-").replace("_.", "-.")
+    return name[:_TOPIC_MAX]
+
+
+class Producer(Protocol):
+    """The slice of confluent_kafka.Producer the relay uses."""
+
+    def produce(self, topic: str, value: bytes, key: bytes) -> None: ...
+    def flush(self, timeout: float = ...) -> int: ...
+
+
+def build_producer(bootstrap_servers: str) -> Producer:
+    """A producer configured so per-symbol ordering actually holds.
+
+    The two settings below are not tuning. librdkafka defaults allow more
+    than one in-flight request per connection with retries enabled, and a
+    retried batch can then land after a later one -- reordering messages
+    within the partition that per-symbol ordering depends on.
+    `enable.idempotence` bounds in-flight requests and de-duplicates
+    retries; it also implies acks=all, which is stated here rather than
+    left implicit.
+    """
+    if not bootstrap_servers:
+        raise KafkaUnavailable(
+            "yf_kafka_enabled is on but yf_kafka_bootstrap_servers is empty"
+        )
+    try:
+        from confluent_kafka import Producer as ConfluentProducer
+    except ImportError as exc:  # pragma: no cover - depends on the extra
+        raise KafkaUnavailable(
+            "yf_kafka_enabled is on but confluent-kafka is not installed; "
+            'install the extra: pip install "yfin[kafka]"'
+        ) from exc
+
+    return ConfluentProducer(
+        {
+            "bootstrap.servers": bootstrap_servers,
+            "enable.idempotence": True,
+            "acks": "all",
+            "client.id": "yfin-stream-relay",
+        }
+    )
+
+
+def existing_topics(bootstrap_servers: str, timeout: float = 10.0) -> set[str]:
+    """Topic names the broker already knows.
+
+    The relay checks these at start rather than relying on
+    `auto.create.topics.enable`: a topic created implicitly gets the
+    broker's default partition count, and the wrong partition count
+    silently costs per-symbol ordering.
+    """
+    try:
+        from confluent_kafka.admin import AdminClient
+    except ImportError as exc:  # pragma: no cover - depends on the extra
+        raise KafkaUnavailable("confluent-kafka is not installed") from exc
+
+    admin = AdminClient({"bootstrap.servers": bootstrap_servers})
+    metadata = admin.list_topics(timeout=timeout)
+    return set(metadata.topics)
+
+
+class DeliveryTracker:
+    """Counts how a produce batch actually landed.
+
+    The relay may not advance its offset until every message in the batch
+    is acknowledged. Without that, a broker outage mid-batch would move
+    the offset past messages nobody received -- and the outbox is then the
+    only place they existed.
+    """
+
+    def __init__(self) -> None:
+        self.delivered = 0
+        self.failed: list[str] = []
+
+    def callback(self, error: Any, _message: Any) -> None:
+        if error is not None:
+            self.failed.append(str(error))
+        else:
+            self.delivered += 1
+
+    @property
+    def ok(self) -> bool:
+        return not self.failed
+
+
+def publish(
+    producer: Producer,
+    messages: Sequence[OutboxMessage],
+    *,
+    topic_pattern: str,
+    flush_timeout: float = 30.0,
+) -> DeliveryTracker:
+    """Publishes a batch and waits for every acknowledgement."""
+    tracker = DeliveryTracker()
+    for message in messages:
+        producer.produce(  # type: ignore[call-arg]
+            topic_for(topic_pattern, message.exchange),
+            value=message.payload.encode("utf-8"),
+            key=message.symbol.encode("utf-8"),
+            on_delivery=tracker.callback,
+        )
+    remaining = producer.flush(flush_timeout)
+    if remaining:
+        tracker.failed.append(f"{remaining} message(s) still queued after flush")
+    return tracker

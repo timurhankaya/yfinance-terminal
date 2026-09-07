@@ -355,6 +355,27 @@ class Settings(BaseSettings):
         "stream", "Reject rows kept per (symbol, reason) per hour; counts are never sampled.",
         default=100, ge=0,
     )
+    # --- optional Kafka publish path ---------------------------------------
+    #
+    # Off by default, and off means nothing is written: with this false the
+    # outbox stays empty, so the second write path costs exactly zero.
+    yf_kafka_enabled: bool = _cfg(
+        "stream", "Publish ticks to Kafka through the transactional outbox.", default=False
+    )
+    yf_kafka_bootstrap_servers: str = _cfg(
+        "stream", "Kafka bootstrap servers, comma separated.", default=""
+    )
+    # Topic per exchange, partition key per symbol: that is what gives
+    # per-symbol ordering. A topic per symbol would be thousands of topics
+    # and would take the broker's metadata down with it.
+    yf_kafka_topic_pattern: str = _cfg(
+        "stream", "Topic name pattern; {exchange} is substituted.",
+        default="yfin.ticks.{exchange}",
+    )
+    yf_kafka_relay_batch: int = _cfg(
+        "stream", "Outbox rows read per relay pass.", default=1000, ge=1
+    )
+
     yf_stream_rescan_seconds: int = _cfg(
         "stream", "How often scope and settings are re-read while running.",
         default=60, ge=5,

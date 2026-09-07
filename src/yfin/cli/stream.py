@@ -279,3 +279,70 @@ def scope_list(
             f"{placement.get(symbol, 'disabled' if not enabled else '-')}"
         )
     typer.echo(f"\n{len(rows)} symbol(s) across {len(plans)} connection(s)")
+
+
+# --- relay ------------------------------------------------------------------
+
+
+@stream_app.command("relay")
+def stream_relay(
+    once: Annotated[
+        bool, typer.Option("--once", help="Publish one batch and exit")
+    ] = False,
+) -> None:
+    """Publish outbox rows to Kafka.
+
+    A separate process from `stream run` on purpose: a broker outage must
+    not slow down or stop collection. The outbox is written inside the
+    tick transaction, so a row is queued if and only if it is archived.
+
+    Holds `yfin_stream_relay`. Two relays would read the same offset,
+    publish the same messages and could roll each other's progress back --
+    the single-row constraint on the offset table does not prevent that,
+    only this lock does.
+    """
+    from sqlalchemy import Engine
+
+    from yfin.storage.db import advisory_lock
+    from yfin.stream.relay import RELAY_LOCK_NAME, OutboxRelay, RelayConfig
+    from yfin.stream.runner import session_factory_for
+
+    settings = get_settings()
+    if not settings.yf_kafka_enabled:
+        typer.echo(
+            "yf_kafka_enabled is off; enable it with "
+            "`yfin config set yf_kafka_enabled true`"
+        )
+        raise typer.Exit(code=1)
+
+    engine = _engine()
+    assert isinstance(engine, Engine)
+    factory = session_factory_for(engine)
+    config = RelayConfig(
+        bootstrap_servers=settings.yf_kafka_bootstrap_servers,
+        topic_pattern=settings.yf_kafka_topic_pattern,
+        batch_size=settings.yf_kafka_relay_batch,
+    )
+    relay = OutboxRelay(factory, config)
+
+    with advisory_lock(engine, RELAY_LOCK_NAME):
+        missing = relay.verify_topics()
+        if missing:
+            # Not fatal, but worth saying out loud: a topic created
+            # implicitly takes the broker's default partition count, and
+            # the wrong count silently costs per-symbol ordering.
+            typer.echo(f"topics not present on the broker: {', '.join(missing)}")
+
+        if once:
+            from yfin.stream.kafka import build_producer
+
+            published = relay.publish_once(build_producer(config.bootstrap_servers))
+            typer.echo(f"published {published} message(s)")
+        else:
+            stats = relay.run()
+            typer.echo(
+                f"published {stats.published} message(s) over {stats.passes} pass(es)"
+            )
+    if relay.stats.last_error:
+        typer.echo(f"last error: {relay.stats.last_error}")
+        raise typer.Exit(code=1)
