@@ -31,7 +31,20 @@ WriteMode = Literal["upsert", "replace_scope"]
 #: One definition, imported by both sides. `datasets/asof_base.py` used to
 #: carry its own copy, and two lists that must agree are a drift waiting to
 #: happen -- `first_seen_at` was added to one of them months after the other.
-VOLATILE_COLUMNS: tuple[str, ...] = ("fetched_at", "first_seen_at", "as_of_date")
+#:
+#: `last_seen_at` is here on the same grounds and was MEASURED into it: it
+#: is written on every run by definition, and without it a settled daily
+#: sync published one `symbols` update per symbol -- 4,500 events a night
+#: saying only that the pipeline had looked. Only `symbols` carries the
+#: column today, exactly as only `asof_state` carries `first_seen_at`; the
+#: list is about what a name MEANS, so the next table to grow one inherits
+#: the answer instead of repeating the discovery.
+VOLATILE_COLUMNS: tuple[str, ...] = (
+    "fetched_at",
+    "first_seen_at",
+    "last_seen_at",
+    "as_of_date",
+)
 
 
 @dataclass(frozen=True)
