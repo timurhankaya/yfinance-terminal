@@ -98,7 +98,7 @@ describe("DS", () => {
     expect(seen.some((u) => u.startsWith("/ui/api/v1/datasets/major_holders?") && u.includes("symbol=AAPL"))).toBe(true);
     const headers = screen.getAllByRole("columnheader").map((th) => th.textContent);
     // "open" carries the quote-page link every symbol row implies.
-    expect(headers).toEqual(["as_of_date", "insiders_pct_held", "open"]);
+    expect(headers).toEqual(["open", "as_of_date", "insiders_pct_held"]);
   });
 
   it("passes filters through and never sends a symbol to a market-wide dataset", async () => {

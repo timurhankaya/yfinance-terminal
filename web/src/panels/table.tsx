@@ -193,7 +193,8 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
     format: (row) => formatCell(row[c.name], c.type, c.name),
   }));
   if (links.length > 0) {
-    gridColumns.push({ key: "__links", label: "open", format: (row) => <Links row={row} rules={links} /> });
+    // First, not last: a wide grid scrolls sideways and the links would be off-screen.
+    gridColumns.unshift({ key: "__links", label: "open", format: (row) => <Links row={row} rules={links} /> });
   }
   const detail = open === null ? undefined : rows[open];
 

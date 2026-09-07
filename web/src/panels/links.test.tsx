@@ -44,7 +44,7 @@ describe("DatasetTable links", () => {
 
   it("adds an open column and repeats the links in the row detail", () => {
     render(<DatasetTable columns={columns} rows={rows} links={linksFor("research_reports", ["report_id"])} />);
-    expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["report_id", "provider", "open"]);
+    expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["open", "report_id", "provider"]);
     const [, first, second] = screen.getAllByRole("row");
     expect(within(first!).getByRole("link", { name: "report ↗" }).getAttribute("href")).toBe(
       "https://finance.yahoo.com/research/reports/X_1",
