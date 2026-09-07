@@ -206,15 +206,13 @@ JSON text, version 1:
 - Rendering shares `canonical_json`'s `default` handling from
   `core/normalize.py`: `Decimal` as text (a float would reintroduce the
   f32 artefact), `datetime`/`date` as ISO-8601, NaN as `null`, numpy
-  scalars unwrapped. `jsonable` in `stream/writer.py` is replaced by the
-  same helper, moved to `storage/copy.py` together with `copy_body`, so
-  `storage/` does not import from `stream/`. The move (step 1) is
-  verbatim -- `str()` for `Decimal` and `datetime` -- and the widening to
-  `canonical_json`'s handling happens with the envelope in step 4, because
-  it changes `str(datetime)` (a space separator) into `isoformat()` (a
-  `T`), and that is a consumer-visible change to a tick payload that has
-  already shipped. Step 4 decides whether the tick outbox moves with the
-  envelope or keeps its rendering.
+  scalars unwrapped. `copy_body` moved to `storage/copy.py` in step 1 so
+  `storage/` does not import from `stream/`. **Step 4 resolved the open
+  question about `jsonable`:** the envelope calls `canonical_json`
+  directly, since that function already does exactly what the envelope
+  needs, so `jsonable` is NOT widened and the shipped tick payload keeps
+  its rendering. One encoder, and no consumer-visible change to a feature
+  that has already shipped.
 - `run_id` is the `sync_runs.id` of the run that wrote the row; `null`
   outside a sync. A scheduler run (observability design) is reachable
   through `sync_runs.job_run_id`; it is not repeated in the envelope.
@@ -252,9 +250,17 @@ INFRASTRUCTURE_TABLES: frozenset[str]
 GATE_TABLES: frozenset[str]          # asof_state, domain_asof_state, discovery_asof_state
 ```
 
-The partition column is chosen per table by the rule: `symbol` if the
-table has it; else `domain_key`; else `region`; else the table's own
-identifier. The produced tables that reach the last branch are `news`
+The partition column is chosen per table by the rule: the FIRST of
+`symbol`, `domain_key`, `region`, the table's own identifier that is
+**part of the primary key**. The primary-key qualifier is not decoration
+and was added during step 4: a `delete` event carries the key and nothing
+else -- there is no row left to read a column from -- so a partition
+column outside the key would leave deletes on that table unroutable, and
+the failure would surface the first time something was deleted. Three
+tables take their second choice because of it: `market_summary` and
+`market_summary_history` carry the index symbol but are keyed by
+`(region, board_code)`, and `domains` carries the domain's index symbol
+but is keyed by `domain_key`. The produced tables that reach the last branch are `news`
 (`news_id`), `research_reports` (`report_id`), `lookup_totals`,
 `search_lists`, `search_report_hits` (`query_term`), `screens` and
 `screen_runs` (`screen_key`). The map is written out explicitly so the
@@ -264,7 +270,8 @@ rule is checkable, and tests assert:
   gate tables and `bar_gaps`, which are produced and infrastructure at
   once and are listed as such;
 - every `ApiExposure(table=t).family == ROUTES[t].family`;
-- every `partition_column` exists on the table;
+- every `partition_column` exists on the table **and is part of its
+  primary key**;
 - `metadata.tables − produces ⊆ INFRASTRUCTURE_TABLES` and
   `INFRASTRUCTURE_TABLES ⊆ metadata.tables`, with `yfin.api.models`
   imported explicitly so the API tables are in the universe.
@@ -738,16 +745,23 @@ Changed:
 
 1. `storage/routing.py` with the four assertions; `storage/copy.py`;
    `storage/wire.py`; the boundary test additions. Refactor only:
-   moved functions, new assertions, no runtime change.
+   moved functions, new assertions, no runtime change. **Done.**
 2. `outbox/` extraction with `OutboxSpec`; tick relay green on the new
-   module with the tick spec.
+   module with the tick spec. **Done**, except `OutboxSpec.cursor`, which
+   arrives with the `xid` walk in step 8: declaring it now would mean a
+   branch against a table that does not exist yet.
 3. The `xmax` measurement on a plain table, a hypertable chunk and a
    same-transaction re-upsert; record it and fix the hypertable path
    (native or fallback) before any writer code. **Done**: native on all
    three, no fallback (`scripts/measure_xmax.py`,
    `docs/measurements/database.md`).
 4. `Xid8Type`, models, migration, `changes_timescale_ddl`;
-   `ChangeContext` / `ChangeCollector` with unit tests.
+   `ChangeContext` / `ChangeCollector` with unit tests. **Done.** The
+   migration seeds no offset row: `stream_relay_offset` is not seeded
+   either, the relay inserts its own on first use, and the repo fixtures
+   build the schema from `Base.metadata` rather than by running
+   migrations, so a seeded row would exist in production and not in the
+   tests.
 5. Writer: `RETURNING *`, the predicate, the volatile touch, the
    infrastructure bypass; repo tests on dedicated connections.
 6. `replace_scope` diff; range coalescing; `purge` / `prune` / rescale
@@ -780,6 +794,23 @@ here.
 
 ## Revisions
 
+During implementation, step 4:
+
+- **The partition column must be in the primary key.** Found while writing
+  `ChangeCollector.record`, which has only the key on a delete. Three
+  tables changed; a new assertion enforces the rule.
+- **The envelope renders with `canonical_json`**, so `jsonable` is not
+  widened and the tick payload is untouched. This closes the step-1 note
+  below.
+- **No seed row in the migration**, for consistency with
+  `stream_relay_offset` and because the repo fixtures do not run
+  migrations. The repo tests caught the divergence.
+
+During implementation, step 3:
+
+- **The `xmax` hypertable fallback is not implemented.** Measured native on
+  a plain table, a hypertable chunk and a same-transaction re-upsert.
+
 During implementation, step 1:
 
 - **`shares_full` routes to `fundamentals`.** Decision 4's per-table
@@ -787,9 +818,8 @@ During implementation, step 1:
   decision 7's list of bar-family tables, which names `shares_full`
   because of how it is fetched. The assertion wins: it is the one that
   protects the ACL promise routing exists for.
-- **`jsonable` widens in step 4, not step 1**, for the reason given under
-  "The envelope": step 1 promises no runtime change, and `isoformat()`
-  would alter a shipped tick payload.
+- ~~**`jsonable` widens in step 4, not step 1**~~ -- superseded above: step 4
+  calls `canonical_json` directly, so `jsonable` never widens at all.
 
 After the first review:
 
