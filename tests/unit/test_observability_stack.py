@@ -38,6 +38,15 @@ FOREIGN_SERIES = {
     # the library owns their names and buckets.
     "yfin_http_requests_total",
     "yfin_http_request_duration_seconds_bucket",
+    # Exported BY ALLOY and pushed to Prometheus by remote_write: the
+    # postgres and redis exporters run inside the collector rather than as
+    # their own containers, so their names are the exporters' and not ours.
+    "pg_stat_database_numbackends",
+    "pg_database_size_bytes",
+    "pg_up",
+    "redis_up",
+    "redis_memory_used_bytes",
+    "redis_memory_max_bytes",
     # Recording rules, defined in prometheus/rules/recording.yml.
     "yfin:cells_stale_ratio",
     "yfin:cells_stale_ratio_by_scope",
@@ -125,10 +134,10 @@ class TestTheDashboards:
         assert json.loads(path.read_text())["editable"] is False
 
     @pytest.mark.parametrize("path", DASHBOARDS, ids=lambda p: p.stem)
-    def test_every_panel_is_described(self, path: Path) -> None:
-        """Not every panel -- but a panel whose title does not say what it
-        means has to. `stat` panels titled `api` are self-explanatory;
-        anything with a ratio or a threshold in it is not."""
+    def test_every_dashboard_is_described(self, path: Path) -> None:
+        """The dashboard's own description, not any panel's. It is what the
+        Grafana dashboard list shows next to the title, and five boards
+        named `yfin-...` are told apart by nothing else."""
         doc = json.loads(path.read_text())
         assert doc["description"].strip(), path.stem
 
@@ -362,4 +371,15 @@ class TestTheStackEnvExample:
             assert f"{name}=" in text, name
 
     def test_the_real_env_is_not_committed(self) -> None:
-        assert not (DEPLOY / ".env").exists() or (DEPLOY / ".env").stat().st_size >= 0
+        """`.env` next to `.env.example` holds the Grafana password and the
+        monitoring database's. Tracked once, it is in the history forever,
+        and a checkout is enough to read it."""
+        import subprocess
+
+        tracked = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            ["git", "ls-files", str(DEPLOY)],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        assert str(DEPLOY / ".env") not in tracked
