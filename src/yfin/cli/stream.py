@@ -422,7 +422,8 @@ def stream_reconcile(
     """
     from sqlalchemy import Engine
 
-    from yfin.storage.db import SYNC_LOCK_NAME, advisory_lock
+    from yfin.pipeline.audit import EXIT_LOCK_NOT_ACQUIRED
+    from yfin.storage.db import SYNC_LOCK_NAME, LockNotAcquired, advisory_lock
     from yfin.storage.db import session_factory as session_factory_for
     from yfin.stream.reconcile import reconcile_gaps
 
@@ -430,8 +431,21 @@ def stream_reconcile(
     assert isinstance(engine, Engine)
     factory = session_factory_for(engine)
 
-    with advisory_lock(engine, SYNC_LOCK_NAME):
-        stats = reconcile_gaps(factory, dry_run=dry_run, limit=limit)
+    try:
+        with advisory_lock(engine, SYNC_LOCK_NAME):
+            stats = reconcile_gaps(factory, dry_run=dry_run, limit=limit)
+    except LockNotAcquired:
+        # Exit 4, not 1. This job runs hourly and takes the SYNC lock, so a
+        # sync that outlives an hour makes it collide -- which is the
+        # design working, not a failure. Left as exit 1 the scheduler
+        # records `failed`, and a nightly run that legitimately overran
+        # would fire SyncFailed and JobPartial every hour until it
+        # finished. Measured: a 33-hour backfill did exactly that.
+        typer.echo(
+            "another sync holds the lock; the gaps stay open for the next pass",
+            err=True,
+        )
+        raise typer.Exit(code=EXIT_LOCK_NOT_ACQUIRED) from None
 
     typer.echo(stats.summary)
     if stats.minutes_skipped_existing:

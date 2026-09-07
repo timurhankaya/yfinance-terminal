@@ -250,3 +250,47 @@ class TestTheJobGauges:
     def test_the_cadences_are_what_the_exporter_divides_by(self) -> None:
         service = self._service(interval_seconds=3600.0)
         assert service.intervals() == {"sync": 3600.0}  # type: ignore[attr-defined]
+
+
+class TestEveryScheduledCommandMapsTheLock:
+    """A job that collided with another must be `locked`, not `failed`.
+
+    `scheduler_runs.result` distinguishes them and the alerts read the
+    difference: `locked` is the advisory lock doing its job, `failed` is
+    something to look at. A command that lets `LockNotAcquired` reach the
+    generic handler exits 1, is recorded as `failed`, and fires SyncFailed
+    and JobPartial for what is a normal overlap.
+
+    Found on the running stack: an hourly `stream_reconcile` behind a
+    33-hour backfill recorded `failed` every hour.
+    """
+
+    def test_the_mapping_reserves_a_code_for_it(self) -> None:
+        from yfin.pipeline.audit import EXIT_LOCK_NOT_ACQUIRED
+
+        assert result_for(EXIT_LOCK_NOT_ACQUIRED) == "locked"
+        assert result_for(EXIT_LOCK_NOT_ACQUIRED) != "failed"
+
+    def test_every_locking_command_translates_it(self) -> None:
+        """Static, because the alternative is a repo test that has to hold
+        the lock from another connection for each of them."""
+        import inspect
+
+        from yfin.cli import app, domain, market, stream
+
+        for module in (app, domain, market, stream):
+            source = inspect.getsource(module)
+            if "advisory_lock" not in source and "run_sync" not in source:
+                continue
+            assert "LockNotAcquired" in source, module.__name__
+            assert "EXIT_LOCK_NOT_ACQUIRED" in source, module.__name__
+
+    def test_reconcile_catches_it_where_it_takes_the_lock(self) -> None:
+        """The one that did not, until a live run showed it."""
+        import inspect
+
+        from yfin.cli.stream import stream_reconcile
+
+        source = inspect.getsource(stream_reconcile)
+        assert "except LockNotAcquired" in source
+        assert "EXIT_LOCK_NOT_ACQUIRED" in source

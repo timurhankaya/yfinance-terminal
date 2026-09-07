@@ -1141,3 +1141,36 @@ stack against a live pipeline:
   between the compose files agrees with itself (one service per metrics
   port, `PROMETHEUS_MULTIPROC_DIR` on the API alone, every published port
   scraped).
+
+While implementing step 11 (measurements and the integration run):
+
+- **`stream reconcile` reported `failed` where the design says `locked`.**
+  It takes the SYNC advisory lock and did not catch `LockNotAcquired`, so
+  a collision reached the generic handler, exited 1, and the scheduler
+  recorded `failed`. Found on the running stack: an hourly
+  `stream_reconcile` behind a 33-hour backfill did this every hour, and
+  would have fired `SyncFailed` and `JobPartial` for what is the advisory
+  lock working exactly as designed. It now exits
+  `EXIT_LOCK_NOT_ACQUIRED`; a test asserts every command that takes a lock
+  maps it.
+- **JSON logging is CHEAPER than console**, by about 20 % (15.3 µs against
+  18.9 µs per line). The design assumed the opposite. `ConsoleRenderer`
+  pads keys, aligns columns and decides colours; `JSONRenderer` is one
+  `json.dumps` -- and the console figure was measured with colours OFF,
+  which is the favourable case. The format is therefore chosen for who
+  reads it and not for what it costs, which is what `LOG_FORMAT`'s default
+  already does.
+- **Tracing at sampling 1.0 costs 0.004 % of a symbol's wall clock.** 47
+  spans per symbol at 16.7 µs each is 0.78 ms, against a symbol that takes
+  20 seconds. The design's worry that a span per dataset was too many is
+  not borne out.
+- **The metrics endpoint holds the GIL for 0.0062 % of wall clock** at a
+  15-second scrape: 0.93 ms to render 323 lines. Against `websocket.md`'s
+  22,291 ticks/s ceiling that is 1.4 ticks of delay per scrape, inside a
+  batch carrying hundreds. The regular-session comparison is still open --
+  this was measured with the equity markets closed.
+- **A full pass over 5,888 symbols on ONE IP takes 33 hours** at the
+  measured 176 symbols/hour, so a nightly cadence cannot complete and
+  every firing after the first exits `locked`. Freshness at that universe
+  size is a proxy-pool decision, not a scheduler one: the pipeline shards
+  one process per proxy, so the pass time divides by the pool size.

@@ -132,15 +132,106 @@ next design is a watermark table **carrying the status and the region**,
 and this measurement is the evidence that such a table would run in
 milliseconds.
 
+## What the instrumentation costs
+
+    uv run python scripts/measure_observability_cost.py --lines-per-sync 101000
+
+All three numbers answer the same question — does the instrumentation
+change the thing it measures — and all three answer *no*, one of them for
+a reason nobody predicted.
+
+### Log rendering, per line
+
+| format | per line |
+|---|---|
+| `console` | 18.9 µs |
+| `json` | **15.3 µs** |
+| a line below the level | 1.58 µs |
+
+**JSON is the cheaper format, by about 20 %.** That is the opposite of the
+assumption the design was written under. `ConsoleRenderer` pads keys,
+aligns columns and decides colours; `JSONRenderer` is one `json.dumps`.
+The console number here is even the *favourable* one: it was measured with
+`colors=False`, because the benchmark's stderr is not a terminal, and
+colouring only adds to it.
+
+So the format is chosen for who reads it — a human at a terminal, or
+Loki — and not for what it costs. The `LOG_FORMAT` default (`console` on a
+TTY, `json` otherwise) already picks on exactly that basis.
+
+The third row is the one that matters most and is the easiest to overlook.
+A call below the threshold costs 1.58 µs because `structlog.stdlib.
+filter_by_level` is FIRST in the chain: the line is dropped before
+redaction, timestamping or trace lookup runs. A chain that filtered last
+would pay the full 15 µs for every DEBUG call in a process running at INFO.
+
+### Over one full sync
+
+Measured on the backfill of the full 5,888-symbol universe: **17.2 log
+lines per symbol**, so a full pass writes about **101,000 lines**.
+
+| format | total rendering time |
+|---|---|
+| `console` | 1.9 s |
+| `json` | 1.5 s |
+
+Against a pass that takes 33 hours, the whole difference is 0.4 seconds --
+0.0003 %. The log format is not a performance decision at this scale, and
+nothing in the pipeline should be shaped around it.
+
+### Spans
+
+| state | per span |
+|---|---|
+| off (`_enabled` false) | 0.54 µs |
+| on, sampling 1.0 | 16.7 µs |
+
+A symbol draws 47 spans: one `sync.symbol` around its persist, and one
+`sync.dataset.fetch` per dataset. At sampling 1.0 that is **0.78 ms per
+symbol**.
+
+The measured throughput of the same run is 176 symbols/hour, i.e. 20
+seconds per symbol, so tracing costs **0.004 %** of a symbol's wall clock.
+The design's worry — that a span per dataset is too many — is not borne
+out; the fetch it wraps is three orders of magnitude more expensive than
+the span.
+
+The off case is the one worth keeping an eye on. 0.54 µs is the cost of a
+`with` on a generator that yields `None`, and it is paid 47 times per
+symbol in every process that is not being traced — 25 µs per symbol,
+which is still nothing. It stays that cheap only because `span()` checks a
+module-level flag before it imports or looks up anything.
+
+### One scrape
+
+| | |
+|---|---|
+| exposition lines | 323 |
+| `generate_latest()` | 0.93 ms |
+
+This is the question behind "the metrics endpoint's effect on `stream
+run`'s write ceiling": rendering the registry holds the GIL, and the
+writer thread wants it. At a 15-second scrape interval the endpoint holds
+the GIL for **0.0062 %** of wall clock.
+
+Against `websocket.md`'s measured write ceiling of 22,291 ticks/s on the
+COPY path, that is about 1.4 ticks' worth of delay per scrape — inside a
+batch that already carries hundreds. The stream's own
+`yfin_stream_batch_seconds` on the running stack reads **14 ms at p50**
+against a 250 ms batch interval, with the endpoint scraped throughout.
+
+A caveat this measurement cannot remove: it was taken on a Sunday evening
+with the equity markets closed, so the message rate was crypto and
+after-hours only. The comparison against a full regular session is still
+open, and is the same pending measurement `websocket.md` already names.
+
 ## Still to record
 
-The design lists four more measurements that belong here, and none of them
-can be taken from step 6:
-
-* JSON versus console logging: per-line cost and effect on a full sync
-  (step 7).
-* Tracing overhead on `persist_symbol` at sampling 1.0 (step 9).
-* The metrics endpoint's effect on `stream run`'s write ceiling, against
-  `websocket.md` (step 9).
 * The first real values behind every alert threshold and the freshness
-  factor, so `README.md` can stop calling them starting values (step 11).
+  factor. Every number in
+  `deploy/observability/grafana/provisioning/alerting/rules.yml` is a
+  starting value, and the file says so in its own header: a month of real
+  data is what replaces them, and nothing shorter will do.
+* The stream's write ceiling during a full regular session, against
+  `websocket.md`. The scrape measurement above was taken with the equity
+  markets closed.
