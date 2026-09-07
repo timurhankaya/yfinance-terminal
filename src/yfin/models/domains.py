@@ -355,9 +355,7 @@ class ResearchReport(Base):
     # Measured max 59 chars.
     head_html: Mapped[str | None] = mapped_column(String(255, collation="C"))
     # Must have no length limit: measured max 23,570 characters (104
-    # reports, median 281). MySQL's `TEXT` was 65,535 bytes and could
-    # overflow under utf8mb4, requiring `MEDIUMTEXT`; PostgreSQL `text`
-    # has no limit.
+    # reports, median 281). PostgreSQL `text` has no limit.
     report_title: Mapped[str | None] = mapped_column(Text)
     # Absent entirely in 17 of 104 reports. Also arrives as a bare float
     # (unlike topCompanies[].targetPrice, which is wrapped).

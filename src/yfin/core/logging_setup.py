@@ -17,10 +17,6 @@ formatter and are rendered by the same code.
 logging is configured before they run -- a log line on stdout would corrupt
 them. Alloy's `loki.source.docker` reads both streams and labels them, so
 routing to stderr loses nothing.
-
-`show_locals` is off in both renderings. The default serialises frame
-locals into the traceback, and a `settings` or `dsn` local would carry a
-password past a redaction that only ever sees top-level event keys.
 """
 
 from __future__ import annotations
@@ -34,11 +30,10 @@ from typing import Any
 import structlog
 
 #: The service name every line carries. Module state rather than a
-#: contextvar, and the difference is load-bearing: `ThreadPoolExecutor` does
-#: not copy the context into its workers -- `bind_shard_context` exists
-#: because the project already hit that -- so a `service` bound with
+#: contextvar: `ThreadPoolExecutor` does not copy the context into its
+#: workers -- see `bind_shard_context` -- so a `service` bound with
 #: `bind_contextvars` would be absent from exactly the fetch and normalise
-#: lines that a dashboard filters by service to find.
+#: lines a dashboard filters by service to find.
 _service = ""
 
 #: Formats `fmt` accepts. Anything else falls back to the TTY default

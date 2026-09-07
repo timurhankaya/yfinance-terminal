@@ -21,7 +21,6 @@ from yfin.core.metrics import (
     ALLOWED_LABELS,
     METRICS,
     Accumulator,
-    MetricSpec,
     count_exception,
     label_key,
 )
@@ -183,11 +182,6 @@ class TestCountException:
         count_exception(KeyboardInterrupt())
 
 
-def test_a_spec_can_be_declared_without_labels() -> None:
-    spec = MetricSpec(name="yfin_probe_total", documentation="x", kind="counter")
-    assert spec.labelnames == ()
-
-
 class TestGauges:
     """The exporter's side of the API.
 
@@ -202,28 +196,41 @@ class TestGauges:
         name: there `_total` is the denominator of `yfin_cells_stale`, not
         the Prometheus counter suffix. Everything else read from a table
         drops it, so a gauge never looks like a monotonic counter."""
-        from yfin.core.metrics import METRICS
-
         for spec in METRICS.values():
             if spec.kind == "gauge" and spec.name != "yfin_cells_total":
                 assert not spec.name.endswith("_total"), spec.name
 
     def test_no_name_is_both_a_counter_and_a_gauge(self) -> None:
         """The whole reason the exported names drop `_total`: one name with
-        two label sets cannot be registered, and would not mean one thing."""
-        from yfin.core.metrics import METRICS
+        two label sets cannot be registered, and would not mean one thing.
 
-        assert len({spec.name for spec in METRICS.values()}) == len(METRICS)
+        Comparing `{spec.name}` against `len(METRICS)` cannot fail: METRICS
+        is five dicts merged and every one is keyed by `spec.name`, so a
+        collision does not show up as a duplicate -- it silently OVERWRITES,
+        and the count matches either way. Counting the sources instead is
+        what makes the collision visible.
+        """
+        from yfin.core.metrics import (
+            _EXPORTER_GAUGES,
+            _PROCESS_METRICS,
+            _SERVICE_COUNTERS,
+            _SHARD_COUNTERS,
+            _republished,
+        )
 
-    def test_setting_one_does_not_raise(self) -> None:
-        from yfin.core.metrics import set_gauge
-
-        set_gauge("yfin_cells_total", 3, scope="symbols", dataset="info")
+        sources = (
+            _PROCESS_METRICS,
+            _SERVICE_COUNTERS,
+            _SHARD_COUNTERS,
+            _republished(_SHARD_COUNTERS),
+            _EXPORTER_GAUGES,
+        )
+        assert sum(len(d) for d in sources) == len(METRICS)
 
     def test_an_undeclared_label_is_refused(self) -> None:
         """Same contract as the counters: `set_gauge` swallows it, but the
         validation underneath is what a test can see."""
-        from yfin.core.metrics import METRICS, _validate
+        from yfin.core.metrics import _validate
 
         with pytest.raises(ValueError, match="label"):
             _validate("yfin_cells_total", {"symbol": "AAPL"})
@@ -276,7 +283,7 @@ class TestTheRepublishedSyncCounters:
     """
 
     def test_every_shard_counter_has_an_exported_gauge(self) -> None:
-        from yfin.core.metrics import METRICS, exported_name
+        from yfin.core.metrics import exported_name
 
         for spec in METRICS.values():
             if spec.name.startswith("yfin_sync_") and spec.kind == "counter":
@@ -293,11 +300,6 @@ class TestTheRepublishedSyncCounters:
 class TestTheServiceCounters:
     """What the long-lived services count, and why the names differ from
     the exporter's gauges for the same thing."""
-
-    def test_a_histogram_can_be_observed(self) -> None:
-        from yfin.core.metrics import observe
-
-        observe("yfin_stream_batch_seconds", 0.012)
 
     def test_observing_never_raises(self) -> None:
         """A batch that failed to be timed is still a batch that was

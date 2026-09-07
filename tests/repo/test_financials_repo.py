@@ -228,7 +228,7 @@ def _gated_result(content_hash: str, fetched_at: datetime) -> NormalizedResult:
     )
 
 
-class TestHashGateAgainstMySQL:
+class TestHashGate:
     def test_second_run_skips_facts_but_advances_fetched_at(self, db_session: Session) -> None:
         writer = PostgresRowWriter(db_session)
         _seed_symbol(db_session)
@@ -279,8 +279,15 @@ class TestHashGateAgainstMySQL:
 
 class TestSchemaInvariants:
     def test_statement_and_freq_enums_have_single_definition(self, db_session: Session) -> None:
-        """If two tables' ENUM definitions diverge, an FK over the ordinal silently
-        links to the wrong row; MySQL warns on neither CREATE nor INSERT."""
+        """One named type per concept, not one per table.
+
+        PostgreSQL stores the pg_enum OID, so a diverging definition is not
+        the silent-wrong-value trap it would be over an ordinal -- it is
+        two incompatible types for one idea. Comparing them, joining on
+        them or pointing a foreign key across them then needs a cast at
+        every site, and the first person to hit that adds the cast rather
+        than fixing the schema.
+        """
         rows = db_session.execute(
             text(
                 "SELECT column_name, COUNT(DISTINCT data_type) FROM information_schema.columns "

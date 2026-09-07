@@ -141,7 +141,7 @@ class TestEveryStatementIsValid:
     """`PREPARE` runs the parser AND the planner over the real schema."""
 
     def test_they_all_prepare(self, db_session: Session) -> None:
-        for index, (name, sql) in enumerate(q.statements()):
+        for index, (_name, sql) in enumerate(q.statements()):
             # `text()` renders `:name` markers; PostgreSQL wants `$n`, and
             # the types have to be inferrable, which every statement here
             # makes explicit with a cast for exactly this reason.
@@ -150,13 +150,10 @@ class TestEveryStatementIsValid:
                 prepared = prepared.replace(f":{param}", f"${number}")
             db_session.execute(text(f"PREPARE stmt_{index} AS {prepared}"))
             db_session.execute(text(f"DEALLOCATE stmt_{index}"))
-            assert name
 
 
 def _params(sql: str) -> list[str]:
     """Bind parameter names in first-appearance order."""
-    from sqlalchemy import text
-
     ordered: list[str] = []
     for name in text(sql).compile().params:
         if name not in ordered:
@@ -347,21 +344,19 @@ class TestScopes:
     def test_the_factor_moves_the_threshold(
         self, factory: sessionmaker[Session], rows: _Runs
     ) -> None:
+        """Same row, a factor an operator raised: an installation that
+        accepts a wider gap must stop reporting it. The default factor of 2
+        over these same 72 hours is already
+        `TestFreshness::test_a_cell_past_the_factor_is_stale`, so only the
+        raised factor is asserted here."""
         run = rows.run(ago_hours=72)
         rows.item(run, "AAPL", "info", ItemStatus.OK)
-        strict = Context(
-            session_factory=factory,
-            settings=Settings(yf_freshness_factor=2),
-            intervals=INTERVALS,
-            now=NOW,
-        )
         lax = Context(
             session_factory=factory,
             settings=Settings(yf_freshness_factor=10),
             intervals=INTERVALS,
             now=NOW,
         )
-        assert _cells(strict)[("symbols", "info")] == (1.0, 1.0)
         assert _cells(lax)[("symbols", "info")] == (1.0, 0.0)
 
 

@@ -213,10 +213,16 @@ class TestTheStatusRanking:
             q.STATUS_RANK["unknown_symbol"],
         }
 
-    def test_a_written_table_keeps_a_partly_out_of_scope_cell_in(self) -> None:
-        """`out_of_scope` at the bottom is what makes this work: the `MAX`
-        picks the write, and the cell is judged on it rather than dropped."""
-        assert max(q.STATUS_RANK["out_of_scope"], q.STATUS_RANK["ok"]) == q.STATUS_RANK["ok"]
+    def test_out_of_scope_ranks_below_a_write(self) -> None:
+        """The ordering is what keeps a partly out-of-scope cell in: `MAX`
+        over the per-table ranks has to pick the write, not the skip, or a
+        multi-table dataset would drop out of the universe as soon as one of
+        its tables went out of scope.
+
+        The behaviour against real rows is
+        `tests/repo/test_exporter_queries_repo.py::TestTheUniverse::test_one_written_table_keeps_a_partly_out_of_scope_cell`.
+        """
+        assert q.STATUS_RANK["out_of_scope"] < q.STATUS_RANK["ok"]
 
     def test_a_skip_counts_as_a_write(self) -> None:
         """A content-hash skip IS a verification: the row was fetched and

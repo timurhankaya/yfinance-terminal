@@ -98,8 +98,7 @@ def configure_tracing(service: str) -> bool:
 
     provider = TracerProvider(
         resource=Resource.create({"service.name": service}),
-        # No `sampler=`: see the module docstring. The SDK reads
-        # OTEL_TRACES_SAMPLER and OTEL_TRACES_SAMPLER_ARG itself.
+        # No `sampler=`: see the module docstring.
     )
     provider.add_span_processor(
         BatchSpanProcessor(

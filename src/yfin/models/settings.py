@@ -33,9 +33,9 @@ class SettingRow(Base):
 
     __tablename__ = "settings"
 
-    # Named `setting_key`, not `key`: `KEY` is a reserved word in MySQL 8,
-    # a trap the codebase has hit twice before (models/base.py
-    # `bar_interval`, models/funds.py `holding_rank`). Collation "C" is
+    # Named `setting_key`, not `key`: a leftover guard from the MySQL era,
+    # where `KEY` was reserved -- the same guard as models/base.py
+    # `bar_interval` and models/funds.py `holding_rank`. Collation "C" is
     # not there to prevent collisions -- it keeps a `YF_MAX_SHARDS` row
     # inserted via raw SQL visibly distinct from the canonical
     # `yf_max_shards`, so the loader's "unknown key" warning catches it.

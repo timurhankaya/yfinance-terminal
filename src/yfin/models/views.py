@@ -16,8 +16,8 @@ from __future__ import annotations
 # Named action_value rather than value for ORM/dialect portability.
 #
 # security_invoker = true (PG 15+, verified on 18.6): the view reads with
-# the CALLER's privileges, matching MySQL's `SQL SECURITY INVOKER` intent
-# -- a safer default than DEFINER.
+# the CALLER's privileges rather than the view owner's -- the safer
+# default.
 V_ACTIONS_CREATE = """
 CREATE OR REPLACE VIEW v_actions
   WITH (security_invoker = true) AS

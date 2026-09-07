@@ -687,10 +687,6 @@ class Query:
     run: Callable[[Context], list[Sample]]
 
 
-def _owned(*names: str) -> tuple[str, ...]:
-    return names
-
-
 def _republished_gauges() -> tuple[str, ...]:
     """The gauges `sync_counters` owns, derived rather than retyped.
 
@@ -708,11 +704,11 @@ def _republished_gauges() -> tuple[str, ...]:
 
 
 QUERIES: tuple[Query, ...] = (
-    Query("freshness", _owned("yfin_cells_total", "yfin_cells_stale"), freshness),
-    Query("intraday_scope", _owned("yfin_intraday_scope_stale"), intraday_scope_stale),
+    Query("freshness", ("yfin_cells_total", "yfin_cells_stale"), freshness),
+    Query("intraday_scope", ("yfin_intraday_scope_stale",), intraday_scope_stale),
     Query(
         "audit",
-        _owned(
+        (
             "yfin_audit_items",
             "yfin_audit_errors",
             "yfin_audit_rows",
@@ -722,10 +718,10 @@ QUERIES: tuple[Query, ...] = (
         ),
         audit,
     ),
-    Query("proxies", _owned("yfin_proxies"), proxies),
+    Query("proxies", ("yfin_proxies",), proxies),
     Query(
         "bars",
-        _owned(
+        (
             "yfin_bar_gaps_open",
             "yfin_bar_gaps_oldest_age_seconds",
             "yfin_bar_gaps_expiring",
@@ -736,7 +732,7 @@ QUERIES: tuple[Query, ...] = (
     ),
     Query(
         "stream",
-        _owned(
+        (
             "yfin_stream_connections",
             "yfin_stream_heartbeat_age_seconds",
             "yfin_stream_canary_age_seconds",
@@ -749,12 +745,12 @@ QUERIES: tuple[Query, ...] = (
     ),
     Query(
         "outboxes",
-        _owned("yfin_outbox_unpublished_rows", "yfin_outbox_oldest_age_seconds"),
+        ("yfin_outbox_unpublished_rows", "yfin_outbox_oldest_age_seconds"),
         outboxes,
     ),
     Query(
         "api_usage",
-        _owned(
+        (
             "yfin_api_usage_requests",
             "yfin_api_usage_day_timestamp",
             "yfin_api_usage_estimated_days",

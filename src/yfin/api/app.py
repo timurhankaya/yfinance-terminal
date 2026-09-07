@@ -139,16 +139,10 @@ def _install_metrics(app: FastAPI) -> None:
     The endpoint carries the same per-IP cap as `/health/ready`: it is
     unauthenticated and renders every series the process holds.
 
-    Imported here rather than at module level, so a deployment missing the
-    package still builds an app. The miss is a warning and the API runs
-    without `/metrics`, on the same rule as `serve_metrics`: observability
-    never blocks the work.
+    Missing `prometheus-fastapi-instrumentator` is a warning and the API
+    runs without `/metrics` -- see `build_instrumentator`.
     """
-    try:
-        from fastapi import Depends
-    except ImportError as exc:  # pragma: no cover - the package is in [api]
-        log.warning("http metrics not installed", error=str(exc))
-        return
+    from fastapi import Depends
 
     instrumentator = build_instrumentator()
     if instrumentator is None:
