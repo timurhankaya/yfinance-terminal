@@ -229,7 +229,7 @@ class TestFailedTransactionAudit:
         factory = sessionmaker(bind=test_engine, expire_on_commit=False, future=True)
         payload = SymbolPayload(symbol=SYMBOL, resolved=True)
         payload.results.append((self._Exploding(), NormalizedResult(), 1, 0))  # type: ignore[arg-type]
-        payload.failures.append(("info", "HTTPError: 500"))
+        payload.failures.append(("info", "HTTPError: 500", "http"))
         payload.skipped.append(("news", "date_range=none"))
         payload.out_of_scope.append(("bars_1m", "outside intraday_scope"))
 

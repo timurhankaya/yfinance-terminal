@@ -136,7 +136,9 @@ def _worker(
                 kind=kind.value,
                 error=str(exc),
             )
-            payload.failures.append((dataset.name, f"{type(exc).__name__}: {exc}"))
+            payload.failures.append(
+                (dataset.name, f"{type(exc).__name__}: {exc}", kind.value)
+            )
             payload.error_kinds.append(kind)
             continue
         elapsed = int((time.perf_counter() - started) * 1000)

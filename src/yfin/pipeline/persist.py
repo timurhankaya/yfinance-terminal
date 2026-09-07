@@ -175,7 +175,10 @@ def persist_with_retry(
     records = [
         record
         for dataset, _, _, _ in payload.results
-        for record in failed_records(payload.symbol, dataset.name, last_error)
+        # `write`, not a classified kind: `classify_error` reads upstream
+        # failures, and this one is the transaction. Calling it here would
+        # file a lock conflict under a Yahoo error class.
+        for record in failed_records(payload.symbol, dataset.name, last_error, kind="write")
     ]
     # The other three channels stay in the audit too. They don't depend on
     # the write layer: `failures` blew up during fetch, `skipped` and

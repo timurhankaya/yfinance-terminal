@@ -8,6 +8,7 @@ diverge, and the database is the side that is allowed to be right.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -21,6 +22,7 @@ from yfin.datasets.meta import DatasetMeta
 from yfin.datasets.registry import SYMBOL_DATASETS, Registry
 from yfin.models import ItemStatus, RunScope, RunStatus, SyncRun, SyncRunItem
 from yfin.pipeline.payload import SymbolPayload
+from yfin.scheduler.jobs import JOB_RUN_ID_VAR
 from yfin.storage.contracts import WriteStats
 
 log = get_logger(__name__)
@@ -50,6 +52,10 @@ class ItemRecord:
     # and that is left as-is deliberately -- changing it would break
     # existing audit queries.
     region: str | None = None
+    # The `ErrorKind` behind `error`, when one was classified. `error` is for
+    # a human; this is what a dashboard groups by, and grouping by the free
+    # text would give one bucket per Yahoo error string.
+    error_kind: str | None = None
 
 
 def record_items(
@@ -113,11 +119,18 @@ def failed_records(
     registry: Registry[Any] = SYMBOL_DATASETS,
     *,
     region: str | None = None,
+    kind: str | None = None,
 ) -> list[ItemRecord]:
     """One record per table for a failed cell.
 
     A single table_name=NULL row would make audit queries unable to
     filter per table, so "when did this table last fail" is unanswerable.
+
+    `kind` is the classified `ErrorKind`, or one of the two the classifier
+    never sees: `write` when the transaction failed rather than the fetch,
+    `crash` when the worker itself died. NULL where nothing classified it,
+    which is honest -- a guessed kind would group a failure under a cause
+    nobody established.
     """
     dataset = registry.get(dataset_name)
     # Same gap exists on the error path: produces=() -> tuple(()) -> no
@@ -131,6 +144,7 @@ def failed_records(
             table_name=table,
             error=error,
             region=region,
+            error_kind=kind,
         )
         for table in tables
     ]
@@ -178,8 +192,8 @@ def channel_records(payload: SymbolPayload) -> list[ItemRecord]:
     the other.
     """
     records: list[ItemRecord] = []
-    for dataset_name, error in payload.failures:
-        records.extend(failed_records(payload.symbol, dataset_name, error))
+    for dataset_name, error, kind in payload.failures:
+        records.extend(failed_records(payload.symbol, dataset_name, error, kind=kind))
     for dataset_name, reason in payload.skipped:
         records.extend(skipped_records(payload.symbol, dataset_name, reason))
     for dataset_name, reason in payload.out_of_scope:
@@ -187,6 +201,23 @@ def channel_records(payload: SymbolPayload) -> list[ItemRecord]:
             skipped_records(payload.symbol, dataset_name, reason, status=ItemStatus.OUT_OF_SCOPE)
         )
     return records
+
+
+def _job_run_id() -> int | None:
+    """`scheduler_runs.id` from the environment, when a scheduler set it.
+
+    A malformed value is ignored rather than raised on: an operator with a
+    stray `YF_JOB_RUN_ID` in their shell should get a manual run, not a
+    crash on the first line of it.
+    """
+    raw = os.environ.get(JOB_RUN_ID_VAR)
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        log.warning("ignoring malformed job run id", value=raw)
+        return None
 
 
 def open_run(
@@ -203,6 +234,13 @@ def open_run(
     The commit is required: children use a separate connection, and
     writing an item against an uncommitted run_id would raise an FK
     violation (23503).
+
+    `job_run_id` is read from the ENVIRONMENT rather than passed in. The
+    scheduler sets `YF_JOB_RUN_ID` on the subprocess it starts, so a
+    scheduled run and the sync it produced become joinable without adding a
+    parameter to `yfin sync` that a person running it by hand would have to
+    know about -- and NULL is then exactly the right value for a manual run,
+    which is the other half of the `kind` split the exporter reports on.
     """
     with factory() as session:
         run = SyncRun(
@@ -215,6 +253,7 @@ def open_run(
             # Without this, which universe a run covered can't be
             # reconstructed later, and completeness can't be audited.
             selector=selector,
+            job_run_id=_job_run_id(),
         )
         session.add(run)
         session.commit()
@@ -264,6 +303,7 @@ def write_items(
                 rows_skipped=item.rows_skipped,
                 duration_ms=item.duration_ms,
                 error=item.error,
+                error_kind=item.error_kind,
                 region=item.region,
                 shard_index=shard_index,
                 proxy_id=proxy_id,

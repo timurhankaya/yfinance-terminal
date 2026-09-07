@@ -83,13 +83,14 @@ def run_turn(
     """Fetch, normalize and write one turn inside its own transaction."""
     started = time.perf_counter()
 
-    def failed(exc: Exception) -> list[ItemRecord]:
+    def failed(exc: Exception, kind: str | None = None) -> list[ItemRecord]:
         return failed_records(
             turn.audit_key,
             turn.dataset.name,
             f"{type(exc).__name__}: {exc}",
             turn.registry,
             region=turn.region,
+            kind=kind,
         )
 
     try:
@@ -109,7 +110,7 @@ def run_turn(
         )
         if tracker is not None:
             tracker.record_error(kind, str(exc))
-        return failed(exc)
+        return failed(exc, kind.value)
     if tracker is not None:
         tracker.record_success()
 
@@ -150,7 +151,7 @@ def run_turn(
                 error=str(exc),
                 **turn.log_context,
             )
-            return failed(exc)
+            return failed(exc, "write")
 
     return record_items(
         turn.dataset, turn.audit_key, stats, fetched, duration, region=turn.region
