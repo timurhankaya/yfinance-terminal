@@ -33,6 +33,7 @@ from yfin.storage.changes import (
     ChangeOp,
 )
 from yfin.storage.contracts import TableWrite
+from yfin.storage.db import returns_rows
 from yfin.storage.routing import INFRASTRUCTURE_TABLES
 
 # The IN list for multi-column verification can get very long.
@@ -224,7 +225,15 @@ class PostgresRowWriter:
             result = self._session.execute(
                 self._insert_stmt(table, chunk_rows, write, present)
             )
-            if self._collecting(write.table):
+            # `_collecting` is not enough. A write whose update map is
+            # ENTIRELY volatile gets no predicate and therefore no
+            # `RETURNING` -- the hash gate's `UNCHANGED_UPDATE_COLUMNS =
+            # ("fetched_at",)` write is exactly that, on a data table, so it
+            # is collected in principle and returns nothing in practice.
+            # Reading it raises `ResourceClosedError` and takes the whole
+            # symbol transaction with it. `returns_rows` is the statement
+            # asked whether it has a RETURNING clause, which is the question.
+            if self._collecting(write.table) and returns_rows(result):
                 self._collect(table, write, chunk_rows, result, present)
 
         return self._verify(write)

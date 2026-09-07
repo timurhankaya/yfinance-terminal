@@ -135,6 +135,21 @@ def rowcount(result: Any) -> int:
     return int(getattr(result, "rowcount", 0) or 0)
 
 
+def returns_rows(result: Any) -> bool:
+    """Whether the statement just executed had a RETURNING clause.
+
+    Sibling of `rowcount` and there for the same reason: the attribute is on
+    `CursorResult`, while `Session.execute` is typed as returning `Result`.
+
+    The writer needs it because "should this write produce events" and "does
+    this statement hand any back" are different questions. A write whose
+    update map is entirely volatile is collected in principle and returns
+    nothing in practice, and reading that result raises
+    `ResourceClosedError`.
+    """
+    return bool(getattr(result, "returns_rows", False))
+
+
 class LockNotAcquired(RuntimeError):
     """Advisory lock could not be acquired; another sync is running."""
 

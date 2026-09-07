@@ -216,6 +216,48 @@ class TestWithoutACollector:
         assert again == 1
 
 
+class TestAllVolatileWrite:
+    """The shape that has no RETURNING at all, EXECUTED rather than compiled.
+
+    A write whose update map is entirely volatile gets no predicate and so
+    no returning clause -- the hash gate's `UNCHANGED_UPDATE_COLUMNS =
+    ("fetched_at",)` write, on a DATA table, which is collected in principle
+    and returns nothing in practice. Reading that result raises
+    `ResourceClosedError` and takes the whole symbol transaction with it.
+
+    A compile-time test cannot see this: the statement was right, the code
+    around it was not. It took a live AAPL sync to surface, with 84 of 84
+    cells failed.
+    """
+
+    def _write(self) -> TableWrite:
+        return TableWrite(
+            table="analyst_price_targets",
+            rows=[{"symbol": "AAPL", "as_of_date": DAY, "fetched_at": T1}],
+            key_columns=("symbol", "as_of_date"),
+            update_columns=("fetched_at",),
+        )
+
+    def test_it_does_not_raise(self, db_session: Session, symbol: str) -> None:
+        PostgresRowWriter(db_session).write(_write(current=1, fetched_at=T0))
+        PostgresRowWriter(db_session, collector=_collector()).write(self._write())
+
+    def test_it_emits_nothing(self, db_session: Session, symbol: str) -> None:
+        """'We checked' is not a change anyone can apply."""
+        PostgresRowWriter(db_session).write(_write(current=1, fetched_at=T0))
+        collector = _collector()
+        PostgresRowWriter(db_session, collector=collector).write(self._write())
+        assert collector.pending == []
+
+    def test_it_still_writes_the_column(self, db_session: Session, symbol: str) -> None:
+        """`HashGate` reads `fetched_at` as 'last verified at'; freezing it
+        would make every run look like the first."""
+        PostgresRowWriter(db_session).write(_write(current=1, fetched_at=T0))
+        PostgresRowWriter(db_session, collector=_collector()).write(self._write())
+        _current, fetched_at = _stored(db_session)
+        assert fetched_at == T1
+
+
 def test_an_infrastructure_table_emits_nothing(db_session: Session, symbol: str) -> None:
     """`asof_state` says 'we checked', not 'this moved'."""
     collector = _collector()
