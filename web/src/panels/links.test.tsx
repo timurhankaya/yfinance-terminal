@@ -21,11 +21,18 @@ describe("linksFor", () => {
     );
 
     const [edgar] = linksFor("sec_filings", ["filing_id", "symbol"]);
+    // As the archive has it: the accession alone in filing_id, the CIK on edgar_url's tail.
+    expect(
+      edgar!.href({
+        filing_id: "0001140361-26-035325",
+        edgar_url: "https://finance.yahoo.com/sec-filing/AAPL/0001140361-26-035325_320193",
+      }),
+    ).toBe("https://www.sec.gov/Archives/edgar/data/320193/000114036126035325/");
     expect(edgar!.href({ filing_id: "0001140361-26-035325_320193" })).toBe(
       "https://www.sec.gov/Archives/edgar/data/320193/000114036126035325/",
     );
-    expect(edgar!.href({ filing_id: "0001140361-26-035325" })).toBeNull();
-    expect(edgar!.href({ filing_id: "junk_1" })).toBeNull();
+    expect(edgar!.href({ filing_id: "0001140361-26-035325", edgar_url: null })).toBeNull();
+    expect(edgar!.href({ filing_id: "junk", edgar_url: "https://x/_1" })).toBeNull();
 
     const quote = linksFor("major_holders", ["symbol", "as_of_date"]);
     expect(quote.map((r) => r.label)).toEqual(["quote"]);

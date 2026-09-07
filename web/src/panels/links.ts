@@ -50,17 +50,23 @@ const DOMAIN: LinkRule = {
   },
 };
 
-/** The filing's folder on EDGAR. `filing_id` is `<accession>_<cik>`;
- *  the archive's own `edgar_url` (Yahoo's copy of the page) answers 404
- *  now, so the source of record is linked instead. */
-export function edgarUrl(filingId: unknown): string | null {
+const ACCESSION_RE = /^\d{10}-\d{2}-\d{6}$/;
+
+/** The filing's folder on EDGAR. The accession number is `filing_id`;
+ *  the company's CIK is the `_<cik>` tail of the archive's `edgar_url`
+ *  (Yahoo's copy of the page, which answers 404 now), so the source of
+ *  record is linked instead. Without a CIK there is no folder to link. */
+export function edgarUrl(filingId: unknown, edgar: unknown): string | null {
   if (typeof filingId !== "string") return null;
-  const [accession, cik] = filingId.split("_");
-  if (!accession || !cik || !/^\d{10}-\d{2}-\d{6}$/.test(accession) || !/^\d+$/.test(cik)) return null;
+  const [accession, idCik] = filingId.split("_");
+  if (!accession || !ACCESSION_RE.test(accession)) return null;
+  const urlCik = typeof edgar === "string" ? /_(\d+)\/?$/.exec(edgar)?.[1] : undefined;
+  const cik = idCik && /^\d+$/.test(idCik) ? idCik : urlCik;
+  if (!cik) return null;
   return `https://www.sec.gov/Archives/edgar/data/${Number(cik)}/${accession.replace(/-/g, "")}/`;
 }
 
-const EDGAR: LinkRule = { label: "EDGAR", href: (row) => edgarUrl(row.filing_id) };
+const EDGAR: LinkRule = { label: "EDGAR", href: (row) => edgarUrl(row.filing_id, row.edgar_url) };
 
 const HOLDING: LinkRule = {
   label: "holding quote",

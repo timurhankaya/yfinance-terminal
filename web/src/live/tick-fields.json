@@ -1,0 +1,101 @@
+{
+  "channelPrefix": "yfin:tick:",
+  "fields": [
+    {
+      "key": "s",
+      "column": "symbol",
+      "kind": "str",
+      "required": true
+    },
+    {
+      "key": "t",
+      "column": "ts_utc",
+      "kind": "ms",
+      "required": true
+    },
+    {
+      "key": "p",
+      "column": "price",
+      "kind": "dec",
+      "required": true
+    },
+    {
+      "key": "mh",
+      "column": "market_hours_code",
+      "kind": "int",
+      "required": true
+    },
+    {
+      "key": "c",
+      "column": "change",
+      "kind": "dec",
+      "required": false
+    },
+    {
+      "key": "cp",
+      "column": "change_percent",
+      "kind": "dec",
+      "required": false
+    },
+    {
+      "key": "h",
+      "column": "day_high",
+      "kind": "dec",
+      "required": false
+    },
+    {
+      "key": "l",
+      "column": "day_low",
+      "kind": "dec",
+      "required": false
+    },
+    {
+      "key": "o",
+      "column": "open_price",
+      "kind": "dec",
+      "required": false
+    },
+    {
+      "key": "pc",
+      "column": "previous_close",
+      "kind": "dec",
+      "required": false
+    },
+    {
+      "key": "b",
+      "column": "bid",
+      "kind": "dec",
+      "required": false
+    },
+    {
+      "key": "a",
+      "column": "ask",
+      "kind": "dec",
+      "required": false
+    },
+    {
+      "key": "v",
+      "column": "day_volume",
+      "kind": "int",
+      "required": false
+    },
+    {
+      "key": "ls",
+      "column": "last_size",
+      "kind": "int",
+      "required": false
+    },
+    {
+      "key": "bs",
+      "column": "bid_size",
+      "kind": "int",
+      "required": false
+    },
+    {
+      "key": "as",
+      "column": "ask_size",
+      "kind": "int",
+      "required": false
+    }
+  ]
+}

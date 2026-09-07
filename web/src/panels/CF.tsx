@@ -46,7 +46,7 @@ function text(row: Row, key: string): string {
 }
 
 function Exhibits({ row, attached }: { row: Row; attached: Row[] }) {
-  const edgar = edgarUrl(row.filing_id);
+  const edgar = edgarUrl(row.filing_id, row.edgar_url);
   return (
     <article className="detail" aria-label="exhibits">
       <h3>
@@ -94,7 +94,7 @@ function FilingList({ data, onLoadMore }: { data: Filings; onLoadMore: (() => vo
           const id = String(row.filing_id ?? index);
           // Yahoo's archived filing page (edgar_url) answers 404 today; the
           // SEC's own folder for the accession number is the durable link.
-          const edgar = edgarUrl(row.filing_id);
+          const edgar = edgarUrl(row.filing_id, row.edgar_url);
           return (
             <li
               key={id}

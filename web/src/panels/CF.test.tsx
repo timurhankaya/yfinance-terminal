@@ -9,12 +9,12 @@ function json(status: number, body: unknown): Response {
 
 
 const filings = [
-  { symbol: "AAPL", filing_id: "0000320193-25-000079_320193", filing_date: "2025-11-01", filing_type: "10-K", title: "Annual report", edgar_url: "https://sec.gov/a", exhibit_count: 2 },
-  { symbol: "AAPL", filing_id: "0000320193-25-000050_320193", filing_date: "2025-08-01", filing_type: "10-Q", title: null, edgar_url: "https://sec.gov/b", exhibit_count: 0 },
+  { symbol: "AAPL", filing_id: "0000320193-25-000079", filing_date: "2025-11-01", filing_type: "10-K", title: "Annual report", edgar_url: "https://finance.yahoo.com/sec-filing/AAPL/0000320193-25-000079_320193", exhibit_count: 2 },
+  { symbol: "AAPL", filing_id: "0000320193-25-000050", filing_date: "2025-08-01", filing_type: "10-Q", title: null, edgar_url: "https://finance.yahoo.com/sec-filing/AAPL/0000320193-25-000050_320193", exhibit_count: 0 },
 ];
 const exhibits = [
-  { symbol: "AAPL", filing_id: "0000320193-25-000079_320193", exhibit_type: "EX-31.1", url_hash: "h1", url: "https://sec.gov/a/ex31" },
-  { symbol: "AAPL", filing_id: "0000320193-25-000079_320193", exhibit_type: "EX-32.1", url_hash: "h2", url: "https://sec.gov/a/ex32" },
+  { symbol: "AAPL", filing_id: "0000320193-25-000079", exhibit_type: "EX-31.1", url_hash: "h1", url: "https://sec.gov/a/ex31" },
+  { symbol: "AAPL", filing_id: "0000320193-25-000079", exhibit_type: "EX-32.1", url_hash: "h2", url: "https://sec.gov/a/ex32" },
 ];
 
 afterEach(() => {

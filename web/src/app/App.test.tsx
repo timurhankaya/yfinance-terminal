@@ -239,6 +239,30 @@ describe("AppRoutes", () => {
     await waitFor(() => expect(screen.getByText("Apple Inc.")).toBeInTheDocument());
   });
 
+  it("Shift+Esc goes forward even while the command box is focused", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      if (url === "/ui/api/v1/symbols/MSFT") return json(200, symbolBody("MSFT", "Microsoft Corp"));
+      throw new Error(`unexpected ${url}`);
+    });
+    mount("/ui/t/AAPL/DES");
+    await screen.findByText("Apple Inc.");
+    const input = await screen.findByLabelText("command");
+    await userEvent.type(input, "msft{enter}");
+    await screen.findByText("Microsoft Corp");
+    input.blur();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.getByText("Apple Inc.")).toBeInTheDocument());
+    input.focus();
+    await userEvent.type(input, "draft");
+    await userEvent.keyboard("{Shift>}{Escape}{/Shift}");
+    await waitFor(() => expect(screen.getByText("Microsoft Corp")).toBeInTheDocument());
+    // A plain Escape is still the box's own: it clears, it does not navigate.
+    await userEvent.keyboard("{Escape}");
+    expect(input).toHaveValue("");
+    expect(screen.getByText("Microsoft Corp")).toBeInTheDocument();
+  });
+
   it("opens HELP on '?' when the command box is not focused", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));

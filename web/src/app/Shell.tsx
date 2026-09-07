@@ -90,7 +90,7 @@ export function Shell() {
       void submit(draft);
       return;
     }
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && !event.shiftKey) {
       // Stop this Escape here: clear+blur is the command box's own
       // behaviour, and the global listener in keys.ts would otherwise see
       // the same keypress (it bubbles to window) and navigate back too.
