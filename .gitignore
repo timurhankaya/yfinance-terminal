@@ -10,3 +10,4 @@ dist/
 build/
 .cache/
 .claude/worktrees/
+web/node_modules/
