@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Layout } from "../commands/types";
 import { N, N_PANEL } from "./N";
 
 function json(status: number, body: unknown): Response {
@@ -38,7 +39,7 @@ function renderN(rows: unknown[]) {
 describe("N_PANEL", () => {
   it("is a single-layout panel that needs a symbol and takes no args", () => {
     expect(N_PANEL.code).toBe("N");
-    expect(N_PANEL.layout).toBe("single");
+    expect(N_PANEL.layout).toBe(Layout.Single);
     expect(N_PANEL.needsSymbol).toBe(true);
     expect(N_PANEL.parseArgs(["x"])).toEqual({});
   });

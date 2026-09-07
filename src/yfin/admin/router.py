@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 
 from yfin.admin import ops
 from yfin.admin.auth import AdminDep
-from yfin.admin.html import CSS, button_form, esc, page, yes_no
+from yfin.admin.html import CSS, ButtonKind, button_form, esc, page, yes_no
+from yfin.admin.ops import ProxyAction, ScreenAction
 from yfin.api.core.errors import TYPE_NOT_FOUND, ApiProblem
 from yfin.api.storage.session import session_scope
 
@@ -57,7 +58,7 @@ def settings_page(_: AdminDep, ok: Flash = None, error: Flash = None) -> Respons
             high = esc(_bound(s.max)) if s.max is not None else ""
             bounds = f" [{low}..{high}]"
         unset = (
-            button_form(f"/admin/settings/{s.key}/unset", "Unset", kind="danger")
+            button_form(f"/admin/settings/{s.key}/unset", "Unset", kind=ButtonKind.DANGER)
             if st.has_row
             else ""
         )
@@ -112,11 +113,16 @@ def proxies_page(
     for p in ops.list_proxies(session):
         actions = " ".join(
             [
-                button_form(f"/admin/proxies/{p.id}/disable", "Disable")
+                button_form(f"/admin/proxies/{p.id}/{ProxyAction.DISABLE}", "Disable")
                 if p.is_enabled
-                else button_form(f"/admin/proxies/{p.id}/enable", "Enable"),
-                button_form(f"/admin/proxies/{p.id}/reset", "Reset health"),
-                button_form(f"/admin/proxies/{p.id}/remove", "Remove", kind="danger", confirm=True),
+                else button_form(f"/admin/proxies/{p.id}/{ProxyAction.ENABLE}", "Enable"),
+                button_form(f"/admin/proxies/{p.id}/{ProxyAction.RESET}", "Reset health"),
+                button_form(
+                    f"/admin/proxies/{p.id}/{ProxyAction.REMOVE}",
+                    "Remove",
+                    kind=ButtonKind.DANGER,
+                    confirm=True,
+                ),
             ]
         )
         rows.append(
@@ -173,10 +179,12 @@ def proxies_add(
 
 @router.post("/proxies/{proxy_id}/{action}")
 def proxies_act(_: AdminDep, session: SessionDep, proxy_id: int, action: str) -> RedirectResponse:
-    if action not in ops.PROXY_ACTIONS:
-        raise ApiProblem(404, TYPE_NOT_FOUND, "No such action")
     try:
-        label = ops.proxy_action(session, proxy_id, action)
+        verb = ProxyAction(action)
+    except ValueError:
+        raise ApiProblem(404, TYPE_NOT_FOUND, "No such action") from None
+    try:
+        label = ops.proxy_action(session, proxy_id, verb)
     except ops.AdminError as exc:
         return back("proxies", error=str(exc))
     return back("proxies", ok=f"{action}: {label}")
@@ -192,9 +200,9 @@ def screens_page(
     rows = []
     for s in ops.list_screens(session):
         toggle = (
-            button_form(f"/admin/screens/{s.screen_key}/disable", "Disable")
+            button_form(f"/admin/screens/{s.screen_key}/{ScreenAction.DISABLE}", "Disable")
             if s.is_enabled
-            else button_form(f"/admin/screens/{s.screen_key}/enable", "Enable")
+            else button_form(f"/admin/screens/{s.screen_key}/{ScreenAction.ENABLE}", "Enable")
         )
         rows.append(
             "<tr>"
@@ -220,10 +228,12 @@ def screens_page(
 
 @router.post("/screens/{screen_key}/{action}")
 def screens_act(_: AdminDep, session: SessionDep, screen_key: str, action: str) -> RedirectResponse:
-    if action not in ("enable", "disable"):
-        raise ApiProblem(404, TYPE_NOT_FOUND, "No such action")
     try:
-        ops.set_screen_enabled(session, screen_key, action == "enable")
+        verb = ScreenAction(action)
+    except ValueError:
+        raise ApiProblem(404, TYPE_NOT_FOUND, "No such action") from None
+    try:
+        ops.set_screen_enabled(session, screen_key, verb is ScreenAction.ENABLE)
     except ops.AdminError as exc:
         return back("screens", error=str(exc))
     return back("screens", ok=f"{action}: {screen_key}")

@@ -270,15 +270,24 @@ grafikleri 1d'de gelene kadar barlar `PX` ile okunur.
 
 ```ts
 type PanelArgs = Record<string, string>;
+enum Layout { Single = "single", Headed = "headed" }
 interface PanelSpec {
   code: string;
   title: string;
+  usage?: string;                            // HELP'te gösterilen argüman sözdizimi
   needsSymbol: boolean;
-  layout: "single" | "headed";
+  layout: Layout;
   parseArgs(tokens: string[]): PanelArgs;   // throws on invalid
   component: React.FC<{ symbol: string | null; args: PanelArgs }>;
 }
 ```
+
+**Enum kuralı.** `kind`, `layout`, `mode`, `action`, tel türü gibi her
+ayırıcı değer bir enum'dur (TS string enum, Python `StrEnum`); kodda
+karşılaştırılan çıplak dize yoktur. String enum'lar JSON/URL değerlerini
+değiştirmez: `LoadState`, `ParseKind`, `Layout`, `WireType`,
+`SymbolMode`, `TabSymbol` (web); `ProxyAction`, `ScreenAction`,
+`ButtonKind` (admin).
 
 Paneller gezinme durumunu okumaz; sembolü prop olarak alır. Canlı
 store'a yalnızca prop'taki sembol anahtarıyla seçici abone olurlar. Bu,

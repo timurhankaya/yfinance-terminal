@@ -2,6 +2,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation } from "react-router";
+import { Layout } from "../commands/types";
 import { FA, FA_PANEL, cell } from "./FA";
 
 function json(status: number, body: unknown): Response {
@@ -65,7 +66,7 @@ describe("FA_PANEL.parseArgs", () => {
 
   it("is registered as a single-layout panel that needs a symbol", () => {
     expect(FA_PANEL.code).toBe("FA");
-    expect(FA_PANEL.layout).toBe("single");
+    expect(FA_PANEL.layout).toBe(Layout.Single);
     expect(FA_PANEL.needsSymbol).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resetCatalogCache } from "../api/client";
+import { resetCatalogCache, WireType } from "../api/client";
 import { CAL_PANEL, CURATED, HDS_PANEL, tabbedPanel } from "./curated";
 
 function json(status: number, body: unknown): Response {
@@ -13,12 +13,12 @@ const CATALOG = [
   {
     name: "major_holders", family: "holders", scope: "holders:read", kind: "symbol", table: "t",
     sort_key: [], descending: true, filters: [], symbol_scoped: true, description: "Split.",
-    columns: [{ name: "symbol", type: "string", nullable: false }, { name: "insiders_pct_held", type: "string (decimal)", nullable: true }],
+    columns: [{ name: "symbol", type: WireType.String, nullable: false }, { name: "insiders_pct_held", type: WireType.Decimal, nullable: true }],
   },
   {
     name: "economic_calendar", family: "fundamentals", scope: "fundamentals:read", kind: "market", table: "t",
     sort_key: [], descending: true, filters: ["region"], symbol_scoped: false, description: "Macro.",
-    columns: [{ name: "region", type: "string", nullable: false }, { name: "event_name", type: "string", nullable: false }],
+    columns: [{ name: "region", type: WireType.String, nullable: false }, { name: "event_name", type: WireType.String, nullable: false }],
   },
 ];
 

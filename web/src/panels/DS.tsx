@@ -6,9 +6,9 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router";
 import { getCatalog, type CatalogEntry } from "../api/client";
 import { commandToPath } from "../commands/parser";
-import type { PanelArgs, PanelProps, PanelSpec } from "../commands/types";
-import { ErrorCard, useListKeys, usePanelData } from "./common";
-import { DatasetView, filtersOf, parseFilters } from "./dataset";
+import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
+import { ErrorCard, LoadState, useListKeys, usePanelData } from "./common";
+import { DatasetView, SymbolMode, filtersOf, parseFilters } from "./dataset";
 
 export const DS_USAGE = "Usage: DS [dataset] [filter=value ...]  (DS alone lists every dataset)";
 
@@ -23,7 +23,7 @@ function Catalog({ symbol }: { symbol: string | null }) {
   const navigate = useNavigate();
   const { state, retry } = usePanelData<CatalogEntry[]>("catalog", getCatalog, (entries) => entries.length === 0);
   const entries = useMemo(() => {
-    if (state.kind !== "ready") return [];
+    if (state.kind !== LoadState.Ready) return [];
     return [...state.data].sort((a, b) => a.family.localeCompare(b.family) || a.name.localeCompare(b.name));
   }, [state]);
   const open = (index: number) => {
@@ -32,10 +32,10 @@ function Catalog({ symbol }: { symbol: string | null }) {
   };
   const [selected, setSelected] = useListKeys(entries.length, open);
 
-  if (state.kind === "loading") return <p className="muted">Loading the catalogue…</p>;
-  if (state.kind === "error") return <ErrorCard message={state.message} onRetry={retry} />;
-  if (state.kind === "empty") return <p className="muted">The catalogue is empty.</p>;
-  if (state.kind !== "ready") return null;
+  if (state.kind === LoadState.Loading) return <p className="muted">Loading the catalogue…</p>;
+  if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
+  if (state.kind === LoadState.Empty) return <p className="muted">The catalogue is empty.</p>;
+  if (state.kind !== LoadState.Ready) return null;
 
   let family = "";
   return (
@@ -80,7 +80,7 @@ function Catalog({ symbol }: { symbol: string | null }) {
 export function DS({ symbol, args }: PanelProps) {
   const name = args.name;
   if (name === undefined) return <Catalog symbol={symbol} />;
-  return <DatasetView name={name} symbol={symbol} filters={filtersOf(args, ["name"])} mode="auto" />;
+  return <DatasetView name={name} symbol={symbol} filters={filtersOf(args, ["name"])} mode={SymbolMode.Auto} />;
 }
 
 export const DS_PANEL: PanelSpec = {
@@ -88,7 +88,7 @@ export const DS_PANEL: PanelSpec = {
   title: "Datasets: the whole catalogue, any dataset by name",
   usage: "DS [dataset] [filter=value ...]",
   needsSymbol: false,
-  layout: "single",
+  layout: Layout.Single,
   parseArgs,
   component: DS,
 };

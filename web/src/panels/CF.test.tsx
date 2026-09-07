@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Layout } from "../commands/types";
 import { CF, CF_PANEL } from "./CF";
 
 function json(status: number, body: unknown): Response {
@@ -39,7 +40,7 @@ describe("CF_PANEL.parseArgs", () => {
   it("upper-cases a filing type and accepts none", () => {
     expect(CF_PANEL.parseArgs(["10-k"])).toEqual({ filing_type: "10-K" });
     expect(CF_PANEL.parseArgs([])).toEqual({});
-    expect(CF_PANEL.layout).toBe("single");
+    expect(CF_PANEL.layout).toBe(Layout.Single);
     expect(CF_PANEL.needsSymbol).toBe(true);
   });
 });

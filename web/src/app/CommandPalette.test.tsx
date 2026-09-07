@@ -4,6 +4,7 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CommandPalette } from "./CommandPalette";
 import { clearRegistry, registerPanel } from "../commands/registry";
+import { Layout } from "../commands/types";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -31,9 +32,9 @@ function Harness(props: { onPick: (text: string) => void; onClose: () => void })
 
 beforeEach(() => {
   clearRegistry();
-  registerPanel({ code: "DES", title: "Description", needsSymbol: true, layout: "headed", parseArgs: () => ({}), component: () => null });
-  registerPanel({ code: "GIP", title: "Intraday", needsSymbol: true, layout: "headed", parseArgs: () => ({}), component: () => null });
-  registerPanel({ code: "HELP", title: "Help", needsSymbol: false, layout: "single", parseArgs: () => ({}), component: () => null });
+  registerPanel({ code: "DES", title: "Description", needsSymbol: true, layout: Layout.Headed, parseArgs: () => ({}), component: () => null });
+  registerPanel({ code: "GIP", title: "Intraday", needsSymbol: true, layout: Layout.Headed, parseArgs: () => ({}), component: () => null });
+  registerPanel({ code: "HELP", title: "Help", needsSymbol: false, layout: Layout.Single, parseArgs: () => ({}), component: () => null });
 });
 
 afterEach(() => {

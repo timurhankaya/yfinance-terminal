@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
 import { ApiError, getCatalog, getDatasetPage, type CatalogEntry, type Row } from "../api/client";
 import type { PanelArgs } from "../commands/types";
-import { EmptyCard, ErrorCard, usePanelData } from "./common";
+import { EmptyCard, ErrorCard, LoadState, usePanelData } from "./common";
 import { linksFor } from "./links";
 import { DatasetTable } from "./table";
 
@@ -13,7 +13,10 @@ import { DatasetTable } from "./table";
  *    column and the strip has one; otherwise ask without (the API
  *    refuses with a 422 when the symbol was required, and that shows).
  *  - `none`: never send it: a market-wide view even with a symbol up. */
-export type SymbolMode = "auto" | "none";
+export enum SymbolMode {
+  Auto = "auto",
+  None = "none",
+}
 
 export interface Loaded {
   entry: CatalogEntry;
@@ -39,7 +42,7 @@ export async function loadDataset(
   const entry = catalog.find((e) => e.name === name);
   if (entry === undefined) throw new UnknownDataset(name);
   const params: Record<string, string> = { ...filters };
-  const scoped = mode === "auto" && entry.symbol_scoped && symbol !== null;
+  const scoped = mode === SymbolMode.Auto && entry.symbol_scoped && symbol !== null;
   if (scoped) params.symbol = symbol;
   try {
     const page = await getDatasetPage(entry.name, params);
@@ -106,12 +109,12 @@ export function DatasetView(props: {
     setExtra({ key, rows: [], cursor: null, loading: false, error: null });
   }, [key]);
 
-  if (state.kind === "loading") return <p className="muted">Loading {name}…</p>;
-  if (state.kind === "missing") return <p className="card card-error">No dataset named {name}.</p>;
-  if (state.kind === "error") {
+  if (state.kind === LoadState.Loading) return <p className="muted">Loading {name}…</p>;
+  if (state.kind === LoadState.Missing) return <p className="card card-error">No dataset named {name}.</p>;
+  if (state.kind === LoadState.Error) {
     return <ErrorCard message={describeError(state.message, filters)} onRetry={retry} />;
   }
-  if (state.kind === "empty") return <EmptyCard what={`${name} rows`} />;
+  if (state.kind === LoadState.Empty) return <EmptyCard what={`${name} rows`} />;
   const { entry } = state.data;
   const current = extra.key === key ? extra : { key, rows: [], cursor: null, loading: false, error: null };
   const rows = [...state.data.rows, ...current.rows];

@@ -135,10 +135,19 @@ export async function getDataset(name: string, symbol: string, params: Record<st
 
 // --- the catalogue and any dataset ------------------------------------------
 
+/** The wire types the catalogue reports for a column, verbatim. */
+export enum WireType {
+  Decimal = "string (decimal)",
+  DateTime = "string (date-time)",
+  Date = "string (date)",
+  String = "string",
+  Integer = "integer",
+  Boolean = "boolean",
+}
+
 export interface CatalogColumn {
   name: string;
-  /** The wire type: `string (decimal)`, `string (date-time)`, `string (date)`, `string`, `integer`, `boolean`. */
-  type: string;
+  type: WireType;
   nullable: boolean;
 }
 

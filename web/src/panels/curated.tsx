@@ -4,16 +4,30 @@
 // even before that).
 import { useNavigate } from "react-router";
 import { commandToPath } from "../commands/parser";
-import type { PanelArgs, PanelProps, PanelSpec } from "../commands/types";
-import { DatasetView, filtersOf, parseFilters, type SymbolMode } from "./dataset";
+import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
+import { DatasetView, SymbolMode, filtersOf, parseFilters } from "./dataset";
+
+/** How a tab takes the strip's symbol. `Required`: the tab needs it and
+ *  says so without one; `Auto`/`None` as in DatasetView. */
+export enum TabSymbol {
+  Required = "required",
+  Auto = "auto",
+  None = "none",
+}
+
+/** A required tab still asks the API scoped to the symbol; it only refuses
+ *  to render without one. */
+const MODE_OF: Record<TabSymbol, SymbolMode> = {
+  [TabSymbol.Required]: SymbolMode.Auto,
+  [TabSymbol.Auto]: SymbolMode.Auto,
+  [TabSymbol.None]: SymbolMode.None,
+};
 
 export interface Tab {
   key: string;
   label: string;
   dataset: string;
-  /** `required`: the tab needs the strip's symbol and says so without one;
-   *  `auto`/`none` as in DatasetView. */
-  symbol: "required" | SymbolMode;
+  symbol: TabSymbol;
 }
 
 export interface TabbedPanelSpec {
@@ -50,7 +64,7 @@ export function tabbedPanel(spec: TabbedPanelSpec): PanelSpec {
     const navigate = useNavigate();
     const current = spec.tabs.find((t) => t.key === args.tab) ?? first;
     const filters = filtersOf(args, ["tab"]);
-    const needs = current.symbol === "required" && symbol === null;
+    const needs = current.symbol === TabSymbol.Required && symbol === null;
     return (
       <section>
         <div className="tabs" role="tablist" aria-label={spec.title}>
@@ -75,7 +89,7 @@ export function tabbedPanel(spec: TabbedPanelSpec): PanelSpec {
             name={current.dataset}
             symbol={symbol}
             filters={filters}
-            mode={current.symbol === "required" ? "auto" : current.symbol}
+            mode={MODE_OF[current.symbol]}
           />
         )}
       </section>
@@ -91,16 +105,16 @@ export function tabbedPanel(spec: TabbedPanelSpec): PanelSpec {
     // symbol; one with a required tab still opens (on its first tab) so
     // the market-wide tabs stay reachable, and the required tab says
     // what it needs.
-    needsSymbol: spec.tabs.every((t) => t.symbol === "required"),
-    layout: "single",
+    needsSymbol: spec.tabs.every((t) => t.symbol === TabSymbol.Required),
+    layout: Layout.Single,
     parseArgs,
     component: Component,
   };
 }
 
-const sym = (key: string, label: string, dataset: string): Tab => ({ key, label, dataset, symbol: "required" });
-const mkt = (key: string, label: string, dataset: string): Tab => ({ key, label, dataset, symbol: "none" });
-const opt = (key: string, label: string, dataset: string): Tab => ({ key, label, dataset, symbol: "auto" });
+const sym = (key: string, label: string, dataset: string): Tab => ({ key, label, dataset, symbol: TabSymbol.Required });
+const mkt = (key: string, label: string, dataset: string): Tab => ({ key, label, dataset, symbol: TabSymbol.None });
+const opt = (key: string, label: string, dataset: string): Tab => ({ key, label, dataset, symbol: TabSymbol.Auto });
 
 export const HDS_PANEL = tabbedPanel({
   code: "HDS",

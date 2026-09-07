@@ -1,18 +1,18 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CatalogColumn } from "../api/client";
+import { WireType, type CatalogColumn } from "../api/client";
 import { DatasetTable, formatCell, formatDateTime, formatDecimal, formatInteger, rawDecimal } from "./table";
 
 afterEach(cleanup);
 
 const COLUMNS: CatalogColumn[] = [
-  { name: "symbol", type: "string", nullable: false },
-  { name: "as_of_date", type: "string (date)", nullable: false },
-  { name: "value", type: "string (decimal)", nullable: true },
-  { name: "count", type: "integer", nullable: true },
-  { name: "flag", type: "boolean", nullable: true },
-  { name: "url", type: "string", nullable: true },
-  { name: "raw_json", type: "string", nullable: true },
+  { name: "symbol", type: WireType.String, nullable: false },
+  { name: "as_of_date", type: WireType.Date, nullable: false },
+  { name: "value", type: WireType.Decimal, nullable: true },
+  { name: "count", type: WireType.Integer, nullable: true },
+  { name: "flag", type: WireType.Boolean, nullable: true },
+  { name: "url", type: WireType.String, nullable: true },
+  { name: "raw_json", type: WireType.String, nullable: true },
 ];
 
 const ROWS = [
@@ -40,10 +40,10 @@ describe("cell formatting by wire type", () => {
     expect(formatDecimal("1234567")).toBe("1.23M");
     expect(formatDecimal(null)).toBe("—");
     expect(formatInteger(7751)).toBe("7,751");
-    expect(formatCell(true, "boolean")).toBe("yes");
-    expect(formatCell(false, "boolean")).toBe("no");
-    expect(formatCell(null, "string")).toBe("—");
-    expect(formatCell("2026-09-06", "string (date)")).toBe("2026-09-06");
+    expect(formatCell(true, WireType.Boolean)).toBe("yes");
+    expect(formatCell(false, WireType.Boolean)).toBe("no");
+    expect(formatCell(null, WireType.String)).toBe("—");
+    expect(formatCell("2026-09-06", WireType.Date)).toBe("2026-09-06");
     expect(formatDateTime("not a date")).toBe("not a date");
     expect(formatDateTime("2026-09-06T11:44:28.632399Z")).toBe("2026-09-06 11:44 UTC");
     expect(formatDateTime("2026-09-06T00:00:00Z")).toBe("2026-09-06");

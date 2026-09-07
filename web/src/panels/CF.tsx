@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getDataset, getDatasetPage, type Row as ApiRow } from "../api/client";
-import type { PanelArgs, PanelProps, PanelSpec } from "../commands/types";
-import { EmptyCard, ErrorCard, MissingCard, useListKeys, usePanelData } from "./common";
+import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
+import { EmptyCard, ErrorCard, LoadState, MissingCard, useListKeys, usePanelData } from "./common";
 import { edgarUrl } from "./links";
 
 type Row = ApiRow;
@@ -151,10 +151,10 @@ export function CF({ symbol, args }: PanelProps) {
   const [extra, setExtra] = useState<{ key: string; rows: Row[]; cursor: string | null }>({ key, rows: [], cursor: null });
   useEffect(() => setExtra({ key, rows: [], cursor: null }), [key]);
   if (symbol === null) return null;
-  if (state.kind === "loading") return <p className="muted">Loading {symbol}…</p>;
-  if (state.kind === "missing") return <MissingCard symbol={symbol} />;
-  if (state.kind === "error") return <ErrorCard message={state.message} onRetry={retry} />;
-  if (state.kind === "empty") return <EmptyCard what="filings" />;
+  if (state.kind === LoadState.Loading) return <p className="muted">Loading {symbol}…</p>;
+  if (state.kind === LoadState.Missing) return <MissingCard symbol={symbol} />;
+  if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
+  if (state.kind === LoadState.Empty) return <EmptyCard what="filings" />;
   const current = extra.key === key ? extra : { key, rows: [], cursor: null };
   const cursor = current.rows.length > 0 ? current.cursor : state.data.next_cursor;
   const data: Filings = { ...state.data, filings: [...state.data.filings, ...current.rows] };
@@ -170,7 +170,7 @@ export const CF_PANEL: PanelSpec = {
   code: "CF",
   title: "SEC filings",
   needsSymbol: true,
-  layout: "single",
+  layout: Layout.Single,
   parseArgs,
   component: CF,
 };

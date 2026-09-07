@@ -8,6 +8,7 @@ in the router touches SQLAlchemy.
 
 from __future__ import annotations
 
+import enum
 from dataclasses import dataclass
 
 from sqlalchemy import delete, select, update
@@ -116,20 +117,31 @@ def add_proxy(session: Session, url: str, label: str | None) -> Proxy:
     return row
 
 
-PROXY_ACTIONS = ("enable", "disable", "reset", "remove")
+class ProxyAction(enum.StrEnum):
+    """What the proxies page can do to one row; the URL's last segment."""
+
+    ENABLE = "enable"
+    DISABLE = "disable"
+    RESET = "reset"
+    REMOVE = "remove"
 
 
-def proxy_action(session: Session, proxy_id: int, action: str) -> str:
+class ScreenAction(enum.StrEnum):
+    ENABLE = "enable"
+    DISABLE = "disable"
+
+
+def proxy_action(session: Session, proxy_id: int, action: ProxyAction) -> str:
     """Returns the label acted on. `reset` keeps the cumulative counters,
     like `yfin proxy reset`: past data is not deleted."""
     row = session.get(Proxy, proxy_id)
     if row is None:
         raise AdminError(f"no proxy with id {proxy_id}")
-    if action == "enable" or action == "disable":
+    if action in (ProxyAction.ENABLE, ProxyAction.DISABLE):
         session.execute(
-            update(Proxy).where(Proxy.id == row.id).values(is_enabled=action == "enable")
+            update(Proxy).where(Proxy.id == row.id).values(is_enabled=action is ProxyAction.ENABLE)
         )
-    elif action == "reset":
+    elif action is ProxyAction.RESET:
         session.execute(
             update(Proxy)
             .where(Proxy.id == row.id)
@@ -141,9 +153,9 @@ def proxy_action(session: Session, proxy_id: int, action: str) -> str:
                 last_error=None,
             )
         )
-    elif action == "remove":
+    elif action is ProxyAction.REMOVE:
         session.execute(delete(Proxy).where(Proxy.id == row.id))
-    else:
+    else:  # pragma: no cover - the enum is exhaustive
         raise AdminError(f"unknown action {action}")
     label = row.label
     session.commit()

@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/client";
-import { useListKeys, usePanelData } from "./common";
+import { LoadState, useListKeys, usePanelData } from "./common";
 
 afterEach(() => {
   cleanup();
@@ -21,7 +21,7 @@ describe("usePanelData", () => {
     noNetwork();
     const load = vi.fn(async () => "data");
     const { result, rerender } = renderHook(() => usePanelData("k", load));
-    await waitFor(() => expect(result.current.state).toEqual({ kind: "ready", data: "data" }));
+    await waitFor(() => expect(result.current.state).toEqual({ kind: LoadState.Ready, data: "data" }));
     rerender();
     expect(load).toHaveBeenCalledTimes(1);
   });
@@ -33,11 +33,11 @@ describe("usePanelData", () => {
       ({ key }: { key: string }) => usePanelData(key, load),
       { initialProps: { key: "AAPL" } },
     );
-    await waitFor(() => expect(result.current.state).toEqual({ kind: "ready", data: "first" }));
+    await waitFor(() => expect(result.current.state).toEqual({ kind: LoadState.Ready, data: "first" }));
 
     load.mockImplementation(async () => "second");
     rerender({ key: "MSFT" });
-    await waitFor(() => expect(result.current.state).toEqual({ kind: "ready", data: "second" }));
+    await waitFor(() => expect(result.current.state).toEqual({ kind: LoadState.Ready, data: "second" }));
     expect(load).toHaveBeenCalledTimes(2);
   });
 
@@ -56,13 +56,13 @@ describe("usePanelData", () => {
 
     load.mockImplementation(async () => "second");
     rerender({ key: "MSFT" });
-    await waitFor(() => expect(result.current.state).toEqual({ kind: "ready", data: "second" }));
+    await waitFor(() => expect(result.current.state).toEqual({ kind: LoadState.Ready, data: "second" }));
 
     await act(async () => {
       resolveFirst("first");
       await Promise.resolve();
     });
-    expect(result.current.state).toEqual({ kind: "ready", data: "second" });
+    expect(result.current.state).toEqual({ kind: LoadState.Ready, data: "second" });
   });
 
   it("maps a 404 to missing", async () => {
@@ -71,7 +71,7 @@ describe("usePanelData", () => {
       throw new ApiError(404, "not_found", "No such symbol");
     });
     const { result } = renderHook(() => usePanelData("k", load));
-    await waitFor(() => expect(result.current.state).toEqual({ kind: "missing" }));
+    await waitFor(() => expect(result.current.state).toEqual({ kind: LoadState.Missing }));
   });
 
   it("maps a 401 to a plain error, not a state of its own", async () => {
@@ -80,14 +80,14 @@ describe("usePanelData", () => {
       throw new ApiError(401, "unauthenticated", "Unauthenticated");
     });
     const { result } = renderHook(() => usePanelData("k", load));
-    await waitFor(() => expect(result.current.state).toEqual({ kind: "error", message: "Unauthenticated" }));
+    await waitFor(() => expect(result.current.state).toEqual({ kind: LoadState.Error, message: "Unauthenticated" }));
   });
 
   it("maps an empty result through isEmpty to empty", async () => {
     noNetwork();
     const load = vi.fn(async () => [] as string[]);
     const { result } = renderHook(() => usePanelData("k", load, (data: string[]) => data.length === 0));
-    await waitFor(() => expect(result.current.state).toEqual({ kind: "empty" }));
+    await waitFor(() => expect(result.current.state).toEqual({ kind: LoadState.Empty }));
   });
 
   it("maps any other error to an error state and retry re-runs the load", async () => {
@@ -99,20 +99,20 @@ describe("usePanelData", () => {
       return "data";
     });
     const { result } = renderHook(() => usePanelData("k", load));
-    await waitFor(() => expect(result.current.state).toEqual({ kind: "error", message: "network" }));
+    await waitFor(() => expect(result.current.state).toEqual({ kind: LoadState.Error, message: "network" }));
 
     await act(async () => {
       result.current.retry();
       await Promise.resolve();
     });
-    await waitFor(() => expect(result.current.state).toEqual({ kind: "ready", data: "data" }));
+    await waitFor(() => expect(result.current.state).toEqual({ kind: LoadState.Ready, data: "data" }));
   });
 
   it("does not restart the load when isEmpty is a fresh lambda every render", async () => {
     noNetwork();
     const load = vi.fn(async () => "data");
     const { result, rerender } = renderHook(() => usePanelData("k", load, (data: string) => data === ""));
-    await waitFor(() => expect(result.current.state).toEqual({ kind: "ready", data: "data" }));
+    await waitFor(() => expect(result.current.state).toEqual({ kind: LoadState.Ready, data: "data" }));
     rerender();
     rerender();
     expect(load).toHaveBeenCalledTimes(1);

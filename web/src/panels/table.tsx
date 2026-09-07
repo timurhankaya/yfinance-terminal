@@ -5,7 +5,7 @@
 // is in the row detail, along with every other field of the row.
 import { useEffect, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
-import type { CatalogColumn, Row } from "../api/client";
+import { WireType, type CatalogColumn, type Row } from "../api/client";
 import { LOCALE, asNumber, formatBig } from "./DES";
 import { DataTable, useListKeys, type Column } from "./common";
 import type { LinkRule } from "./links";
@@ -61,12 +61,12 @@ export function formatDateTime(value: unknown): string {
 
 /** One cell, by the catalogue's wire type. Strings that are URLs become
  *  links; everything null is a dash. */
-export function formatCell(value: unknown, type: string, name = ""): ReactNode {
+export function formatCell(value: unknown, type: WireType, name = ""): ReactNode {
   if (value === null || value === undefined) return "—";
-  if (type === "string (decimal)") return formatDecimal(value);
-  if (type === "integer") return formatInteger(value, name);
-  if (type === "string (date-time)") return formatDateTime(value);
-  if (type === "boolean") return value ? "yes" : "no";
+  if (type === WireType.Decimal) return formatDecimal(value);
+  if (type === WireType.Integer) return formatInteger(value, name);
+  if (type === WireType.DateTime) return formatDateTime(value);
+  if (type === WireType.Boolean) return value ? "yes" : "no";
   if (isHttpUrl(value)) {
     return (
       <a href={value} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
@@ -81,8 +81,8 @@ export function formatCell(value: unknown, type: string, name = ""): ReactNode {
   return text.length > 40 ? <span title={text}>{text}</span> : text;
 }
 
-export function isNumericType(type: string): boolean {
-  return type === "string (decimal)" || type === "integer";
+export function isNumericType(type: WireType): boolean {
+  return type === WireType.Decimal || type === WireType.Integer;
 }
 
 function prettyJson(value: unknown): string {
@@ -142,14 +142,14 @@ export function RowDetail(props: {
           <Field key={column.name} name={column.name} type={column.type} value={row[column.name]} />
         ))}
         {extra.map((name) => (
-          <Field key={name} name={name} type="string" value={row[name]} />
+          <Field key={name} name={name} type={WireType.String} value={row[name]} />
         ))}
       </dl>
     </div>
   );
 }
 
-function Field({ name, type, value }: { name: string; type: string; value: unknown }): ReactElement {
+function Field({ name, type, value }: { name: string; type: WireType; value: unknown }): ReactElement {
   if (DETAIL_ONLY.has(name) && value !== null && value !== undefined) {
     return (
       <>
@@ -160,7 +160,7 @@ function Field({ name, type, value }: { name: string; type: string; value: unkno
       </>
     );
   }
-  const shown = type === "string (decimal)" && value !== null && value !== undefined
+  const shown = type === WireType.Decimal && value !== null && value !== undefined
     ? rawDecimal(value)
     : formatCell(value, type, name);
   return (

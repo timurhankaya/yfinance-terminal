@@ -5,6 +5,7 @@ no inline allowance."""
 
 from __future__ import annotations
 
+import enum
 from html import escape
 from typing import Any
 
@@ -133,10 +134,20 @@ def page(
     return HTMLResponse(html, headers=HEADERS)
 
 
-def button_form(action: str, label: str, *, kind: str = "", confirm: bool = False) -> str:
+class ButtonKind(enum.StrEnum):
+    """The button's CSS class; PLAIN has none."""
+
+    PLAIN = ""
+    PRIMARY = "primary"
+    DANGER = "danger"
+
+
+def button_form(
+    action: str, label: str, *, kind: ButtonKind = ButtonKind.PLAIN, confirm: bool = False
+) -> str:
     """A one-button POST form. `confirm` is a plain text hint, not a
     script: the page ships no JavaScript."""
-    cls = f' class="{kind}"' if kind else ""
+    cls = f' class="{kind.value}"' if kind is not ButtonKind.PLAIN else ""
     title = ' title="This cannot be undone"' if confirm else ""
     return (
         f'<form class=inline method=post action="{esc(action)}">'

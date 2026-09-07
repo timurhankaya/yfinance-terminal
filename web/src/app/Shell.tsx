@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { ApiError, getSymbol } from "../api/client";
-import { commandToPath, parse, pathToCommand, SYMBOL_RE } from "../commands/parser";
+import { DEFAULT_CODE, NO_SYMBOL, commandToPath, parse, ParseKind, pathToCommand, SYMBOL_RE } from "../commands/parser";
 import { getPanel, isMnemonic, listPanels } from "../commands/registry";
 import type { PanelArgs } from "../commands/types";
 import { CommandPalette } from "./CommandPalette";
@@ -11,7 +11,7 @@ import { useGlobalKeys } from "./keys";
 export const LAST_KEY = "yfin.ui.last";
 
 export function Shell() {
-  const { symbol: rawSymbol = "-", code: rawCode = "DES" } = useParams();
+  const { symbol: rawSymbol = NO_SYMBOL, code: rawCode = DEFAULT_CODE } = useParams();
   const { search } = useLocation();
   const navigate = useNavigate();
   const command = useMemo(() => pathToCommand(rawSymbol, rawCode, search), [rawSymbol, rawCode, search]);
@@ -33,8 +33,8 @@ export function Shell() {
   const submit = useCallback(
     async (text: string) => {
       const result = parse(text, { symbol: command.symbol, code: command.code });
-      if (result.kind === "empty") return;
-      if (result.kind === "error") {
+      if (result.kind === ParseKind.Empty) return;
+      if (result.kind === ParseKind.Error) {
         setWarning(result.message);
         return;
       }

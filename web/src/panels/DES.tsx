@@ -5,9 +5,9 @@
 // they are counted.
 import { Fragment } from "react";
 import type { ReactNode } from "react";
-import { getDataset, getSymbol, type CatalogColumn, type Row, type SymbolDetail } from "../api/client";
-import type { PanelProps, PanelSpec } from "../commands/types";
-import { ErrorCard, MissingCard, usePanelData } from "./common";
+import { getDataset, getSymbol, WireType, type CatalogColumn, type Row, type SymbolDetail } from "../api/client";
+import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
+import { ErrorCard, LoadState, MissingCard, usePanelData } from "./common";
 import { quoteUrl } from "./links";
 import { DatasetTable, formatDateTime } from "./table";
 
@@ -204,14 +204,14 @@ export function group(info: Record<string, unknown>): Grouped {
 }
 
 const OFFICER_COLUMNS: CatalogColumn[] = [
-  { name: "name", type: "string", nullable: false },
-  { name: "title", type: "string", nullable: true },
-  { name: "age", type: "integer", nullable: true },
-  { name: "year_born", type: "integer", nullable: true },
-  { name: "fiscal_year", type: "integer", nullable: true },
-  { name: "total_pay", type: "string (decimal)", nullable: true },
-  { name: "exercised_value", type: "string (decimal)", nullable: true },
-  { name: "unexercised_value", type: "string (decimal)", nullable: true },
+  { name: "name", type: WireType.String, nullable: false },
+  { name: "title", type: WireType.String, nullable: true },
+  { name: "age", type: WireType.Integer, nullable: true },
+  { name: "year_born", type: WireType.Integer, nullable: true },
+  { name: "fiscal_year", type: WireType.Integer, nullable: true },
+  { name: "total_pay", type: WireType.Decimal, nullable: true },
+  { name: "exercised_value", type: WireType.Decimal, nullable: true },
+  { name: "unexercised_value", type: WireType.Decimal, nullable: true },
 ];
 
 function Officers({ symbol }: { symbol: string }) {
@@ -220,9 +220,9 @@ function Officers({ symbol }: { symbol: string }) {
     () => getDataset("company_officers", symbol),
     (rows) => rows.length === 0,
   );
-  if (state.kind === "loading") return <p className="muted">Loading officers…</p>;
-  if (state.kind === "error") return <ErrorCard message={state.message} onRetry={retry} />;
-  if (state.kind !== "ready") return null;
+  if (state.kind === LoadState.Loading) return <p className="muted">Loading officers…</p>;
+  if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
+  if (state.kind !== LoadState.Ready) return null;
   return (
     <>
       <h3>Officers</h3>
@@ -240,10 +240,10 @@ export function DES({ symbol }: PanelProps) {
   );
 
   if (symbol === null) return null;
-  if (state.kind === "loading") return <p className="muted">Loading {symbol}…</p>;
-  if (state.kind === "missing") return <MissingCard symbol={symbol} />;
-  if (state.kind === "error") return <ErrorCard message={state.message} onRetry={retry} />;
-  if (state.kind === "empty") return null;
+  if (state.kind === LoadState.Loading) return <p className="muted">Loading {symbol}…</p>;
+  if (state.kind === LoadState.Missing) return <MissingCard symbol={symbol} />;
+  if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
+  if (state.kind === LoadState.Empty) return null;
 
   const d = state.data;
   const grouped = group(d.info ?? {});
@@ -303,7 +303,7 @@ export const DES_PANEL: PanelSpec = {
   code: "DES",
   title: "Description: identity and the whole info snapshot",
   needsSymbol: true,
-  layout: "headed",
+  layout: Layout.Headed,
   parseArgs: () => ({}),
   component: DES,
 };

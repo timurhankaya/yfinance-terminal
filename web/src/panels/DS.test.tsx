@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resetCatalogCache } from "../api/client";
+import { resetCatalogCache, WireType } from "../api/client";
 import { DS, DS_PANEL, DS_USAGE } from "./DS";
 
 function json(status: number, body: unknown): Response {
@@ -15,9 +15,9 @@ const CATALOG = [
     sort_key: ["as_of_date"], descending: true, filters: [], symbol_scoped: true,
     description: "Ownership split.",
     columns: [
-      { name: "symbol", type: "string", nullable: false },
-      { name: "as_of_date", type: "string (date)", nullable: false },
-      { name: "insiders_pct_held", type: "string (decimal)", nullable: true },
+      { name: "symbol", type: WireType.String, nullable: false },
+      { name: "as_of_date", type: WireType.Date, nullable: false },
+      { name: "insiders_pct_held", type: WireType.Decimal, nullable: true },
     ],
   },
   {
@@ -25,8 +25,8 @@ const CATALOG = [
     sort_key: ["region"], descending: false, filters: ["region"], symbol_scoped: false,
     description: "Open or closed.",
     columns: [
-      { name: "region", type: "string", nullable: false },
-      { name: "status", type: "string", nullable: false },
+      { name: "region", type: WireType.String, nullable: false },
+      { name: "status", type: WireType.String, nullable: false },
     ],
   },
 ];

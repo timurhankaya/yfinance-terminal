@@ -5,7 +5,7 @@
 import { useNavigate } from "react-router";
 import { commandToPath } from "../commands/parser";
 import { listPanels } from "../commands/registry";
-import type { PanelProps, PanelSpec } from "../commands/types";
+import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
 
 //: Functions in reading order, grouped. A registered code not named
 //: here still shows, under "Other".
@@ -186,7 +186,7 @@ export const HELP_PANEL: PanelSpec = {
   code: "HELP",
   title: "Help: how to use the terminal, every function and shortcut",
   needsSymbol: false,
-  layout: "single",
+  layout: Layout.Single,
   parseArgs: () => ({}),
   component: HELP,
 };

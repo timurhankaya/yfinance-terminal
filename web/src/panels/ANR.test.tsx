@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Layout } from "../commands/types";
 import { ANR, ANR_PANEL } from "./ANR";
 
 function json(status: number, body: unknown): Response {
@@ -46,7 +47,7 @@ function renderANR() {
 describe("ANR_PANEL", () => {
   it("is a single-layout panel that needs a symbol and takes no args", () => {
     expect(ANR_PANEL.code).toBe("ANR");
-    expect(ANR_PANEL.layout).toBe("single");
+    expect(ANR_PANEL.layout).toBe(Layout.Single);
     expect(ANR_PANEL.needsSymbol).toBe(true);
     expect(ANR_PANEL.parseArgs(["anything"])).toEqual({});
   });

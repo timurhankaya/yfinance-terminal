@@ -160,9 +160,9 @@ def test_proxies_page_lists_the_pool_with_actions(monkeypatch: pytest.MonkeyPatc
     assert "u · secret" in html
     assert 'class="health-cooldown"' in html
     assert "timeout: &lt;redacted&gt;" in html  # escaped, never raw
-    for action in ("disable", "reset", "remove"):
+    for action in (ops.ProxyAction.DISABLE, ops.ProxyAction.RESET, ops.ProxyAction.REMOVE):
         assert f'action="/admin/proxies/7/{action}"' in html
-    assert 'action="/admin/proxies/7/enable"' not in html
+    assert f'action="/admin/proxies/7/{ops.ProxyAction.ENABLE}"' not in html
 
 
 def test_proxies_add_and_actions_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -172,7 +172,8 @@ def test_proxies_add_and_actions_round_trip(monkeypatch: pytest.MonkeyPatch) -> 
         calls.append(("add", url, label))
         return fake_proxy(label=label or "auto")
 
-    def fake_action(session: Any, proxy_id: int, action: str) -> str:
+    def fake_action(session: Any, proxy_id: int, action: ops.ProxyAction) -> str:
+        assert isinstance(action, ops.ProxyAction)
         calls.append((action, proxy_id))
         return "p7"
 
@@ -189,7 +190,7 @@ def test_proxies_add_and_actions_round_trip(monkeypatch: pytest.MonkeyPatch) -> 
     acted = client.post("/admin/proxies/7/reset", auth=AUTH, follow_redirects=False)
     assert acted.headers["location"] == "/admin/proxies?ok=reset%3A+p7"
     assert client.post("/admin/proxies/7/explode", auth=AUTH).status_code == 404
-    assert calls == [("add", "http://u:s@10.0.0.7:8080", None), ("reset", 7)]
+    assert calls == [("add", "http://u:s@10.0.0.7:8080", None), (ops.ProxyAction.RESET, 7)]
 
 
 def test_proxies_refusal_is_shown_not_raised(monkeypatch: pytest.MonkeyPatch) -> None:

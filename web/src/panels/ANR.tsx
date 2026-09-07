@@ -1,7 +1,7 @@
 import { getDataset } from "../api/client";
-import type { PanelProps, PanelSpec } from "../commands/types";
+import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
 import { asNumber } from "./DES";
-import { DataTable, EmptyCard, ErrorCard, MissingCard, usePanelData, type Column } from "./common";
+import { DataTable, EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData, type Column } from "./common";
 
 type Row = Record<string, unknown>;
 type Section = { rows: Row[] } | { error: string };
@@ -127,10 +127,10 @@ export function ANR({ symbol }: PanelProps) {
     allEmpty,
   );
   if (symbol === null) return null;
-  if (state.kind === "loading") return <p className="muted">Loading {symbol}…</p>;
-  if (state.kind === "missing") return <MissingCard symbol={symbol} />;
-  if (state.kind === "error") return <ErrorCard message={state.message} onRetry={retry} />;
-  if (state.kind === "empty") return <EmptyCard what="analyst data" />;
+  if (state.kind === LoadState.Loading) return <p className="muted">Loading {symbol}…</p>;
+  if (state.kind === LoadState.Missing) return <MissingCard symbol={symbol} />;
+  if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
+  if (state.kind === LoadState.Empty) return <EmptyCard what="analyst data" />;
 
   const s = state.data;
   return (
@@ -154,7 +154,7 @@ export const ANR_PANEL: PanelSpec = {
   code: "ANR",
   title: "Analyst ratings",
   needsSymbol: true,
-  layout: "single",
+  layout: Layout.Single,
   parseArgs: () => ({}),
   component: ANR,
 };

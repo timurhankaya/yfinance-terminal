@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { AppRoutes } from "./App";
 import { clearRegistry, registerPanel } from "../commands/registry";
+import { Layout } from "../commands/types";
 import { registerAll } from "../panels";
 
 function json(status: number, body: unknown): Response {
@@ -47,7 +48,7 @@ beforeEach(() => {
     code: "FAKEFA",
     title: "Fake",
     needsSymbol: true,
-    layout: "single",
+    layout: Layout.Single,
     parseArgs: () => ({}),
     component: () => <p>fake FA panel</p>,
   });
@@ -55,7 +56,7 @@ beforeEach(() => {
     code: "GIP",
     title: "Intraday",
     needsSymbol: true,
-    layout: "headed",
+    layout: Layout.Headed,
     parseArgs: (t) => {
       const i = (t[0] ?? "5m").toLowerCase();
       if (!["1m", "5m", "15m", "60m"].includes(i)) throw new Error(`Unknown interval ${t[0]}`);

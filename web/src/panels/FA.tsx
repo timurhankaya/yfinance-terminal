@@ -2,9 +2,9 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router";
 import { getFinancials, type FinancialFact } from "../api/client";
 import { commandToPath } from "../commands/parser";
-import type { PanelArgs, PanelProps, PanelSpec } from "../commands/types";
+import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import { asNumber, formatBig } from "./DES";
-import { DataTable, EmptyCard, ErrorCard, MissingCard, usePanelData, type Column } from "./common";
+import { DataTable, EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData, type Column } from "./common";
 
 // The command word -> the API's statement kind. "valuation" exists on the
 // API too but is not a statement a terminal user reads as one; it stays
@@ -86,7 +86,7 @@ export function FA({ symbol, args }: PanelProps) {
     () => (symbol === null ? Promise.reject(new Error("no symbol")) : getFinancials(symbol, statement, freq)),
     (rows) => rows.length === 0,
   );
-  const table = useMemo(() => (state.kind === "ready" ? pivot(state.data) : null), [state]);
+  const table = useMemo(() => (state.kind === LoadState.Ready ? pivot(state.data) : null), [state]);
 
   if (symbol === null) return null;
 
@@ -134,10 +134,10 @@ export function FA({ symbol, args }: PanelProps) {
           </button>
         ))}
       </div>
-      {state.kind === "loading" && <p className="muted">Loading {symbol}…</p>}
-      {state.kind === "missing" && <MissingCard symbol={symbol} />}
-      {state.kind === "error" && <ErrorCard message={state.message} onRetry={retry} />}
-      {state.kind === "empty" && <EmptyCard what="financial statements" />}
+      {state.kind === LoadState.Loading && <p className="muted">Loading {symbol}…</p>}
+      {state.kind === LoadState.Missing && <MissingCard symbol={symbol} />}
+      {state.kind === LoadState.Error && <ErrorCard message={state.message} onRetry={retry} />}
+      {state.kind === LoadState.Empty && <EmptyCard what="financial statements" />}
       {table && (
         <>
           <p className="muted">
@@ -156,7 +156,7 @@ export const FA_PANEL: PanelSpec = {
   code: "FA",
   title: "Financial statements",
   needsSymbol: true,
-  layout: "single",
+  layout: Layout.Single,
   parseArgs,
   component: FA,
 };

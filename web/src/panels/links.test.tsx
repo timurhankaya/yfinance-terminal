@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CatalogColumn } from "../api/client";
+import { WireType, type CatalogColumn } from "../api/client";
 import { linksFor, quoteUrl } from "./links";
 import { DatasetTable } from "./table";
 
@@ -48,8 +48,8 @@ describe("linksFor", () => {
 
 describe("DatasetTable links", () => {
   const columns: CatalogColumn[] = [
-    { name: "report_id", type: "string", nullable: false },
-    { name: "provider", type: "string", nullable: true },
+    { name: "report_id", type: WireType.String, nullable: false },
+    { name: "provider", type: WireType.String, nullable: true },
   ];
   const rows = [{ report_id: "X_1", provider: "Argus" }, { report_id: null, provider: "None" }];
 

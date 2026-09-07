@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { MemoryRouter, useLocation } from "react-router";
 import { clearRegistry, registerPanel } from "../commands/registry";
+import { Layout } from "../commands/types";
 import { HELP } from "./HELP";
 
 function Dummy() {
@@ -21,8 +22,8 @@ afterEach(() => {
 
 function registerTwo() {
   clearRegistry();
-  registerPanel({ code: "DES", title: "Description", needsSymbol: true, layout: "headed", parseArgs: () => ({}), component: Dummy });
-  registerPanel({ code: "HELP", title: "Help", needsSymbol: false, layout: "single", parseArgs: () => ({}), component: Dummy });
+  registerPanel({ code: "DES", title: "Description", needsSymbol: true, layout: Layout.Headed, parseArgs: () => ({}), component: Dummy });
+  registerPanel({ code: "HELP", title: "Help", needsSymbol: false, layout: Layout.Single, parseArgs: () => ({}), component: Dummy });
 }
 
 function renderHelp(symbol: string | null) {

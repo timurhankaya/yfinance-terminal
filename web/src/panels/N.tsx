@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NEWS_MAX, NEWS_PAGE, getNews, type NewsItem } from "../api/client";
-import type { PanelProps, PanelSpec } from "../commands/types";
-import { EmptyCard, ErrorCard, MissingCard, useListKeys, usePanelData } from "./common";
+import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
+import { EmptyCard, ErrorCard, LoadState, MissingCard, useListKeys, usePanelData } from "./common";
 
 function when(iso: string): string {
   const date = new Date(iso);
@@ -94,10 +94,10 @@ export function N({ symbol }: PanelProps) {
     (rows) => rows.length === 0,
   );
   if (symbol === null) return null;
-  if (state.kind === "loading") return <p className="muted">Loading {symbol}…</p>;
-  if (state.kind === "missing") return <MissingCard symbol={symbol} />;
-  if (state.kind === "error") return <ErrorCard message={state.message} onRetry={retry} />;
-  if (state.kind === "empty") return <EmptyCard what="news" />;
+  if (state.kind === LoadState.Loading) return <p className="muted">Loading {symbol}…</p>;
+  if (state.kind === LoadState.Missing) return <MissingCard symbol={symbol} />;
+  if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
+  if (state.kind === LoadState.Empty) return <EmptyCard what="news" />;
   const more = state.data.length >= limit && limit < NEWS_MAX;
   return <NewsList rows={state.data} onLoadMore={more ? () => setLimit(Math.min(NEWS_MAX, limit + NEWS_PAGE)) : null} />;
 }
@@ -106,7 +106,7 @@ export const N_PANEL: PanelSpec = {
   code: "N",
   title: "News",
   needsSymbol: true,
-  layout: "single",
+  layout: Layout.Single,
   parseArgs: () => ({}),
   component: N,
 };

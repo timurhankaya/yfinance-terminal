@@ -2,12 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { ApiError } from "../api/client";
 
+/** Where a panel's one load has got to. */
+export enum LoadState {
+  Loading = "loading",
+  Ready = "ready",
+  Empty = "empty",
+  Missing = "missing",
+  Error = "error",
+}
+
 export type Loaded<T> =
-  | { kind: "loading" }
-  | { kind: "ready"; data: T }
-  | { kind: "empty" }
-  | { kind: "missing" }
-  | { kind: "error"; message: string };
+  | { kind: LoadState.Loading }
+  | { kind: LoadState.Ready; data: T }
+  | { kind: LoadState.Empty }
+  | { kind: LoadState.Missing }
+  | { kind: LoadState.Error; message: string };
 
 /** Loads on mount and re-runs whenever `key` changes; drops stale responses;
  *  404 -> missing; any other failure -> error; isEmpty(data) -> empty. */
@@ -16,7 +25,7 @@ export function usePanelData<T>(
   load: () => Promise<T>,
   isEmpty?: (data: T) => boolean,
 ): { state: Loaded<T>; retry: () => void } {
-  const [state, setState] = useState<Loaded<T>>({ kind: "loading" });
+  const [state, setState] = useState<Loaded<T>>({ kind: LoadState.Loading });
   // Refs, not deps: panels pass inline lambdas, and a new function each
   // render must not restart the load.
   const loadRef = useRef(load);
@@ -29,16 +38,16 @@ export function usePanelData<T>(
     tokenRef.current.cancelled = true;
     const token = { cancelled: false };
     tokenRef.current = token;
-    setState({ kind: "loading" });
+    setState({ kind: LoadState.Loading });
     try {
       const data = await loadRef.current();
       if (token.cancelled) return;
       const empty = isEmptyRef.current;
-      setState(empty && empty(data) ? { kind: "empty" } : { kind: "ready", data });
+      setState(empty && empty(data) ? { kind: LoadState.Empty } : { kind: LoadState.Ready, data });
     } catch (err) {
       if (token.cancelled) return;
-      if (err instanceof ApiError && err.status === 404) setState({ kind: "missing" });
-      else setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+      if (err instanceof ApiError && err.status === 404) setState({ kind: LoadState.Missing });
+      else setState({ kind: LoadState.Error, message: err instanceof Error ? err.message : String(err) });
     }
   }, []);
 

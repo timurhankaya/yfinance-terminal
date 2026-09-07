@@ -1,15 +1,15 @@
 // CA: corporate actions (dividends, splits, capital gains), newest first.
-import { getActions, type CatalogColumn, type Rows } from "../api/client";
-import type { PanelProps, PanelSpec } from "../commands/types";
-import { EmptyCard, ErrorCard, MissingCard, usePanelData } from "./common";
+import { getActions, WireType, type CatalogColumn, type Rows } from "../api/client";
+import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
+import { EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData } from "./common";
 import { DatasetTable } from "./table";
 
 //: The Action schema, as columns for the typed table.
 export const ACTION_COLUMNS: CatalogColumn[] = [
-  { name: "symbol", type: "string", nullable: false },
-  { name: "action_date", type: "string (date)", nullable: false },
-  { name: "action_type", type: "string", nullable: false },
-  { name: "action_value", type: "string (decimal)", nullable: false },
+  { name: "symbol", type: WireType.String, nullable: false },
+  { name: "action_date", type: WireType.Date, nullable: false },
+  { name: "action_type", type: WireType.String, nullable: false },
+  { name: "action_value", type: WireType.Decimal, nullable: false },
 ];
 
 export function CA({ symbol }: PanelProps) {
@@ -19,10 +19,10 @@ export function CA({ symbol }: PanelProps) {
     (data) => data.rows.length === 0,
   );
   if (symbol === null) return null;
-  if (state.kind === "loading") return <p className="muted">Loading {symbol}…</p>;
-  if (state.kind === "missing") return <MissingCard symbol={symbol} />;
-  if (state.kind === "error") return <ErrorCard message={state.message} onRetry={retry} />;
-  if (state.kind === "empty") return <EmptyCard what="corporate actions" />;
+  if (state.kind === LoadState.Loading) return <p className="muted">Loading {symbol}…</p>;
+  if (state.kind === LoadState.Missing) return <MissingCard symbol={symbol} />;
+  if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
+  if (state.kind === LoadState.Empty) return <EmptyCard what="corporate actions" />;
   return (
     <section>
       <p className="detail-meta">Dividends, splits and capital gains, newest first.</p>
@@ -35,7 +35,7 @@ export const CA_PANEL: PanelSpec = {
   code: "CA",
   title: "Corporate actions: dividends, splits, capital gains",
   needsSymbol: true,
-  layout: "single",
+  layout: Layout.Single,
   parseArgs: () => ({}),
   component: CA,
 };
