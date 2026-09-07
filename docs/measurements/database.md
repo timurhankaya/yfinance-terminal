@@ -41,6 +41,111 @@ is applied on the write path instead.
 | `GREATEST` ignores NULL | `greatest(true, NULL::boolean)` → `true`; `greatest(5, NULL::int)` → `5`. |
 | `GREATEST` works on booleans | `greatest(false, true)` → `true`. Monotonic columns rely on both of these. |
 
+## Telling an insert from an update
+
+The change-events design publishes `insert` and `update` as different
+messages, so the writer has to know which branch of
+`INSERT ... ON CONFLICT DO UPDATE` produced each returned row. `xmax = 0`
+in `RETURNING` answers it for free: the INSERT branch writes a fresh tuple,
+whose `xmax` is zero, while the DO UPDATE branch returns a tuple carrying
+the updating transaction's id.
+
+That is an implementation detail PostgreSQL does not document, and
+TimescaleDB's chunk-dispatch insert path has historically refused system
+columns in `RETURNING` — which would have removed the approach from
+exactly the tables that produce the most rows. Measured before any writer
+code was written:
+
+```
+uv run python scripts/measure_xmax.py
+```
+
+```
+PostgreSQL 18.6 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+timescaledb 2.29.2
+
+1. Plain table
+  first write   (expect inserted=True) : [(1, 10, True)]
+  second write  (expect inserted=False): [(1, 20, False)]
+
+2. Hypertable, through the chunk dispatch path
+  first write   (expect inserted=True) : [('AAPL', datetime.datetime(2026, 9, 7, 14, 30, tzinfo=datetime.timezone.utc), Decimal('1.500000000000'), True)]
+  second write  (expect inserted=False): [('AAPL', datetime.datetime(2026, 9, 7, 14, 30, tzinfo=datetime.timezone.utc), Decimal('2.500000000000'), False)]
+  chunks: 1
+
+3. Inserted and upserted again inside ONE transaction
+   (`symbols` is written three times per symbol, by three datasets)
+  first  in tx  (expect inserted=True) : [(2, 10, True, '0', False)]
+  second in tx  (expect inserted=False): [(2, 20, False, '78967', True)]
+  third  in tx  (expect inserted=False): [(2, 30, False, '78967', True)]
+
+4. `DO UPDATE ... WHERE` with a false predicate returns no row
+   (this is what makes 'a row came back' mean 'the row changed')
+  new row       (expect one row, True) : [(3, 10, True)]
+  unchanged     (expect [])            : []
+  changed       (expect one row, False): [(3, 11, False)]
+   DO NOTHING on an existing row:
+  existing      (expect [])            : []
+  new           (expect one row, True) : [(4, True)]
+```
+
+| Claim | Observation |
+|---|---|
+| `RETURNING *, (xmax = 0) AS inserted` distinguishes the two branches | Plain table: `True` then `False`. |
+| **A hypertable returns `xmax` through the chunk dispatch path** | Same result on a `price_bars`-shaped hypertable, one chunk. No fallback path is needed, and the design's contingency — a key-existence read taken before the write — is not implemented. |
+| A row inserted and then upserted again **in the same transaction** reports `update` | `xmax` is the current `pg_current_xact_id()`, not zero. `symbols` is written three times per symbol by three datasets, so this is the normal case, not a corner: the consumer sees one `insert` followed by two `update`s, in write order. |
+| `DO UPDATE ... WHERE <predicate>` returns **nothing** when the predicate is false | This is what lets "a row came back" mean "the row changed", with no second read to find out. |
+| `DO NOTHING` returns nothing for an existing row and the row for a new one | The `DO NOTHING` shape therefore emits inserts only, which is what it already means. |
+
+There is no false-positive path in either direction. The INSERT branch
+always writes a tuple with `xmax = 0`, and a row locked by another
+transaction (`SELECT ... FOR UPDATE`) cannot reach `RETURNING` here,
+because `RETURNING` reads the tuple this statement just wrote.
+
+## Bind parameters
+
+The wire protocol carries at most **65535** bind parameters per
+statement, and a multi-row `INSERT` binds one per column per row. This is
+a hard protocol limit, not a tunable.
+
+Reproduce by growing a two-column INSERT one row at a time until it
+fails — the boundary is what matters, not a large number:
+
+```python
+# .venv/bin/python, against the pinned image
+c.execute(text("CREATE TEMP TABLE p (a int, b int)"))
+for n in (32766, 32767, 32768):
+    params = {f"{col}{i}": i for i in range(n) for col in "ab"}
+    values = ",".join(f"(:a{i}, :b{i})" for i in range(n))
+    c.execute(text("INSERT INTO p (a, b) VALUES " + values), params)
+```
+
+```
+32766 rows x 2 cols = 65532 params -> OK
+32767 rows x 2 cols = 65534 params -> OK
+32768 rows x 2 cols = 65536 params -> OperationalError:
+    number of parameters must be between 0 and 65535
+```
+
+The per-table figures below come from the schema itself:
+
+```python
+from yfin.storage.persistence import insert_chunk_size
+[(t.name, len(t.columns), insert_chunk_size(len(t.columns)))
+ for t in Base.metadata.tables.values()]
+```
+
+| Claim | Observation |
+|---|---|
+| The ceiling is 65535, inclusive | 65534 succeeds, 65536 fails. The error is `psycopg.OperationalError`, raised before the server sees the statement. |
+| A fixed row-count chunk is not enough | `screen_quotes` has 107 columns. At the old fixed `INSERT_CHUNK = 2000`, one statement asked for 214,000 parameters and **every screener run died**; four tables stayed empty until the chunk was made column-aware. |
+| MySQL never showed this | `pymysql` interpolates parameters client-side, so the limit did not exist on the old engine. It appeared only after the PostgreSQL migration — a migration-introduced defect, not a pre-existing one. |
+| It binds on few tables | Rows per statement is `min(2000, 65535 // columns)`. Measured over the current schema, the ceiling binds before the row cap on **5 of 82 tables**: `ticker_info` and `ticker_info_history` (191 columns → 343 rows), `screen_quotes` (107 → 612), `live_quotes` (37 → 1771), `live_ticks` (36 → 1820). |
+
+Consequence: `INSERT_CHUNK` is a *row* budget chosen for lock duration
+and partial-failure granularity; `MAX_BIND_PARAMS` is a *protocol* budget
+that cannot be exceeded. The write path takes the smaller of the two.
+
 ## Advisory locks
 
 Advisory locks are **database-scoped**, and the key is a signed 64-bit

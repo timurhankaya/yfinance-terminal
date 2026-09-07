@@ -339,16 +339,21 @@ branch has `xmax = 0`; one rewritten by `ON CONFLICT DO UPDATE` carries
 the updating transaction's id. This is an implementation detail
 PostgreSQL does not document, and TimescaleDB's chunk-dispatch insert
 path has in the past refused system columns in `RETURNING`; so **the
-observation is made before the writer is touched** (see Implementation
-order, step 3): a plain table, a `price_bars` chunk, and a row inserted
-and then upserted again inside the same transaction (`symbols` is
-written three times per symbol). If a hypertable cannot return `xmax`,
-the fallback is fixed here: for hypertables `inserted` is derived from
-a key-existence read taken *before* the write, the same query `_verify`
-runs after it. `RETURNING` yields nothing for the `DO NOTHING` branch
-and nothing for a `DO UPDATE ... WHERE` that evaluates false, which is
-exactly what makes the next clause work. The returned row is the
-event's `row`; no matching back to the proposed rows, no second read.
+observation was made before the writer was touched** (step 3), on a
+plain table, a `price_bars`-shaped hypertable and a row inserted and
+then upserted again inside the same transaction (`symbols` is written
+three times per symbol). **Measured: all three work, the hypertable
+included** (`scripts/measure_xmax.py`, recorded in
+`docs/measurements/database.md`). The fallback this design held in
+reserve for hypertables -- deriving `inserted` from a key-existence read
+taken before the write -- is therefore **not implemented**, and this
+paragraph is the record of why. The same-transaction re-upsert reports
+`update`, with `xmax` equal to `pg_current_xact_id()`: a consumer sees
+one `insert` followed by two `update`s for `symbols`, in write order.
+`RETURNING` yields nothing for the `DO NOTHING` branch and nothing for a
+`DO UPDATE ... WHERE` that evaluates false, which is exactly what makes
+the next clause work. The returned row is the event's `row`; no matching
+back to the proposed rows, no second read.
 
 **The distinctness predicate.** `DO UPDATE ... WHERE <changed>`, where
 `<changed>` is:
@@ -654,9 +659,9 @@ the test engine, commit for real and `TRUNCATE` the tables they used.
   volatile column alone yields none but the column is updated to the
   proposed value; `DO NOTHING` rows are not touched.
 - `xmax = 0` distinguishes insert from update on a plain table, on a
-  `price_bars` chunk and for a row upserted twice in one transaction
-  (or the hypertable fallback is exercised, whichever the measurement
-  chose).
+  `price_bars` chunk and for a row upserted twice in one transaction.
+  The measurement settled this natively, so there is no fallback path
+  to exercise.
 - A monotonic column raised by `GREATEST` emits `update`; one left alone
   emits nothing.
 - `replace_scope`: removed key → `delete`, unchanged → nothing, new →
@@ -680,9 +685,10 @@ the test engine, commit for real and `TRUNCATE` the tables they used.
 
 Into `docs/measurements/database.md`:
 
-- The `xmax = 0` observation on a plain table, a `price_bars` chunk and
+- ~~The `xmax = 0` observation on a plain table, a `price_bars` chunk and
   a same-transaction re-upsert, with the command and its raw output --
-  before step 4.
+  before step 4.~~ **Recorded**, under "Telling an insert from an
+  update".
 - Write-time cost of `RETURNING *` + the predicate + the volatile touch:
   a full AAPL sync (37,295 rows) with the collector on and off.
   Acceptance: within 10 %.
@@ -705,6 +711,8 @@ New:
 - `src/yfin/cli/changes.py` -- `yfin changes relay|status`
 - `migrations/versions/<ts>_pipeline_outbox.py`
 - `docs/changes/schema.json`, `scripts/dump_change_schema.py`
+- `scripts/measure_xmax.py` -- the step 3 measurement, kept so it can be re-run
+  against a new PostgreSQL or TimescaleDB pin
 - tests listed above
 
 Changed:
@@ -735,7 +743,9 @@ Changed:
    module with the tick spec.
 3. The `xmax` measurement on a plain table, a hypertable chunk and a
    same-transaction re-upsert; record it and fix the hypertable path
-   (native or fallback) before any writer code.
+   (native or fallback) before any writer code. **Done**: native on all
+   three, no fallback (`scripts/measure_xmax.py`,
+   `docs/measurements/database.md`).
 4. `Xid8Type`, models, migration, `changes_timescale_ddl`;
    `ChangeContext` / `ChangeCollector` with unit tests.
 5. Writer: `RETURNING *`, the predicate, the volatile touch, the
