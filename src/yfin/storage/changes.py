@@ -50,6 +50,25 @@ OUTBOX_COLUMNS: tuple[str, ...] = ("created_at", "family", "partition_key", "pay
 #: A rescale rewrites `price_bars` and nothing else.
 RESCALE_TABLE = "price_bars"
 
+#: The key column a range event's span is measured over, per bars table.
+#:
+#: Written out rather than derived, because "the date-ish key column" is a
+#: guess and this is the field a consumer uses to re-read the span. Two of
+#: the six also carry `bar_interval`, which is why a range event names both:
+#: one span per (symbol, interval) there, one per symbol on the rest.
+#: `tests/unit/test_routing.py` holds the map to the schema.
+BARS_TIME_COLUMN: Mapping[str, str] = {
+    "price_bars": "ts_utc",
+    "periodic_bars": "ts_utc",
+    "price_history": "session_date",
+    "dividends": "ex_date",
+    "splits": "split_date",
+    "capital_gains": "gain_date",
+}
+
+#: Bars tables whose rows are also keyed by an interval.
+BARS_INTERVAL_TABLES: frozenset[str] = frozenset({"price_bars", "periodic_bars"})
+
 #: `_append`'s default for `dataset`, meaning "whatever `enter_dataset` last
 #: set". `None` cannot carry that meaning: it is the real answer for `purge`
 #: and `rescale`, which run outside any dataset, so the two cases need
@@ -306,4 +325,6 @@ __all__ = [
     "ChangeContext",
     "ChangeEvent",
     "ChangeOp",
+    "BARS_INTERVAL_TABLES",
+    "BARS_TIME_COLUMN",
 ]

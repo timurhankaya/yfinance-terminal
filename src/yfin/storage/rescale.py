@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from yfin.core.logging_setup import get_logger
 from yfin.models import INTRADAY_INTERVALS, Base
+from yfin.storage.changes import ChangeCollector
 
 log = get_logger(__name__)
 
@@ -171,12 +172,23 @@ def seed_baseline(session: Session) -> int:
     return seeded
 
 
-def apply_pending(session: Session, symbol: str) -> int:
+def apply_pending(
+    session: Session, symbol: str, *, collector: ChangeCollector | None = None
+) -> int:
     """Apply this symbol's pending splits; returns the count applied.
 
     Call site: inside the symbol's own write transaction, before `bars_*` is
     written. In the reverse order, new bars written in the same run
     (already at the new scale) would be divided a second time.
+
+    A rescale rewrites every bar the symbol has before the split boundary,
+    so it is published as ONE `rescale` event naming the split rather than
+    as one event per bar -- the same reasoning as a range event, and the
+    consumer applies the factor to its own mirror. The event is only
+    recorded for a split this session actually applied: `_apply_one` returns
+    0 when another session claimed the slot first, and announcing a rewrite
+    that some other transaction is doing would be a lie about who wrote what
+    and when.
     """
     pending = pending_splits(session, symbol)
     if not pending:
@@ -193,9 +205,12 @@ def apply_pending(session: Session, symbol: str) -> int:
             # "applied", and the correct data would never be rescaled again.
             log.error("rescale atlandi", symbol=symbol, split_date=str(split_day), reason=str(exc))
             continue
-        applied += _apply_one(
+        one = _apply_one(
             session, symbol, split_day, ratio, price_factor, volume_factor, boundary
         )
+        applied += one
+        if one and collector is not None:
+            collector.record_rescale(symbol, split_day, price_factor, boundary)
     return applied
 
 

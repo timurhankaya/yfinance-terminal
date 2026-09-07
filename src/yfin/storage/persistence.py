@@ -26,7 +26,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from yfin.models.base import Base
-from yfin.storage.changes import ChangeCollector
+from yfin.storage.changes import (
+    BARS_INTERVAL_TABLES,
+    BARS_TIME_COLUMN,
+    ChangeCollector,
+    ChangeOp,
+)
 from yfin.storage.contracts import TableWrite
 from yfin.storage.routing import INFRASTRUCTURE_TABLES
 
@@ -226,18 +231,43 @@ class PostgresRowWriter:
 
     # --- statement construction --------------------------------------------
 
+    def _effective_update_columns(
+        self, table: Table, write: TableWrite, present: set[str]
+    ) -> list[str]:
+        """Which columns the conflict branch writes, and whether `present`
+        narrows them.
+
+        Normally the declared `update_columns`, narrowed to what the rows
+        actually carry: the column set varies per symbol (a non-fund has no
+        'Capital Gains').
+
+        A COLLECTED `replace_scope` write widens instead, to every non-key
+        column minus the volatile ones, INDEPENDENT of `present`. That is
+        not a preference, it is what makes the diff equivalent to the
+        delete-plus-insert it replaces: the declared `update_columns` on
+        these tables are partial (`financial_facts` updates `("value",)`,
+        `sec_filing_exhibits` `("url",)`), so a plain upsert would leave
+        every other column at the value the deleted row had. A column the
+        rows omit entirely takes the table default through `excluded.col`,
+        and one `align_rows` had to fill takes the explicit NULL it was
+        filled with -- both exactly what delete-plus-insert produces,
+        server defaults such as `first_seen_at` resetting included.
+        """
+        if not (self._collecting(write.table) and write.mode == "replace_scope"):
+            return [col for col in write.update_columns if col in present]
+        return [
+            col.name
+            for col in table.c
+            if col.name not in write.key_columns
+            and col.name not in write.volatile_columns
+        ]
+
     def _update_map(
         self, table: Table, stmt: Any, write: TableWrite, present: set[str]
     ) -> dict[str, Any]:
-        """Columns the conflict branch writes.
-
-        Narrowed to columns actually present: the column set varies per
-        symbol (a non-fund has no 'Capital Gains').
-        """
+        """Columns the conflict branch writes, as SET expressions."""
         update_map: dict[str, Any] = {}
-        for col in write.update_columns:
-            if col not in present:
-                continue
+        for col in self._effective_update_columns(table, write, present):
             if col in write.monotonic_columns:
                 # The source can report 1 for a row and 0 the next time
                 # (repair heuristics depend on the window length);
@@ -383,15 +413,71 @@ class PostgresRowWriter:
         """
         assert self._collector is not None  # guaranteed by `_collecting`
         returned = [dict(row) for row in result.mappings()]
+        inserts: list[dict[str, Any]] = []
+        updates: list[dict[str, Any]] = []
         for row in returned:
-            inserted = bool(row.pop(INSERTED_FLAG))
-            self._collector.record(
-                write.table,
-                "insert" if inserted else "update",
-                {name: row[name] for name in write.key_columns},
-                row,
-            )
+            # `pop` runs for every row, so the flag is off all of them by
+            # the end -- it must not reach the consumer as a column.
+            (inserts if row.pop(INSERTED_FLAG) else updates).append(row)
+
+        if self._coalesces(write.table, inserts):
+            self._record_ranges(write.table, inserts)
+        else:
+            for row in inserts:
+                self._record_row(write, "insert", row)
+        # Updates stay row-level whatever their count. On a bars table they
+        # are repairs, and a repair is small and worth applying directly.
+        for row in updates:
+            self._record_row(write, "update", row)
+
         self._touch_volatile(table, write, rows, returned, present)
+
+    def _record_row(self, write: TableWrite, op: ChangeOp, row: dict[str, Any]) -> None:
+        assert self._collector is not None
+        self._collector.record(
+            write.table,
+            op,
+            {name: row[name] for name in write.key_columns},
+            row,
+        )
+
+    def _coalesces(self, table_name: str, inserts: list[dict[str, Any]]) -> bool:
+        """Whether this many bar inserts become spans instead of rows.
+
+        A first sync or `--full-refresh` writes ~20,000 bars per symbol;
+        across a 4,500-symbol universe that is on the order of 10^8 row
+        events to say "the history is here". Steady-state daily writes
+        (~390 one-minute bars) stay row-level, and so do repairs.
+        """
+        assert self._collector is not None
+        return (
+            table_name in BARS_TIME_COLUMN
+            and len(inserts) > self._collector.range_threshold
+        )
+
+    def _record_ranges(self, table_name: str, inserts: list[dict[str, Any]]) -> None:
+        """One span per (symbol, interval), or per symbol where there is no
+        interval column."""
+        assert self._collector is not None
+        ts_column = BARS_TIME_COLUMN[table_name]
+        has_interval = table_name in BARS_INTERVAL_TABLES
+
+        spans: dict[tuple[str, str | None], list[Any]] = {}
+        for row in inserts:
+            key = (row["symbol"], row["bar_interval"] if has_interval else None)
+            spans.setdefault(key, []).append(row[ts_column])
+
+        for (symbol, interval), stamps in spans.items():
+            self._collector.record_range(
+                table_name,
+                symbol,
+                kind="write",
+                bar_interval=interval,
+                ts_column=ts_column,
+                ts_from=min(stamps),
+                ts_to=max(stamps),
+                rows=len(stamps),
+            )
 
     def _touch_volatile(
         self,
@@ -465,12 +551,14 @@ class PostgresRowWriter:
         """Whether the statement was a `DO UPDATE` rather than a `DO NOTHING`."""
         return any(col in present for col in write.update_columns)
 
-    def _delete_scope(self, table: Table, write: TableWrite) -> None:
-        """Deletes the replace_scope scope.
+    def _scope_predicate(self, table: Table, write: TableWrite) -> Any | None:
+        """WHERE clause for the replace_scope scope, or None if it is empty.
 
-        scope_columns defines it, defaulting to ("symbol",):
-        company_officers works per symbol, financial_facts per
-        (symbol, statement, freq, period_end).
+        `scope_columns` defines it, defaulting to ("symbol",):
+        `company_officers` works per symbol, `financial_facts` per
+        (symbol, statement, freq, period_end). `scope_values` is used when
+        the write gives it -- the hash-gated datasets do, because their rows
+        can be empty while the scope is not.
         """
         cols = [table.c[name] for name in write.scope_columns]
         if write.scope_values is not None:
@@ -482,14 +570,68 @@ class PostgresRowWriter:
                 seen[key] = {name: row[name] for name in write.scope_columns}
             scopes = list(seen.values())
         if not scopes:
-            return
+            return None
 
         if len(cols) == 1:
-            values = [scope[write.scope_columns[0]] for scope in scopes]
-            self._session.execute(table.delete().where(cols[0].in_(values)))
+            only = write.scope_columns[0]
+            return cols[0].in_([scope[only] for scope in scopes])
+        return tuple_(*cols).in_(
+            [tuple(scope[name] for name in write.scope_columns) for scope in scopes]
+        )
+
+    def _delete_scope(self, table: Table, write: TableWrite) -> None:
+        """Clears the replace_scope scope.
+
+        Without a collector this is one DELETE, exactly as it has always
+        been: the scope goes, the incoming rows are inserted, and which rows
+        survived is nobody's question.
+
+        With one it becomes a diff, because "delete everything and insert it
+        back" would publish every row of every `replace_scope` table as an
+        insert on every sync -- ten dataset modules, and the whole point of
+        the predicate on the upsert path is not to do that.
+        """
+        predicate = self._scope_predicate(table, write)
+        if predicate is None:
             return
-        values_multi = [tuple(scope[name] for name in write.scope_columns) for scope in scopes]
-        self._session.execute(table.delete().where(tuple_(*cols).in_(values_multi)))
+        if not self._collecting(write.table):
+            self._session.execute(table.delete().where(predicate))
+            return
+        self._delete_removed_keys(table, write, predicate)
+
+    def _delete_removed_keys(self, table: Table, write: TableWrite, predicate: Any) -> None:
+        """Deletes only the keys the incoming rows no longer carry.
+
+        `scope_columns` is a primary-key prefix on every `replace_scope`
+        table, so reading the scope back is an index scan.
+
+        With no incoming rows `incoming` is empty and the whole scope is
+        deleted, which is what today's single DELETE does. A key that is
+        removed and re-added in one write cannot happen: it is in
+        `incoming`, so it is never in the delete set.
+        """
+        assert self._collector is not None
+        key_columns = list(write.key_columns)
+        key_cols = [table.c[name] for name in key_columns]
+
+        stored = {
+            tuple(row)
+            for row in self._session.execute(select(*key_cols).where(predicate)).all()
+        }
+        incoming = {tuple(row[name] for name in key_columns) for row in write.rows}
+        removed = sorted(stored - incoming, key=lambda key: tuple(str(v) for v in key))
+        if not removed:
+            return
+
+        for start in range(0, len(removed), VERIFY_CHUNK):
+            batch = removed[start : start + VERIFY_CHUNK]
+            deleted = self._session.execute(
+                table.delete()
+                .where(tuple_(*key_cols).in_(batch))
+                .returning(*key_cols)
+            )
+            for row in deleted.mappings():
+                self._collector.record(write.table, "delete", dict(row), None)
 
     def _verify(self, write: TableWrite) -> int:
         """Key-existence query.
