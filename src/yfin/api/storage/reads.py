@@ -24,7 +24,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Row, Select, and_, func, or_, select, text
@@ -32,7 +31,6 @@ from sqlalchemy.orm import Session
 
 from yfin.api.storage import limits
 from yfin.models import bars_table_for
-from yfin.models.asof import AsOfState
 from yfin.models.bars import PeriodicBar, PriceBar
 from yfin.models.financials import FinancialFact, FinancialPeriod
 from yfin.models.prices import PriceHistory
@@ -145,7 +143,7 @@ def symbol_exists(session: Session, symbol: str) -> bool:
 # --- bars -------------------------------------------------------------------
 
 
-def _bar_selection(interval: str, session_kind: str) -> tuple[Any, tuple[Any, ...], Any]:
+def _bar_selection(interval: str) -> tuple[Any, tuple[Any, ...], Any]:
     """(model, columns, time column) for an interval.
 
     The table comes from `bars_table_for`, which is the single source the
@@ -197,7 +195,7 @@ def list_bars(
     limit: int,
     after: tuple[Any, ...] | None,
 ) -> Page:
-    model, columns, time_column = _bar_selection(interval, session_kind)
+    model, columns, time_column = _bar_selection(interval)
     statement: Select[Any] = select(*columns).where(
         model.symbol == symbol,
         time_column >= start,
@@ -324,15 +322,6 @@ def list_financials(
     return Page(rows=[dict(row._mapping) for row in visible], next_key=next_key)
 
 
-def has_financials(session: Session, symbol: str) -> bool:
-    return (
-        session.execute(
-            select(FinancialPeriod.symbol).where(FinancialPeriod.symbol == symbol).limit(1)
-        ).first()
-        is not None
-    )
-
-
 # --- freshness --------------------------------------------------------------
 
 
@@ -349,27 +338,3 @@ def financials_as_of(
     ).scalar_one_or_none()
 
 
-def dataset_as_of(session: Session, symbol: str, dataset: str) -> datetime | None:
-    """Last verification time for an as-of gated dataset.
-
-    Only some families keep this: `asof_state` covers the gated datasets
-    (holders, analyst data, funds, discovery). The price tables carry no
-    fetch timestamp at all, and that is a measured decision -- one on
-    `price_bars` would cost roughly 4 GB across the archive to answer a
-    question `sync_run_items` already answers for operators.
-    """
-    return session.execute(
-        select(func.max(AsOfState.fetched_at)).where(
-            AsOfState.symbol == symbol, AsOfState.dataset == dataset
-        )
-    ).scalar_one_or_none()
-
-
-def to_number(value: Decimal | None) -> str | None:
-    """Decimals cross the wire as strings.
-
-    Prices are Numeric(28,12) and large counts Numeric(38,0) precisely so
-    they are not floats. Serialising them as JSON numbers would undo that
-    at the API boundary, where it is least visible and most permanent.
-    """
-    return None if value is None else format(value, "f")

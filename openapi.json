@@ -204,6 +204,7 @@
         "type": "object"
       },
       "CatalogEntryOut": {
+        "description": "The catalogue as clients see it.\n\nThe mapping lives here rather than on the catalogue entry: the wire\nshape is an HTTP concern, and `api/storage` is not allowed to know\none. A `describe()` on the entry would have made the storage layer\nthe place where a field rename in the contract has to be made.",
         "properties": {
           "descending": {
             "title": "Descending",

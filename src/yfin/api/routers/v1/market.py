@@ -20,14 +20,14 @@ from sqlalchemy.orm import Session
 
 from yfin.api.auth.dependencies import Principal
 from yfin.api.core.errors import (
-    TYPE_INVALID_CURSOR,
     TYPE_INVALID_PARAMETER,
     TYPE_NOT_FOUND,
     TYPE_RANGE_TOO_LARGE,
     ApiProblem,
 )
 from yfin.api.ratelimit.dependencies import guard
-from yfin.api.schemas.common import DEFAULT_PAGE_SIZE, Collection, Resource
+from yfin.api.routers.v1 import paging
+from yfin.api.schemas.common import Collection, Resource
 from yfin.api.schemas.market import (
     Action,
     Bar,
@@ -50,36 +50,6 @@ SessionDep = Annotated[Session, Depends(session_scope)]
 #: precise number.
 CACHE_SETTLED_SECONDS = 86_400
 CACHE_LIVE_SECONDS = 60
-
-
-def _page_size(request: Request, requested: int | None) -> int:
-    """The effective page size, refusing rather than silently clipping.
-
-    Silently returning fewer rows than asked for looks to a client like
-    the end of the data.
-    """
-    cap = int(getattr(request.state, "page_size_cap", DEFAULT_PAGE_SIZE))
-    if requested is None:
-        return min(DEFAULT_PAGE_SIZE, cap)
-    if requested > cap:
-        raise ApiProblem(
-            422,
-            TYPE_INVALID_PARAMETER,
-            "Page size above the plan's maximum",
-            detail=f"limit must not exceed {cap}",
-        )
-    return requested
-
-
-def _decode(cursor: str | None, *, query: dict[str, Any], arity: int) -> tuple[Any, ...] | None:
-    if cursor is None:
-        return None
-    try:
-        return cursors.decode(cursor, query=query, arity=arity)
-    except cursors.InvalidCursor as exc:
-        raise ApiProblem(
-            422, TYPE_INVALID_CURSOR, "The cursor is not usable here", detail=str(exc)
-        ) from exc
 
 
 def _finish(
@@ -146,7 +116,7 @@ def list_symbols(
     is close to empty.
     """
     limits.apply_statement_timeout(session)
-    size = _page_size(request, limit)
+    size = paging.page_size(request, limit)
     identity = {
         "route": "symbols",
         "exchange": exchange,
@@ -155,7 +125,7 @@ def list_symbols(
         "active": active,
         "limit": size,
     }
-    after = _decode(cursor, query=identity, arity=1)
+    after = paging.decode_cursor(cursor, query=identity, arity=1)
 
     page = reads.list_symbols(
         session,
@@ -275,7 +245,7 @@ def list_bars(
     if not reads.symbol_exists(session, code):
         raise ApiProblem(404, TYPE_NOT_FOUND, "No such symbol")
 
-    size = _page_size(request, limit)
+    size = paging.page_size(request, limit)
     identity = {
         "route": "bars",
         "symbol": code,
@@ -285,7 +255,7 @@ def list_bars(
         "session": effective_session,
         "limit": size,
     }
-    after = _decode(cursor, query=identity, arity=1)
+    after = paging.decode_cursor(cursor, query=identity, arity=1)
 
     page = reads.list_bars(
         session,
@@ -320,11 +290,11 @@ def _bar(row: dict[str, Any]) -> Bar:
         bar_interval=row.get("bar_interval"),
         session_date=row.get("session_date"),
         local_date=row.get("local_date"),
-        open=reads.to_number(row.get("open")),
-        high=reads.to_number(row.get("high")),
-        low=reads.to_number(row.get("low")),
-        close=reads.to_number(row.get("close")),
-        adj_close=reads.to_number(row.get("adj_close")),
+        open=paging.to_number(row.get("open")),
+        high=paging.to_number(row.get("high")),
+        low=paging.to_number(row.get("low")),
+        close=paging.to_number(row.get("close")),
+        adj_close=paging.to_number(row.get("adj_close")),
         volume=row.get("volume"),
         is_extended=row.get("is_extended"),
     )
@@ -365,7 +335,7 @@ def list_actions(
     if not reads.symbol_exists(session, code):
         raise ApiProblem(404, TYPE_NOT_FOUND, "No such symbol")
 
-    size = _page_size(request, limit)
+    size = paging.page_size(request, limit)
     identity = {
         "route": "actions",
         "symbol": code,
@@ -373,7 +343,7 @@ def list_actions(
         "to": window_end.isoformat(),
         "limit": size,
     }
-    after = _decode(cursor, query=identity, arity=2)
+    after = paging.decode_cursor(cursor, query=identity, arity=2)
 
     page = reads.list_actions(
         session,
@@ -396,7 +366,7 @@ def list_actions(
                 symbol=row["symbol"],
                 action_date=row["action_date"],
                 action_type=row["action_type"],
-                action_value=reads.to_number(row["action_value"]) or "0",
+                action_value=paging.to_number(row["action_value"]) or "0",
             )
             for row in page.rows
         ],
@@ -438,7 +408,7 @@ def list_financials(
     if not reads.symbol_exists(session, code):
         raise ApiProblem(404, TYPE_NOT_FOUND, "No such symbol")
 
-    size = _page_size(request, limit)
+    size = paging.page_size(request, limit)
     identity = {
         "route": "financials",
         "symbol": code,
@@ -446,7 +416,7 @@ def list_financials(
         "freq": freq,
         "limit": size,
     }
-    after = _decode(cursor, query=identity, arity=2)
+    after = paging.decode_cursor(cursor, query=identity, arity=2)
 
     try:
         page = reads.list_financials(
@@ -478,7 +448,7 @@ def list_financials(
             FinancialFactOut(
                 period_end=row["period_end"],
                 item_key=row["item_key"],
-                value=reads.to_number(row["value"]) or "0",
+                value=paging.to_number(row["value"]) or "0",
                 currency=row.get("currency"),
             )
             for row in page.rows

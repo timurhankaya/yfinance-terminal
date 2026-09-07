@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from sqlalchemy import Date, cast, func, select, update
+from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -157,16 +157,3 @@ def flush(session: Session, settings: ApiSettings, *, include_today: bool = Fals
     )
 
 
-def monthly_total(session: Session, client_id: str, month: date) -> int:
-    """Measured usage for a month, from the database side.
-
-    The authoritative number for anything that is not a live limit
-    decision: Redis holds the working counter, this holds the record.
-    """
-    total = session.execute(
-        select(func.coalesce(func.sum(ApiUsageDaily.request_count), 0)).where(
-            ApiUsageDaily.client_id == client_id,
-            cast(func.date_trunc("month", ApiUsageDaily.day), Date) == month.replace(day=1),
-        )
-    ).scalar_one()
-    return int(total)

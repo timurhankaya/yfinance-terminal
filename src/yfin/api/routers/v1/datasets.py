@@ -27,13 +27,13 @@ from sqlalchemy.orm import Session
 
 from yfin.api.auth.dependencies import Authenticated
 from yfin.api.core.errors import (
-    TYPE_INVALID_CURSOR,
     TYPE_INVALID_PARAMETER,
     TYPE_NOT_FOUND,
     ApiProblem,
 )
 from yfin.api.ratelimit.dependencies import meter
-from yfin.api.schemas.common import DEFAULT_PAGE_SIZE, Collection
+from yfin.api.routers.v1 import paging
+from yfin.api.schemas.common import Collection
 from yfin.api.storage import catalog, limits
 from yfin.api.storage import cursor as cursors
 from yfin.api.storage.session import session_scope
@@ -47,6 +47,14 @@ RESERVED = frozenset({"symbol", "limit", "cursor", "all"})
 
 
 class CatalogEntryOut(BaseModel):
+    """The catalogue as clients see it.
+
+    The mapping lives here rather than on the catalogue entry: the wire
+    shape is an HTTP concern, and `api/storage` is not allowed to know
+    one. A `describe()` on the entry would have made the storage layer
+    the place where a field rename in the contract has to be made.
+    """
+
     name: str
     family: str
     scope: str
@@ -57,6 +65,21 @@ class CatalogEntryOut(BaseModel):
     filters: list[str]
     symbol_scoped: bool
     description: str
+
+    @classmethod
+    def of(cls, entry: catalog.CatalogEntry) -> CatalogEntryOut:
+        return cls(
+            name=entry.name,
+            family=entry.family.value,
+            scope=entry.scope,
+            kind=entry.kind,
+            table=entry.table.name,
+            sort_key=list(entry.exposure.sort_key),
+            descending=entry.exposure.descending,
+            filters=list(entry.exposure.filters),
+            symbol_scoped=entry.has_symbol,
+            description=entry.exposure.description,
+        )
 
 
 @router.get("", response_model=Collection[CatalogEntryOut], summary="Dataset catalogue")
@@ -81,7 +104,7 @@ def list_datasets(
     response.headers["Cache-Control"] = "private, max-age=300"
     response.headers["Vary"] = "Authorization"
     return Collection[CatalogEntryOut](
-        data=[CatalogEntryOut(**entry.describe()) for entry in entries]
+        data=[CatalogEntryOut.of(entry) for entry in entries]
     )
 
 
@@ -136,7 +159,7 @@ def read_dataset(
             "table is never what a caller wants and never cheap",
         )
 
-    size = _page_size(request, limit)
+    size = paging.page_size(request, limit)
     identity = {
         "route": "dataset",
         "name": name,
@@ -144,7 +167,7 @@ def read_dataset(
         "filters": dict(sorted(filters.items())),
         "limit": size,
     }
-    after = _decode(cursor, query=identity, arity=len(entry.exposure.sort_key))
+    after = paging.decode_cursor(cursor, query=identity, arity=len(entry.exposure.sort_key))
 
     rows, next_key = catalog.query(
         session, entry, symbol=code, filters=filters, limit=size, after=after
@@ -152,7 +175,7 @@ def read_dataset(
     response.headers["Cache-Control"] = "private, max-age=60"
     response.headers["Vary"] = "Authorization, Accept-Encoding"
     return Collection[dict[str, Any]](
-        data=[_serialise(row) for row in rows],
+        data=[paging.serialise_row(row) for row in rows],
         next_cursor=cursors.encode(next_key, query=identity) if next_key else None,
     )
 
@@ -183,43 +206,3 @@ def _filters(request: Request, entry: catalog.CatalogEntry) -> dict[str, str]:
     return supplied
 
 
-def _page_size(request: Request, requested: int | None) -> int:
-    cap = int(getattr(request.state, "page_size_cap", DEFAULT_PAGE_SIZE))
-    if requested is None:
-        return min(DEFAULT_PAGE_SIZE, cap)
-    if requested > cap:
-        raise ApiProblem(
-            422,
-            TYPE_INVALID_PARAMETER,
-            "Page size above the plan's maximum",
-            detail=f"limit must not exceed {cap}",
-        )
-    return requested
-
-
-def _decode(
-    cursor: str | None, *, query: dict[str, Any], arity: int
-) -> tuple[Any, ...] | None:
-    if cursor is None:
-        return None
-    try:
-        return cursors.decode(cursor, query=query, arity=arity)
-    except cursors.InvalidCursor as exc:
-        raise ApiProblem(
-            422, TYPE_INVALID_CURSOR, "The cursor is not usable here", detail=str(exc)
-        ) from exc
-
-
-def _serialise(row: dict[str, Any]) -> dict[str, Any]:
-    """Decimals become strings here too.
-
-    The generic surface has no hand-written schema to do it, so it happens
-    on the way out. Emitting them as JSON numbers would undo the whole
-    reason the columns are Numeric.
-    """
-    from decimal import Decimal
-
-    return {
-        key: (format(value, "f") if isinstance(value, Decimal) else value)
-        for key, value in row.items()
-    }

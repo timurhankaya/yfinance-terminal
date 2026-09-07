@@ -42,11 +42,3 @@ class Resource[T](BaseModel):
     as_of: datetime | None = None
 
 
-class Problem(BaseModel):
-    """RFC 9457. The only error shape outside /oauth/token."""
-
-    type: str
-    title: str
-    status: int
-    detail: str | None = None
-    request_id: str | None = None

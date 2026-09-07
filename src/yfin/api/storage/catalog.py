@@ -55,20 +55,6 @@ class CatalogEntry:
     def has_symbol(self) -> bool:
         return "symbol" in self.table.c
 
-    def describe(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "family": self.family.value,
-            "scope": self.scope,
-            "kind": self.kind,
-            "table": self.table.name,
-            "sort_key": list(self.exposure.sort_key),
-            "descending": self.exposure.descending,
-            "filters": list(self.exposure.filters),
-            "symbol_scoped": self.has_symbol,
-            "description": self.exposure.description,
-        }
-
 
 def _build() -> dict[str, CatalogEntry]:
     entries: dict[str, CatalogEntry] = {}

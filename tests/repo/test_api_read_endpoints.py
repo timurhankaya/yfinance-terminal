@@ -412,3 +412,26 @@ def test_responses_are_marked_private_and_vary_on_authorization(client: TestClie
     assert response.headers["Cache-Control"].startswith("private")
     assert "Authorization" in response.headers["Vary"]
     assert response.headers["ETag"]
+
+
+# --- query cost -------------------------------------------------------------
+
+
+def test_a_cancelled_query_is_504_not_500(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The statement timeout has to reach the caller as their answer.
+
+    As a 500 it is wrong twice: the caller learns nothing about what to
+    change, and the middleware refunds a 500's quota unit -- so asking for
+    something too expensive to serve would cost nothing.
+    """
+    from yfin.api.storage import limits as query_limits
+
+    monkeypatch.setattr(query_limits, "STATEMENT_TIMEOUT_MS", 1)
+    response = _get(client, f"/v1/symbols/{SYMBOL}/bars", interval="1d")
+    # A one-millisecond budget cancels whatever it lands on; if the query
+    # somehow beat it, the assertion below still holds for 200.
+    assert response.status_code in (200, 504)
+    if response.status_code == 504:
+        assert response.json()["type"] == "query_timeout"

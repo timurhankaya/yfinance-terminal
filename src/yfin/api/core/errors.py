@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from yfin.core.logging_setup import get_logger
@@ -38,7 +39,6 @@ TYPE_RANGE_TOO_LARGE = "range_too_large"
 TYPE_RATE_LIMIT = "rate_limit_exceeded"
 TYPE_QUOTA = "quota_exceeded"
 TYPE_CONCURRENCY = "concurrency_limit"
-TYPE_DEPENDENCY = "dependency_unavailable"
 TYPE_QUERY_TIMEOUT = "query_timeout"
 TYPE_INTERNAL = "internal_error"
 
@@ -132,6 +132,31 @@ async def _validation_error(request: Request, exc: Exception) -> JSONResponse:
     )
 
 
+#: PostgreSQL's SQLSTATE for a statement cancelled by statement_timeout.
+QUERY_CANCELED = "57014"
+
+
+async def _operational_error(request: Request, exc: Exception) -> JSONResponse:
+    """A cancelled query is the caller's answer, not an internal failure.
+
+    Without this the statement timeout in `storage/limits.py` surfaces as
+    a 500, which is wrong twice over: the caller learns nothing about what
+    to change, and a 500 refunds the request's quota unit -- so asking for
+    something too expensive to serve would cost nothing, which is an
+    invitation to keep asking.
+    """
+    assert isinstance(exc, OperationalError)
+    if getattr(exc.orig, "sqlstate", None) == QUERY_CANCELED:
+        return problem_response(
+            request,
+            504,
+            TYPE_QUERY_TIMEOUT,
+            "The query took too long and was cancelled",
+            detail="narrow the range or the page size and try again",
+        )
+    return await _unhandled(request, exc)
+
+
 async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
     """Anything we did not phrase ourselves becomes an opaque 500."""
     route = request.scope.get("route")
@@ -149,4 +174,5 @@ def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ApiProblem, _api_problem)
     app.add_exception_handler(StarletteHTTPException, _http_exception)
     app.add_exception_handler(RequestValidationError, _validation_error)
+    app.add_exception_handler(OperationalError, _operational_error)
     app.add_exception_handler(Exception, _unhandled)

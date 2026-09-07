@@ -35,6 +35,9 @@ from yfin.core.logging_setup import get_logger
 
 log = get_logger(__name__)
 
+#: Billed, not refunded -- see UsageMiddleware's docstring.
+QUERY_TIMEOUT_STATUS = 504
+
 
 @dataclass
 class LimitState:
@@ -129,10 +132,16 @@ def guard(family: DataFamily) -> Callable[..., Principal]:
 class UsageMiddleware(BaseHTTPMiddleware):
     """Releases the slot, refunds server errors, counts what was billable.
 
-    A client must not pay for our 500, so a 5xx gives the quota unit back
+    A client must not pay for our 500, so it gives the quota unit back
     and is not counted. A refusal we made before doing any work (429) is
     not counted either. Client errors are: a malformed request still cost
     a round trip and is the caller's to fix.
+
+    A 504 is billed like a success, and that is deliberate. The query was
+    cancelled because the caller asked for more than the timeout allows;
+    the work was really done, and refunding it would make an expensive
+    request that times out free -- which is an invitation to keep sending
+    them.
     """
 
     async def dispatch(
@@ -171,7 +180,7 @@ class UsageMiddleware(BaseHTTPMiddleware):
             return
         state.accounted = True
 
-        if status >= 500:
+        if status >= 500 and status != QUERY_TIMEOUT_STATUS:
             limiter.refund_quota(settings, state.client_id)
         elif status != 429:
             usage.record(
