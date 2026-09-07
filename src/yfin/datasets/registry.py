@@ -179,7 +179,7 @@ class Registry[D: Registrable]:
             if state.get(name) == 1:
                 return
             if state.get(name) == 0:
-                raise DependencyCycleError(f"dongu: {' -> '.join((*path, name))}")
+                raise DependencyCycleError(f"cycle: {' -> '.join((*path, name))}")
             if name not in self._items:
                 raise UnknownDatasetError(f"unknown dependency: {name}")
             state[name] = 0
