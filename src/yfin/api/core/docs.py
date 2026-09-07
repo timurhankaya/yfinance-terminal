@@ -77,14 +77,80 @@ regular series silently distorts anything computed from it.
 
 ## Limits
 
-Every response carries `RateLimit-*` for the per-second budget and
-`X-Quota-*` for the monthly one. A `429` says which limit was hit in its
-`type` field and how long to wait in `Retry-After`. Requests that fail
-with a `5xx` are not counted against your quota.
+Scoped responses carry `RateLimit-*` for the per-second budget and
+`X-Quota-*` for the monthly one, on a `200` and on a `304` alike. Both
+resets are in **seconds**, not timestamps. A `429` says which limit was
+hit in its `type` and how long to wait in `Retry-After`.
+
+## Errors
 
 Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem
-documents, except on `/oauth/token`, which uses the OAuth2 error shape
-its own standard requires.
+documents on `application/problem+json`, except on `/oauth/token`, which
+uses the OAuth2 error shape its own standard requires -- every OAuth2
+client library parses that and nothing else.
+
+Branch on `type`. It is an **opaque token, not a URL**: do not try to
+fetch it. `request_id` names this request in our logs and is the value to
+quote in a support request; it is also the response's `X-Request-Id`.
+
+| `type` | status | what happened | what to do |
+| --- | --- | --- | --- |
+| `unauthenticated` | 401 | No credentials were sent | Send `Authorization: Bearer` |
+| `invalid_token` | 401 | Expired, malformed or revoked | Get a new token |
+| `client_disabled` | 401 | The client was turned off | Talk to us; retrying will not help |
+| `insufficient_scope` | 403 | The token lacks a scope | Get one with it; the header names it |
+| `not_found` | 404 | No such symbol or dataset | Check the name |
+| `invalid_parameter` | 422 | A parameter is unusable | Read `detail`; it says which |
+| `invalid_cursor` | 422 | The cursor is from another query | Restart the walk |
+| `range_too_large` | 422 | The range exceeds this interval's cap | Ask for a narrower window |
+| `rate_limit_exceeded` | 429 | Over the per-second budget | Wait `Retry-After` seconds |
+| `quota_exceeded` | 429 | The monthly quota is used up | Wait for the reset |
+| `concurrency_limit` | 429 | Too many requests in flight | Reduce parallelism |
+| `query_timeout` | 504 | The query was cancelled | Narrow the range or the page size |
+| `internal_error` | 500 | Our fault | Retry; quote the `request_id` |
+
+A `5xx` refunds the quota unit and is not counted. A `429` is not counted
+either -- it was refused before any work. Everything else is, a `304`
+included: a conditional request still costs a request. A `504` is billed
+like a success, because the work was really done.
+
+A method this document does not list answers `405` with
+`type: invalid_parameter`.
+
+## Caching
+
+Read responses carry a weak `ETag` derived from the body, so it changes
+when the data does. Send it back as `If-None-Match` and an unchanged
+resource answers `304` with no body. The dataset routes carry no
+validator, so there is nothing to revalidate there.
+
+`Cache-Control` is always `private`. Responses vary by scope and by your
+plan's page size, so a shared cache holding one and serving it to another
+client would be a data leak, not just a stale answer.
+
+`X-Data-As-Of` is when the data was last verified against the source --
+a fetch time, not a data time. It is absent wherever the schema records
+none; the price tables deliberately keep no per-row fetch timestamp.
+
+`Accept` is not negotiated: successful bodies are `application/json`,
+errors `application/problem+json`. There is no `Link` header --
+`next_cursor` is the only paging affordance. `HEAD` and `OPTIONS` are not
+part of the contract, and a client-supplied `X-Request-Id` is ignored:
+the header is ours to set.
+
+## Versioning
+
+`/v1` is the surface's version; `info.version` is this document's. They
+move independently.
+
+Additive changes -- a new field, a new resource, a new optional parameter
+-- happen without a `/v1` bump, so **tolerate fields you do not know**. A
+removal or an incompatible change would arrive as a new prefix, with the
+old operations marked `deprecated` and carrying `Deprecation` and
+`Sunset` headers first. Nothing is deprecated today, so neither header is
+implemented yet.
+
+Changes are recorded in the API changelog, `docs/api/CHANGELOG.md`.
 """
 
 TAGS = [
@@ -123,7 +189,15 @@ def _row(entry: CatalogEntry) -> str:
     # every row in a section and the heading already says it, and the sort
     # order is almost always "newest first" -- a column that repeats one
     # value costs width the resource names need.
-    return f"| `{entry.name}` | {entry.exposure.description} | {symbol} | {filters} |"
+    #
+    # The column COUNT rather than the column names: fifty-five rows each
+    # listing every field would be unreadable, and `GET /v1/datasets`
+    # already serves the names with their types.
+    fields = len(entry.table.columns)
+    return (
+        f"| `{entry.name}` | {entry.exposure.description} | {symbol} | "
+        f"{filters} | {fields} |"
+    )
 
 
 def catalogue_section() -> str:
@@ -142,7 +216,8 @@ def catalogue_section() -> str:
         "name is the first column. `symbol` says whether the resource is",
         "per-symbol: *required* means you must pass `?symbol=`, *optional*",
         "means you may browse without one. Time-ordered resources come",
-        "newest first.",
+        "newest first. `fields` is how many columns a row carries; their",
+        "names and types come from `GET /v1/datasets`.",
         "",
     ]
     for family in DataFamily:

@@ -1,0 +1,7 @@
+{
+  "detail": "the requested range exceeds the maximum of 31 days for interval 1m",
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "status": 422,
+  "title": "Unacceptable time range",
+  "type": "range_too_large"
+}

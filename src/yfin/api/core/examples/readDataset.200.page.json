@@ -1,0 +1,15 @@
+{
+  "as_of": null,
+  "data": [
+    {
+      "as_of_date": "2026-01-05",
+      "fetched_at": "2026-01-05T22:00:00Z",
+      "insiders_pct_held": "0.041200000000",
+      "institutions_count": 3120,
+      "institutions_float_pct_held": "0.762400000000",
+      "institutions_pct_held": "0.731000000000",
+      "symbol": "ACME"
+    }
+  ],
+  "next_cursor": null
+}

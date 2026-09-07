@@ -44,3 +44,75 @@ jobs:
       # "what changed" without anyone having to reproduce it locally.
       - name: openapi.json is current
         run: uv run python scripts/dump_openapi.py --check
+
+  # The schema invariants (collation, FK policy, timestamp precision,
+  # as-of key ordering) and the empty-diff rule are the project's stated
+  # guarantees, and none of them ran here: `pytest -q` deselects the
+  # `repo` marker because it needs a real database. A guarantee nothing
+  # checks is a comment. This job brings the database.
+  #
+  # Separate from `check` on purpose: a database outage must not mask a
+  # lint or type failure, and the fast job still gates in seconds.
+  repo:
+    runs-on: ubuntu-latest
+    services:
+      timescaledb:
+        # Same pin as docker-compose.yml. A moving tag would make a green
+        # CI run say nothing about the engine anyone actually runs.
+        image: timescale/timescaledb:2.29.2-pg18
+        env:
+          POSTGRES_USER: yfin
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: yfinance
+          TZ: UTC
+          PGTZ: UTC
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U yfin -d yfinance"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_USER: yfin
+      DB_PASSWORD: ci
+      DB_NAME: yfinance
+      # The DB-backed settings layer would try to read a `settings` table
+      # that migrations have not created yet.
+      YF_SETTINGS_SOURCE: env
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Dependencies
+        run: uv sync --extra dev --extra api
+
+      # No `yfin db create` step: this image ships the extension in
+      # template1, so every database it creates already has timescaledb
+      # and `create_hypertable` resolves. On an image that does not, the
+      # migration fails with "function by_range(unknown, interval) does
+      # not exist" and this step is where to add the CREATE EXTENSION.
+      - name: Apply migrations
+        run: uv run alembic upgrade head
+
+      # The rule the project states but never enforced automatically:
+      # the models and the migration history must agree.
+      - name: alembic autogenerate is empty
+        run: uv run alembic check
+
+      # The `repo` fixtures create their own test database and schema, so
+      # nothing beyond a reachable server is needed here.
+      #
+      # This is also where the published examples are locked. They are
+      # captured from real responses, which needs a database, so the
+      # content check cannot live in the fast job -- but that job still
+      # fails when an example is MISSING, so neither half of the contract
+      # can be skipped on its own.
+      - name: pytest -m repo
+        run: uv run pytest -q -m repo

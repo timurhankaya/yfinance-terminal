@@ -1,0 +1,34 @@
+{
+  "as_of": null,
+  "data": [
+    {
+      "adj_close": "103.750000000000",
+      "bar_interval": null,
+      "close": "103.750000000000",
+      "high": "104.500000000000",
+      "is_extended": null,
+      "local_date": null,
+      "low": "99.250000000000",
+      "open": "100.000000000000",
+      "session_date": "2026-01-05",
+      "symbol": "ACME",
+      "ts_utc": "2026-01-05T14:30:00Z",
+      "volume": 1250000
+    },
+    {
+      "adj_close": "103.750000000000",
+      "bar_interval": null,
+      "close": "103.750000000000",
+      "high": "104.500000000000",
+      "is_extended": null,
+      "local_date": null,
+      "low": "99.250000000000",
+      "open": "100.000000000000",
+      "session_date": "2026-01-06",
+      "symbol": "ACME",
+      "ts_utc": "2026-01-06T14:30:00Z",
+      "volume": 1250000
+    }
+  ],
+  "next_cursor": null
+}

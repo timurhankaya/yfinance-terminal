@@ -1,0 +1,7 @@
+{
+  "detail": "required scope: holders:read",
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "status": 403,
+  "title": "The token does not carry the required scope",
+  "type": "insufficient_scope"
+}

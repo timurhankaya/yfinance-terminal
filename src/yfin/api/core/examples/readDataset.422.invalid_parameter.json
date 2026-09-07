@@ -1,0 +1,7 @@
+{
+  "detail": "colour cannot be filtered on this dataset; allowed: none",
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "status": 422,
+  "title": "Unknown filter",
+  "type": "invalid_parameter"
+}

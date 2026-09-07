@@ -1,0 +1,6 @@
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsImtpZCI6ImsxIn0.<payload>.<signature>",
+  "expires_in": 900,
+  "scope": "reference:read bars:read fundamentals:read holders:read",
+  "token_type": "Bearer"
+}

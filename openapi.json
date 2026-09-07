@@ -171,6 +171,14 @@
       "CatalogEntryOut": {
         "description": "The catalogue as clients see it.\n\nThe mapping lives here rather than on the catalogue entry: the wire\nshape is an HTTP concern, and `api/storage` is not allowed to know\none. A `describe()` on the entry would have made the storage layer\nthe place where a field rename in the contract has to be made.",
         "properties": {
+          "columns": {
+            "description": "Every column the rows carry, in table order.",
+            "items": {
+              "$ref": "#/components/schemas/ColumnOut"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
           "descending": {
             "title": "Descending",
             "type": "boolean"
@@ -228,7 +236,8 @@
           "descending",
           "filters",
           "symbol_scoped",
-          "description"
+          "description",
+          "columns"
         ],
         "title": "CatalogEntryOut",
         "type": "object"
@@ -478,6 +487,31 @@
           "data"
         ],
         "title": "Collection[dict[str, Any]]",
+        "type": "object"
+      },
+      "ColumnOut": {
+        "description": "One column of a dataset, as it arrives.\n\nThis is what stands in for a schema per resource. The data route\nserves `dict[str, Any]` and will keep doing so -- a schema per dataset\nwould make the frozen openapi.json churn every time one was added --\nso the shape has to be discoverable somewhere, and the catalogue is\nwhere a client is already looking.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nullable": {
+            "title": "Nullable",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "The wire type, not the SQL type: `string (decimal)` for exact numbers, `string (date-time)`, `string (date)`, `string`, `integer` or `boolean`.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "nullable"
+        ],
+        "title": "ColumnOut",
         "type": "object"
       },
       "FinancialFactOut": {
@@ -1145,7 +1179,7 @@
       "name": "Timurhan Kaya",
       "url": "https://yfinance.monafy.com/"
     },
-    "description": "Read-only access to the yfin market data warehouse: symbols, price bars,\ncorporate actions, financial statements, analyst coverage, holdings,\nnews, discovery results and the sector/industry taxonomy.\n\n## Getting a token\n\nAuthentication is the OAuth2 **client credentials** grant. Send your\nclient id and secret as HTTP Basic to `/oauth/token`; you get a bearer\ntoken valid for 15 minutes.\n\n```\ncurl -u \"$CLIENT_ID:$CLIENT_SECRET\" \\\n     -d grant_type=client_credentials \\\n     https://<host>/oauth/token\n```\n\nAsk for fewer scopes than you hold with `-d scope=\"bars:read\"`. The token\ncarries what was granted, and the response says so.\n\nRevocation is immediate: rotating a secret or narrowing a scope stops the\ntokens already issued, without waiting for them to expire.\n\n## Paging\n\nCollections return `{\"data\": [...], \"next_cursor\": ...}`. Pass\n`next_cursor` back as `?cursor=` to get the next page, and stop when it\ncomes back `null`. There is no `offset`: on tables with hundreds of\nmillions of rows an offset gets slower the deeper you go and can skip\nrows while data is being written.\n\nA cursor belongs to the query that produced it. Change the interval, the\nrange or a filter and it is refused with `422 invalid_cursor` rather than\nquietly returning the wrong page.\n\n## Reading values\n\n**Numbers arrive as strings.** Prices and share counts are stored as\nexact decimals; sending them as JSON numbers would round them on the way\nout. Parse them with a decimal type, not a float.\n\n**Two different dates.** `ts_utc` is always UTC. `session_date` is the\nexchange's trading session; `local_date` is the bar's local calendar day.\nThey are not interchangeable -- a bar late in the local evening can\nbelong to the next session.\n\n**Ranges are half-open.** `from` is included, `to` is not, so consecutive\npages never overlap.\n\n**Bars default to regular hours.** Pass `session=all` for intraday\nextended-hours bars. The default is deliberate: mixing them into a\nregular series silently distorts anything computed from it.\n\n## Limits\n\nEvery response carries `RateLimit-*` for the per-second budget and\n`X-Quota-*` for the monthly one. A `429` says which limit was hit in its\n`type` field and how long to wait in `Retry-After`. Requests that fail\nwith a `5xx` are not counted against your quota.\n\nErrors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem\ndocuments, except on `/oauth/token`, which uses the OAuth2 error shape\nits own standard requires.\n\n## Resources\n\nEverything below is served by `GET /v1/datasets/{name}`, where the\nname is the first column. `symbol` says whether the resource is\nper-symbol: *required* means you must pass `?symbol=`, *optional*\nmeans you may browse without one. Time-ordered resources come\nnewest first.\n\n## reference\n\nRequires the `reference:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `company_officers` | Named officers and their compensation. | required | — |\n| `fast_info` | Latest lightweight quote snapshot. | required | — |\n| `fast_info_history` | Point-in-time history of the quote snapshot. | required | — |\n| `history_metadata` | Exchange, timezone and trading-period metadata. | required | — |\n| `info_history` | Point-in-time history of the identity snapshot. | required | — |\n| `market_status` | Whether each regional market is open, and when it next changes. | — | — |\n| `market_status_history` | Point-in-time history of market open/closed state. | — | `region` |\n| `market_summary` | Headline index quotes per region. | optional | `region` |\n| `market_summary_history` | Point-in-time history of headline index quotes. | required | `region` |\n\n## fundamentals\n\nRequires the `fundamentals:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `analyst_price_targets` | Analyst price target range and mean. | required | — |\n| `earnings_calendar` | Upcoming and past earnings events across the market. | optional | — |\n| `earnings_dates` | Past and upcoming earnings dates. | required | — |\n| `earnings_estimate` | Consensus earnings estimates by period. | required | — |\n| `earnings_history` | Reported versus estimated EPS, by quarter. | required | — |\n| `economic_calendar` | Scheduled macroeconomic events by region. | — | `region` |\n| `eps_revisions` | Counts of upward and downward EPS revisions. | required | — |\n| `eps_trend` | Consensus EPS estimate as it moved over time. | required | — |\n| `growth_estimates` | Consensus growth estimates by period. | required | — |\n| `ipo_calendar` | IPO pricings, filings and withdrawals. | optional | `action` |\n| `recommendations` | Buy/hold/sell recommendation counts by period. | required | — |\n| `revenue_estimate` | Consensus revenue estimates by period. | required | — |\n| `sec_filing_exhibits` | Documents attached to a filing. | required | `exhibit_type` |\n| `sec_filings` | SEC filings, newest first. | required | `filing_type` |\n| `shares_full` | Shares outstanding over time. | required | — |\n| `splits_calendar` | Announced stock splits and their payable dates. | optional | — |\n| `ticker_calendar` | Next dividend and earnings dates for one symbol. | required | — |\n| `ticker_calendar_history` | Point-in-time history of those dates. | required | — |\n| `upgrades_downgrades` | Analyst upgrades and downgrades, newest first. | required | — |\n\n## holders\n\nRequires the `holders:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `fund_metrics` | Fund performance and risk metrics. | required | `section` |\n| `fund_profile` | Fund family, category and fee profile. | required | — |\n| `fund_top_holdings` | The fund's largest positions. | required | — |\n| `fund_weightings` | Sector, asset-class and bond-rating weightings. | required | `category` |\n| `insider_purchases` | Aggregated insider buying and selling. | required | — |\n| `insider_roster_holders` | Insiders on record and the shares they hold. | required | — |\n| `insider_transactions` | Individual insider transactions. | required | — |\n| `institutional_holders` | Institutional holders and their reported positions. | required | — |\n| `major_holders` | Ownership split between insiders and institutions. | required | — |\n| `mutualfund_holders` | Mutual fund holders and their reported positions. | required | — |\n\n## news\n\nRequires the `news:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `news` | Articles, newest first, across the whole universe. | — | — |\n| `news_symbols` | Which symbols an article mentions. | required | — |\n\n## discovery\n\nRequires the `discovery:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `lookup_results` | Symbols a lookup query returned. | optional | `query_term` |\n| `lookup_totals` | How many results a lookup had, by type. | — | `query_term`, `lookup_type` |\n| `screen_members` | Symbols a predefined screen matched on a given day. | optional | `screen_key` |\n| `screen_quotes` | Quote snapshot captured with a screen run. | required | — |\n| `screen_runs` | When a screen last ran and how many it matched. | — | `screen_key` |\n| `search_lists` | Curated lists a search returned. | — | `query_term` |\n| `search_quotes` | Symbols a free-text search returned. | optional | `query_term` |\n| `search_report_hits` | Research reports a search returned. | — | `query_term` |\n\n## domains\n\nRequires the `domains:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `domain_metrics` | Company and employee counts, market weight per domain. | — | `domain_key` |\n| `domain_report_links` | Which research reports belong to which domain. | — | `domain_key` |\n| `domain_top_companies` | Largest companies in a sector or industry. | optional | `domain_key`, `region` |\n| `domain_top_funds` | Largest funds tracking a sector or industry. | optional | `domain_key`, `region`, `fund_type` |\n| `domain_top_movers` | Gainers, losers and most active names in a domain. | optional | `domain_key`, `region`, `rank_type` |\n| `domains` | The sector and industry taxonomy. | required | `domain_type`, `parent_key` |\n| `research_reports` | Research reports linked to sectors and industries. | — | — |\n",
+    "description": "Read-only access to the yfin market data warehouse: symbols, price bars,\ncorporate actions, financial statements, analyst coverage, holdings,\nnews, discovery results and the sector/industry taxonomy.\n\n## Getting a token\n\nAuthentication is the OAuth2 **client credentials** grant. Send your\nclient id and secret as HTTP Basic to `/oauth/token`; you get a bearer\ntoken valid for 15 minutes.\n\n```\ncurl -u \"$CLIENT_ID:$CLIENT_SECRET\" \\\n     -d grant_type=client_credentials \\\n     https://<host>/oauth/token\n```\n\nAsk for fewer scopes than you hold with `-d scope=\"bars:read\"`. The token\ncarries what was granted, and the response says so.\n\nRevocation is immediate: rotating a secret or narrowing a scope stops the\ntokens already issued, without waiting for them to expire.\n\n## Paging\n\nCollections return `{\"data\": [...], \"next_cursor\": ...}`. Pass\n`next_cursor` back as `?cursor=` to get the next page, and stop when it\ncomes back `null`. There is no `offset`: on tables with hundreds of\nmillions of rows an offset gets slower the deeper you go and can skip\nrows while data is being written.\n\nA cursor belongs to the query that produced it. Change the interval, the\nrange or a filter and it is refused with `422 invalid_cursor` rather than\nquietly returning the wrong page.\n\n## Reading values\n\n**Numbers arrive as strings.** Prices and share counts are stored as\nexact decimals; sending them as JSON numbers would round them on the way\nout. Parse them with a decimal type, not a float.\n\n**Two different dates.** `ts_utc` is always UTC. `session_date` is the\nexchange's trading session; `local_date` is the bar's local calendar day.\nThey are not interchangeable -- a bar late in the local evening can\nbelong to the next session.\n\n**Ranges are half-open.** `from` is included, `to` is not, so consecutive\npages never overlap.\n\n**Bars default to regular hours.** Pass `session=all` for intraday\nextended-hours bars. The default is deliberate: mixing them into a\nregular series silently distorts anything computed from it.\n\n## Limits\n\nScoped responses carry `RateLimit-*` for the per-second budget and\n`X-Quota-*` for the monthly one, on a `200` and on a `304` alike. Both\nresets are in **seconds**, not timestamps. A `429` says which limit was\nhit in its `type` and how long to wait in `Retry-After`.\n\n## Errors\n\nErrors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem\ndocuments on `application/problem+json`, except on `/oauth/token`, which\nuses the OAuth2 error shape its own standard requires -- every OAuth2\nclient library parses that and nothing else.\n\nBranch on `type`. It is an **opaque token, not a URL**: do not try to\nfetch it. `request_id` names this request in our logs and is the value to\nquote in a support request; it is also the response's `X-Request-Id`.\n\n| `type` | status | what happened | what to do |\n| --- | --- | --- | --- |\n| `unauthenticated` | 401 | No credentials were sent | Send `Authorization: Bearer` |\n| `invalid_token` | 401 | Expired, malformed or revoked | Get a new token |\n| `client_disabled` | 401 | The client was turned off | Talk to us; retrying will not help |\n| `insufficient_scope` | 403 | The token lacks a scope | Get one with it; the header names it |\n| `not_found` | 404 | No such symbol or dataset | Check the name |\n| `invalid_parameter` | 422 | A parameter is unusable | Read `detail`; it says which |\n| `invalid_cursor` | 422 | The cursor is from another query | Restart the walk |\n| `range_too_large` | 422 | The range exceeds this interval's cap | Ask for a narrower window |\n| `rate_limit_exceeded` | 429 | Over the per-second budget | Wait `Retry-After` seconds |\n| `quota_exceeded` | 429 | The monthly quota is used up | Wait for the reset |\n| `concurrency_limit` | 429 | Too many requests in flight | Reduce parallelism |\n| `query_timeout` | 504 | The query was cancelled | Narrow the range or the page size |\n| `internal_error` | 500 | Our fault | Retry; quote the `request_id` |\n\nA `5xx` refunds the quota unit and is not counted. A `429` is not counted\neither -- it was refused before any work. Everything else is, a `304`\nincluded: a conditional request still costs a request. A `504` is billed\nlike a success, because the work was really done.\n\nA method this document does not list answers `405` with\n`type: invalid_parameter`.\n\n## Caching\n\nRead responses carry a weak `ETag` derived from the body, so it changes\nwhen the data does. Send it back as `If-None-Match` and an unchanged\nresource answers `304` with no body. The dataset routes carry no\nvalidator, so there is nothing to revalidate there.\n\n`Cache-Control` is always `private`. Responses vary by scope and by your\nplan's page size, so a shared cache holding one and serving it to another\nclient would be a data leak, not just a stale answer.\n\n`X-Data-As-Of` is when the data was last verified against the source --\na fetch time, not a data time. It is absent wherever the schema records\nnone; the price tables deliberately keep no per-row fetch timestamp.\n\n`Accept` is not negotiated: successful bodies are `application/json`,\nerrors `application/problem+json`. There is no `Link` header --\n`next_cursor` is the only paging affordance. `HEAD` and `OPTIONS` are not\npart of the contract, and a client-supplied `X-Request-Id` is ignored:\nthe header is ours to set.\n\n## Versioning\n\n`/v1` is the surface's version; `info.version` is this document's. They\nmove independently.\n\nAdditive changes -- a new field, a new resource, a new optional parameter\n-- happen without a `/v1` bump, so **tolerate fields you do not know**. A\nremoval or an incompatible change would arrive as a new prefix, with the\nold operations marked `deprecated` and carrying `Deprecation` and\n`Sunset` headers first. Nothing is deprecated today, so neither header is\nimplemented yet.\n\nChanges are recorded in the API changelog, `docs/api/CHANGELOG.md`.\n\n## Resources\n\nEverything below is served by `GET /v1/datasets/{name}`, where the\nname is the first column. `symbol` says whether the resource is\nper-symbol: *required* means you must pass `?symbol=`, *optional*\nmeans you may browse without one. Time-ordered resources come\nnewest first. `fields` is how many columns a row carries; their\nnames and types come from `GET /v1/datasets`.\n\n## reference\n\nRequires the `reference:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `company_officers` | Named officers and their compensation. | required | — | 9 |\n| `fast_info` | Latest lightweight quote snapshot. | required | — | 24 |\n| `fast_info_history` | Point-in-time history of the quote snapshot. | required | — | 24 |\n| `history_metadata` | Exchange, timezone and trading-period metadata. | required | — | 26 |\n| `info_history` | Point-in-time history of the identity snapshot. | required | — | 191 |\n| `market_status` | Whether each regional market is open, and when it next changes. | — | — | 14 |\n| `market_status_history` | Point-in-time history of market open/closed state. | — | `region` | 14 |\n| `market_summary` | Headline index quotes per region. | optional | `region` | 18 |\n| `market_summary_history` | Point-in-time history of headline index quotes. | required | `region` | 18 |\n\n## fundamentals\n\nRequires the `fundamentals:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `analyst_price_targets` | Analyst price target range and mean. | required | — | 8 |\n| `earnings_calendar` | Upcoming and past earnings events across the market. | optional | — | 11 |\n| `earnings_dates` | Past and upcoming earnings dates. | required | — | 9 |\n| `earnings_estimate` | Consensus earnings estimates by period. | required | — | 12 |\n| `earnings_history` | Reported versus estimated EPS, by quarter. | required | — | 7 |\n| `economic_calendar` | Scheduled macroeconomic events by region. | — | `region` | 9 |\n| `eps_revisions` | Counts of upward and downward EPS revisions. | required | — | 9 |\n| `eps_trend` | Consensus EPS estimate as it moved over time. | required | — | 10 |\n| `growth_estimates` | Consensus growth estimates by period. | required | — | 8 |\n| `ipo_calendar` | IPO pricings, filings and withdrawals. | optional | `action` | 14 |\n| `recommendations` | Buy/hold/sell recommendation counts by period. | required | — | 9 |\n| `revenue_estimate` | Consensus revenue estimates by period. | required | — | 12 |\n| `sec_filing_exhibits` | Documents attached to a filing. | required | `exhibit_type` | 5 |\n| `sec_filings` | SEC filings, newest first. | required | `filing_type` | 10 |\n| `shares_full` | Shares outstanding over time. | required | — | 4 |\n| `splits_calendar` | Announced stock splits and their payable dates. | optional | — | 9 |\n| `ticker_calendar` | Next dividend and earnings dates for one symbol. | required | — | 15 |\n| `ticker_calendar_history` | Point-in-time history of those dates. | required | — | 15 |\n| `upgrades_downgrades` | Analyst upgrades and downgrades, newest first. | required | — | 10 |\n\n## holders\n\nRequires the `holders:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `fund_metrics` | Fund performance and risk metrics. | required | `section` | 7 |\n| `fund_profile` | Fund family, category and fee profile. | required | — | 21 |\n| `fund_top_holdings` | The fund's largest positions. | required | — | 8 |\n| `fund_weightings` | Sector, asset-class and bond-rating weightings. | required | `category` | 6 |\n| `insider_purchases` | Aggregated insider buying and selling. | required | — | 14 |\n| `insider_roster_holders` | Insiders on record and the shares they hold. | required | — | 14 |\n| `insider_transactions` | Individual insider transactions. | required | — | 12 |\n| `institutional_holders` | Institutional holders and their reported positions. | required | — | 10 |\n| `major_holders` | Ownership split between insiders and institutions. | required | — | 7 |\n| `mutualfund_holders` | Mutual fund holders and their reported positions. | required | — | 10 |\n\n## news\n\nRequires the `news:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `news` | Articles, newest first, across the whole universe. | — | — | 16 |\n| `news_symbols` | Which symbols an article mentions. | required | — | 3 |\n\n## discovery\n\nRequires the `discovery:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `lookup_results` | Symbols a lookup query returned. | optional | `query_term` | 20 |\n| `lookup_totals` | How many results a lookup had, by type. | — | `query_term`, `lookup_type` | 5 |\n| `screen_members` | Symbols a predefined screen matched on a given day. | optional | `screen_key` | 6 |\n| `screen_quotes` | Quote snapshot captured with a screen run. | required | — | 107 |\n| `screen_runs` | When a screen last ran and how many it matched. | — | `screen_key` | 12 |\n| `search_lists` | Curated lists a search returned. | — | `query_term` | 19 |\n| `search_quotes` | Symbols a free-text search returned. | optional | `query_term` | 22 |\n| `search_report_hits` | Research reports a search returned. | — | `query_term` | 5 |\n\n## domains\n\nRequires the `domains:read` scope.\n\n| name | what it is | symbol | filters |\n| --- | --- | --- | --- |\n| `domain_metrics` | Company and employee counts, market weight per domain. | — | `domain_key` | 20 |\n| `domain_report_links` | Which research reports belong to which domain. | — | `domain_key` | 5 |\n| `domain_top_companies` | Largest companies in a sector or industry. | optional | `domain_key`, `region` | 14 |\n| `domain_top_funds` | Largest funds tracking a sector or industry. | optional | `domain_key`, `region`, `fund_type` | 12 |\n| `domain_top_movers` | Gainers, losers and most active names in a domain. | optional | `domain_key`, `region`, `rank_type` | 12 |\n| `domains` | The sector and industry taxonomy. | required | `domain_type`, `parent_key` | 9 |\n| `research_reports` | Research reports linked to sectors and industries. | — | — | 14 |\n",
     "license": {
       "identifier": "AGPL-3.0-or-later",
       "name": "AGPL-3.0-or-later"
@@ -1164,6 +1198,13 @@
           "200": {
             "content": {
               "application/json": {
+                "examples": {
+                  "up": {
+                    "value": {
+                      "status": "ok"
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/Health"
                 }
@@ -1385,6 +1426,16 @@
           "200": {
             "content": {
               "application/json": {
+                "examples": {
+                  "token": {
+                    "value": {
+                      "access_token": "eyJhbGciOiJIUzI1NiIsImtpZCI6ImsxIn0.<payload>.<signature>",
+                      "expires_in": 900,
+                      "scope": "reference:read bars:read fundamentals:read holders:read",
+                      "token_type": "Bearer"
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/TokenResponse"
                 }
@@ -1433,6 +1484,14 @@
           "400": {
             "content": {
               "application/json": {
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "error": "invalid_request",
+                      "error_description": "a Basic Authorization header is required"
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/OAuthError"
                 }
@@ -1488,6 +1547,14 @@
           "401": {
             "content": {
               "application/json": {
+                "examples": {
+                  "invalid_client": {
+                    "value": {
+                      "error": "invalid_client",
+                      "error_description": "client authentication failed"
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/OAuthError"
                 }
@@ -1727,6 +1794,144 @@
           "200": {
             "content": {
               "application/json": {
+                "examples": {
+                  "catalogue": {
+                    "value": {
+                      "as_of": null,
+                      "data": [
+                        {
+                          "columns": [
+                            {
+                              "name": "news_id",
+                              "nullable": false,
+                              "type": "string"
+                            },
+                            {
+                              "name": "title",
+                              "nullable": false,
+                              "type": "string"
+                            },
+                            {
+                              "name": "summary",
+                              "nullable": true,
+                              "type": "string"
+                            },
+                            {
+                              "name": "description",
+                              "nullable": true,
+                              "type": "string"
+                            },
+                            {
+                              "name": "content_type",
+                              "nullable": true,
+                              "type": "string"
+                            },
+                            {
+                              "name": "pub_date",
+                              "nullable": false,
+                              "type": "string (date-time)"
+                            },
+                            {
+                              "name": "display_time",
+                              "nullable": true,
+                              "type": "string (date-time)"
+                            },
+                            {
+                              "name": "provider_name",
+                              "nullable": true,
+                              "type": "string"
+                            },
+                            {
+                              "name": "provider_url",
+                              "nullable": true,
+                              "type": "string"
+                            },
+                            {
+                              "name": "provider_source_id",
+                              "nullable": true,
+                              "type": "string"
+                            },
+                            {
+                              "name": "canonical_url",
+                              "nullable": true,
+                              "type": "string"
+                            },
+                            {
+                              "name": "click_through_url",
+                              "nullable": true,
+                              "type": "string"
+                            },
+                            {
+                              "name": "thumbnail_url",
+                              "nullable": true,
+                              "type": "string"
+                            },
+                            {
+                              "name": "thumbnail_width",
+                              "nullable": true,
+                              "type": "integer"
+                            },
+                            {
+                              "name": "thumbnail_height",
+                              "nullable": true,
+                              "type": "integer"
+                            },
+                            {
+                              "name": "raw_json",
+                              "nullable": false,
+                              "type": "string"
+                            }
+                          ],
+                          "descending": true,
+                          "description": "Articles, newest first, across the whole universe.",
+                          "family": "news",
+                          "filters": [],
+                          "kind": "symbol",
+                          "name": "news",
+                          "scope": "news:read",
+                          "sort_key": [
+                            "pub_date",
+                            "news_id"
+                          ],
+                          "symbol_scoped": false,
+                          "table": "news"
+                        },
+                        {
+                          "columns": [
+                            {
+                              "name": "news_id",
+                              "nullable": false,
+                              "type": "string"
+                            },
+                            {
+                              "name": "symbol",
+                              "nullable": false,
+                              "type": "string"
+                            },
+                            {
+                              "name": "is_known",
+                              "nullable": false,
+                              "type": "boolean"
+                            }
+                          ],
+                          "descending": true,
+                          "description": "Which symbols an article mentions.",
+                          "family": "news",
+                          "filters": [],
+                          "kind": "symbol",
+                          "name": "news_symbols",
+                          "scope": "news:read",
+                          "sort_key": [
+                            "news_id"
+                          ],
+                          "symbol_scoped": true,
+                          "table": "news_symbols"
+                        }
+                      ],
+                      "next_cursor": null
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/Collection_CatalogEntryOut_"
                 }
@@ -1957,6 +2162,7 @@
             }
           },
           {
+            "description": "Required for a symbol-scoped dataset, optional for the few that may be browsed. The catalogue says which is which.",
             "in": "query",
             "name": "symbol",
             "required": false,
@@ -1969,10 +2175,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Required for a symbol-scoped dataset, optional for the few that may be browsed. The catalogue says which is which.",
               "title": "Symbol"
             }
           },
           {
+            "description": "Rows per page. Capped by the plan; over it is a 422.",
             "in": "query",
             "name": "limit",
             "required": false,
@@ -1986,10 +2194,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Rows per page. Capped by the plan; over it is a 422.",
               "title": "Limit"
             }
           },
           {
+            "description": "The `next_cursor` of the previous page of THIS query.",
             "in": "query",
             "name": "cursor",
             "required": false,
@@ -2002,6 +2212,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The `next_cursor` of the previous page of THIS query.",
               "title": "Cursor"
             }
           }
@@ -2010,6 +2221,25 @@
           "200": {
             "content": {
               "application/json": {
+                "examples": {
+                  "page": {
+                    "value": {
+                      "as_of": null,
+                      "data": [
+                        {
+                          "as_of_date": "2026-01-05",
+                          "fetched_at": "2026-01-05T22:00:00Z",
+                          "insiders_pct_held": "0.041200000000",
+                          "institutions_count": 3120,
+                          "institutions_float_pct_held": "0.762400000000",
+                          "institutions_pct_held": "0.731000000000",
+                          "symbol": "ACME"
+                        }
+                      ],
+                      "next_cursor": null
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/Collection_dict_str__Any__"
                 }
@@ -2143,6 +2373,17 @@
           "403": {
             "content": {
               "application/problem+json": {
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "required scope: holders:read",
+                      "request_id": "0123456789abcdef0123456789abcdef",
+                      "status": 403,
+                      "title": "The token does not carry the required scope",
+                      "type": "insufficient_scope"
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/Forbidden"
                 }
@@ -2186,6 +2427,16 @@
           "404": {
             "content": {
               "application/problem+json": {
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "request_id": "0123456789abcdef0123456789abcdef",
+                      "status": 404,
+                      "title": "No such dataset",
+                      "type": "not_found"
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/NotFound"
                 }
@@ -2222,6 +2473,26 @@
           "422": {
             "content": {
               "application/problem+json": {
+                "examples": {
+                  "invalid_cursor": {
+                    "value": {
+                      "detail": "not a cursor",
+                      "request_id": "0123456789abcdef0123456789abcdef",
+                      "status": 422,
+                      "title": "The cursor is not usable here",
+                      "type": "invalid_cursor"
+                    }
+                  },
+                  "invalid_parameter": {
+                    "value": {
+                      "detail": "colour cannot be filtered on this dataset; allowed: none",
+                      "request_id": "0123456789abcdef0123456789abcdef",
+                      "status": 422,
+                      "title": "Unknown filter",
+                      "type": "invalid_parameter"
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/InvalidRequest"
                 }
@@ -2430,6 +2701,7 @@
         "operationId": "listSymbols",
         "parameters": [
           {
+            "description": "Exact exchange code.",
             "in": "query",
             "name": "exchange",
             "required": false,
@@ -2443,10 +2715,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Exact exchange code.",
               "title": "Exchange"
             }
           },
           {
+            "description": "Exact quote type, e.g. `EQUITY` or `ETF`.",
             "in": "query",
             "name": "quote_type",
             "required": false,
@@ -2460,6 +2734,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Exact quote type, e.g. `EQUITY` or `ETF`.",
               "title": "Quote Type"
             }
           },
@@ -2484,16 +2759,19 @@
             }
           },
           {
+            "description": "Only symbols an operator activated. An inactive row is one discovery found but nothing fetches, so it is close to empty.",
             "in": "query",
             "name": "active",
             "required": false,
             "schema": {
               "default": true,
+              "description": "Only symbols an operator activated. An inactive row is one discovery found but nothing fetches, so it is close to empty.",
               "title": "Active",
               "type": "boolean"
             }
           },
           {
+            "description": "Rows per page. Capped by the plan; asking for more is a 422 rather than a silent clip, because fewer rows than asked for is indistinguishable from reaching the end of the data.",
             "in": "query",
             "name": "limit",
             "required": false,
@@ -2507,10 +2785,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Rows per page. Capped by the plan; asking for more is a 422 rather than a silent clip, because fewer rows than asked for is indistinguishable from reaching the end of the data.",
               "title": "Limit"
             }
           },
           {
+            "description": "The `next_cursor` of the previous page. A cursor belongs to the query that produced it: change an interval, a range or a filter and it is refused with `invalid_cursor`.",
             "in": "query",
             "name": "cursor",
             "required": false,
@@ -2523,6 +2803,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The `next_cursor` of the previous page. A cursor belongs to the query that produced it: change an interval, a range or a filter and it is refused with `invalid_cursor`.",
               "title": "Cursor"
             }
           }
@@ -2531,6 +2812,29 @@
           "200": {
             "content": {
               "application/json": {
+                "examples": {
+                  "page": {
+                    "value": {
+                      "as_of": null,
+                      "data": [
+                        {
+                          "currency": "USD",
+                          "exchange": "NMS",
+                          "first_trade_date": "1998-05-04T13:30:00Z",
+                          "full_exchange_name": "NasdaqGS",
+                          "is_active": true,
+                          "isin": "US0000000001",
+                          "long_name": "Acme Corporation",
+                          "quote_type": "EQUITY",
+                          "short_name": "Acme Corp",
+                          "symbol": "ACME",
+                          "timezone": "America/New_York"
+                        }
+                      ],
+                      "next_cursor": null
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/Collection_SymbolSummary_"
                 }
@@ -2732,6 +3036,16 @@
           "401": {
             "content": {
               "application/problem+json": {
+                "examples": {
+                  "unauthenticated": {
+                    "value": {
+                      "request_id": "0123456789abcdef0123456789abcdef",
+                      "status": 401,
+                      "title": "Authentication required",
+                      "type": "unauthenticated"
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/Unauthenticated"
                 }
@@ -2854,6 +3168,17 @@
           "429": {
             "content": {
               "application/problem+json": {
+                "examples": {
+                  "rate_limit_exceeded": {
+                    "value": {
+                      "detail": "the request rate exceeds the plan's limit",
+                      "request_id": "0123456789abcdef0123456789abcdef",
+                      "status": 429,
+                      "title": "Too many requests",
+                      "type": "rate_limit_exceeded"
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/RateLimited"
                 }
@@ -3041,6 +3366,27 @@
           "200": {
             "content": {
               "application/json": {
+                "examples": {
+                  "symbol": {
+                    "value": {
+                      "as_of": null,
+                      "data": {
+                        "currency": "USD",
+                        "exchange": "NMS",
+                        "first_trade_date": "1998-05-04T13:30:00Z",
+                        "full_exchange_name": "NasdaqGS",
+                        "info": null,
+                        "is_active": true,
+                        "isin": "US0000000001",
+                        "long_name": "Acme Corporation",
+                        "quote_type": "EQUITY",
+                        "short_name": "Acme Corp",
+                        "symbol": "ACME",
+                        "timezone": "America/New_York"
+                      }
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/Resource_SymbolDetail_"
                 }
@@ -3328,6 +3674,16 @@
           "404": {
             "content": {
               "application/problem+json": {
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "request_id": "0123456789abcdef0123456789abcdef",
+                      "status": 404,
+                      "title": "No such symbol",
+                      "type": "not_found"
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/NotFound"
                 }
@@ -3583,6 +3939,7 @@
             }
           },
           {
+            "description": "Start of the range, INCLUSIVE. Half-open with `to`, so consecutive pages never overlap.",
             "in": "query",
             "name": "from",
             "required": false,
@@ -3596,10 +3953,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Start of the range, INCLUSIVE. Half-open with `to`, so consecutive pages never overlap.",
               "title": "From"
             }
           },
           {
+            "description": "End of the range, EXCLUSIVE. Defaults to now.",
             "in": "query",
             "name": "to",
             "required": false,
@@ -3613,10 +3972,12 @@
                   "type": "null"
                 }
               ],
+              "description": "End of the range, EXCLUSIVE. Defaults to now.",
               "title": "To"
             }
           },
           {
+            "description": "Rows per page. Capped by the plan; asking for more is a 422 rather than a silent clip, because fewer rows than asked for is indistinguishable from reaching the end of the data.",
             "in": "query",
             "name": "limit",
             "required": false,
@@ -3630,10 +3991,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Rows per page. Capped by the plan; asking for more is a 422 rather than a silent clip, because fewer rows than asked for is indistinguishable from reaching the end of the data.",
               "title": "Limit"
             }
           },
           {
+            "description": "The `next_cursor` of the previous page. A cursor belongs to the query that produced it: change an interval, a range or a filter and it is refused with `invalid_cursor`.",
             "in": "query",
             "name": "cursor",
             "required": false,
@@ -3646,6 +4009,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The `next_cursor` of the previous page. A cursor belongs to the query that produced it: change an interval, a range or a filter and it is refused with `invalid_cursor`.",
               "title": "Cursor"
             }
           }
@@ -3654,6 +4018,28 @@
           "200": {
             "content": {
               "application/json": {
+                "examples": {
+                  "page": {
+                    "value": {
+                      "as_of": null,
+                      "data": [
+                        {
+                          "action_date": "2026-01-05",
+                          "action_type": "SPLIT",
+                          "action_value": "2.000000000000",
+                          "symbol": "ACME"
+                        },
+                        {
+                          "action_date": "2026-01-06",
+                          "action_type": "DIVIDEND",
+                          "action_value": "0.500000000000",
+                          "symbol": "ACME"
+                        }
+                      ],
+                      "next_cursor": null
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/Collection_Action_"
                 }
@@ -4217,6 +4603,7 @@
             }
           },
           {
+            "description": "Start of the range, INCLUSIVE. Half-open with `to`, so consecutive pages never overlap.",
             "in": "query",
             "name": "from",
             "required": false,
@@ -4230,10 +4617,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Start of the range, INCLUSIVE. Half-open with `to`, so consecutive pages never overlap.",
               "title": "From"
             }
           },
           {
+            "description": "End of the range, EXCLUSIVE. Defaults to now.",
             "in": "query",
             "name": "to",
             "required": false,
@@ -4247,10 +4636,12 @@
                   "type": "null"
                 }
               ],
+              "description": "End of the range, EXCLUSIVE. Defaults to now.",
               "title": "To"
             }
           },
           {
+            "description": "Intraday only. `regular` (the default) excludes extended-hours bars; `all` includes them. Passing it above daily is refused rather than ignored.",
             "in": "query",
             "name": "session",
             "required": false,
@@ -4267,10 +4658,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Intraday only. `regular` (the default) excludes extended-hours bars; `all` includes them. Passing it above daily is refused rather than ignored.",
               "title": "Session"
             }
           },
           {
+            "description": "Rows per page. Capped by the plan; asking for more is a 422 rather than a silent clip, because fewer rows than asked for is indistinguishable from reaching the end of the data.",
             "in": "query",
             "name": "limit",
             "required": false,
@@ -4284,10 +4677,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Rows per page. Capped by the plan; asking for more is a 422 rather than a silent clip, because fewer rows than asked for is indistinguishable from reaching the end of the data.",
               "title": "Limit"
             }
           },
           {
+            "description": "The `next_cursor` of the previous page. A cursor belongs to the query that produced it: change an interval, a range or a filter and it is refused with `invalid_cursor`.",
             "in": "query",
             "name": "cursor",
             "required": false,
@@ -4300,6 +4695,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The `next_cursor` of the previous page. A cursor belongs to the query that produced it: change an interval, a range or a filter and it is refused with `invalid_cursor`.",
               "title": "Cursor"
             }
           }
@@ -4308,6 +4704,44 @@
           "200": {
             "content": {
               "application/json": {
+                "examples": {
+                  "page": {
+                    "value": {
+                      "as_of": null,
+                      "data": [
+                        {
+                          "adj_close": "103.750000000000",
+                          "bar_interval": null,
+                          "close": "103.750000000000",
+                          "high": "104.500000000000",
+                          "is_extended": null,
+                          "local_date": null,
+                          "low": "99.250000000000",
+                          "open": "100.000000000000",
+                          "session_date": "2026-01-05",
+                          "symbol": "ACME",
+                          "ts_utc": "2026-01-05T14:30:00Z",
+                          "volume": 1250000
+                        },
+                        {
+                          "adj_close": "103.750000000000",
+                          "bar_interval": null,
+                          "close": "103.750000000000",
+                          "high": "104.500000000000",
+                          "is_extended": null,
+                          "local_date": null,
+                          "low": "99.250000000000",
+                          "open": "100.000000000000",
+                          "session_date": "2026-01-06",
+                          "symbol": "ACME",
+                          "ts_utc": "2026-01-06T14:30:00Z",
+                          "volume": 1250000
+                        }
+                      ],
+                      "next_cursor": null
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/Collection_Bar_"
                 }
@@ -4631,6 +5065,17 @@
           "422": {
             "content": {
               "application/problem+json": {
+                "examples": {
+                  "range_too_large": {
+                    "value": {
+                      "detail": "the requested range exceeds the maximum of 31 days for interval 1m",
+                      "request_id": "0123456789abcdef0123456789abcdef",
+                      "status": 422,
+                      "title": "Unacceptable time range",
+                      "type": "range_too_large"
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/InvalidBarsRequest"
                 }
@@ -4850,24 +5295,29 @@
             }
           },
           {
+            "description": "Which statement, e.g. `income_statement`. Required.",
             "in": "query",
             "name": "statement",
             "required": true,
             "schema": {
+              "description": "Which statement, e.g. `income_statement`. Required.",
               "title": "Statement",
               "type": "string"
             }
           },
           {
+            "description": "Reporting frequency, e.g. `annual`. Required.",
             "in": "query",
             "name": "freq",
             "required": true,
             "schema": {
+              "description": "Reporting frequency, e.g. `annual`. Required.",
               "title": "Freq",
               "type": "string"
             }
           },
           {
+            "description": "Rows per page. Capped by the plan; asking for more is a 422 rather than a silent clip, because fewer rows than asked for is indistinguishable from reaching the end of the data.",
             "in": "query",
             "name": "limit",
             "required": false,
@@ -4881,10 +5331,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Rows per page. Capped by the plan; asking for more is a 422 rather than a silent clip, because fewer rows than asked for is indistinguishable from reaching the end of the data.",
               "title": "Limit"
             }
           },
           {
+            "description": "The `next_cursor` of the previous page. A cursor belongs to the query that produced it: change an interval, a range or a filter and it is refused with `invalid_cursor`.",
             "in": "query",
             "name": "cursor",
             "required": false,
@@ -4897,6 +5349,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The `next_cursor` of the previous page. A cursor belongs to the query that produced it: change an interval, a range or a filter and it is refused with `invalid_cursor`.",
               "title": "Cursor"
             }
           }
@@ -4905,6 +5358,28 @@
           "200": {
             "content": {
               "application/json": {
+                "examples": {
+                  "page": {
+                    "value": {
+                      "as_of": "2026-01-05T22:00:00Z",
+                      "data": [
+                        {
+                          "currency": "USD",
+                          "item_key": "NetIncome",
+                          "period_end": "2025-12-31",
+                          "value": "7200000000.0000000000"
+                        },
+                        {
+                          "currency": "USD",
+                          "item_key": "TotalRevenue",
+                          "period_end": "2025-12-31",
+                          "value": "48000000000.0000000000"
+                        }
+                      ],
+                      "next_cursor": null
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/Collection_FinancialFactOut_"
                 }

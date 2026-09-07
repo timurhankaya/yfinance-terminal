@@ -86,6 +86,13 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# The published examples ship INSIDE the package, not under docs/. They are
+# part of the document the running API serves, so a deployment installed
+# from a wheel has to carry them -- otherwise /openapi.json in production
+# would differ from the openapi.json this repository locks in CI.
+[tool.setuptools.package-data]
+"yfin.api.core" = ["examples/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

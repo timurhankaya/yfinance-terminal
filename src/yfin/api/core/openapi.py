@@ -26,7 +26,9 @@ client generated from it had no type for a 401 and no way to learn that
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Iterator
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
@@ -139,6 +141,40 @@ BARS_VARIANT = (
     "InvalidBarsRequest",
     (*PROBLEM_VARIANTS[422][1], errors.TYPE_RANGE_TOO_LARGE),
 )
+
+#: The examples the document must carry, as
+#: `operationId -> {status -> (example name, ...)}`. Curated rather than
+#: exhaustive: sixty near-identical bodies would be noise, and what a
+#: reader needs is one of each SHAPE plus every failure they are likely to
+#: hit. Each entry is a file under `examples/`, captured from a real
+#: response by `tests/repo/test_api_examples.py`.
+REQUIRED_EXAMPLES: dict[str, dict[int, tuple[str, ...]]] = {
+    "issueToken": {200: ("token",), 400: ("invalid_request",), 401: ("invalid_client",)},
+    "getHealth": {200: ("up",)},
+    "listSymbols": {200: ("page",), 401: ("unauthenticated",), 429: ("rate_limit_exceeded",)},
+    "getSymbol": {200: ("symbol",), 404: ("not_found",)},
+    "listBars": {200: ("page",), 422: ("range_too_large",)},
+    "listActions": {200: ("page",)},
+    "listFinancials": {200: ("page",)},
+    "listDatasets": {200: ("catalogue",)},
+    "readDataset": {
+        200: ("page",),
+        403: ("insufficient_scope",),
+        404: ("not_found",),
+        422: ("invalid_cursor", "invalid_parameter"),
+    },
+}
+
+#: Where those files live. Inside the package, not under `docs/`: they are
+#: part of the document the API serves, so an installation from a wheel
+#: must carry them or production would publish a different contract from
+#: the one this repository locks.
+EXAMPLES_DIR = Path(__file__).resolve().parent / "examples"
+
+
+def example_path(operation_id: str, status: int, name: str) -> Path:
+    return EXAMPLES_DIR / f"{operation_id}.{status}.{name}.json"
+
 
 STATUS_TITLES = {
     304: "The representation has not changed since the ETag you sent",
@@ -474,3 +510,34 @@ def _apply(operation: dict[str, Any], operation_id: str) -> None:
         headers = _headers_for(operation_id, int(status_key))
         if headers:
             response.setdefault("headers", {}).update(headers)
+
+    _attach_examples(responses, operation_id)
+
+
+def _attach_examples(responses: dict[str, Any], operation_id: str) -> None:
+    """Real responses, captured and committed.
+
+    `examples`, never the singular `example`: OpenAPI 3.1 deprecates the
+    latter on a Media Type Object, forbids using both, and could not carry
+    the several bodies one status admits -- a 422 is `invalid_parameter`
+    OR `invalid_cursor`, and a reader needs to see both.
+
+    A missing file is skipped rather than raised. Failing here would take
+    `/openapi.json` and `/docs` down in production over a documentation
+    file, and would deadlock CI: only the database job can produce one,
+    while the job without a database would refuse to run without it. The
+    presence check lives in `tests/unit/test_api_contract.py`, where it
+    costs nothing and blocks the merge.
+    """
+    for status, names in REQUIRED_EXAMPLES.get(operation_id, {}).items():
+        response = responses.get(str(status))
+        if response is None or "content" not in response:
+            continue
+        for media in response["content"].values():
+            examples = media.setdefault("examples", {})
+            for name in names:
+                path = example_path(operation_id, status, name)
+                if path.is_file():
+                    examples[name] = {"value": json.loads(path.read_text("utf-8"))}
+            if not examples:
+                del media["examples"]

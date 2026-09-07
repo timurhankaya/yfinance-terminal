@@ -1,0 +1,6 @@
+{
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "status": 404,
+  "title": "No such dataset",
+  "type": "not_found"
+}

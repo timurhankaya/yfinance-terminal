@@ -1,0 +1,134 @@
+{
+  "as_of": null,
+  "data": [
+    {
+      "columns": [
+        {
+          "name": "news_id",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "title",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "summary",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "content_type",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "pub_date",
+          "nullable": false,
+          "type": "string (date-time)"
+        },
+        {
+          "name": "display_time",
+          "nullable": true,
+          "type": "string (date-time)"
+        },
+        {
+          "name": "provider_name",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "provider_url",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "provider_source_id",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "canonical_url",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "click_through_url",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "thumbnail_url",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "thumbnail_width",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "name": "thumbnail_height",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "name": "raw_json",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "descending": true,
+      "description": "Articles, newest first, across the whole universe.",
+      "family": "news",
+      "filters": [],
+      "kind": "symbol",
+      "name": "news",
+      "scope": "news:read",
+      "sort_key": [
+        "pub_date",
+        "news_id"
+      ],
+      "symbol_scoped": false,
+      "table": "news"
+    },
+    {
+      "columns": [
+        {
+          "name": "news_id",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "symbol",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "is_known",
+          "nullable": false,
+          "type": "boolean"
+        }
+      ],
+      "descending": true,
+      "description": "Which symbols an article mentions.",
+      "family": "news",
+      "filters": [],
+      "kind": "symbol",
+      "name": "news_symbols",
+      "scope": "news:read",
+      "sort_key": [
+        "news_id"
+      ],
+      "symbol_scoped": true,
+      "table": "news_symbols"
+    }
+  ],
+  "next_cursor": null
+}

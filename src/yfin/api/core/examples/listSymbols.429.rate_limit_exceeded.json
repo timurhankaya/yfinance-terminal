@@ -1,0 +1,7 @@
+{
+  "detail": "the request rate exceeds the plan's limit",
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "status": 429,
+  "title": "Too many requests",
+  "type": "rate_limit_exceeded"
+}

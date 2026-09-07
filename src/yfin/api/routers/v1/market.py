@@ -46,6 +46,41 @@ router = APIRouter(prefix="/v1", tags=["market"])
 
 SessionDep = Annotated[Session, Depends(session_scope)]
 
+# The parameters every collection shares, described once. A caller hits
+# each of these wrong exactly once, and then has to be told.
+FromQuery = Annotated[
+    datetime | None,
+    Query(
+        alias="from",
+        description="Start of the range, INCLUSIVE. Half-open with `to`, so "
+        "consecutive pages never overlap.",
+    ),
+]
+ToQuery = Annotated[
+    datetime | None,
+    Query(
+        alias="to",
+        description="End of the range, EXCLUSIVE. Defaults to now.",
+    ),
+]
+LimitQuery = Annotated[
+    int | None,
+    Query(
+        ge=1,
+        description="Rows per page. Capped by the plan; asking for more is a "
+        "422 rather than a silent clip, because fewer rows than asked for "
+        "is indistinguishable from reaching the end of the data.",
+    ),
+]
+CursorQuery = Annotated[
+    str | None,
+    Query(
+        description="The `next_cursor` of the previous page. A cursor belongs "
+        "to the query that produced it: change an interval, a range or a "
+        "filter and it is refused with `invalid_cursor`.",
+    ),
+]
+
 #: Historic data does not change; today's does. Two values rather than a
 #: formula because the difference is what matters to a client, not the
 #: precise number.
@@ -126,8 +161,17 @@ def list_symbols(
     response: Response,
     session: SessionDep,
     principal: Annotated[Principal, Depends(guard(DataFamily.REFERENCE))],
-    exchange: Annotated[str | None, Query(max_length=limits.MAX_PARAM_LENGTH)] = None,
-    quote_type: Annotated[str | None, Query(max_length=limits.MAX_PARAM_LENGTH)] = None,
+    exchange: Annotated[
+        str | None,
+        Query(max_length=limits.MAX_PARAM_LENGTH, description="Exact exchange code."),
+    ] = None,
+    quote_type: Annotated[
+        str | None,
+        Query(
+            max_length=limits.MAX_PARAM_LENGTH,
+            description="Exact quote type, e.g. `EQUITY` or `ETF`.",
+        ),
+    ] = None,
     q: Annotated[
         str | None,
         Query(
@@ -136,9 +180,15 @@ def list_symbols(
             description="Symbol prefix. Matches the symbol column only.",
         ),
     ] = None,
-    active: bool = True,
-    limit: Annotated[int | None, Query(ge=1)] = None,
-    cursor: str | None = None,
+    active: Annotated[
+        bool,
+        Query(
+            description="Only symbols an operator activated. An inactive row is "
+            "one discovery found but nothing fetches, so it is close to empty.",
+        ),
+    ] = True,
+    limit: LimitQuery = None,
+    cursor: CursorQuery = None,
 ) -> Collection[SymbolSummary] | Response:
     """Symbols in the universe.
 
@@ -238,13 +288,19 @@ def list_bars(
             )
         ),
     ] = "1d",
-    start: Annotated[datetime | None, Query(alias="from")] = None,
-    end: Annotated[datetime | None, Query(alias="to")] = None,
+    start: FromQuery = None,
+    end: ToQuery = None,
     session_kind: Annotated[
-        Literal["regular", "all"] | None, Query(alias="session")
+        Literal["regular", "all"] | None,
+        Query(
+            alias="session",
+            description="Intraday only. `regular` (the default) excludes "
+            "extended-hours bars; `all` includes them. Passing it above daily "
+            "is refused rather than ignored.",
+        ),
     ] = None,
-    limit: Annotated[int | None, Query(ge=1)] = None,
-    cursor: str | None = None,
+    limit: LimitQuery = None,
+    cursor: CursorQuery = None,
 ) -> Collection[Bar] | Response:
     """Bars for one symbol.
 
@@ -365,10 +421,10 @@ def list_actions(
     session: SessionDep,
     symbol: str,
     principal: Annotated[Principal, Depends(guard(DataFamily.BARS))],
-    start: Annotated[datetime | None, Query(alias="from")] = None,
-    end: Annotated[datetime | None, Query(alias="to")] = None,
-    limit: Annotated[int | None, Query(ge=1)] = None,
-    cursor: str | None = None,
+    start: FromQuery = None,
+    end: ToQuery = None,
+    limit: LimitQuery = None,
+    cursor: CursorQuery = None,
 ) -> Collection[Action] | Response:
     """Dividends, splits and capital gains for one symbol, newest first.
 
@@ -448,10 +504,15 @@ def list_financials(
     session: SessionDep,
     symbol: str,
     principal: Annotated[Principal, Depends(guard(DataFamily.FUNDAMENTALS))],
-    statement: str,
-    freq: str,
-    limit: Annotated[int | None, Query(ge=1)] = None,
-    cursor: str | None = None,
+    statement: Annotated[
+        str,
+        Query(description="Which statement, e.g. `income_statement`. Required."),
+    ],
+    freq: Annotated[
+        str, Query(description="Reporting frequency, e.g. `annual`. Required.")
+    ],
+    limit: LimitQuery = None,
+    cursor: CursorQuery = None,
 ) -> Collection[FinancialFactOut] | Response:
     """Line items for one statement.
 

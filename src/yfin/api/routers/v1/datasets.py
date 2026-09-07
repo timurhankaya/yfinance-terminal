@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from yfin.api.auth.dependencies import Authenticated
@@ -46,6 +46,27 @@ SessionDep = Annotated[Session, Depends(session_scope)]
 RESERVED = frozenset({"symbol", "limit", "cursor", "all"})
 
 
+class ColumnOut(BaseModel):
+    """One column of a dataset, as it arrives.
+
+    This is what stands in for a schema per resource. The data route
+    serves `dict[str, Any]` and will keep doing so -- a schema per dataset
+    would make the frozen openapi.json churn every time one was added --
+    so the shape has to be discoverable somewhere, and the catalogue is
+    where a client is already looking.
+    """
+
+    name: str
+    type: str = Field(
+        description=(
+            "The wire type, not the SQL type: `string (decimal)` for exact "
+            "numbers, `string (date-time)`, `string (date)`, `string`, "
+            "`integer` or `boolean`."
+        )
+    )
+    nullable: bool
+
+
 class CatalogEntryOut(BaseModel):
     """The catalogue as clients see it.
 
@@ -65,6 +86,9 @@ class CatalogEntryOut(BaseModel):
     filters: list[str]
     symbol_scoped: bool
     description: str
+    columns: list[ColumnOut] = Field(
+        description="Every column the rows carry, in table order."
+    )
 
     @classmethod
     def of(cls, entry: catalog.CatalogEntry) -> CatalogEntryOut:
@@ -79,6 +103,17 @@ class CatalogEntryOut(BaseModel):
             filters=list(entry.exposure.filters),
             symbol_scoped=entry.has_symbol,
             description=entry.exposure.description,
+            # Every column, because `catalog.query` selects the whole
+            # table. Listing a subset would describe a response nobody
+            # sends.
+            columns=[
+                ColumnOut(
+                    name=column.name,
+                    type=catalog.wire_type(column),
+                    nullable=bool(column.nullable),
+                )
+                for column in entry.table.columns
+            ],
         )
 
 
@@ -117,9 +152,21 @@ def read_dataset(
     session: SessionDep,
     name: str,
     principal: Authenticated,
-    symbol: str | None = None,
-    limit: Annotated[int | None, Query(ge=1)] = None,
-    cursor: str | None = None,
+    symbol: Annotated[
+        str | None,
+        Query(
+            description="Required for a symbol-scoped dataset, optional for the "
+            "few that may be browsed. The catalogue says which is which."
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Query(ge=1, description="Rows per page. Capped by the plan; over it is a 422."),
+    ] = None,
+    cursor: Annotated[
+        str | None,
+        Query(description="The `next_cursor` of the previous page of THIS query."),
+    ] = None,
 ) -> Collection[dict[str, Any]]:
     """Rows from one dataset.
 

@@ -542,3 +542,150 @@ def test_a_conditional_response_carries_what_rfc_9110_requires(
             assert "content" not in not_modified
             headers = not_modified["headers"]
             assert {"ETag", "Cache-Control", "Vary"} <= set(headers)
+
+
+def test_every_resource_publishes_its_columns() -> None:
+    """The generic route serves `dict[str, Any]` and will keep doing so, so
+    the catalogue is the only place a caller can learn what a row carries.
+    A resource with no columns would leave that surface undescribed."""
+    from yfin.api.routers.v1.datasets import CatalogEntryOut
+    from yfin.api.storage.catalog import CATALOG
+
+    for entry in CATALOG.values():
+        published = CatalogEntryOut.of(entry)
+        assert published.columns, entry.name
+        assert [c.name for c in published.columns] == [
+            column.name for column in entry.table.columns
+        ]
+
+
+def test_every_exposed_column_has_a_published_wire_type() -> None:
+    """`wire_type` raises on a type it has not been taught, and this is
+    where that raise is meant to happen -- not on the first request to
+    /v1/datasets after someone adds a JSONB column."""
+    from yfin.api.storage.catalog import CATALOG, wire_type
+
+    known = {
+        "string",
+        "integer",
+        "boolean",
+        "string (decimal)",
+        "string (date-time)",
+        "string (date)",
+    }
+    for entry in CATALOG.values():
+        for column in entry.table.columns:
+            assert wire_type(column) in known, f"{entry.table.name}.{column.name}"
+
+
+def test_an_unteachable_column_type_is_refused() -> None:
+    """Emitting "unknown" would publish a shape nobody had checked."""
+    import sqlalchemy as sa
+
+    from yfin.api.storage.catalog import wire_type
+
+    table = sa.Table("t", sa.MetaData(), sa.Column("blob", sa.LargeBinary()))
+    with pytest.raises(ValueError, match="no published wire type"):
+        wire_type(table.c.blob)
+
+
+def test_the_introduction_documents_every_error_type(document: dict[str, Any]) -> None:
+    """A `type` a client can receive but cannot look up is a type they will
+    guess at. The schema publishes the shape; only the prose can say what
+    to DO about each one."""
+    from yfin.api.core.errors import ALL_TYPES
+
+    text = document["info"]["description"]
+    assert [t for t in ALL_TYPES if f"`{t}`" not in text] == []
+
+
+def test_the_introduction_covers_caching_and_versioning(
+    document: dict[str, Any],
+) -> None:
+    text = document["info"]["description"]
+    for topic in ("If-None-Match", "X-Data-As-Of", "CHANGELOG", "deprecated"):
+        assert topic in text, topic
+
+
+def test_an_example_exists_for_everything_the_table_requires() -> None:
+    """The presence check lives here, without a database, because the
+    injection deliberately does not raise.
+
+    Failing inside `finalise` would take /openapi.json and /docs down in
+    production over a documentation file, and would deadlock CI: only the
+    database job can produce one, while the job without a database would
+    refuse to start without it. Here it costs nothing and still blocks the
+    merge.
+    """
+    from yfin.api.core.openapi import REQUIRED_EXAMPLES, example_path
+
+    missing = [
+        path.name
+        for operation, statuses in REQUIRED_EXAMPLES.items()
+        for status, names in statuses.items()
+        for name in names
+        if not (path := example_path(operation, status, name)).is_file()
+    ]
+    assert missing == [], (
+        f"capture them: pytest -m repo tests/repo/test_api_examples.py --snapshot-update"
+        f" -- missing {missing}"
+    )
+
+
+def test_every_example_matches_the_schema_it_is_published_under(
+    document: dict[str, Any],
+) -> None:
+    """An example that does not validate is worse than none: a reader
+    copies it, and a generated client's tests fail against it."""
+    from jsonschema import Draft202012Validator  # noqa: PLC0415 - dev dependency
+
+    schemas = document["components"]["schemas"]
+    for operations in document["paths"].values():
+        for operation in operations.values():
+            for code, response in operation["responses"].items():
+                for media in response.get("content", {}).values():
+                    for name, example in media.get("examples", {}).items():
+                        # The document's own `components` travels with the
+                        # schema, so `#/components/schemas/X` resolves --
+                        # 2020-12 honours siblings of `$ref`, which older
+                        # drafts did not.
+                        validator = Draft202012Validator(
+                            {**media["schema"], "components": {"schemas": schemas}}
+                        )
+                        errors = sorted(validator.iter_errors(example["value"]), key=str)
+                        assert errors == [], (
+                            f"{operation['operationId']}.{code}.{name}: {errors[0]}"
+                        )
+
+
+def test_the_examples_are_published_as_a_MAP(document: dict[str, Any]) -> None:
+    """`examples`, never the singular `example`: 3.1 deprecates the latter
+    on a Media Type Object, forbids using both, and it could not carry the
+    two 422 bodies a reader has to be able to tell apart."""
+    for operations in document["paths"].values():
+        for operation in operations.values():
+            for response in operation["responses"].values():
+                for media in response.get("content", {}).values():
+                    assert "example" not in media
+    assert "invalid_cursor" in (
+        document["paths"]["/v1/datasets/{name}"]["get"]["responses"]["422"]["content"][
+            "application/problem+json"
+        ]["examples"]
+    )
+
+
+def test_the_example_check_would_NOTICE_a_broken_example(
+    document: dict[str, Any],
+) -> None:
+    """A validation test that silently validates nothing is worse than no
+    test. This asserts the schema resolution above actually resolves."""
+    from jsonschema import Draft202012Validator  # noqa: PLC0415 - dev dependency
+
+    schemas = document["components"]["schemas"]
+    validator = Draft202012Validator(
+        {"$ref": "#/components/schemas/Problem", "components": {"schemas": schemas}}
+    )
+    assert list(validator.iter_errors({"type": "no_such_type", "title": 1}))
+    assert not list(
+        validator.iter_errors({"type": "not_found", "title": "x", "status": 404})
+    )

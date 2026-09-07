@@ -1,0 +1,7 @@
+{
+  "detail": "not a cursor",
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "status": 422,
+  "title": "The cursor is not usable here",
+  "type": "invalid_cursor"
+}

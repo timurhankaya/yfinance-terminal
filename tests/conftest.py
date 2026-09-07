@@ -222,3 +222,19 @@ def _guard_concurrent_live_runs(request: pytest.FixtureRequest) -> None:
             "concurrently. Wait for it to finish first.",
             returncode=1,
         )
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """`--snapshot-update` rewrites the captured API examples.
+
+    A flag rather than an environment variable so it shows up in `--help`
+    next to the suite that uses it: the published examples are locked like
+    `openapi.json` is, and a lock nobody knows how to update is one people
+    delete.
+    """
+    parser.addoption(
+        "--snapshot-update",
+        action="store_true",
+        default=False,
+        help="Rewrite the committed API examples from real responses.",
+    )

@@ -1,0 +1,18 @@
+{
+  "as_of": null,
+  "data": [
+    {
+      "action_date": "2026-01-05",
+      "action_type": "SPLIT",
+      "action_value": "2.000000000000",
+      "symbol": "ACME"
+    },
+    {
+      "action_date": "2026-01-06",
+      "action_type": "DIVIDEND",
+      "action_value": "0.500000000000",
+      "symbol": "ACME"
+    }
+  ],
+  "next_cursor": null
+}
