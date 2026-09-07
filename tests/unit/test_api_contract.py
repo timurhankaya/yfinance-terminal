@@ -288,16 +288,18 @@ def test_the_route_and_the_document_agree_on_the_id() -> None:
 def test_every_operation_publishes_the_statuses_it_can_answer(
     document: dict[str, Any],
 ) -> None:
-    from yfin.api.core.openapi import CONDITIONAL, ERROR_STATUSES
+    from yfin.api.core.openapi import ERROR_STATUSES
 
     for operations in document["paths"].values():
         for operation in operations.values():
             operation_id = operation["operationId"]
             published = {int(code) for code in operation["responses"]}
             expected = {200, *ERROR_STATUSES[operation_id]}
-            if operation_id in CONDITIONAL:
-                expected.add(304)
-            assert published == expected, operation_id
+            # 304 is not asserted from a table here on purpose: whether an
+            # operation can answer one is settled against the running
+            # handler in `tests/repo/test_api_headers.py`, not against the
+            # declaration that produced this document.
+            assert published - {304} == expected, operation_id
 
 
 def test_the_validation_error_schemas_are_GONE(document: dict[str, Any]) -> None:
@@ -408,26 +410,6 @@ def test_no_published_header_is_one_the_code_cannot_send(
     assert published - _emittable_headers() == set()
 
 
-def test_the_rate_headers_are_published_where_they_are_actually_set(
-    document: dict[str, Any],
-) -> None:
-    """`problem_response` builds a fresh response carrying only what the
-    raiser attached, so a 404 or a 504 genuinely has no rate headers while a
-    429 does -- the limiter merges them in. Publishing them everywhere would
-    be easier and would be a lie a client could act on."""
-    from yfin.api.core.openapi import METERED
-
-    for operations in document["paths"].values():
-        for operation in operations.values():
-            metered = operation["operationId"] in METERED
-            for code, response in operation["responses"].items():
-                has_rate = "RateLimit-Limit" in response.get("headers", {})
-                assert has_rate == (metered and code in {"200", "304", "429"}), (
-                    operation["operationId"],
-                    code,
-                )
-
-
 def test_the_document_says_where_the_api_is(document: dict[str, Any]) -> None:
     from yfin.api.core.openapi import PRODUCTION_URL
 
@@ -524,24 +506,6 @@ def test_the_bars_interval_is_published_as_a_choice(document: dict[str, Any]) ->
     interval = next(p for p in parameters if p["name"] == "interval")
     assert tuple(interval["schema"]["enum"]) == READABLE_INTERVALS
     assert interval["description"]
-
-
-def test_a_conditional_response_carries_what_rfc_9110_requires(
-    document: dict[str, Any],
-) -> None:
-    """§15.4.5: no content, and the headers whose value would differ from
-    the 200's -- the validator above all."""
-    from yfin.api.core.openapi import CONDITIONAL
-
-    for operations in document["paths"].values():
-        for operation in operations.values():
-            if operation["operationId"] not in CONDITIONAL:
-                assert "304" not in operation["responses"]
-                continue
-            not_modified = operation["responses"]["304"]
-            assert "content" not in not_modified
-            headers = not_modified["headers"]
-            assert {"ETag", "Cache-Control", "Vary"} <= set(headers)
 
 
 def test_every_resource_publishes_its_columns() -> None:
@@ -789,3 +753,28 @@ def test_the_screen_keys_are_discoverable() -> None:
     assert "screen_key" in served
     assert "title" in served
     assert "definition_json" not in served
+
+
+def test_a_route_that_declares_no_contract_cannot_produce_a_document() -> None:
+    """The declaration is required, not defaulted.
+
+    Defaulting it to "meters nothing, caches nothing" is how a new route
+    would publish no rate headers while metering every request -- the
+    document quietly untrue about the one thing a client bills against.
+    Three tests used to be believed to guard this; each compared the
+    document against the table that generated it, so none of them could
+    fail. This one fails at document build.
+    """
+    from yfin.api.core.openapi import CONTRACT_KEY, _apply
+
+    with pytest.raises(ValueError, match="openapi_extra"):
+        _apply({"responses": {}}, "listSymbols")
+
+    # And accepts it when present, so the guard is about absence only.
+    operation: dict[str, Any] = {
+        "responses": {},
+        CONTRACT_KEY: {"metered": True, "cached": True, "conditional": True},
+    }
+    _apply(operation, "listSymbols")
+    assert CONTRACT_KEY not in operation, "the internal flag must not be published"
+    assert "304" in operation["responses"]

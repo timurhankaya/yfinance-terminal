@@ -563,3 +563,115 @@ def test_a_range_that_really_is_too_large_still_says_so(client: TestClient) -> N
     )
     assert response.status_code == 422
     assert response.json()["type"] == "range_too_large"
+
+
+# --- the published header contract -------------------------------------------
+#
+# What replaced three tests that could not fail. Each of them read a table
+# out of `core/openapi.py` and checked the document against the same table
+# that had produced it, so a route added without a `contract(...)`
+# declaration broke nothing -- the document just stopped being true.
+#
+# These drive the real endpoints and compare what the handler actually
+# sends against what the document says it sends.
+
+#: One header per family. Checking every name would test the header
+#: dictionaries against themselves again; what has to hold is that the
+#: FAMILY is present exactly where it is published.
+FAMILY_MARKERS = ("RateLimit-Limit", "Cache-Control", "ETag")
+
+#: operationId -> a request that answers 200, and whether it revalidates.
+OPERATIONS: tuple[tuple[str, str, dict[str, Any], bool], ...] = (
+    ("listSymbols", "/v1/symbols", {}, True),
+    ("getSymbol", f"/v1/symbols/{SYMBOL}", {}, True),
+    ("listBars", f"/v1/symbols/{SYMBOL}/bars", {"interval": "1d"}, True),
+    ("listActions", f"/v1/symbols/{SYMBOL}/actions", {}, True),
+    (
+        "listFinancials",
+        f"/v1/symbols/{SYMBOL}/financials",
+        {"statement": "income", "freq": "annual"},
+        True,
+    ),
+    ("listDatasets", "/v1/datasets", {}, False),
+    # A `fundamentals` resource, because that is one of the scopes this
+    # test's token carries; the resource itself is beside the point.
+    ("readDataset", "/v1/datasets/analyst_price_targets", {"symbol": SYMBOL}, False),
+    ("getHealth", "/health", {}, False),
+)
+
+
+def _published(document: dict[str, Any], operation_id: str, status: int) -> set[str] | None:
+    """Header names the document publishes, or None if it publishes no such
+    response. `X-Data-As-Of` is dropped: it is declared `required=False`,
+    i.e. the document already says it may be absent."""
+    for operations in document["paths"].values():
+        for operation in operations.values():
+            if operation.get("operationId") != operation_id:
+                continue
+            response = operation["responses"].get(str(status))
+            if response is None:
+                return None
+            return {
+                name
+                for name, header in response.get("headers", {}).items()
+                if header.get("required", True)
+            }
+    raise AssertionError(f"{operation_id} is not in the document")
+
+
+@pytest.fixture(scope="module")
+def document() -> dict[str, Any]:
+    return create_app(api_settings()).openapi()
+
+
+@pytest.mark.parametrize(
+    ("operation_id", "path", "params", "conditional"),
+    OPERATIONS,
+    ids=[row[0] for row in OPERATIONS],
+)
+def test_a_200_carries_exactly_the_header_families_it_publishes(
+    client: TestClient,
+    document: dict[str, Any],
+    operation_id: str,
+    path: str,
+    params: dict[str, Any],
+    conditional: bool,
+) -> None:
+    response = client.get(path, params=params, headers=_auth())
+    assert response.status_code == 200, response.text
+
+    published = _published(document, operation_id, 200)
+    assert published is not None
+    for marker in FAMILY_MARKERS:
+        assert (marker in response.headers) == (marker in published), (operation_id, marker)
+
+
+@pytest.mark.parametrize(
+    ("operation_id", "path", "params", "conditional"),
+    OPERATIONS,
+    ids=[row[0] for row in OPERATIONS],
+)
+def test_a_304_is_published_exactly_where_one_can_be_answered(
+    client: TestClient,
+    document: dict[str, Any],
+    operation_id: str,
+    path: str,
+    params: dict[str, Any],
+    conditional: bool,
+) -> None:
+    """The document's 304 is a promise a client acts on: it sends
+    `If-None-Match` because the contract said a 304 was possible."""
+    first = client.get(path, params=params, headers=_auth())
+    etag = first.headers.get("ETag")
+    published = _published(document, operation_id, 304)
+
+    if etag is None:
+        assert published is None, f"{operation_id} publishes a 304 it cannot answer"
+        return
+
+    assert published is not None, f"{operation_id} answers a 304 it does not publish"
+    again = client.get(path, params=params, headers={**_auth(), "If-None-Match": etag})
+    assert again.status_code == 304
+    assert again.content == b""
+    for marker in FAMILY_MARKERS:
+        assert (marker in again.headers) == (marker in published), (operation_id, marker)

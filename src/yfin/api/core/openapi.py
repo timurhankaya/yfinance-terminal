@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -97,33 +98,54 @@ ERROR_STATUSES: dict[str, tuple[int, ...]] = {
     "readDataset": (401, 403, 404, 422, 429, 500, 504),
 }
 
-#: Operations that meter the request, and therefore carry the rate and
-#: quota headers. Not the same as "has security": `listDatasets` requires
-#: a token but no scope, and still meters -- under the `meta` family,
-#: which exists for surfaces that belong to no data family.
-METERED = frozenset(
-    {
-        "listSymbols",
-        "getSymbol",
-        "listBars",
-        "listActions",
-        "listFinancials",
-        "listDatasets",
-        "readDataset",
+#: The key the route decorator's declaration travels under. It is read out
+#: of the generated operation and REMOVED before the document is published:
+#: what it says is true of the handler, not of the contract.
+CONTRACT_KEY = "x-yfin-contract"
+
+
+@dataclass(frozen=True)
+class RouteContract:
+    """What a handler does that the document cannot see by reading it.
+
+    Three sets used to live here as hand-kept tables of operation ids --
+    which operations meter, which set cache headers, which answer a 304.
+    Nothing enforced them. The three tests that were believed to protect
+    them each checked the document against the very table that produced
+    it, so forgetting to add a new route to one of them broke no test; the
+    document simply became untrue, quietly.
+
+    Declaring it at the route puts the statement next to the code it
+    describes, and `guard()` cannot supply it on its own: `listDatasets`
+    and `readDataset` meter from inside the handler because their family
+    depends on which dataset was asked for, so a rule derived from the
+    dependency would call those two unmetered -- the same class of silent
+    wrongness, arrived at automatically.
+
+    What enforces it now is `tests/repo/test_api_headers.py`, which drives
+    the real endpoints and compares the headers they actually send against
+    the ones published here.
+    """
+
+    #: Meters the request, and therefore carries the rate and quota
+    #: headers. Not the same as "has security": `listDatasets` needs a
+    #: token but no scope, and still meters, under the `meta` family.
+    metered: bool = False
+    #: Sets cache headers on success.
+    cached: bool = False
+    #: Answers `If-None-Match` with a 304 and emits a validator. The
+    #: dataset routes are deliberately not conditional -- they emit no
+    #: validator, so there is nothing to revalidate against.
+    conditional: bool = False
+
+
+def contract(
+    *, metered: bool = False, cached: bool = False, conditional: bool = False
+) -> dict[str, Any]:
+    """The declaration, for a route decorator's `openapi_extra`."""
+    return {
+        CONTRACT_KEY: {"metered": metered, "cached": cached, "conditional": conditional}
     }
-)
-
-#: Operations under `/v1`, which set cache headers on success.
-CACHED = frozenset(METERED | {"listDatasets"})
-
-#: Operations that answer `If-None-Match` with a 304. Exactly the handlers
-#: that go through `market._respond`; an explicit set because the document
-#: builder cannot see a call graph. The dataset routes are absent on
-#: purpose -- they emit no validator, so there is nothing to revalidate
-#: against, and adding one is a change to that surface, not to this one.
-CONDITIONAL = frozenset(
-    {"listSymbols", "getSymbol", "listBars", "listActions", "listFinancials"}
-)
 
 #: The one operation whose errors are RFC 6749, not RFC 9457.
 TOKEN_OPERATION = "issueToken"
@@ -339,7 +361,7 @@ _TOKEN_WWW_AUTHENTICATE = _header(
 )
 
 
-def _headers_for(operation_id: str, status: int) -> dict[str, Any]:
+def _headers_for(operation_id: str, declared: RouteContract, status: int) -> dict[str, Any]:
     """Exactly the headers this response carries, and no others.
 
     The distinctions are not cosmetic. `problem_response` builds a fresh
@@ -358,11 +380,11 @@ def _headers_for(operation_id: str, status: int) -> dict[str, Any]:
             headers.update(RETRY_HEADER)
         return headers
 
-    if operation_id in METERED and status in (200, 304, 429):
+    if declared.metered and status in (200, 304, 429):
         headers.update(RATE_HEADERS)
-    if operation_id in CACHED and status in (200, 304):
+    if declared.cached and status in (200, 304):
         headers.update(CACHE_HEADERS)
-    if operation_id in CONDITIONAL and status in (200, 304):
+    if declared.conditional and status in (200, 304):
         # RFC 9110 §15.4.5: a 304 carries the headers whose value would
         # differ from the 200's, the validator above all.
         headers.update(VALIDATOR_HEADERS)
@@ -445,13 +467,15 @@ def _variant_ref(operation_id: str, status: int) -> str:
     return f"#/components/schemas/{name}"
 
 
-def _problem_response(operation_id: str, status: int) -> dict[str, Any]:
+def _problem_response(
+    operation_id: str, declared: RouteContract, status: int
+) -> dict[str, Any]:
     return {
         "description": STATUS_TITLES[status],
         "content": {
             errors.PROBLEM_MEDIA_TYPE: {"schema": {"$ref": _variant_ref(operation_id, status)}}
         },
-        "headers": _headers_for(operation_id, status),
+        "headers": _headers_for(operation_id, declared, status),
     }
 
 
@@ -542,10 +566,27 @@ def finalise(document: dict[str, Any]) -> dict[str, Any]:
     return document
 
 
+def _declared_contract(operation: dict[str, Any], operation_id: str) -> RouteContract:
+    """Reads the route's declaration and takes it back out of the document.
+
+    Missing is an error, not a default: a silent `RouteContract()` is how a
+    new route would publish no rate headers while metering every request,
+    which is precisely what the removed tables allowed.
+    """
+    declared = operation.pop(CONTRACT_KEY, None)
+    if declared is None:
+        raise ValueError(
+            f"{operation_id} declares no `openapi_extra=contract(...)`; the "
+            "document cannot tell whether it meters, caches or revalidates"
+        )
+    return RouteContract(**declared)
+
+
 def _apply(operation: dict[str, Any], operation_id: str) -> None:
+    declared = _declared_contract(operation, operation_id)
     responses = operation.setdefault("responses", {})
 
-    if operation_id in CONDITIONAL:
+    if declared.conditional:
         # No `content`: RFC 9110 forbids a body here, and a response object
         # with only a description is the legal way to say so.
         responses["304"] = {"description": STATUS_TITLES[304]}
@@ -557,12 +598,12 @@ def _apply(operation: dict[str, Any], operation_id: str) -> None:
             # already right; only the headers are missing.
             responses.setdefault(key, {"description": STATUS_TITLES[status]})
         else:
-            responses[key] = _problem_response(operation_id, status)
+            responses[key] = _problem_response(operation_id, declared, status)
 
     for status_key, response in responses.items():
         if not status_key.isdigit():
             continue
-        headers = _headers_for(operation_id, int(status_key))
+        headers = _headers_for(operation_id, declared, int(status_key))
         if headers:
             response.setdefault("headers", {}).update(headers)
 

@@ -31,6 +31,7 @@ from yfin.api.core.errors import (
     TYPE_NOT_FOUND,
     ApiProblem,
 )
+from yfin.api.core.openapi import contract
 from yfin.api.ratelimit.dependencies import attribute_family, meter
 from yfin.api.routers.v1 import paging
 from yfin.api.schemas.common import Collection
@@ -118,7 +119,14 @@ class CatalogEntryOut(BaseModel):
         )
 
 
-@router.get("", response_model=Collection[CatalogEntryOut], summary="Dataset catalogue")
+@router.get(
+    "",
+    response_model=Collection[CatalogEntryOut],
+    summary="Dataset catalogue",
+    # Metered from inside the handler, under the `meta` family: this route
+    # belongs to no data family, so `guard()` cannot name one for it.
+    openapi_extra=contract(metered=True, cached=True),
+)
 def list_datasets(
     request: Request,
     response: Response,
@@ -152,7 +160,13 @@ def list_datasets(
 
 
 @router.get(
-    "/{name}", response_model=Collection[dict[str, Any]], summary="Dataset rows"
+    "/{name}",
+    response_model=Collection[dict[str, Any]],
+    summary="Dataset rows",
+    # Metered inside the handler because the family depends on WHICH
+    # dataset was asked for. Not conditional: this surface emits no
+    # validator, so there would be nothing to revalidate against.
+    openapi_extra=contract(metered=True, cached=True),
 )
 def read_dataset(
     request: Request,

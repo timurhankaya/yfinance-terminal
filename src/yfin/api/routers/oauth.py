@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 from yfin.api.auth.hashing import verify_against
 from yfin.api.auth.jwt import mint
 from yfin.api.core.config import ApiSettings
+from yfin.api.core.openapi import contract
 from yfin.api.ratelimit import token_endpoint as limiter
 from yfin.api.storage import clients as repo
 from yfin.api.storage.session import session_scope
@@ -160,6 +161,10 @@ def _parse_basic(header: str) -> tuple[str, str] | None:
 @router.post(
     "/oauth/token",
     summary="Issue an access token",
+    # RFC 6749 section 5.1 requires `no-store`, the opposite of caching,
+    # and the endpoint is rate limited without being metered against a
+    # plan -- there is no client yet to bill.
+    openapi_extra=contract(),
     response_model=TokenResponse,
     responses={
         400: {

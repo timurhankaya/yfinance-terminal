@@ -23,6 +23,7 @@ from sqlalchemy import text
 
 from yfin.api.core.config import ApiSettings
 from yfin.api.core.errors import TYPE_RATE_LIMIT, ApiProblem
+from yfin.api.core.openapi import contract
 from yfin.core.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -114,14 +115,24 @@ def _check_redis(settings: ApiSettings) -> bool:
         return False
 
 
-@router.get("/health", response_model=Health, summary="Liveness")
+@router.get(
+    "/health",
+    response_model=Health,
+    summary="Liveness",
+    openapi_extra=contract(),
+)
 def health() -> Health:
     """Answers whether the process is up. Touches nothing else, so it
     stays truthful while dependencies are down."""
     return Health(status="ok")
 
 
-@router.get("/health/ready", response_model=Readiness, summary="Readiness")
+@router.get(
+    "/health/ready",
+    response_model=Readiness,
+    summary="Readiness",
+    openapi_extra=contract(),
+)
 def health_ready(request: Request) -> Readiness:
     """Answers whether the process can serve traffic: PostgreSQL and Redis
     are both reachable. The result is cached for a few seconds and the

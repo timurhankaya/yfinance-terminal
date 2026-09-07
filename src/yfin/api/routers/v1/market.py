@@ -26,6 +26,7 @@ from yfin.api.core.errors import (
     TYPE_RANGE_TOO_LARGE,
     ApiProblem,
 )
+from yfin.api.core.openapi import contract
 from yfin.api.ratelimit.dependencies import guard
 from yfin.api.routers.v1 import paging
 from yfin.api.schemas.common import Collection, Resource
@@ -43,6 +44,12 @@ from yfin.core.families import DataFamily
 from yfin.models import ReadableInterval
 
 router = APIRouter(prefix="/v1", tags=["market"])
+
+# All five read endpoints answer through `_respond`, so all five meter,
+# cache and revalidate identically. Declared once here rather than five
+# times: the document must not be able to describe one of them differently
+# from the function they all share.
+CONTRACT = contract(metered=True, cached=True, conditional=True)
 
 SessionDep = Annotated[Session, Depends(session_scope)]
 
@@ -170,7 +177,12 @@ def _normalise_symbol(symbol: str) -> str:
 # --- symbols ----------------------------------------------------------------
 
 
-@router.get("/symbols", response_model=Collection[SymbolSummary], summary="List symbols")
+@router.get(
+    "/symbols",
+    response_model=Collection[SymbolSummary],
+    summary="List symbols",
+    openapi_extra=CONTRACT,
+)
 def list_symbols(
     request: Request,
     response: Response,
@@ -251,6 +263,7 @@ def list_symbols(
     "/symbols/{symbol}",
     response_model=Resource[SymbolDetail],
     summary="One symbol with its latest identity snapshot",
+    openapi_extra=CONTRACT,
 )
 def get_symbol(
     request: Request,
@@ -286,6 +299,7 @@ def get_symbol(
     "/symbols/{symbol}/bars",
     response_model=Collection[Bar],
     summary="Price bars",
+    openapi_extra=CONTRACT,
 )
 def list_bars(
     request: Request,
@@ -422,6 +436,7 @@ def _bar(row: dict[str, Any]) -> Bar:
     "/symbols/{symbol}/actions",
     response_model=Collection[Action],
     summary="Dividends, splits and capital gains",
+    openapi_extra=CONTRACT,
 )
 def list_actions(
     request: Request,
@@ -507,6 +522,7 @@ def list_actions(
     "/symbols/{symbol}/financials",
     response_model=Collection[FinancialFactOut],
     summary="Financial statement line items",
+    openapi_extra=CONTRACT,
 )
 def list_financials(
     request: Request,
