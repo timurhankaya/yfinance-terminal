@@ -57,6 +57,15 @@ class ApiSettings(BaseSettings):
     #: must not differ by whose machine generated it.
     public_base_url: str = ""
 
+    # --- web terminal -----------------------------------------------------
+    # Off by default: a deployment that has not opted in serves nothing
+    # under /ui and never imports yfin.ui. The password is a plain string
+    # in the environment on purpose -- one operator, one secret, nothing
+    # a hash would protect (see the web terminal design, "Kimlik
+    # doğrulama").
+    ui_enabled: bool = False
+    ui_password: str = ""
+
     # --- health -----------------------------------------------------------
     health_cache_seconds: int = Field(default=5, ge=0)
     health_rate_limit_per_minute: int = Field(default=60, ge=1)
@@ -80,6 +89,22 @@ class ApiSettings(BaseSettings):
 
     def trusted_proxy_list(self) -> list[str]:
         return comma_list(self.trusted_proxies)
+
+    def validate_ui(self) -> None:
+        """Refuses a UI that is switched on with nothing guarding it.
+
+        Called from `create_app`, not at field level, for the same reason
+        as `signing_key_bytes`: a CLI command that never serves the UI
+        must not fail because the UI is misconfigured.
+        """
+        if self.ui_enabled and not self.ui_password:
+            raise ValueError("YFAPI_UI_ENABLED is on but YFAPI_UI_PASSWORD is empty")
+
+    def ui_cookie_secure(self) -> bool:
+        """`Secure` only when the deployment says it is behind TLS. An empty
+        base URL means plain HTTP on localhost, where a Secure cookie is
+        silently dropped by the browser and login appears to do nothing."""
+        return self.public_base_url.lower().startswith("https://")
 
 
 @functools.lru_cache(maxsize=1)

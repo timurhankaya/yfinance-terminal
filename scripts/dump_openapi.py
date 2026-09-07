@@ -37,6 +37,9 @@ def build_document() -> dict[str, Any]:
 
     app = create_app(
         ApiSettings(
+            # A developer's own .env must not be able to change -- or
+            # break -- what this script checks.
+            _env_file=None,
             jwt_signing_key="x" * 32,
             jwt_kid="k1",
             jwt_issuer="yfin-api",
@@ -48,6 +51,10 @@ def build_document() -> dict[str, Any]:
             # the committed document must not pick up whatever host the
             # generating machine happens to be configured for.
             public_base_url="",
+            # The UI is not part of the /v1 contract this script checks;
+            # keep it off so the document never depends on the frontend
+            # build being present.
+            ui_enabled=False,
         )
     )
     return app.openapi()

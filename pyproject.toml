@@ -97,6 +97,9 @@ where = ["src"]
 # would differ from the openapi.json this repository locks in CI.
 [tool.setuptools.package-data]
 "yfin.api.core" = ["examples/*.json"]
+# The Vite build. Gitignored (`dist/`) and produced by `npm run build` in
+# web/; without it a wheel serves /ui/api but no page, and logs why.
+"yfin.ui" = ["static/dist/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

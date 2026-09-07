@@ -1,0 +1,17 @@
+:root { color-scheme: dark; --bg: #0b0e11; --fg: #d7dde3; --muted: #7f8a96; --line: #1f262e; --accent: #f2b544; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 ui-monospace, "SF Mono", Menlo, monospace; }
+.shell { display: flex; flex-direction: column; height: 100vh; }
+.command-bar { border-bottom: 1px solid var(--line); padding: 6px 10px; }
+.command-bar input { width: 100%; background: transparent; border: 0; color: var(--accent); font: inherit; outline: none; text-transform: uppercase; }
+.strip { display: flex; gap: 16px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.strip-symbol { color: var(--accent); font-weight: 600; }
+.panel { flex: 1; overflow: auto; padding: 10px; }
+.muted { color: var(--muted); }
+.error { color: #ff6b6b; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: grid; place-items: center; }
+.modal { background: #12171d; border: 1px solid var(--line); padding: 20px 24px; display: grid; gap: 10px; min-width: 280px; }
+.modal input { font: inherit; padding: 6px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); }
+.modal button { font: inherit; padding: 6px 10px; background: var(--accent); color: #000; border: 0; cursor: pointer; }
+dl.des { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
+dl.des dt { color: var(--muted); }

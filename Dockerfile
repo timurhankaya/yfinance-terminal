@@ -28,6 +28,19 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --extra api
 
 
+# The browser UI. Built here so the runtime image needs no Node; the
+# output lands where the Python package expects it (pyproject:
+# package-data "yfin.ui" = static/dist/**).
+FROM node:22-slim AS web
+
+WORKDIR /app/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web ./
+# vite.config.ts writes to ../src/yfin/ui/static/dist, i.e. /app/src/...
+RUN npm run build
+
+
 FROM python:3.13-slim-bookworm AS runtime
 
 # Not root. The API reads a database and answers HTTP; nothing it does
@@ -38,6 +51,7 @@ RUN groupadd --system yfin && useradd --system --gid yfin --home /app yfin
 WORKDIR /app
 COPY --from=builder --chown=yfin:yfin /app/.venv /app/.venv
 COPY --from=builder --chown=yfin:yfin /app/src /app/src
+COPY --from=web --chown=yfin:yfin /app/src/yfin/ui/static/dist /app/src/yfin/ui/static/dist
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

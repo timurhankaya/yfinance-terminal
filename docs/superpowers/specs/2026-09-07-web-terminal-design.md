@@ -64,6 +64,7 @@ Sürümler npm/PyPI'dan okundu.
 | Tablo | `@tanstack/react-table` (FA) + `@tanstack/react-virtual` (QR) | 9.2 / 3.14, MIT | Headless. QR düz sanallaştırılmış liste, yalnız `react-virtual`; FA çok sütunlu tablo, `react-table`. AG Grid faz 1'de gerekmez. |
 | Komut paleti | `cmdk` + `react-hotkeys-hook` | 1.1 / 5.3, MIT | Scope'lu kısayol. kbar 1.0 Ağustos 2026'da çıktı, olgunlaşmamış. |
 | Durum | `@tanstack/react-query` + `zustand` | 5.102 / 5.0, MIT | REST için Query; canlı store için Zustand seçici abonelik. |
+| Yönlendirme | `react-router` | 7.x, MIT | URL ↔ `(symbol, code, args)` eşlemesi ve history tabanlı gezinme. 1a'da REST çağrıları `useState` + `fetch` ile; Query'ye geçiş 1b'nin kararı. |
 | Canlı taşıma | FastAPI WebSocket + Redis pub/sub | -- | Çift yönlü abonelik; SSE abonelik değişikliği için ayrı REST ister. PG LISTEN/NOTIFY 8 kB sınırı ve bağlantı maliyeti yüzünden reddedildi. Kafka opsiyonel extra, UI için zorunlu kılınmaz. |
 
 Faz 2 yerleşimi için aday `dockview` 8.2 (MIT, `toJSON/fromJSON`);
@@ -339,14 +340,18 @@ gösterir.
   karşılaştırma; başarı 204 + `Set-Cookie: yfin_ui`; hata mevcut
   problem gövdesi.
 - Çerez JWT claims: `iss` (mevcut), `aud="yfin-ui"`, `iat`, `exp`
-  (+24 saat, kayan yenileme yok), `jti` (login'de 128 bit rastgele).
-  `sub` yok. `session.py` kendi `jwt.decode(audience="yfin-ui",
-  options={"require": ["exp","iat","jti"]})`'unu yazar; mevcut `verify`
-  `sid`/`epc` istediği için yeniden kullanılamaz. Mevcut `verify`
-  `audience=jwt_audience` doğruladığından UI çerezi Bearer olarak
-  reddedilir; ters yön `aud` uyuşmazlığıyla reddedilir.
+  (+24 saat, kayan yenileme yok), `jti` (login'de 128 bit rastgele),
+  `pwf` (şifrenin SHA-256 parmak izinin ilk 16 hex karakteri). `sub`
+  yok. `session.py` kendi `jwt.decode(audience="yfin-ui",
+  options={"require": ["exp","iat","jti","pwf"]})`'unu yazar; mevcut
+  `verify` `sid`/`epc` istediği için yeniden kullanılamaz. Mevcut
+  `verify` `audience=jwt_audience` doğruladığından UI çerezi Bearer
+  olarak reddedilir; ters yön `aud` uyuşmazlığıyla reddedilir. Şifre
+  değiştirilince tüm oturumlar anında geçersiz olur (tek operatörün
+  sahip olduğu tek olay müdahalesi budur); `jwt_signing_key`
+  rotasyonu ise ayrıca her `/v1` token'ını da öldürür.
 - `POST /ui/api/logout` çerezi siler. `GET /ui/api/me` her zaman 200:
-  `{"authenticated": bool, "expires_at": iso|null, "live_enabled": bool}`.
+  `{"authenticated": bool, "expires_at": <UNIX epoch saniye>|null, "live_enabled": bool}`.
 - Çerez: `HttpOnly`, `SameSite=Lax`, `Path=/`; `Secure` yalnız
   `public_base_url` https ise. `public_base_url` boşken çerez düz HTTP'de
   gider; self-host tek kullanıcı için kabul edilir ve README'de yazar.
