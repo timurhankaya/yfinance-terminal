@@ -71,7 +71,14 @@ _EPOCH_HIGH = 4_102_444_800
 
 def normalize_symbol(symbol: str) -> str:
     """One canonical form. With COLLATE "C" this makes 'aapl'/'AAPL'
-    collisions impossible."""
+    collisions impossible.
+
+    Both boundaries call this, and that is the point: the read API used to
+    carry its own `_normalise_symbol` with a byte-identical body, so the
+    rule that decides whether a caller's `aapl` finds the row written as
+    `AAPL` was written down twice, in two packages, with nothing keeping
+    them in step.
+    """
     return symbol.strip().upper()
 
 
@@ -175,16 +182,26 @@ def to_datetime_utc(value: Any) -> datetime | None:
         aware: datetime = ts.to_pydatetime()
         return aware
     if isinstance(value, datetime):
-        # A naive value is treated as UTC (documented contract) and marked
-        # explicit; otherwise a naive value would go into the `timestamptz`
-        # column and psycopg would interpret it by connection TZ -- the
-        # result comes out right but the type inconsistency persists.
-        if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value.astimezone(UTC)
+        return utc_aware(value)
     if isinstance(value, date):
         return datetime(value.year, value.month, value.day, tzinfo=UTC)
     return None
+
+
+def utc_aware(value: datetime) -> datetime:
+    """UTC-aware; a naive value is treated as already UTC.
+
+    The naive case is a documented contract, not a guess. Writing a naive
+    value into a `timestamptz` column leaves the interpretation to
+    psycopg's connection timezone -- the result usually comes out right,
+    and comparison and storage still operate at different awareness
+    levels.
+
+    Two copies of this existed, here and in `datasets/bars.py`; the rule
+    that decides what a naive timestamp MEANS is not something to write
+    down twice.
+    """
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def to_local_date(value: Any) -> date | None:

@@ -12,7 +12,6 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import Engine
-from sqlalchemy.orm import sessionmaker
 
 from yfin.core.config import Settings, get_settings
 from yfin.core.errors import PROXY_FAULT_KINDS, DatasetOutOfScope, ErrorKind, classify_error
@@ -34,7 +33,7 @@ from yfin.pipeline.contracts import ProxyTracker
 from yfin.pipeline.payload import SymbolPayload
 from yfin.pipeline.persist import mark_unknown, persist_with_retry
 from yfin.pipeline.readers import GapReader, ScopeReader, WatermarkReader
-from yfin.storage.db import advisory_lock
+from yfin.storage.db import advisory_lock, session_factory
 
 log = get_logger(__name__)
 
@@ -206,7 +205,7 @@ def run_shard(
     process fan-out around it.
     """
     cfg = settings or get_settings()
-    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+    factory = session_factory(engine)
     watermarks = WatermarkReader(factory)
     # Scope set is read once per run; open gaps are queried per symbol
     # since they're symbol-specific.
@@ -378,7 +377,7 @@ def run_sync(
     # become indistinguishable, in the direction that reports success.
     configure_yfinance(settings=cfg)
 
-    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+    factory = session_factory(engine)
     run_id = open_run(
         factory,
         symbol_count=len(symbols),

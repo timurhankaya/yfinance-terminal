@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.core.config import Settings, get_settings
 
@@ -99,6 +100,23 @@ def create_db_engine(
             "options": " ".join(options),
         },
     )
+
+
+def session_factory(engine: Engine) -> sessionmaker[Session]:
+    """The one session shape this process uses.
+
+    There were eleven `sessionmaker(...)` calls and four different shapes
+    among them: six passed `expire_on_commit=False, future=True`, three in
+    `stream/runner.py` left `future` off, and one in the CLI passed neither
+    -- so whether an object was still readable after `commit()` depended on
+    which file had opened the session.
+
+    `expire_on_commit=False` is the load-bearing half. The pipeline reads
+    attributes off ORM objects after committing (the audit path does this
+    on every run), and the default would re-query for each one, or fail
+    outright once the session is closed.
+    """
+    return sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
 
 class LockNotAcquired(RuntimeError):

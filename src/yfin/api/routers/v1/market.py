@@ -40,6 +40,7 @@ from yfin.api.schemas.market import (
 from yfin.api.storage import cursor as cursors
 from yfin.api.storage import limits, reads
 from yfin.api.storage.session import session_scope
+from yfin.core import normalize as nz
 from yfin.core.families import DataFamily
 from yfin.models import ReadableInterval
 
@@ -167,13 +168,6 @@ def _refuse_window(problem: tuple[limits.WindowProblem, str] | None) -> None:
     raise ApiProblem(422, _WINDOW_TYPES[kind], "Unacceptable time range", detail=detail)
 
 
-def _normalise_symbol(symbol: str) -> str:
-    """Symbol columns are COLLATE "C", so `aapl` and `AAPL` are different
-    values in the database. Normalising at the boundary keeps that from
-    becoming the caller's problem."""
-    return symbol.strip().upper()
-
-
 # --- symbols ----------------------------------------------------------------
 
 
@@ -275,7 +269,7 @@ def get_symbol(
     """One symbol's identity, plus the newest snapshot the pipeline holds
     for it. `info` is null for a symbol discovery found but never synced."""
     limits.apply_statement_timeout(session)
-    code = _normalise_symbol(symbol)
+    code = nz.normalize_symbol(symbol)
     row = reads.get_symbol(session, code)
     if row is None:
         raise ApiProblem(404, TYPE_NOT_FOUND, "No such symbol")
@@ -340,7 +334,7 @@ def list_bars(
     rejected rather than ignored.
     """
     limits.apply_statement_timeout(session)
-    code = _normalise_symbol(symbol)
+    code = nz.normalize_symbol(symbol)
 
     # No membership check: the annotation is the check, and it is what puts
     # the list in the document. The hand-rolled version refused the same
@@ -456,7 +450,7 @@ def list_actions(
     dividend, a ratio for a split.
     """
     limits.apply_statement_timeout(session)
-    code = _normalise_symbol(symbol)
+    code = nz.normalize_symbol(symbol)
 
     window_start, window_end = limits.resolve_window(
         interval="1mo",
@@ -548,7 +542,7 @@ def list_financials(
     query cannot use the leading columns of its own primary key.
     """
     limits.apply_statement_timeout(session)
-    code = _normalise_symbol(symbol)
+    code = nz.normalize_symbol(symbol)
 
     if not reads.symbol_exists(session, code):
         raise ApiProblem(404, TYPE_NOT_FOUND, "No such symbol")

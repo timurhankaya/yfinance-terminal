@@ -159,7 +159,9 @@ def engine() -> Engine:
 
 
 def session_factory() -> sessionmaker[Session]:
-    return sessionmaker(bind=engine(), expire_on_commit=False, future=True)
+    from yfin.storage.db import session_factory as make
+
+    return make(engine())
 
 
 def echo_tally(tally: Any) -> None:

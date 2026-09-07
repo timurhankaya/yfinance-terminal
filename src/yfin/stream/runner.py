@@ -23,12 +23,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from sqlalchemy import Engine
-from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.core.config import Settings
 from yfin.core.logging_setup import get_logger
 from yfin.models.stream import StreamStatus
-from yfin.storage.db import advisory_lock
+from yfin.storage.db import advisory_lock, session_factory
 from yfin.stream.repository import STREAM_LOCK_NAME, StreamRepository
 from yfin.stream.supervisor import StreamSupervisor, SupervisorConfig
 from yfin.stream.writer import StreamWriter, WriterConfig
@@ -172,8 +171,8 @@ def run_stream(
         )
 
     stop = stop or threading.Event()
-    session_factory = sessionmaker(engine, expire_on_commit=False)
-    repository = StreamRepository(session_factory)
+    factory = session_factory(engine)
+    repository = StreamRepository(factory)
 
     with advisory_lock(engine, STREAM_LOCK_NAME):
         # A previous process killed hard leaves its session `running`
@@ -185,7 +184,7 @@ def run_stream(
 
         supervisor = StreamSupervisor(repository, config=supervisor_config(settings))
         writer = StreamWriter(
-            supervisor, repository, session_factory, config=writer_config(settings)
+            supervisor, repository, factory, config=writer_config(settings)
         )
         thread = threading.Thread(target=writer.run, name="yfin-stream-writer", daemon=True)
         thread.start()
@@ -219,8 +218,5 @@ def _null_context() -> Iterator[None]:
 
 def build_repository(engine: Engine) -> StreamRepository:
     """For the read-only CLI commands, which need no lock."""
-    return StreamRepository(sessionmaker(engine, expire_on_commit=False))
+    return StreamRepository(session_factory(engine))
 
-
-def session_factory_for(engine: Engine) -> sessionmaker[Session]:
-    return sessionmaker(engine, expire_on_commit=False)

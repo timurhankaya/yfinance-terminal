@@ -14,7 +14,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.core.config import get_settings
-from yfin.storage.db import create_db_engine
+from yfin.storage.db import create_db_engine, session_factory
 
 
 @functools.lru_cache(maxsize=1)
@@ -24,7 +24,7 @@ def get_engine() -> Engine:
 
 @functools.lru_cache(maxsize=1)
 def get_session_factory() -> sessionmaker[Session]:
-    return sessionmaker(bind=get_engine(), expire_on_commit=False, future=True)
+    return session_factory(get_engine())
 
 
 def session_scope() -> Iterator[Session]:

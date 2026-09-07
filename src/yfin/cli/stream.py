@@ -319,7 +319,7 @@ def stream_relay(
     from yfin.outbox.relay import OutboxRelay, RelayConfig
     from yfin.outbox.spec import TICK_OUTBOX
     from yfin.storage.db import advisory_lock
-    from yfin.stream.runner import session_factory_for
+    from yfin.storage.db import session_factory as session_factory_for
 
     settings = get_settings()
     if not settings.yf_kafka_enabled:
@@ -389,8 +389,8 @@ def stream_reconcile(
     from sqlalchemy import Engine
 
     from yfin.storage.db import SYNC_LOCK_NAME, advisory_lock
+    from yfin.storage.db import session_factory as session_factory_for
     from yfin.stream.reconcile import reconcile_gaps
-    from yfin.stream.runner import session_factory_for
 
     engine = _engine()
     assert isinstance(engine, Engine)

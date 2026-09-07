@@ -432,7 +432,7 @@ def _resolve_writes(raw: BarPayload, symbol: str, now: datetime) -> list[TableWr
         # a naive datetime raises TypeError.
         covered = any(
             datetime.combine(w_start, datetime.min.time(), tzinfo=UTC)
-            <= _aware(gap_start)
+            <= nz.utc_aware(gap_start)
             < datetime.combine(w_end, datetime.min.time(), tzinfo=UTC)
             for w_start, w_end in raw.fetched_windows
         )
@@ -442,8 +442,8 @@ def _resolve_writes(raw: BarPayload, symbol: str, now: datetime) -> list[TableWr
             {
                 "symbol": symbol,
                 "bar_interval": raw.interval,
-                "gap_start_utc": _aware(gap_start),
-                "gap_end_utc": _aware(gap_end),
+                "gap_start_utc": nz.utc_aware(gap_start),
+                "gap_end_utc": nz.utc_aware(gap_end),
                 "detected_at": now,
                 "reason": GAP_FETCH_FAILED,
                 "resolved_at": now,
@@ -459,18 +459,6 @@ def _resolve_writes(raw: BarPayload, symbol: str, now: datetime) -> list[TableWr
             update_columns=("resolved_at",),
         )
     ]
-
-
-def _aware(value: datetime) -> datetime:
-    """Converts to UTC-aware; a naive value is treated as already UTC.
-
-    Used to strip the tz instead, back when `bar_gaps.gap_start_utc` was a
-    MySQL DATETIME with no timezone. The column is now `timestamptz`, so
-    writing a naive value would leave interpretation to psycopg's
-    connection timezone -- the result could come out right but comparison
-    and storage would operate at different awareness levels.
-    """
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 class IntervalBarDataset(Dataset[BarPayload]):

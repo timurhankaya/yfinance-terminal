@@ -35,7 +35,7 @@ from yfin.pipeline.audit import (
 from yfin.pipeline.contracts import ProxyTracker
 from yfin.pipeline.single_proxy import setup_single_proxy
 from yfin.pipeline.turn import Turn, run_turn
-from yfin.storage.db import advisory_lock
+from yfin.storage.db import advisory_lock, session_factory
 from yfin.storage.variants import ScreenVariantState
 
 log = get_logger(__name__)
@@ -122,7 +122,7 @@ def run_market_sync(
     window_end = end or window_end
     regions = market_regions(cfg)
 
-    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+    factory = session_factory(engine)
 
     # Market datasets aren't symbol-oriented: queueing and sharding are
     # meaningless here (each dataset is already a single global call).

@@ -43,7 +43,7 @@ from yfin.pipeline.proxy_plan import (
     tracker_for,
 )
 from yfin.pipeline.runner import SymbolSource, list_source, run_shard
-from yfin.storage.db import advisory_lock, create_db_engine
+from yfin.storage.db import advisory_lock, create_db_engine, session_factory
 
 if TYPE_CHECKING:
     from multiprocessing.queues import Queue as MPQueue
@@ -218,7 +218,7 @@ def run_sharded(
     lands on the same rows.
     """
     cfg = settings or get_settings()
-    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+    factory = session_factory(engine)
 
     with advisory_lock(engine):
         with factory() as session:

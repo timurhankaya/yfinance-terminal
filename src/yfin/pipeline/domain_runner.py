@@ -45,7 +45,7 @@ from yfin.pipeline.audit import (
 from yfin.pipeline.contracts import ProxyTracker
 from yfin.pipeline.single_proxy import setup_single_proxy
 from yfin.pipeline.turn import Turn, run_turn
-from yfin.storage.db import advisory_lock
+from yfin.storage.db import advisory_lock, session_factory
 
 log = get_logger(__name__)
 
@@ -224,7 +224,7 @@ def run_domain_sync(
         with advisory_lock(engine, DOMAIN_LOCK_NAME):
             return run_domain_sync(engine, datasets, settings=cfg, acquire_lock=False)
 
-    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+    factory = session_factory(engine)
     proxy_id, proxy_label, tracker = setup_single_proxy(factory, cfg, label="domain")
 
     cache: dict[str, Any] = {}

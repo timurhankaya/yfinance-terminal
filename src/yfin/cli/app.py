@@ -104,7 +104,6 @@ def sync(
     # import made `yfin --help` build the whole dataset registry to print a
     # list of command names.
     from sqlalchemy import select
-    from sqlalchemy.orm import sessionmaker
 
     from yfin.core import normalize as nz
     from yfin.datasets import SYMBOL_DATASETS
@@ -112,7 +111,11 @@ def sync(
     from yfin.pipeline.audit import EXIT_LOCK_NOT_ACQUIRED, EXIT_NO_PROXY
     from yfin.pipeline.proxy_plan import NoEligibleProxy
     from yfin.pipeline.shard import run_sharded
-    from yfin.storage.db import LockNotAcquired, create_db_engine
+    from yfin.storage.db import (
+        LockNotAcquired,
+        create_db_engine,
+    )
+    from yfin.storage.db import session_factory as session_factory_for
 
     settings = get_settings()
     configure_logging(settings.log_level)
@@ -153,7 +156,7 @@ def sync(
         stmt = select(Symbol.symbol).order_by(Symbol.symbol)
         if not include_inactive:
             stmt = stmt.where(Symbol.is_active.is_(True))
-        with sessionmaker(bind=engine)() as session:
+        with session_factory_for(engine)() as session:
             if filtered:
                 codes = filtered_symbols(
                     session, stmt, exchanges=exchanges, quote_types=quote_types, suffix=suffix

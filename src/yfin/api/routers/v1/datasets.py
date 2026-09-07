@@ -38,6 +38,7 @@ from yfin.api.schemas.common import Collection
 from yfin.api.storage import catalog, limits
 from yfin.api.storage import cursor as cursors
 from yfin.api.storage.session import session_scope
+from yfin.core import normalize as nz
 from yfin.core.families import META_FAMILY
 from yfin.storage.wire import wire_type
 
@@ -222,7 +223,7 @@ def read_dataset(
     limits.apply_statement_timeout(session)
 
     filters = _filters(request, entry)
-    code = symbol.strip().upper() if symbol else None
+    code = nz.normalize_symbol(symbol) if symbol else None
     if entry.has_symbol and code is None and not entry.exposure.symbol_optional:
         raise ApiProblem(
             422,
