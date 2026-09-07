@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.datasets.base import NormalizedResult, SyncContext
 from yfin.datasets.common import data_columns, snapshot_rows, warn_unmapped
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import FastInfoPayload
 from yfin.datasets.registry import register
 from yfin.datasets.snapshot_base import SnapshotDataset
@@ -22,6 +24,23 @@ class FastInfoDataset(SnapshotDataset[FastInfoPayload]):
     produces = ("ticker_fast_info", "ticker_fast_info_history")
     snapshot_table = "ticker_fast_info"
     history_table = "ticker_fast_info_history"
+    api = (
+        ApiExposure(
+            name="fast_info",
+            family=DataFamily.REFERENCE,
+            table="ticker_fast_info",
+            sort_key=("symbol",),
+            description="Latest lightweight quote snapshot.",
+        ),
+        ApiExposure(
+            name="fast_info_history",
+            family=DataFamily.REFERENCE,
+            table="ticker_fast_info_history",
+            sort_key=("fetched_at",),
+            descending=True,
+            description="Point-in-time history of the quote snapshot.",
+        ),
+    )
 
     def fetch(self, ctx: SyncContext) -> FastInfoPayload:
         return FastInfoPayload(fast_info=fetch_fast_info(ctx), fetched_at=ctx.fetched_at)

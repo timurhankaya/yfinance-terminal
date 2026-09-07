@@ -151,6 +151,24 @@ class SearchDataset(DiscoveryDataset[SearchPayload]):
             symbol_optional=True,
             description="Symbols a free-text search returned.",
         ),
+        ApiExposure(
+            name="search_lists",
+            family=DataFamily.DISCOVERY,
+            table="search_lists",
+            sort_key=("as_of_date", "query_term", "list_key"),
+            descending=True,
+            filters=("query_term",),
+            description="Curated lists a search returned.",
+        ),
+        ApiExposure(
+            name="search_report_hits",
+            family=DataFamily.DISCOVERY,
+            table="search_report_hits",
+            sort_key=("as_of_date", "query_term", "report_id"),
+            descending=True,
+            filters=("query_term",),
+            description="Research reports a search returned.",
+        ),
     )
 
     def fetch(self, ctx: SyncContext) -> SearchPayload:

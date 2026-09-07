@@ -139,3 +139,42 @@ def test_no_published_scope_grants_access_to_NOTHING() -> None:
     curated = {DataFamily.REFERENCE, DataFamily.BARS, DataFamily.FUNDAMENTALS}
     served = {entry.family for entry in CATALOG.values()} | curated
     assert set(DataFamily) - served == set()
+
+
+#: Tables that must never be readable, and why. Operational rows are not
+#: product data: `proxies` carries credentials, `settings` carries the
+#: pipeline's configuration, the gate tables are internal bookkeeping, and
+#: the sync audit is an operator's record of our own runs.
+NEVER_EXPOSED = {
+    "proxies",
+    "settings",
+    "asof_state",
+    "domain_asof_state",
+    "discovery_asof_state",
+    "sync_runs",
+    "sync_run_items",
+    "bar_gaps",
+    "bar_rescales",
+    "intraday_scope",
+    "alembic_version",
+}
+
+
+def test_no_operational_table_is_reachable() -> None:
+    """A dataset could point an exposure at any table its `produces` lists,
+    and `sec_filings` already lists two. Nothing stops a future one from
+    naming an operational table except this."""
+    from yfin.api.storage.catalog import CATALOG
+
+    exposed = {entry.table.name for entry in CATALOG.values()}
+    assert exposed & NEVER_EXPOSED == set()
+
+
+def test_the_api_owns_tables_are_not_readable_either() -> None:
+    """Client ids, secret hashes, plans and usage counters are the API's
+    own bookkeeping. A generic surface over them would hand one client the
+    credentials of another."""
+    from yfin.api.storage.catalog import CATALOG
+
+    exposed = {entry.table.name for entry in CATALOG.values()}
+    assert {name for name in exposed if name.startswith("api_")} == set()

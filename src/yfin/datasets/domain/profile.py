@@ -284,6 +284,15 @@ class SectorProfileDataset(_DomainProfileDataset):
             descending=True,
             description="Research reports linked to sectors and industries.",
         ),
+        ApiExposure(
+            name="domain_report_links",
+            family=DataFamily.DOMAINS,
+            table="domain_report_links",
+            sort_key=("as_of_date", "domain_key", "report_id"),
+            descending=True,
+            filters=("domain_key",),
+            description="Which research reports belong to which domain.",
+        ),
     )
 
 

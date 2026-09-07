@@ -199,6 +199,15 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
             descending=True,
             description="Quote snapshot captured with a screen run.",
         ),
+        ApiExposure(
+            name="screen_runs",
+            family=DataFamily.DISCOVERY,
+            table="screen_runs",
+            sort_key=("as_of_date", "screen_key"),
+            descending=True,
+            filters=("screen_key",),
+            description="When a screen last ran and how many it matched.",
+        ),
     )
 
     gate_table = GATE_TABLE

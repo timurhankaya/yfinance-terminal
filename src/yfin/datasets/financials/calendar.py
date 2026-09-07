@@ -11,8 +11,10 @@ from __future__ import annotations
 from typing import Any
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult, SyncContext
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import CalendarPayload
 from yfin.datasets.registry import register
 from yfin.datasets.snapshot_base import SnapshotDataset
@@ -46,6 +48,23 @@ class CalendarDataset(SnapshotDataset[CalendarPayload]):
     snapshot_table = "ticker_calendar"
     history_table = "ticker_calendar_history"
     key_columns = ("symbol",)
+    api = (
+        ApiExposure(
+            name="ticker_calendar",
+            family=DataFamily.FUNDAMENTALS,
+            table="ticker_calendar",
+            sort_key=("symbol",),
+            description="Next dividend and earnings dates for one symbol.",
+        ),
+        ApiExposure(
+            name="ticker_calendar_history",
+            family=DataFamily.FUNDAMENTALS,
+            table="ticker_calendar_history",
+            sort_key=("fetched_at",),
+            descending=True,
+            description="Point-in-time history of those dates.",
+        ),
+    )
 
     def fetch(self, ctx: SyncContext) -> CalendarPayload:
         # A symbol with no company returns 404 -> empty.

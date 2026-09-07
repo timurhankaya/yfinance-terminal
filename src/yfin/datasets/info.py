@@ -5,8 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from yfin.core import normalize as nz
+from yfin.core.families import DataFamily
 from yfin.datasets.base import NormalizedResult, SyncContext
 from yfin.datasets.common import data_columns, snapshot_rows, warn_unmapped
+from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import InfoPayload
 from yfin.datasets.registry import register
 from yfin.datasets.snapshot_base import SnapshotDataset
@@ -71,6 +73,25 @@ class InfoDataset(SnapshotDataset[InfoPayload]):
     produces = ("ticker_info", "ticker_info_history", "company_officers")
     snapshot_table = "ticker_info"
     history_table = "ticker_info_history"
+    # The snapshot itself is served by /v1/symbols/{symbol}; what was
+    # unreachable is the officer roster and the point-in-time history.
+    api = (
+        ApiExposure(
+            name="company_officers",
+            family=DataFamily.REFERENCE,
+            table="company_officers",
+            sort_key=("name",),
+            description="Named officers and their compensation.",
+        ),
+        ApiExposure(
+            name="info_history",
+            family=DataFamily.REFERENCE,
+            table="ticker_info_history",
+            sort_key=("fetched_at",),
+            descending=True,
+            description="Point-in-time history of the identity snapshot.",
+        ),
+    )
 
     def fetch(self, ctx: SyncContext) -> InfoPayload:
         info = ctx.cached(

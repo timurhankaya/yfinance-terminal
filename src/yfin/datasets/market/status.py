@@ -105,6 +105,15 @@ class MarketStatusDataset(SnapshotGlobalDataset[MarketStatusPayload]):
             sort_key=("region",),
             description="Whether each regional market is open, and when it next changes.",
         ),
+        ApiExposure(
+            name="market_status_history",
+            family=DataFamily.REFERENCE,
+            table="market_status_history",
+            sort_key=("fetched_at", "region"),
+            descending=True,
+            filters=("region",),
+            description="Point-in-time history of market open/closed state.",
+        ),
     )
 
     def fetch(self, mctx: MarketContext) -> MarketStatusPayload:
@@ -174,6 +183,15 @@ class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
             symbol_optional=True,
             filters=("region",),
             description="Headline index quotes per region.",
+        ),
+        ApiExposure(
+            name="market_summary_history",
+            family=DataFamily.REFERENCE,
+            table="market_summary_history",
+            sort_key=("fetched_at", "region", "board_code"),
+            descending=True,
+            filters=("region",),
+            description="Point-in-time history of headline index quotes.",
         ),
     )
 

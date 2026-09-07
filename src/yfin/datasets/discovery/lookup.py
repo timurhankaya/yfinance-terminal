@@ -143,6 +143,15 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
             symbol_optional=True,
             description="Symbols a lookup query returned.",
         ),
+        ApiExposure(
+            name="lookup_totals",
+            family=DataFamily.DISCOVERY,
+            table="lookup_totals",
+            sort_key=("as_of_date", "query_term", "lookup_type"),
+            descending=True,
+            filters=("query_term", "lookup_type"),
+            description="How many results a lookup had, by type.",
+        ),
     )
 
     def fetch(self, ctx: SyncContext) -> LookupPayload:

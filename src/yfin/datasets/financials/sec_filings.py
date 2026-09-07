@@ -61,6 +61,15 @@ class SecFilingsDataset(Dataset[SecFilingsPayload]):
             filters=("filing_type",),
             description="SEC filings, newest first.",
         ),
+        ApiExposure(
+            name="sec_filing_exhibits",
+            family=DataFamily.FUNDAMENTALS,
+            table="sec_filing_exhibits",
+            sort_key=("filing_id", "exhibit_type", "url_hash"),
+            descending=True,
+            filters=("exhibit_type",),
+            description="Documents attached to a filing.",
+        ),
     )
 
     def fetch(self, ctx: SyncContext) -> SecFilingsPayload:
