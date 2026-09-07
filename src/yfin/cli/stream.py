@@ -81,12 +81,15 @@ def stream_run() -> None:
 
 @stream_app.command("status")
 def stream_status() -> None:
-    """Connection health, subscription sizes and staleness.
+    """Connection health, subscription sizes, staleness and relay lag.
 
     The `stale` column is the one to read first. Connection rows keep
     whatever state they had when the process stopped, so a killed process
     leaves them saying `open` -- only the heartbeat age reveals that
     nothing is running.
+
+    Relay lag is reported only when Kafka is enabled; a growing row count
+    means the relay is behind, a growing age means it is stopped.
     """
     from sqlalchemy import Engine
 
@@ -123,7 +126,8 @@ def stream_status() -> None:
                 f"the subscription may be truncated"
             )
 
-    with _factory()() as session:
+    factory = _factory()
+    with factory() as session:
         scoped = session.execute(
             select(func.count()).select_from(StreamScope).where(StreamScope.enabled)
         ).scalar_one()
@@ -133,6 +137,18 @@ def stream_status() -> None:
             )
         ).scalar_one()
     typer.echo(f"\nscope: {scoped} symbol(s) enabled; running sessions: {pending}")
+
+    if settings.yf_kafka_enabled:
+        # Only with Kafka on: with the relay off by design, a permanently
+        # growing backlog is the expected state and reporting it as a
+        # number to worry about would be noise.
+        from yfin.stream.relay import relay_lag
+
+        unpublished, oldest_seconds = relay_lag(factory)
+        typer.echo(
+            f"relay: {unpublished} row(s) unpublished; "
+            f"oldest {oldest_seconds}s behind"
+        )
 
 
 def _ago(value: object) -> str:
