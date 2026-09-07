@@ -139,11 +139,14 @@ def symbols_purge(
     force: Annotated[bool, typer.Option("--force", help="Hard delete; data loss")] = False,
 ) -> None:
     """Hard delete. Related rows are deleted explicitly, in order, because of
-    ON DELETE RESTRICT."""
-    from sqlalchemy import delete
+    ON DELETE RESTRICT.
 
+    The order and the deletes themselves live in `storage/purge.py`: they are
+    write mechanics, and the change collector has to see them -- a consumer
+    mirroring the archive keeps rows that exist nowhere otherwise.
+    """
     from yfin.core import normalize as nz
-    from yfin.models import Base, NewsSymbol, Symbol, symbol_scoped_tables
+    from yfin.storage.purge import purge_symbol
 
     code = nz.normalize_symbol(symbol)
     if not force:
@@ -152,13 +155,10 @@ def symbols_purge(
 
     factory = session_factory()
     with factory() as session:
-        for name in symbol_scoped_tables():
-            table = Base.metadata.tables[name]
-            session.execute(delete(table).where(table.c["symbol"] == code))
-        session.execute(delete(NewsSymbol).where(NewsSymbol.symbol == code))
-        session.execute(delete(Symbol).where(Symbol.symbol == code))
+        removed = purge_symbol(session, code)
         session.commit()
-    typer.echo(f"deleted: {code}")
+    total = sum(removed.values())
+    typer.echo(f"deleted: {code} ({total} row(s) across {len(removed)} table(s))")
 
 
 @symbols_app.command("activate")

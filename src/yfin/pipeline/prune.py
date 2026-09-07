@@ -31,6 +31,9 @@ from sqlalchemy.orm import Session
 
 from yfin.models import Base, News, NewsSymbol
 from yfin.models.market import CALENDAR_TIME_COLUMNS
+from yfin.storage.changes import ChangeCollector
+from yfin.storage.db import rowcount
+from yfin.storage.purge import delete_rows
 
 # Defaults for the symbol side; parameterized to also serve the domain side.
 # Not imported from the `datasets` package at module level (circular import),
@@ -204,6 +207,7 @@ def prune_asof(
     registry: Any = None,
     gate_table: str = _DEFAULT_GATE,
     scope_column: str = _DEFAULT_SCOPE_COLUMN,
+    collector: ChangeCollector | None = None,
 ) -> dict[str, int]:
     """Delete as-of rows older than `before`; the latest day is always kept.
 
@@ -242,12 +246,16 @@ def prune_asof(
             stmt = select(func.count()).select_from(table).where(where)
             removed[name] = int(session.execute(stmt).scalar_one())
             continue
-        deleted = session.execute(table.delete().where(where))
-        removed[name] = int(deleted.rowcount)  # type: ignore[attr-defined]
+        removed[name] = delete_rows(session, table, where, collector=collector)
     return removed
 
 
-def prune_orphan_reports(session: Session, *, dry_run: bool = False) -> int:
+def prune_orphan_reports(
+    session: Session,
+    *,
+    dry_run: bool = False,
+    collector: ChangeCollector | None = None,
+) -> int:
     """Delete reports with no remaining link in `domain_report_links`.
 
     `research_reports` is never pruned, but as `domain_report_links` gets
@@ -270,22 +278,33 @@ def prune_orphan_reports(session: Session, *, dry_run: bool = False) -> int:
     if dry_run:
         stmt = select(func.count()).select_from(ResearchReport).where(unlinked)
         return int(session.execute(stmt).scalar_one())
-    result = session.execute(delete(ResearchReport).where(unlinked))
-    return int(result.rowcount)  # type: ignore[attr-defined]
+    return delete_rows(
+        session, Base.metadata.tables["research_reports"], unlinked, collector=collector
+    )
 
 
-def prune_orphan_news(session: Session, *, dry_run: bool = False) -> int:
+def prune_orphan_news(
+    session: Session,
+    *,
+    dry_run: bool = False,
+    collector: ChangeCollector | None = None,
+) -> int:
     """Delete news rows with no remaining link in news_symbols."""
     linked = select(NewsSymbol.news_id)
     if dry_run:
         stmt = select(func.count()).select_from(News).where(News.news_id.not_in(linked))
         return int(session.execute(stmt).scalar_one())
-    result = session.execute(delete(News).where(News.news_id.not_in(linked)))
-    return int(result.rowcount)  # type: ignore[attr-defined]
+    return delete_rows(
+        session,
+        Base.metadata.tables["news"],
+        News.news_id.not_in(linked),
+        collector=collector,
+    )
 
 
 def _prune_by_time(
-    session: Session, tables: dict[str, str], before: datetime, *, dry_run: bool
+    session: Session, tables: dict[str, str], before: datetime, *, dry_run: bool,
+    collector: ChangeCollector | None = None,
 ) -> dict[str, int]:
     removed: dict[str, int] = {}
     for name, column in tables.items():
@@ -295,28 +314,41 @@ def _prune_by_time(
             stmt = select(func.count()).select_from(table).where(where)
             removed[name] = int(session.execute(stmt).scalar_one())
             continue
-        deleted = session.execute(table.delete().where(where))
-        removed[name] = int(deleted.rowcount)  # type: ignore[attr-defined]
+        removed[name] = delete_rows(session, table, where, collector=collector)
     return removed
 
 
-def prune_calendars(session: Session, before: datetime, *, dry_run: bool = False) -> dict[str, int]:
+def prune_calendars(
+    session: Session,
+    before: datetime,
+    *,
+    dry_run: bool = False,
+    collector: ChangeCollector | None = None,
+) -> dict[str, int]:
     """Delete calendar rows older than `before`.
 
     Calendar tables accumulate and are symbol-independent, so they can't be
     cleaned via an FK; this is the only cleanup path.
     """
-    return _prune_by_time(session, CALENDAR_TIME_COLUMNS, before, dry_run=dry_run)
+    return _prune_by_time(
+        session, CALENDAR_TIME_COLUMNS, before, dry_run=dry_run, collector=collector
+    )
 
 
-def prune_history(session: Session, before: datetime, *, dry_run: bool = False) -> dict[str, int]:
+def prune_history(
+    session: Session,
+    before: datetime,
+    *,
+    dry_run: bool = False,
+    collector: ChangeCollector | None = None,
+) -> dict[str, int]:
     """Delete `_history` snapshots older than `before`.
 
     `market_summary_history` grows fastest: its price changes every run, so
     the content_hash gate never filters it out.
     """
     tables = dict.fromkeys(history_tables(), "fetched_at")
-    return _prune_by_time(session, tables, before, dry_run=dry_run)
+    return _prune_by_time(session, tables, before, dry_run=dry_run, collector=collector)
 
 
 def prune_screens(session: Session, before: date, *, dry_run: bool = False) -> dict[str, int]:
@@ -363,7 +395,7 @@ def prune_screens(session: Session, before: date, *, dry_run: bool = False) -> d
                         ScreenMember.screen_key == key, ScreenMember.as_of_date == day
                     )
                 )
-                count += int(result.rowcount)  # type: ignore[attr-defined]
+                count += rowcount(result)
             removed["screen_members"] = count
             session.execute(
                 delete(ScreenRun).where(
@@ -391,7 +423,7 @@ def prune_screens(session: Session, before: date, *, dry_run: bool = False) -> d
     else:
         result = session.execute(delete(screen_quotes).where(quote_cond))
         if result.rowcount:  # type: ignore[attr-defined]
-            removed["screen_quotes"] = int(result.rowcount)  # type: ignore[attr-defined]
+            removed["screen_quotes"] = rowcount(result)
     return removed
 
 
@@ -405,6 +437,7 @@ def run_prune(
     history_before: datetime | None = None,
     asof_before: datetime | None = None,
     dry_run: bool = False,
+    collector: ChangeCollector | None = None,
 ) -> PruneReport:
     """Single entry point for the pruning flow.
 
@@ -418,13 +451,19 @@ def run_prune(
 
     report = PruneReport(dry_run=dry_run)
     if orphan_news:
-        report.orphan_news = prune_orphan_news(session, dry_run=dry_run)
+        report.orphan_news = prune_orphan_news(session, dry_run=dry_run, collector=collector)
     if calendars_before:
-        report.calendars = prune_calendars(session, calendars_before, dry_run=dry_run)
+        report.calendars = prune_calendars(
+            session, calendars_before, dry_run=dry_run, collector=collector
+        )
     if history_before:
-        report.history = prune_history(session, history_before, dry_run=dry_run)
+        report.history = prune_history(
+            session, history_before, dry_run=dry_run, collector=collector
+        )
     if asof_before:
-        report.asof = prune_asof(session, asof_before.date(), dry_run=dry_run)
+        report.asof = prune_asof(
+            session, asof_before.date(), dry_run=dry_run, collector=collector
+        )
         # Second pass, with the domain triple. Grouping by `symbol` would
         # produce the wrong protected scope -- `symbol` in domain tables is
         # the company's symbol.
@@ -437,6 +476,7 @@ def run_prune(
             registry=DOMAIN_DATASETS,
             gate_table="domain_asof_state",
             scope_column="domain_key",
+            collector=collector,
         )
         # Third pass, with the discovery triple. All five discovery tables
         # carry `query_term` + `as_of_date`, and the gate carries `dataset`,
@@ -452,12 +492,15 @@ def run_prune(
             registry=SYMBOL_DATASETS,
             gate_table="discovery_asof_state",
             scope_column="query_term",
+            collector=collector,
         )
         report.screens = prune_screens(session, asof_before.date(), dry_run=dry_run)
     # Orphan report cleanup must come after as-of pruning, since that's the
     # step that removes the link.
     if orphan_reports:
-        report.orphan_reports = prune_orphan_reports(session, dry_run=dry_run)
+        report.orphan_reports = prune_orphan_reports(
+            session, dry_run=dry_run, collector=collector
+        )
     if not dry_run:
         session.commit()
     return report

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import func, select, text
@@ -28,18 +27,9 @@ from sqlalchemy.orm import Session
 from yfin.core.logging_setup import get_logger
 from yfin.models import INTRADAY_INTERVALS, Base
 from yfin.storage.changes import ChangeCollector
+from yfin.storage.db import rowcount
 
 log = get_logger(__name__)
-
-
-def _rowcount(result: Any) -> int:
-    """Rows affected.
-
-    `Session.execute` is statically typed to return `Result`, and `rowcount`
-    is only defined on `CursorResult`; read here once instead of casting
-    everywhere.
-    """
-    return int(getattr(result, "rowcount", 0) or 0)
 
 
 class RescaleSkipped(Exception):
@@ -167,7 +157,7 @@ def seed_baseline(session: Session) -> int:
         ),
         {"now": now},
     )
-    seeded = _rowcount(result)
+    seeded = rowcount(result)
     log.info("rescale baseline seeded", rows=seeded)
     return seeded
 
@@ -244,7 +234,7 @@ def _apply_one(
         ),
         {"symbol": symbol, "split_date": split_day, "ratio": ratio, "now": now},
     )
-    if not _rowcount(claim):
+    if not rowcount(claim):
         return 0  # another session claimed it first
 
     # 1wk/1mo are out of scope: those two intervals are refetched from
@@ -288,7 +278,7 @@ def _apply_one(
         ),
         params,
     )
-    rows = _rowcount(updated)
+    rows = rowcount(updated)
     session.execute(
         text(
             "UPDATE bar_rescales SET rows_affected = :rows "
