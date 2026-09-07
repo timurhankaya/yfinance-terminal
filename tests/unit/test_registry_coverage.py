@@ -89,9 +89,13 @@ def test_no_registering_subpackage_is_left_out_of_the_import_list() -> None:
 def test_the_three_registries_share_no_names() -> None:
     """`yfin datasets` prints all three and the CLI resolves by name; a
     collision would make which one you get depend on lookup order."""
-    symbol = set(SYMBOL_DATASETS.user_visible_names())
-    market = set(MARKET_DATASETS.user_visible_names())
-    domain = set(DOMAIN_DATASETS.user_visible_names())
+    # `all` is excluded: it is a keyword every registry understands as
+    # "everything in THIS one", not a name that could resolve to a
+    # different dataset depending on which registry was asked first.
+    keyword = {"all"}
+    symbol = set(SYMBOL_DATASETS.user_visible_names()) - keyword
+    market = set(MARKET_DATASETS.user_visible_names()) - keyword
+    domain = set(DOMAIN_DATASETS.user_visible_names()) - keyword
     assert not symbol & market
     assert not symbol & domain
     assert not market & domain

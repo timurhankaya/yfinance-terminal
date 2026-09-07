@@ -42,6 +42,10 @@ class Registrable(Protocol):
     api: tuple[ApiExposure, ...]
 
 
+#: The name that expands to every dataset that is not opt-in.
+ALL = "all"
+
+
 class UnknownDatasetError(ValueError):
     pass
 
@@ -168,12 +172,16 @@ class Registry[D: Registrable]:
     def user_visible_names(self) -> list[str]:
         """Names the user can pass to --datasets: registrations (excluding
         bootstrap) + aliases."""
-        visible = set(self._items) | set(self.aliases)
+        visible = set(self._items) | set(self.aliases) | {ALL}
         if self.bootstrap is not None:
             visible -= {self.bootstrap}
         return sorted(visible)
 
     # --- resolution -----------------------------------------------------
+
+    def _default_set(self) -> list[str]:
+        """Everything that is neither the bootstrap nor opt-in."""
+        return [n for n in self._items if n != self.bootstrap and n not in self._opt_in]
 
     def _expand(self, names: Sequence[str]) -> list[str]:
         """Expands aliases, deduplicates while PRESERVING ORDER."""
@@ -181,6 +189,15 @@ class Registry[D: Registrable]:
         for raw in names:
             name = raw.strip()
             if not name:
+                continue
+            if name == ALL:
+                # An ordinary expansion, not a special case. It used to be
+                # recognised only when it stood alone, so `--datasets
+                # all,search` -- the natural way to add an opt-in dataset to
+                # the usual set -- failed as an unknown name, and the list
+                # of valid names in the error did not contain `all` either.
+                for target in self._default_set():
+                    out[target] = None
                 continue
             if name in self.aliases:
                 for target in self.aliases[name]:
@@ -196,12 +213,7 @@ class Registry[D: Registrable]:
         by depends_on, rejects unknown names, catches cycles. If bootstrap
         is defined, it is always prepended.
         """
-        if names is None or not names or (len(names) == 1 and names[0].strip() == "all"):
-            selected = [
-                n for n in self._items if n != self.bootstrap and n not in self._opt_in
-            ]
-        else:
-            selected = self._expand(names)
+        selected = self._default_set() if not names else self._expand(names)
 
         unknown = [n for n in selected if n not in self._items]
         if unknown:

@@ -31,7 +31,12 @@ def test_user_visible_includes_alias_excludes_bootstrap() -> None:
     assert "actions" in names
     assert BOOTSTRAP not in names
     assert "financials" in names
-    assert set(names) == (set(REGISTRY) - {BOOTSTRAP}) | set(ALIASES)
+    # `all` is one of them. It used to be a special case inside `resolve`
+    # rather than a name, so it was missing from the very list the
+    # unknown-name error prints -- a caller who mistyped `all,search` was
+    # told `all` was not valid either.
+    assert "all" in names
+    assert set(names) == (set(REGISTRY) - {BOOTSTRAP}) | set(ALIASES) | {"all"}
 
 
 def test_bootstrap_always_first() -> None:
@@ -271,3 +276,13 @@ def test_a_family_cannot_shadow_an_explicit_alias() -> None:
     registry: Registry[_Member] = Registry(aliases={"things": ("other",)})
     with pytest.raises(ValueError, match="already an explicit alias"):
         registry.register(_Member(), family="things")
+
+
+def test_all_can_be_COMBINED_with_an_opt_in_dataset() -> None:
+    """`--datasets all,search` is the natural way to add an opt-in dataset
+    to the usual set. It used to fail as an unknown name, because `all` was
+    recognised only when it stood alone."""
+    names = [d.name for d in resolve(["all", "search"])]
+    assert "search" in names
+    assert "info" in names
+    assert names.count("search") == 1
