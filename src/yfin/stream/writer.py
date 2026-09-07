@@ -46,7 +46,7 @@ from yfin.core.logging_setup import get_logger
 from yfin.models.stream import LiveQuote, LiveTick
 from yfin.storage.contracts import TableWrite, WriteStats, apply_write
 from yfin.storage.persistence import PostgresRowWriter
-from yfin.stream.rejects import Reject
+from yfin.stream.rejects import REJECT_UNKNOWN_SYMBOL, Reject
 from yfin.stream.repository import StreamRepository
 from yfin.stream.supervisor import StreamSupervisor
 
@@ -319,30 +319,50 @@ class StreamWriter:
         """One batch, one transaction."""
         self._batches += 1
         with self._session_factory() as session:
-            written = self._write_ticks(session, rows)
+            written, unknown = self._write_ticks(session, rows)
             if self._config.kafka_enabled:
                 self._write_outbox(session, rows)
-            self._write_rejects(session, rejects)
+            # The FK filter's casualties go through the same path as every
+            # other reject. They used to be counted nowhere and logged at
+            # debug: a symbol dropped from `symbols` took its whole tick
+            # stream with it and nothing said so. `rows_written` still
+            # agreed with itself, which is exactly why nobody would look.
+            self._write_rejects(session, [*rejects, *unknown])
             if self._batches % self._config.quotes_every_n_batches == 0:
                 self._write_quotes(session)
             session.commit()
         self.rows_written += written
         self._flush_counters(written=written)
 
-    def _write_ticks(self, session: Session, rows: Sequence[dict[str, Any]]) -> int:
+    def _write_ticks(
+        self, session: Session, rows: Sequence[dict[str, Any]]
+    ) -> tuple[int, list[Reject]]:
+        """Rows written, and the ticks the foreign key would not accept."""
         if not rows:
-            return 0
+            return 0, []
 
         # The FK filter runs before anything touches the table: one
         # unknown symbol would otherwise abort the statement and take the
         # whole batch with it.
         known = self._filter.known({row["symbol"] for row in rows})
         accepted = [row for row in rows if row["symbol"] in known]
-        skipped = len(rows) - len(accepted)
-        if skipped:
-            log.debug("ticks skipped for unknown symbols", count=skipped)
+        unknown = [
+            Reject(
+                reason=REJECT_UNKNOWN_SYMBOL,
+                symbol=row["symbol"],
+                detail="no row in symbols; the tick cannot reference one",
+            )
+            for row in rows
+            if row["symbol"] not in known
+        ]
+        if unknown:
+            log.warning(
+                "ticks rejected for unknown symbols",
+                count=len(unknown),
+                symbols=sorted({reject.symbol for reject in unknown if reject.symbol}),
+            )
         if not accepted:
-            return 0
+            return 0, unknown
 
         columns = ", ".join(TICK_COLUMNS)
         # Created once per connection, emptied per batch. `ON COMMIT DROP`
@@ -372,7 +392,7 @@ class StreamWriter:
                 f"ON CONFLICT (symbol, ts_utc, payload_hash) DO NOTHING"
             )
         )
-        return self._verify(session, accepted)
+        return self._verify(session, accepted), unknown
 
     def _verify(self, session: Session, rows: Sequence[dict[str, Any]]) -> int:
         """Counts the keys that are actually present.

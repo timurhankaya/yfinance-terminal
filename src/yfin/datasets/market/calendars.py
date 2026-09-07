@@ -48,6 +48,7 @@ def _fetch_pages(mctx: MarketContext, method: str, **extra: Any) -> pd.DataFrame
     cfg = get_settings()
     calendars = _calendars(mctx)
     frames: list[pd.DataFrame] = []
+    complete = False
     for page in range(cfg.yf_calendar_max_pages):
         offset = page * cfg.yf_calendar_page_limit
         frame = call_yahoo(
@@ -62,8 +63,23 @@ def _fetch_pages(mctx: MarketContext, method: str, **extra: Any) -> pd.DataFrame
             what=f"{method}:{offset}",
         )
         if nz.is_empty_result(frame):
+            complete = True
             break
         frames.append(frame)
+    if not complete:
+        # The cap is reachable in practice: the default window is 37 days
+        # and a US earnings season carries more events than the page budget
+        # allows. Everything past it was dropped with no log, no counter
+        # and no gap row -- the screener admits the same risk out loud
+        # (`screen_runs.total` against `fetched_rows`) and this did not.
+        log.warning(
+            "calendar hit the page cap; events beyond it were not fetched",
+            method=method,
+            max_pages=cfg.yf_calendar_max_pages,
+            page_limit=cfg.yf_calendar_page_limit,
+            start=str(mctx.start),
+            end=str(mctx.end),
+        )
     if not frames:
         return None
     return pd.concat(frames)

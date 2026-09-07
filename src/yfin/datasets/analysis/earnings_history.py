@@ -34,6 +34,7 @@ COLUMNS = (
     ("epsDifference", "eps_difference"),
     ("surprisePercent", "surprise_percent"),
 )
+MAPPED_SOURCES = frozenset(source for source, _ in COLUMNS)
 
 
 class EarningsHistoryDataset(Dataset[RangedFramePayload]):
@@ -64,6 +65,17 @@ class EarningsHistoryDataset(Dataset[RangedFramePayload]):
         if nz.is_empty_result(frame):
             return NormalizedResult()
         assert isinstance(frame, pd.DataFrame)
+
+        # This table has no `raw_json`, so a column Yahoo adds is lost for
+        # good rather than kept and promoted later. Every sibling in this
+        # package says so when it happens; this one was the exception, and
+        # a four-column allowlist has already been caught short once --
+        # `grade_changes` documents finding seven where the docs said four.
+        unmapped = sorted(
+            str(column) for column in frame.columns if str(column) not in MAPPED_SOURCES
+        )
+        if unmapped:
+            log.warning("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
 
         ranged = raw.start is not None or raw.end is not None
         rows: dict[Any, dict[str, Any]] = {}

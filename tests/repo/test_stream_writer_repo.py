@@ -85,7 +85,7 @@ def _count(session: Session) -> int:
 def test_copy_path_writes_rows(writer: StreamWriter, db_session: Session) -> None:
     _seed(db_session, "AAPL")
     with writer._session_factory() as session:
-        written = writer._write_ticks(session, [_row()])
+        written, _ = writer._write_ticks(session, [_row()])
         session.commit()
     assert written == 1
     assert _count(db_session) == 1
@@ -130,7 +130,7 @@ def test_a_batch_writes_in_one_statement(writer: StreamWriter, db_session: Sessi
         _row("AAPL", TS + timedelta(seconds=i), payload_hash=f"{i:016x}") for i in range(50)
     ] + [_row("MSFT", TS, payload_hash="f" * 16)]
     with writer._session_factory() as session:
-        written = writer._write_ticks(session, rows)
+        written, _ = writer._write_ticks(session, rows)
         session.commit()
     assert written == 51
     assert _count(db_session) == 51
@@ -147,7 +147,7 @@ def test_one_unknown_symbol_does_not_lose_the_batch(
     _seed(db_session, "AAPL")
     rows = [_row("AAPL"), _row("NOPE", payload_hash="1" * 16)]
     with writer._session_factory() as session:
-        written = writer._write_ticks(session, rows)
+        written, _ = writer._write_ticks(session, rows)
         session.commit()
     assert written == 1
     assert _count(db_session) == 1
@@ -157,7 +157,12 @@ def test_a_batch_of_only_unknown_symbols_writes_nothing(
     writer: StreamWriter, db_session: Session
 ) -> None:
     with writer._session_factory() as session:
-        assert writer._write_ticks(session, [_row("NOPE")]) == 0
+        written, unknown = writer._write_ticks(session, [_row("NOPE")])
+        assert written == 0
+        # The casualties are reported now, not counted nowhere and logged
+        # at debug: a symbol dropped from `symbols` took its whole tick
+        # stream with it and nothing said so.
+        assert [reject.symbol for reject in unknown] == ["NOPE"]
 
 
 # --- verification ----------------------------------------------------------
@@ -177,7 +182,7 @@ def test_verification_counts_what_is_in_the_table(
         session.commit()
     # Same row again: nothing new is inserted, but the key is present.
     with writer._session_factory() as session:
-        assert writer._write_ticks(session, [_row()]) == 1
+        assert writer._write_ticks(session, [_row()])[0] == 1
 
 
 # --- symbol filter ---------------------------------------------------------
@@ -439,4 +444,4 @@ def test_verification_still_counts_correctly_with_the_range(
     _seed(db_session, "AAPL")
     rows = [_row("AAPL", TS + timedelta(days=i), payload_hash=f"{i:016x}") for i in range(3)]
     with writer._session_factory() as session:
-        assert writer._write_ticks(session, rows) == 3
+        assert writer._write_ticks(session, rows)[0] == 3
