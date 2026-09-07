@@ -13,18 +13,21 @@
 ## Global Constraints
 
 - Committed `openapi.json` **byte-byte değişmez**: her yeni rota `include_in_schema=False`. `uv run python scripts/dump_openapi.py --check` her task sonunda yeşil.
-- `uv run ruff check .`, `uv run mypy` (strict), `uv run pytest -q` her commit öncesi yeşil. Unit testler loopback dışına çıkamaz (`tests/unit/conftest.py`).
+- `uv run ruff check .`, `uv run mypy` (strict), `uv run pytest -q` her commit öncesi yeşil; her task'ın "Lint, tip, kontrat" adımı dördünü birden koşar. Unit testler loopback dışına çıkamaz (`tests/unit/conftest.py`).
+- Testlerde `ApiSettings` her zaman `_env_file=None` ile kurulur ve `jwt_signing_key`, `jwt_kid="k1"`, `jwt_issuer="yfin-api"` açıkça verilir; geliştiricinin `.env` dosyası test sonucunu değiştiremez.
 - Yeni `ApiSettings` alanı `.env.example`'a `YFAPI_<AD>=` satırı olarak **girmek zorunda** (`tests/unit/test_env_example.py::test_every_api_setting_is_documented`).
 - UI rotaları `/ui`, `/ui/t/{path}`, `/ui/assets/*`, `/ui/api/*`. `/ui/api` altında bilinmeyen yol 404 problem gövdesi döner, asla `index.html`.
 - Çerez adı `yfin_ui`; `HttpOnly`, `SameSite=Lax`, `Path=/`; `Secure` yalnız `public_base_url` `https://` ile başlıyorsa. Süre 24 saat.
 - `client_id == "ui"` sentinel; `UI_PAGE_CAP = 1000`; UI istekleri rate/quota/concurrency'nin üçünü de atlar.
 - Login limiti `client_ip` başına dakikada 5 (`LOGIN_ATTEMPTS_PER_MINUTE = 5`), süreç içi `FixedWindow`.
-- CSP (yalnız `index.html` yanıtında): `default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'` ve `X-Frame-Options: DENY`.
+- CSP (yalnız `index.html` yanıtında): `default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'` ve `X-Frame-Options: DENY`. Plan kararı olarak `Cache-Control: no-store` da aynı yanıtta. `style-src 'self'` inline `style=` özniteliğini yasaklar; React kodunda inline stil kullanılmaz.
+- `Me.expires_at` UNIX epoch saniye (`int | null`); spec'teki "iso" ifadesi bu plana göre güncellendi.
+- 1a'da `@tanstack/react-query` kullanılmaz (`useState` + `fetch`); Query'ye geçiş 1b'nin kararı.
 - Yorumlar ve docstring'ler kod tabanının dilinde (İngilizce); UI metinleri İngilizce.
 - Commit mesajlarında e-posta adresi içeren trailer **kullanılmaz** (commit hook reddeder). Her commit `Claude-Session:` satırı ile biter.
-- Python testleri npm'e bağımlı değildir; `npm ci` yalnız `web` CI job'unda ve geliştirici makinesinde koşar.
+- Python testleri npm'e bağımlı değildir; `npm ci` yalnız `web` CI job'unda, Docker `web` aşamasında ve geliştirici makinesinde koşar.
 
-Test sabitleri: aşağıdaki testlerde imza anahtarı `KEY = "k" * 32`, UI şifresi `PW = "hunter2"` olarak modül düzeyinde tanımlanır ve her yerde bu adlarla kullanılır.
+Test sabitleri: aşağıdaki testlerde imza anahtarı `KEY = "k" * 32`, UI şifresi `PW = "hunter2"` olarak modül düzeyinde tanımlanır ve her yerde bu adlarla kullanılır. Her `ApiSettings` kurulumu `_env_file=None, jwt_kid="k1", jwt_issuer="yfin-api"` taşır.
 
 ---
 
@@ -42,10 +45,11 @@ Test sabitleri: aşağıdaki testlerde imza anahtarı `KEY = "k" * 32`, UI şifr
 | `src/yfin/api/auth/dependencies.py` | `UI_CLIENT_ID`, `UI_PAGE_CAP`, çerez dalı |
 | `src/yfin/api/ratelimit/dependencies.py` | `meter` UI erken dönüşü |
 | `src/yfin/api/app.py` | koşullu `ui.install` |
-| `web/` | SPA: `src/api/client.ts`, `src/app/{main,App,Shell,LoginModal,session}.tsx`, `src/panels/DES.tsx`, testler |
+| `web/` | SPA: `src/api/client.ts`, `src/app/{main,App,Shell,LoginModal,session}.tsx`, `src/app/styles.css`, `src/panels/DES.tsx`, testler |
+| `.gitignore`, `.dockerignore` | `web/node_modules/` (T7); Docker bağlamı dışında tutulanlar (T10) |
 | `pyproject.toml`, `Dockerfile`, `.github/workflows/ci.yml`, `docker-compose.yml`, `.env.example`, `README.md` | paketleme ve belgeleme |
 
-`.gitignore` zaten `dist/` desenini içeriyor; `src/yfin/ui/static/dist` otomatik yok sayılır.
+`.gitignore` zaten `dist/` desenini içeriyor; `src/yfin/ui/static/dist` otomatik yok sayılır. `web/node_modules/` T7'de eklenir.
 
 ---
 
@@ -53,7 +57,7 @@ Test sabitleri: aşağıdaki testlerde imza anahtarı `KEY = "k" * 32`, UI şifr
 
 **Files:**
 - Modify: `src/yfin/api/core/config.py:44-56`
-- Modify: `.env.example` (YFAPI bloğunun sonuna)
+- Modify: `.env.example` (`YFAPI_DOCS_ENABLED` satırının altına)
 - Test: `tests/unit/test_ui_settings.py`
 
 **Interfaces:**
@@ -75,8 +79,9 @@ PW = "hunter2"
 
 
 def test_ui_is_off_by_default() -> None:
-    assert ApiSettings().ui_enabled is False
-    assert ApiSettings().ui_password == ""
+    # _env_file=None: the developer's own .env must not decide this test.
+    assert ApiSettings(_env_file=None).ui_enabled is False
+    assert ApiSettings(_env_file=None).ui_password == ""
 
 
 def test_enabled_without_a_password_is_REFUSED() -> None:
@@ -142,7 +147,7 @@ Expected: FAIL, `AttributeError: 'ApiSettings' object has no attribute 'validate
 
 `.env.example`'da `YFAPI_DOCS_ENABLED` satırının altına (yorum dahil):
 
-```
+```dotenv
 # Web terminal (the browser UI under /ui). Off by default. When on, the
 # password is required: the API refuses to start with it empty.
 YFAPI_UI_ENABLED=false
@@ -156,7 +161,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Lint, tip, kontrat**
 
-Run: `uv run ruff check . && uv run mypy && uv run python scripts/dump_openapi.py --check`
+Run: `uv run ruff check . && uv run mypy && uv run pytest -q && uv run python scripts/dump_openapi.py --check`
 Expected: temiz.
 
 - [ ] **Step 6: Commit**
@@ -174,7 +179,7 @@ Claude-Session: https://claude.ai/code/session_01P8FqetHBXRA1B6GC1M6EmT"
 
 **Files:**
 - Create: `src/yfin/api/core/window.py`
-- Modify: `src/yfin/api/routers/meta.py:45-67,87`
+- Modify: `src/yfin/api/routers/meta.py` (`class _FixedWindow` gövdesi, 46-67; `_limiter = _FixedWindow()` satırı, 88)
 - Test: `tests/unit/test_window.py`
 
 **Interfaces:**
@@ -269,7 +274,9 @@ class FixedWindow:
             return count <= limit
 ```
 
-`src/yfin/api/routers/meta.py`: `class _FixedWindow` tanımını (45-67. satırlar) sil; import bloğuna `from yfin.api.core.window import FixedWindow` ekle; `_limiter = _FixedWindow()` satırının hemen üstüne:
+Önce bak: `src/yfin/api/core/window.py` zaten varsa (observability spec'i aynı dosyayı yaratır) modülü yeniden yazma, yalnız testi ve re-export'u ekle.
+
+`src/yfin/api/routers/meta.py`: `class _FixedWindow:` satırından başlayıp `class _ReadinessCache:` satırından önce biten bloğu (docstring dahil) sil; import bloğuna `from yfin.api.core.window import FixedWindow` ekle; `_limiter = _FixedWindow()` satırının hemen üstüne:
 
 ```python
 #: Kept under the old name: tests and the readiness endpoint reach it
@@ -286,7 +293,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Lint, tip, kontrat**
 
-Run: `uv run ruff check . && uv run mypy && uv run python scripts/dump_openapi.py --check`
+Run: `uv run ruff check . && uv run mypy && uv run pytest -q && uv run python scripts/dump_openapi.py --check`
 
 - [ ] **Step 6: Commit**
 
@@ -337,7 +344,10 @@ PW = "hunter2"
 
 
 def settings() -> ApiSettings:
-    return ApiSettings(jwt_signing_key=KEY, ui_enabled=True, ui_password=PW)
+    return ApiSettings(
+        _env_file=None, jwt_signing_key=KEY, jwt_kid="k1", jwt_issuer="yfin-api",
+        ui_enabled=True, ui_password=PW,
+    )
 
 
 def test_issue_then_verify_round_trips() -> None:
@@ -369,19 +379,20 @@ def test_an_access_token_is_NOT_a_session_cookie() -> None:
 
 
 def test_a_token_signed_with_another_key_is_rejected() -> None:
-    token, _ = session.issue(ApiSettings(jwt_signing_key="x" * 32))
+    other = ApiSettings(_env_file=None, jwt_signing_key="x" * 32, jwt_kid="k1", jwt_issuer="yfin-api")
+    token, _ = session.issue(other)
     with pytest.raises(session.SessionInvalid):
         session.verify(settings(), token)
 
 
 def _raw(claims: dict[str, object]) -> str:
-    return pyjwt.encode(claims, KEY.encode(), algorithm="HS256", headers={"kid": "k1"})
+    return pyjwt.encode(claims, KEY.encode(), algorithm="HS256", headers={"kid": settings().jwt_kid})
 
 
 def test_an_expired_session_is_rejected() -> None:
     now = int(time.time())
     token = _raw(
-        {"iss": "yfin-api", "aud": session.UI_AUDIENCE, "iat": now - 100_000,
+        {"iss": settings().jwt_issuer, "aud": session.UI_AUDIENCE, "iat": now - 100_000,
          "exp": now - 90_000, "jti": "a" * 32}
     )
     with pytest.raises(session.SessionInvalid):
@@ -390,7 +401,7 @@ def test_an_expired_session_is_rejected() -> None:
 
 def test_a_session_without_jti_is_rejected() -> None:
     now = int(time.time())
-    token = _raw({"iss": "yfin-api", "aud": session.UI_AUDIENCE, "iat": now, "exp": now + 100})
+    token = _raw({"iss": settings().jwt_issuer, "aud": session.UI_AUDIENCE, "iat": now, "exp": now + 100})
     with pytest.raises(session.SessionInvalid):
         session.verify(settings(), token)
 ```
@@ -430,8 +441,8 @@ would ever read.
 
 from __future__ import annotations
 
+import secrets
 import time
-import uuid
 from dataclasses import dataclass
 
 import jwt
@@ -469,7 +480,8 @@ def issue(settings: ApiSettings) -> tuple[str, int]:
         "aud": UI_AUDIENCE,
         "iat": now,
         "exp": expires_at,
-        "jti": uuid.uuid4().hex,
+        # 128 random bits, hex: the spec's "jti login'de 128 bit rastgele".
+        "jti": secrets.token_hex(16),
     }
     encoded = jwt.encode(
         payload,
@@ -511,7 +523,7 @@ Expected: PASS (7 test).
 
 - [ ] **Step 5: Lint, tip, kontrat**
 
-Run: `uv run ruff check . && uv run mypy && uv run python scripts/dump_openapi.py --check`
+Run: `uv run ruff check . && uv run mypy && uv run pytest -q && uv run python scripts/dump_openapi.py --check`
 
 - [ ] **Step 6: Commit**
 
@@ -523,6 +535,7 @@ Claude-Session: https://claude.ai/code/session_01P8FqetHBXRA1B6GC1M6EmT"
 ```
 
 ---
+
 ### Task 4: `/ui/api` router: login, logout, me, catch-all 404
 
 **Files:**
@@ -535,7 +548,7 @@ Claude-Session: https://claude.ai/code/session_01P8FqetHBXRA1B6GC1M6EmT"
   - `UiSession = Annotated[UiClaims, Depends(current_session)]` — çerez yoksa 401 `unauthenticated`, geçersizse 401 `invalid_token`
   - `LOGIN_ATTEMPTS_PER_MINUTE = 5`, `_login_limiter: FixedWindow` (testler monkeypatch'ler)
   - `set_session_cookie(response, settings, token)` ve `clear_session_cookie(response, settings)`
-  - Login form alanının adı `password` (`Form(alias="password")`); Python parametresi `submitted`.
+  - `LOGIN_FIELD = "password"`: login formunun alan adı (`Form(alias=LOGIN_FIELD)`); Python parametresi `submitted`.
 - Consumes: Task 3 `session.issue/verify/COOKIE_NAME`, Task 2 `FixedWindow`, Task 1 `ui_cookie_secure()`, `yfin.api.core.errors.ApiProblem` ve tipler.
 
 Bu task'ın testi `install()` olmadan çalışır: mini bir FastAPI'ye router eklenir. `install()` Task 6'da gelir.
@@ -562,18 +575,26 @@ from yfin.ui.session import COOKIE_NAME
 KEY = "k" * 32
 PW = "hunter2"
 WRONG_PW = "hunter3"
-FIELD = "password"
+FIELD = ui_router.LOGIN_FIELD
 
 
 def make_client(monkeypatch: pytest.MonkeyPatch, *, public_base_url: str = "") -> TestClient:
     settings = ApiSettings(
-        jwt_signing_key=KEY, ui_enabled=True, ui_password=PW, public_base_url=public_base_url
+        _env_file=None, jwt_signing_key=KEY, jwt_kid="k1", jwt_issuer="yfin-api",
+        ui_enabled=True, ui_password=PW, public_base_url=public_base_url,
     )
     app = FastAPI()
     app.state.api_settings = settings
     install_error_handlers(app)
     app.add_middleware(RequestContextMiddleware, settings=settings)
     app.include_router(ui_router.router)
+
+    # A throwaway route so the UiSession dependency is exercised in 1a,
+    # before any real UI-only data route (1c, 1d) uses it.
+    @app.get("/probe", include_in_schema=False)
+    def probe(claims: ui_router.UiSession) -> dict[str, str]:
+        return {"jti": claims.jti}
+
     monkeypatch.setattr(ui_router, "_login_limiter", FixedWindow())
     return TestClient(app)
 
@@ -656,12 +677,48 @@ def test_nothing_under_ui_api_is_in_the_schema(monkeypatch: pytest.MonkeyPatch) 
     client = make_client(monkeypatch)
     paths = client.app.openapi()["paths"]  # type: ignore[attr-defined]
     assert not any(p.startswith("/ui") for p in paths)
+
+
+def test_head_on_an_unknown_ui_api_path_is_404_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert make_client(monkeypatch).head("/ui/api/nope").status_code == 404
+
+
+def test_ui_session_dependency_without_a_cookie_is_401_unauthenticated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = make_client(monkeypatch).get("/probe")
+    assert response.status_code == 401
+    assert response.json()["type"] == "unauthenticated"
+
+
+def test_ui_session_dependency_with_a_bad_cookie_is_401_invalid_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = make_client(monkeypatch)
+    client.cookies.set(COOKIE_NAME, "not.a.jwt")
+    response = client.get("/probe")
+    assert response.status_code == 401
+    assert response.json()["type"] == "invalid_token"
+
+
+def test_ui_session_dependency_IGNORES_a_bearer_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = make_client(monkeypatch)
+    response = client.get("/probe", headers={"Authorization": "Bearer anything"})
+    assert response.status_code == 401
+
+
+def test_ui_session_dependency_accepts_the_login_cookie(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = make_client(monkeypatch)
+    do_login(client)
+    response = client.get("/probe")
+    assert response.status_code == 200
+    assert len(response.json()["jti"]) == 32
 ```
 
 - [ ] **Step 2: Testin başarısız olduğunu doğrula**
 
 Run: `uv run pytest tests/unit/test_ui_router.py -v`
-Expected: FAIL, `ModuleNotFoundError: No module named 'yfin.ui.router'`.
+Expected: FAIL, `ImportError: cannot import name 'router' from 'yfin.ui'`.
 
 - [ ] **Step 3: Router'ı yaz**
 
@@ -813,7 +870,9 @@ def me(request: Request) -> Me:
     return Me(authenticated=True, expires_at=claims.expires_at, live_enabled=False)
 
 
-@router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+@router.api_route(
+    "/{path:path}", methods=["GET", "HEAD", "OPTIONS", "POST", "PUT", "DELETE", "PATCH"]
+)
 def not_found(path: str) -> None:
     """Registered last in this router, and this router before the SPA
     pages, so an unknown /ui/api path is a problem document, never
@@ -826,11 +885,11 @@ def not_found(path: str) -> None:
 - [ ] **Step 4: Testlerin geçtiğini doğrula**
 
 Run: `uv run pytest tests/unit/test_ui_router.py -v`
-Expected: PASS (10 test). `SameSite=lax` küçük harf: Starlette böyle yazar.
+Expected: PASS (15 test). `SameSite=lax` küçük harf: Starlette böyle yazar.
 
 - [ ] **Step 5: Lint, tip, kontrat**
 
-Run: `uv run ruff check . && uv run mypy && uv run python scripts/dump_openapi.py --check`
+Run: `uv run ruff check . && uv run mypy && uv run pytest -q && uv run python scripts/dump_openapi.py --check`
 
 - [ ] **Step 6: Commit**
 
@@ -842,10 +901,11 @@ Claude-Session: https://claude.ai/code/session_01P8FqetHBXRA1B6GC1M6EmT"
 ```
 
 ---
+
 ### Task 5: Çerezli isteklerin `/v1`'e girişi ve ölçüm dışı kalması
 
 **Files:**
-- Modify: `src/yfin/api/auth/dependencies.py:77-82,151-186`
+- Modify: `src/yfin/api/auth/dependencies.py` (`Principal` 76-82, `current_principal` 151-183)
 - Modify: `src/yfin/api/ratelimit/dependencies.py:72-92`
 - Test: `tests/unit/test_ui_principal.py`
 
@@ -862,14 +922,16 @@ scope and no metering at all."""
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import pytest
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 
 from yfin.api.auth.dependencies import UI_CLIENT_ID, UI_PAGE_CAP, Authenticated, Principal
 from yfin.api.core.config import ApiSettings
 from yfin.api.core.errors import install_error_handlers
-from yfin.api.ratelimit import policy
+from yfin.api.ratelimit import policy, usage
 from yfin.api.ratelimit.dependencies import UsageMiddleware, guard
 from yfin.core.families import DataFamily, scope_for
 from yfin.ui import session
@@ -880,14 +942,21 @@ PW = "hunter2"
 
 
 def settings(*, ui_enabled: bool = True) -> ApiSettings:
-    return ApiSettings(jwt_signing_key=KEY, ui_enabled=ui_enabled, ui_password=PW)
+    return ApiSettings(
+        _env_file=None, jwt_signing_key=KEY, jwt_kid="k1", jwt_issuer="yfin-api",
+        ui_enabled=ui_enabled, ui_password=PW,
+    )
 
 
 def make_client(monkeypatch: pytest.MonkeyPatch, *, ui_enabled: bool = True) -> TestClient:
-    def explode(client_id: str) -> None:
-        raise AssertionError(f"plan lookup for {client_id}: the UI must never be metered")
+    # `ratelimit/dependencies.py` calls `policy.limits_for_client(...)` and
+    # `usage.record(...)` through the module objects, so patching the
+    # module attributes is what the code under test sees.
+    def explode(*args: object, **kwargs: object) -> None:
+        raise AssertionError("the UI must never be metered or recorded")
 
     monkeypatch.setattr(policy, "limits_for_client", explode)
+    monkeypatch.setattr(usage, "record", explode)
 
     app = FastAPI()
     app.state.api_settings = settings(ui_enabled=ui_enabled)
@@ -898,10 +967,12 @@ def make_client(monkeypatch: pytest.MonkeyPatch, *, ui_enabled: bool = True) -> 
     def who(principal: Authenticated) -> dict[str, object]:
         return {"client_id": principal.client_id, "scopes": sorted(principal.scopes)}
 
+    # Same shape as market.py: guard() goes through Depends(), never as a
+    # bare default value (FastAPI would treat that as a body parameter).
     @app.get("/bars")
     def bars(
         request: Request,
-        principal: Principal = guard(DataFamily.BARS),  # type: ignore[assignment]
+        principal: Annotated[Principal, Depends(guard(DataFamily.BARS))],
     ) -> dict[str, object]:
         return {"cap": request.state.page_size_cap, "metered": hasattr(request.state, "limits")}
 
@@ -1040,7 +1111,7 @@ def _from_session_cookie(
         return
 ```
 
-Import satırını `from yfin.api.auth.dependencies import UI_CLIENT_ID, UI_PAGE_CAP, Principal, current_principal` yap.
+Mevcut `from yfin.api.auth.dependencies import Principal, current_principal` satırına `UI_CLIENT_ID, UI_PAGE_CAP` ekle.
 
 - [ ] **Step 4: Testlerin geçtiğini doğrula**
 
@@ -1049,7 +1120,7 @@ Expected: PASS; mevcut Bearer testleri değişmez.
 
 - [ ] **Step 5: Lint, tip, kontrat**
 
-Run: `uv run ruff check . && uv run mypy && uv run python scripts/dump_openapi.py --check`
+Run: `uv run ruff check . && uv run mypy && uv run pytest -q && uv run python scripts/dump_openapi.py --check`
 
 - [ ] **Step 6: Commit**
 
@@ -1061,6 +1132,7 @@ Claude-Session: https://claude.ai/code/session_01P8FqetHBXRA1B6GC1M6EmT"
 ```
 
 ---
+
 ### Task 6: SPA sayfaları, statik servis ve `create_app` montajı
 
 **Files:**
@@ -1098,7 +1170,8 @@ PW = "hunter2"
 
 def settings(*, ui_enabled: bool = True, ui_password: str = PW) -> ApiSettings:
     return ApiSettings(
-        jwt_signing_key=KEY, ui_enabled=ui_enabled, ui_password=ui_password, docs_enabled=True
+        _env_file=None, jwt_signing_key=KEY, jwt_kid="k1", jwt_issuer="yfin-api",
+        ui_enabled=ui_enabled, ui_password=ui_password, docs_enabled=True,
     )
 
 
@@ -1110,17 +1183,16 @@ def build_dist(tmp_path: Path) -> Path:
     return dist
 
 
-def make_client(dist: Path | None) -> TestClient:
+def make_client(dist: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from yfin.api.app import create_app
-    from yfin.ui import install
 
-    app = create_app(settings(ui_enabled=False))
-    install(app, settings(), dist_dir=dist)
-    return TestClient(app)
+    # The only way in: create_app with the UI on, pointed at a temp build.
+    monkeypatch.setattr(pages, "default_dist_dir", lambda: dist)
+    return TestClient(create_app(settings()))
 
 
-def test_index_is_served_at_ui_and_under_ui_t(tmp_path: Path) -> None:
-    client = make_client(build_dist(tmp_path))
+def test_index_is_served_at_ui_and_under_ui_t(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = make_client(build_dist(tmp_path), monkeypatch)
     for path in ("/ui", "/ui/", "/ui/t/AAPL/DES", "/ui/t/-/HELP"):
         response = client.get(path)
         assert response.status_code == 200, path
@@ -1128,50 +1200,74 @@ def test_index_is_served_at_ui_and_under_ui_t(tmp_path: Path) -> None:
         assert "id=root" in response.text
 
 
-def test_index_carries_the_csp_and_frame_headers(tmp_path: Path) -> None:
-    response = make_client(build_dist(tmp_path)).get("/ui")
+def test_index_carries_the_csp_and_frame_headers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    response = make_client(build_dist(tmp_path), monkeypatch).get("/ui")
     assert response.headers["Content-Security-Policy"] == pages.CSP
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["Cache-Control"] == "no-store"
 
 
-def test_assets_are_served(tmp_path: Path) -> None:
-    response = make_client(build_dist(tmp_path)).get("/ui/assets/app.js")
+def test_assets_are_served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    response = make_client(build_dist(tmp_path), monkeypatch).get("/ui/assets/app.js")
     assert response.status_code == 200
     assert "console.log" in response.text
 
 
-def test_a_missing_asset_is_404_not_index(tmp_path: Path) -> None:
-    assert make_client(build_dist(tmp_path)).get("/ui/assets/nope.js").status_code == 404
+def test_a_missing_asset_is_404_not_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert make_client(build_dist(tmp_path), monkeypatch).get("/ui/assets/nope.js").status_code == 404
 
 
-def test_ui_api_is_never_answered_with_html(tmp_path: Path) -> None:
-    response = make_client(build_dist(tmp_path)).get(
+def test_ui_api_is_never_answered_with_html(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    response = make_client(build_dist(tmp_path), monkeypatch).get(
         "/ui/api/whatever", headers={"Accept": "text/html"}
     )
     assert response.status_code == 404
     assert response.headers["content-type"] == "application/problem+json"
 
 
-def test_v1_404s_are_untouched_by_the_spa(tmp_path: Path) -> None:
-    response = make_client(build_dist(tmp_path)).get("/v1/typo", headers={"Accept": "text/html"})
+def test_v1_404s_are_untouched_by_the_spa(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    response = make_client(build_dist(tmp_path), monkeypatch).get("/v1/typo", headers={"Accept": "text/html"})
     assert response.status_code == 404
     assert response.headers["content-type"] == "application/problem+json"
 
 
-def test_without_a_build_only_the_api_routes_exist(tmp_path: Path) -> None:
-    client = make_client(tmp_path / "absent")
+def test_without_a_build_only_the_api_routes_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = make_client(tmp_path / "absent", monkeypatch)
     assert client.get("/ui").status_code == 404
     assert client.get("/ui/api/me").status_code == 200
+
+
+def test_index_without_an_assets_dir_is_treated_as_no_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<div id=root></div>")
+    client = make_client(dist, monkeypatch)  # must not raise at startup
+    assert client.get("/ui").status_code == 404
+
+
+def test_with_the_ui_off_yfin_ui_is_never_imported() -> None:
+    """This process has already imported yfin.ui (this file does), so the
+    claim can only be checked in a fresh interpreter."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; from yfin.api.core.config import ApiSettings; "
+        "from yfin.api.app import create_app; "
+        "create_app(ApiSettings(_env_file=None, jwt_signing_key='k' * 32)); "
+        "assert 'yfin.ui' not in sys.modules, 'yfin.ui was imported with the UI off'"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)
 
 
 def test_create_app_installs_the_ui_when_enabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from yfin.api.app import create_app
-
-    monkeypatch.setattr(pages, "default_dist_dir", lambda: build_dist(tmp_path))
-    client = TestClient(create_app(settings()))
+    client = make_client(build_dist(tmp_path), monkeypatch)
     assert client.get("/ui").status_code == 200
     assert client.get("/ui/api/me").status_code == 200
 
@@ -1257,7 +1353,7 @@ def install_pages(app: FastAPI, dist_dir: Path) -> None:
     pages = APIRouter(include_in_schema=False)
 
     # `path` is unused but must be declared: FastAPI binds `{path:path}`
-    # to it, and a route without the parameter 422s on every match.
+    # to it. On /ui and /ui/ the default applies (verified: no 422).
     def spa(path: str = "") -> HTMLResponse:
         return HTMLResponse(index, headers=_PAGE_HEADERS)
 
@@ -1293,7 +1389,10 @@ def install(app: FastAPI, settings: ApiSettings, dist_dir: Path | None = None) -
     app.include_router(router.router)
 
     dist = dist_dir if dist_dir is not None else pages.default_dist_dir()
-    if not (dist / "index.html").is_file():
+    # Both halves, because StaticFiles raises in its constructor when the
+    # directory is absent: a build with index.html but no assets/ would
+    # otherwise take the API down at startup.
+    if not (dist / "index.html").is_file() or not (dist / "assets").is_dir():
         # A checkout without `npm run build`: the API and its /ui/api
         # routes work, the page does not, and the log says why.
         log.warning("ui_build_missing", dist=str(dist))
@@ -1315,11 +1414,9 @@ def install(app: FastAPI, settings: ApiSettings, dist_dir: Path | None = None) -
         install_ui(app, settings)
 ```
 
-`pyproject.toml` package-data bloğuna:
+`pyproject.toml`, mevcut `[tool.setuptools.package-data]` bloğundaki `"yfin.api.core"` satırının altına şu satırları **ekle** (mevcut satır kalır):
 
 ```toml
-[tool.setuptools.package-data]
-"yfin.api.core" = ["examples/*.json"]
 # The Vite build. Gitignored (`dist/`) and produced by `npm run build` in
 # web/; without it a wheel serves /ui/api but no page, and logs why.
 "yfin.ui" = ["static/dist/**"]
@@ -1332,7 +1429,7 @@ Expected: PASS. `test_create_app_leaves_ui_out_when_disabled` için `/ui` 404'ü
 
 - [ ] **Step 5: Lint, tip, kontrat**
 
-Run: `uv run ruff check . && uv run mypy && uv run python scripts/dump_openapi.py --check`
+Run: `uv run ruff check . && uv run mypy && uv run pytest -q && uv run python scripts/dump_openapi.py --check`
 
 - [ ] **Step 6: Commit**
 
@@ -1349,6 +1446,7 @@ Claude-Session: https://claude.ai/code/session_01P8FqetHBXRA1B6GC1M6EmT"
 **Files:**
 - Create: `web/package.json`, `web/vite.config.ts`, `web/tsconfig.json`, `web/eslint.config.js`, `web/index.html`, `web/src/vite-env.d.ts`, `web/src/test/setup.ts`
 - Create: `web/src/api/client.ts`
+- Modify: `.gitignore` (`web/node_modules/`)
 - Test: `web/src/api/client.test.ts`
 
 **Interfaces:**
@@ -1382,19 +1480,20 @@ Claude-Session: https://claude.ai/code/session_01P8FqetHBXRA1B6GC1M6EmT"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",
+    "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@vitejs/plugin-react": "^5.0.0",
+    "@vitejs/plugin-react": "^5.2.0",
     "eslint": "^9.30.0",
     "eslint-plugin-react-hooks": "^6.0.0",
     "jsdom": "^26.0.0",
     "typescript": "^5.9.0",
     "typescript-eslint": "^8.40.0",
     "vite": "^8.0.0",
-    "vitest": "^3.2.0"
+    "vitest": "^4.1.0"
   }
 }
 ```
@@ -1445,7 +1544,7 @@ export default defineConfig({
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "types": ["vite/client", "@testing-library/jest-dom"]
+    "types": ["vite/client"]
   },
   "include": ["src", "vite.config.ts"]
 }
@@ -1463,7 +1562,13 @@ export default tseslint.config(
   {
     files: ["src/**/*.{ts,tsx}"],
     plugins: { "react-hooks": reactHooks },
-    rules: { ...reactHooks.configs.recommended.rules },
+    // Named explicitly rather than spreading `recommended`: the plugin's
+    // 6.x preset also carries React Compiler rules whose verdicts on this
+    // code were not checked, and a lint gate must be deterministic.
+    rules: {
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
+    },
   },
 );
 ```
@@ -1494,8 +1599,10 @@ export default tseslint.config(
 import "@testing-library/jest-dom/vitest";
 ```
 
+Kök `.gitignore` sonuna `web/node_modules/` satırını ekle (bu task'ın `git add`'inde yer alır).
+
 Run: `cd web && npm install`
-Expected: `node_modules/` ve `package-lock.json` oluşur. `package-lock.json` commit edilir; `web/node_modules/` kök `.gitignore`'a bu task'ta eklenir.
+Expected: `node_modules/` ve `package-lock.json` oluşur; `git status` `node_modules`'ı göstermez. `package-lock.json` commit edilir. Sürüm gerekçesi: vitest 3.x Vite 7'ye bağlıdır, Vite 8 için vitest 4; `@vitejs/plugin-react` yalnız 5.2+ Vite 8 peer'ı taşır. npm `ERESOLVE` verirse önce bu üçünün güncel majör'lerini kontrol et, lock'u ondan sonra commit'le.
 
 - [ ] **Step 2: Failing test'i yaz**
 
@@ -1584,7 +1691,7 @@ Expected: FAIL, `./client` modülü bulunamaz.
 
 - [ ] **Step 3: İstemciyi yaz**
 
-Önce `/v1/symbols/{s}` zarfını doğrula: `src/yfin/api/schemas/common.py`'de `Resource[T]` `{"data": T}` mi? Farklıysa `getSymbol` içindeki `data` alanını ve testi ona göre değiştir.
+Önce `/v1/symbols/{s}` zarfını doğrula: `src/yfin/api/schemas/common.py`'de `Resource[T]` `{"data": T}` mi? Farklıysa `getSymbol` içindeki `data` alanını ve bu task'ın testini, ayrıca Task 8 (`DES.test.tsx`) ve Task 9 (`App.test.tsx` `symbolBody`) mock gövdelerini ona göre değiştir.
 
 ```ts
 // web/src/api/client.ts
@@ -1679,9 +1786,7 @@ export async function getSymbol(symbol: string): Promise<SymbolDetail> {
 Run: `cd web && npm test && npm run check && npm run lint`
 Expected: 7 test PASS, tsc ve eslint temiz.
 
-- [ ] **Step 5: `.gitignore` ve commit**
-
-`.gitignore` sonuna `web/node_modules/` ekle.
+- [ ] **Step 5: Commit**
 
 ```bash
 git add .gitignore web/package.json web/package-lock.json web/vite.config.ts web/tsconfig.json web/eslint.config.js web/index.html web/src/vite-env.d.ts web/src/test/setup.ts web/src/api/client.ts web/src/api/client.test.ts
@@ -1702,7 +1807,7 @@ Claude-Session: https://claude.ai/code/session_01P8FqetHBXRA1B6GC1M6EmT"
 **Interfaces:**
 - Produces:
   - `SessionProvider` + `useSession(): { me: Me | null; refresh(): Promise<void>; requireLogin(): void }` (`web/src/app/session.tsx`)
-  - `DES: React.FC<{ symbol: string }>`: `/v1/symbols/{s}`'den kimlik alanları ve `info` içinden `sector`, `industry`, `marketCap`, `trailingPE`, `forwardPE`, `dividendYield`, `beta`, `fiftyTwoWeekLow`, `fiftyTwoWeekHigh`, `website`; 401'de `requireLogin()`; 404'te "No such symbol"; diğer hatalarda "Could not load" + Retry düğmesi
+  - `DES: React.FC<{ symbol: string }>`: `/v1/symbols/{s}`'den kimlik alanları ve `info` içinden `sector`, `industry`, `marketCap`, `trailingPE`, `forwardPE`, `dividendYield`, `beta`, `fiftyTwoWeekLow`, `fiftyTwoWeekHigh`, `website`; 401'de `requireLogin()`; 404'te "No such symbol"; diğer hatalarda "Could not load" + Retry düğmesi. Yükleme yalnız oturum doğrulanmışken başlar ve oturum `false`→`true` olunca yeniden koşar (spec: "başarılı login sonrası son komut yeniden koşar"). Inline `style=` kullanılmaz (CSP `style-src 'self'`).
   - `formatBig(value: number): string` (3.5e12 → "3.50T")
 - Consumes: Task 7 `getSymbol`, `getMe`, `ApiError`, `UnauthorizedError`, `Me`.
 
@@ -1782,8 +1887,49 @@ describe("DES", () => {
     renderDES("AAPL");
     expect(await screen.findByRole("button", { name: /retry/i })).toBeInTheDocument();
   });
+
+  it("waits for a session and loads once it is there", async () => {
+    let authed = false;
+    let symbolCalls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/ui/api/me") return json(200, { ...me, authenticated: authed });
+      if (url === "/v1/symbols/AAPL") {
+        symbolCalls += 1;
+        if (!authed) return new Response("{}", { status: 401, headers: { "content-type": "application/problem+json" } });
+        return json(200, { data: { symbol: "AAPL", long_name: "Apple Inc.", short_name: null, exchange: null, full_exchange_name: null, currency: null, quote_type: null, timezone: null, is_active: true, info: null } });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    render(
+      <SessionProvider>
+        <SessionProbe />
+        <DES symbol="AAPL" />
+      </SessionProvider>,
+    );
+    // /me says authenticated:false, so DES must not even try.
+    await screen.findByText("session:false");
+    expect(symbolCalls).toBe(0);
+    authed = true;
+    await userEvent.click(screen.getByRole("button", { name: "refresh" }));
+    expect(await screen.findByText("Apple Inc.")).toBeInTheDocument();
+    expect(symbolCalls).toBe(1);
+  });
 });
+
+// A tiny consumer of useSession so the test can flip the session.
+function SessionProbe() {
+  const { me, refresh } = useSession();
+  return (
+    <>
+      <span>session:{String(me?.authenticated ?? "null")}</span>
+      <button onClick={() => void refresh()}>refresh</button>
+    </>
+  );
+}
 ```
+
+Dosyanın import'ları: `import userEvent from "@testing-library/user-event";` ve `import { SessionProvider, useSession } from "../app/session";` (yalnız `SessionProvider` import eden satırın yerine).
 
 Run: `cd web && npm test`
 Expected: FAIL, `./DES` ve `../app/session` bulunamaz.
@@ -1836,7 +1982,7 @@ export function useSession(): SessionState {
 
 ```tsx
 // web/src/panels/DES.tsx
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { ApiError, UnauthorizedError, getSymbol, type SymbolDetail } from "../api/client";
 import { useSession } from "../app/session";
 
@@ -1879,7 +2025,8 @@ function format(value: unknown, kind: Kind): string | null {
 }
 
 export function DES({ symbol }: { symbol: string }) {
-  const { requireLogin } = useSession();
+  const { me, requireLogin } = useSession();
+  const authenticated = me?.authenticated === true;
   const [state, setState] = useState<State>({ kind: "loading" });
 
   const load = useCallback(async () => {
@@ -1893,9 +2040,11 @@ export function DES({ symbol }: { symbol: string }) {
     }
   }, [symbol, requireLogin]);
 
+  // Runs when the symbol changes AND when the session comes back after a
+  // login: the spec's "the last command re-runs after a successful login".
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (authenticated) void load();
+  }, [load, authenticated]);
 
   if (state.kind === "loading") return <p className="muted">Loading {symbol}…</p>;
   if (state.kind === "missing") return <p className="error">No such symbol: {symbol}</p>;
@@ -1920,10 +2069,12 @@ export function DES({ symbol }: { symbol: string }) {
         {INFO_ROWS.map(([key, label, kind]) => {
           const text = format(info[key], kind);
           if (text === null) return null;
+          // Fragment, not a wrapper: <dl> only allows dt/dd children, and
+          // an inline style= would be blocked by the page's CSP anyway.
           return (
-            <span key={key} style={{ display: "contents" }}>
+            <Fragment key={key}>
               <dt>{label}</dt><dd>{text}</dd>
-            </span>
+            </Fragment>
           );
         })}
       </dl>
@@ -1987,6 +2138,10 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Response) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => handler(String(input), init));
 }
 
+function unauthorized(): Response {
+  return new Response("{}", { status: 401, headers: { "content-type": "application/problem+json" } });
+}
+
 function mount(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -2018,7 +2173,9 @@ describe("AppRoutes", () => {
         authed = true;
         return new Response(null, { status: 204 });
       }
-      if (url === "/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      // Like the real API: no session, no data. This is what proves DES
+      // loads AFTER login rather than before the modal appeared.
+      if (url === "/v1/symbols/AAPL") return authed ? json(200, symbolBody("AAPL", "Apple Inc.")) : unauthorized();
       throw new Error(`unexpected ${url}`);
     });
     mount("/ui/t/AAPL/DES");
@@ -2263,13 +2420,21 @@ Expected: PASS.
 Run: `cd web && npm run build && ls ../src/yfin/ui/static/dist`
 Expected: `index.html` ve `assets/`; `git status` bunları göstermez.
 
-`.env`'e `YFAPI_UI_ENABLED=true` ve bir `YFAPI_UI_PASSWORD` değeri ekle; `docker compose up -d timescaledb redis`; `uv run uvicorn yfin.api.app:app --port 8000`. Tarayıcıda `http://localhost:8000/ui` → login modalı → şifre → `AAPL` yaz, Enter → DES görünür. `http://localhost:8000/v1/typo` → problem JSON, HTML değil. Gözlemi commit mesajına yaz.
+`.env` dosyasına dokunma. `docker compose up -d timescaledb redis`; ardından değerleri komut satırında ver:
+
+```bash
+YFAPI_UI_ENABLED=true YFAPI_UI_PASSWORD=<bir değer seç> uv run uvicorn yfin.api.app:app --port 8000
+```
+
+Tarayıcıda `http://localhost:8000/ui` → login modalı → şifre → `AAPL` yaz, Enter → DES görünür; tarayıcı konsolunda CSP ihlali yok. `http://localhost:8000/v1/typo` → problem JSON, HTML değil. Gözlemi Step 6'daki commit mesajının gövdesine yaz. Docker ya da tarayıcı yoksa "koşulmadı" diye raporla.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add web/src/app
 git commit -m "feat(web): app shell, session gate, login modal and symbol box
+
+<Step 5 gözlemi: tarayıcı, login → AAPL DES görüldü, /v1/typo → problem JSON, CSP ihlali yok/var; ya da koşulmadı>
 
 Claude-Session: https://claude.ai/code/session_01P8FqetHBXRA1B6GC1M6EmT"
 ```
@@ -2279,7 +2444,8 @@ Claude-Session: https://claude.ai/code/session_01P8FqetHBXRA1B6GC1M6EmT"
 ### Task 10: CI `web` job'u, Dockerfile node aşaması, compose, README
 
 **Files:**
-- Modify: `.github/workflows/ci.yml` (yeni job, `repo:`'dan önce)
+- Modify: `.github/workflows/ci.yml` (yeni `web` job'u; `needs` yok, `check` ve `repo` ile paralel koşar)
+- Create: `.dockerignore`
 - Modify: `Dockerfile` (yeni build aşaması, runtime COPY)
 - Modify: `docker-compose.yml:87-98`
 - Modify: `README.md` ("Planned" tablosu, "Common commands" altı, "Layout" tablosu)
@@ -2309,7 +2475,23 @@ Claude-Session: https://claude.ai/code/session_01P8FqetHBXRA1B6GC1M6EmT"
       - run: npm run build
 ```
 
-- [ ] **Step 2: Dockerfile'a node aşamasını ekle**
+- [ ] **Step 2: `.dockerignore` ve Dockerfile node aşaması**
+
+Depoda `.dockerignore` yok; `COPY web ./` host'taki macOS `node_modules`'ını, `COPY src` ise yerel `static/dist`'i imaja taşırdı. Oluştur:
+
+```
+.git
+.venv
+.env
+web/node_modules
+src/yfin/ui/static/dist
+.claude
+.superpowers
+__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+```
 
 `FROM python:3.13-slim-bookworm AS runtime` satırından önce:
 
@@ -2334,7 +2516,7 @@ COPY --from=web --chown=yfin:yfin /app/src/yfin/ui/static/dist /app/src/yfin/ui/
 ```
 
 Run: `docker build -t yfin-api:ui .`
-Expected: başarılı; `docker run --rm yfin-api:ui ls /app/src/yfin/ui/static/dist` `index.html` gösterir.
+Expected: başarılı; `docker run --rm yfin-api:ui ls /app/src/yfin/ui/static/dist` `index.html` ve `assets` gösterir. Docker yerelde yoksa bu adımı "koşulmadı" diye rapor et; CI `web` job'u build'i zaten doğrular.
 
 - [ ] **Step 3: compose**
 
@@ -2371,10 +2553,19 @@ Expected: başarılı; `docker run --rm yfin-api:ui ls /app/src/yfin/ui/static/d
 One password, one operator. Behind a reverse proxy set
 `YFAPI_TRUSTED_PROXIES`, or every login attempt in the world shares one
 rate-limit bucket. Set `YFAPI_PUBLIC_BASE_URL` to the `https://` origin
-so the session cookie is marked `Secure`.
+so the session cookie is marked `Secure`; with it empty the cookie
+travels over plain HTTP, which is acceptable on localhost and nowhere
+else.
 ```
 
-"Layout" tablosuna iki satır: `src/yfin/ui/` → "Web terminal: session cookie, /ui/api routes, SPA pages"; `web/` → "The SPA source (React + Vite); builds into `src/yfin/ui/static/dist`".
+(README'de kod blokları ```` ```bash ```` ile çevrili; yukarıdaki girintili blok da öyle yazılır.)
+
+"Layout" tablosuna (`| Path | Contents |`) iki satır:
+
+```markdown
+| `src/yfin/ui/` | Web terminal: session cookie, `/ui/api` routes, SPA pages |
+| `web/` | The SPA source (React + Vite); builds into `src/yfin/ui/static/dist` |
+```
 
 - [ ] **Step 5: Tam doğrulama**
 
@@ -2384,8 +2575,8 @@ Expected: hepsi yeşil; `git status` `dist` göstermez.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add .github/workflows/ci.yml Dockerfile docker-compose.yml README.md
-git commit -m "build(ui): web CI job, Node build stage, compose env, README
+git add .github/workflows/ci.yml .dockerignore Dockerfile docker-compose.yml README.md
+git commit -m "build(ui): web CI job, Node build stage, dockerignore, compose env, README
 
 Claude-Session: https://claude.ai/code/session_01P8FqetHBXRA1B6GC1M6EmT"
 ```
@@ -2396,4 +2587,4 @@ Claude-Session: https://claude.ai/code/session_01P8FqetHBXRA1B6GC1M6EmT"
 
 - **Spec kapsamı (1a):** ayarlar ve `.env.example` (T1), `FixedWindow` taşıma (T2), çerez JWT (T3), login/logout/me/catch-all (T4), çerez dalı ve `meter` atlaması (T5), sayfalar/CSP/montaj/package-data (T6), Vite iskeleti, dev proxy ve `.gitignore` (T7), oturum sağlayıcı ve DES (T8), kabuk/login modalı/`localStorage` yönlendirme (T9), CI/Dockerfile/compose/README (T10). "UI kapalıyken import edilmez" ve "`openapi.json` değişmez" garantileri T6 testlerinde. `live_enabled` 1c'ye kadar `false`.
 - **Tip tutarlılığı:** `session.issue -> (str, int)`, `verify -> UiClaims(jti, expires_at)`; `Me.expires_at: int | null` Python ve TS'te aynı; `getSymbol` `{data: SymbolDetail}` zarfını açar (T7 Step 3 doğrulama notu); `UI_CLIENT_ID`/`UI_PAGE_CAP` T5'te tanımlanır ve aynı adla kullanılır; `LAST_KEY` T9'da tanımlanır, T9 testi aynı dizeyi kullanır.
-- **Bilinen risk:** T6'da `spa()` imzasının `{path:path}` ile uyumu; notta düzeltme var.
+- **İnceleme sonrası düzeltmeler (2026-09-07):** `guard()` test rotasında `Depends` ile; vitest 4 / plugin-react 5.2 / `@testing-library/dom`; DES yalnız oturum varken yükler ve login sonrası yeniden koşar; inline stil yerine `Fragment`; `.dockerignore`; testlerde `_env_file=None` ve `kid`/`iss` pinleme; `UiSession` probe testleri; `HEAD`/`OPTIONS` catch-all; `assets/` kontrolü; `yfin.ui` import edilmemesi için subprocess testi; `Me.expires_at` epoch (spec güncellendi); eslint kuralları açık liste.
