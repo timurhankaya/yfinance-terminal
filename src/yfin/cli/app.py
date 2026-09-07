@@ -36,6 +36,7 @@ from yfin.cli.db import db_app
 from yfin.cli.domain import domain_app
 from yfin.cli.market import market_app, screen_app
 from yfin.cli.proxy import proxy_app
+from yfin.cli.scheduler import scheduler_app
 from yfin.cli.settings import config_app
 from yfin.cli.stream import stream_app
 from yfin.cli.symbols import discover_app, symbols_app
@@ -58,6 +59,7 @@ app.add_typer(domain_app, name="domain")
 app.add_typer(bars_app, name="bars")
 app.add_typer(stream_app, name="stream")
 app.add_typer(changes_app, name="changes")
+app.add_typer(scheduler_app, name="scheduler")
 app.add_typer(scope_app, name="scope")
 app.add_typer(config_app, name="config")
 app.add_typer(api_app, name="api")
