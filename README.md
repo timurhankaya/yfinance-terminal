@@ -88,6 +88,18 @@ Use `npm ci` in `web/`; plain `npm install` crashes on the npm that
 ships with Node 22 (an npm 10.9 resolver bug) -- the committed
 lockfile is the source of truth.
 
+The command box reads `[SYMBOL] [FUNCTION] [ARGS]`; a bare symbol keeps
+the current function, a bare function keeps the current symbol:
+
+```bash
+AAPL                  # description (DES) of a symbol
+FA balance quarterly  # statements: income|balance|cash, annual|quarterly|ttm
+ANR                   # analyst ratings on the current symbol
+N                     # news; j/k to move, Enter to open
+CF 10-K               # SEC filings of one type; Enter expands exhibits
+HELP                  # every function and shortcut; Esc goes back
+```
+
 ---
 
 ## Integration status

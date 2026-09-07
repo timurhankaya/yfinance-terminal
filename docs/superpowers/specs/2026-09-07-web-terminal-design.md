@@ -61,10 +61,10 @@ Sürümler npm/PyPI'dan okundu.
 | --- | --- | --- | --- |
 | Framework | React 19 + Vite 8 + TypeScript | 19.2 / 8.2 | Aşağıdaki her kütüphanenin birinci sınıf hedefi. Svelte wrapper ister; HTMX çok panelli canlı UI için uygun değil. |
 | Grafik | `lightweight-charts` | 5.2.1, Apache-2.0 | Çoklu pane, marker, whitespace verisi, v5.1 data conflation. uPlot daha hızlı ama finans UX'i elle yazılır; Highcharts Stock lisansı riskli. |
-| Tablo | `@tanstack/react-table` (FA) + `@tanstack/react-virtual` (QR) | 9.2 / 3.14, MIT | Headless. QR düz sanallaştırılmış liste, yalnız `react-virtual`; FA çok sütunlu tablo, `react-table`. AG Grid faz 1'de gerekmez. |
-| Komut paleti | `cmdk` + `react-hotkeys-hook` | 1.1 / 5.3, MIT | Scope'lu kısayol. kbar 1.0 Ağustos 2026'da çıktı, olgunlaşmamış. |
+| Tablo | kendi `DataTable`'ımız (FA, ANR); `@tanstack/react-virtual` (QR, 1d) | 3.14, MIT | 1b'de `@tanstack/react-table` kullanılmadı: pivot ve beş analist tablosu düz `<table>` ile yeterli. QR'ın sanallaştırması 1d'de. AG Grid faz 1'de gerekmez. |
+| Komut paleti | `cmdk` | 1.1, MIT | Düz `<Command>`; `Command.Dialog` kullanılmaz (radix dialog `<style>` enjekte eder, CSP engeller). Kısayollar tek `keydown` dinleyicisi (`react-hotkeys-hook` 1b'de gereksiz görüldü). kbar 1.0 Ağustos 2026'da çıktı, olgunlaşmamış. |
 | Durum | `@tanstack/react-query` + `zustand` | 5.102 / 5.0, MIT | REST için Query; canlı store için Zustand seçici abonelik. |
-| Yönlendirme | `react-router` | 7.x, MIT | URL ↔ `(symbol, code, args)` eşlemesi ve history tabanlı gezinme. 1a'da REST çağrıları `useState` + `fetch` ile; Query'ye geçiş 1b'nin kararı. |
+| Yönlendirme | `react-router` | 7.x, MIT | URL ↔ `(symbol, code, args)` eşlemesi ve history tabanlı gezinme. REST yükleme 1a ve 1b'de `usePanelData` hook'u ile (`@tanstack/react-query` kullanılmadı: oturum kapısı, iptal ve 401 akışı tek hook'ta). |
 | Canlı taşıma | FastAPI WebSocket + Redis pub/sub | -- | Çift yönlü abonelik; SSE abonelik değişikliği için ayrı REST ister. PG LISTEN/NOTIFY 8 kB sınırı ve bağlantı maliyeti yüzünden reddedildi. Kafka opsiyonel extra, UI için zorunlu kılınmaz. |
 
 Faz 2 yerleşimi için aday `dockview` 8.2 (MIT, `toJSON/fromJSON`);
@@ -173,16 +173,21 @@ değişmez.
 
 ## Komut dili ve panel modeli
 
-**Grammar.** `[SYMBOL] [CODE] [ARGS...]`. Token'lar büyük harfe çevrilir.
-Sembol token'ı `/^[A-Z0-9.^=-]+$/` (`BRK-B`, `^GSPC`, `EURUSD=X`).
-Çözümleme:
+**Grammar.** `[SYMBOL] [CODE] [ARGS...]`. Sembol ve fonksiyon token'ları
+büyük harfle karşılaştırılır; argüman token'ları `parseArgs`'a olduğu
+gibi verilir ve her panel kendi normalizasyonunu yapar (`15m` bir
+aralıktır, `15M` değil). Sembol token'ı `/^[A-Z0-9.^=-]+$/` (`BRK-B`,
+`^GSPC`, `EURUSD=X`). Çözümleme, üç dallı ve deterministik:
 
 - Tek token, kayıtlı mnemonik → fonksiyon, bağlam sembolü korunur.
 - Tek token, mnemonik değil → sembol, panel türü korunur (sembolsüz
   panel açıksa DES).
 - İki+ token: ilk ikisi de mnemonikse ilki **sembol** sayılır (`CF DES`
-  = CF Industries'in DES'i). Aksi hâlde ilk token sembol adayı, ikincisi
-  mnemonik, kalanı arg.
+  = CF Industries'in DES'i). İlki mnemonik, ikincisi değilse ilki
+  **fonksiyon**, kalanı arg (`GIP 15m`). Aksi hâlde ilk token sembol
+  adayı, ikincisi mnemonik olmalı, kalanı arg (`AAPL GIP 1m`).
+- `needsSymbol` bir fonksiyon sembolsüz yazılırsa uyarı: "X needs a
+  symbol: type one first, e.g. AAPL X".
 - Sembol adayı `/v1/symbols/{s}` ile doğrulanır; 404 ise komut satırı
   altında uyarı ve cmdk paleti `/v1/symbols?q=` sonuçlarıyla açılır.
   `q` yalnız sembol öneki eşler; "Apple" ile arama çalışmaz, palet
@@ -437,8 +442,8 @@ yayının N `PUBLISH` mi sembol başına dizi mi olacağını belirler.
 
 ## Hata yönetimi
 
-- API 5xx: panelde hata kartı ve retry; TanStack Query 3 deneme. Komut
-  satırı çalışır.
+- API 5xx: panelde hata kartı ve Retry düğmesi; otomatik yeniden deneme
+  yok. Komut satırı çalışır.
 - Sembol 404: uyarı ve palet; bağlam değişmez.
 - Dataset boş: "veri yok". `sync_run_items` durumu API'de olmadığından
   faz 1'de gösterilmez; eksiklik burada kayıtlı.
