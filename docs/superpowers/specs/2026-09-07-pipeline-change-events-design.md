@@ -206,9 +206,15 @@ JSON text, version 1:
 - Rendering shares `canonical_json`'s `default` handling from
   `core/normalize.py`: `Decimal` as text (a float would reintroduce the
   f32 artefact), `datetime`/`date` as ISO-8601, NaN as `null`, numpy
-  scalars unwrapped. `_jsonable` in `stream/writer.py` is replaced by the
+  scalars unwrapped. `jsonable` in `stream/writer.py` is replaced by the
   same helper, moved to `storage/copy.py` together with `copy_body`, so
-  `storage/` does not import from `stream/`.
+  `storage/` does not import from `stream/`. The move (step 1) is
+  verbatim -- `str()` for `Decimal` and `datetime` -- and the widening to
+  `canonical_json`'s handling happens with the envelope in step 4, because
+  it changes `str(datetime)` (a space separator) into `isoformat()` (a
+  `T`), and that is a consumer-visible change to a tick payload that has
+  already shipped. Step 4 decides whether the tick outbox moves with the
+  envelope or keeps its rendering.
 - `run_id` is the `sync_runs.id` of the run that wrote the row; `null`
   outside a sync. A scheduler run (observability design) is reachable
   through `sync_runs.job_run_id`; it is not repeated in the envelope.
@@ -262,6 +268,15 @@ rule is checkable, and tests assert:
 - `metadata.tables − produces ⊆ INFRASTRUCTURE_TABLES` and
   `INFRASTRUCTURE_TABLES ⊆ metadata.tables`, with `yfin.api.models`
   imported explicitly so the API tables are in the universe.
+
+`shares_full` is routed as `fundamentals`, not `bars`. It is written by
+the same fetch shape as the bars and is listed with them under "What the
+code base already has", but its `ApiExposure` declares `fundamentals`,
+and the assertion that exposure and route agree is exactly what keeps a
+consumer from needing two scopes to see one table. It therefore takes no
+part in range coalescing and is purged as row-level deletes, which it can
+afford: a first sync writes a few hundred rows per symbol, well under
+`yf_changes_range_threshold`.
 
 `INFRASTRUCTURE_TABLES` holds: `sync_runs`, `sync_run_items`, `proxies`,
 `settings`, `asof_state`, `domain_asof_state`, `discovery_asof_state`,
@@ -437,7 +452,7 @@ For tables outside the `bars` family each gains `RETURNING <key>` and
 hands the keys to `collector.record(table, "delete", key, None)`, with
 the `dataset` field `null`. For the bars-family tables that `purge`
 sweeps (`price_bars`, `periodic_bars`, `price_history`, `dividends`,
-`splits`, `capital_gains`, `shares_full`) it emits one `op=range`
+`splits`, `capital_gains`) it emits one `op=range`
 (`kind: delete`) event per `(symbol, table)` with `rows` = the deleted
 count and the span left `null`; returning millions of bar keys from a
 `DELETE` is the cost the range event exists to avoid. The context is
@@ -754,6 +769,17 @@ here.
   coalescing).
 
 ## Revisions
+
+During implementation, step 1:
+
+- **`shares_full` routes to `fundamentals`.** Decision 4's per-table
+  routing and the exposure-agreement assertion are in conflict with
+  decision 7's list of bar-family tables, which names `shares_full`
+  because of how it is fetched. The assertion wins: it is the one that
+  protects the ACL promise routing exists for.
+- **`jsonable` widens in step 4, not step 1**, for the reason given under
+  "The envelope": step 1 promises no runtime change, and `isoformat()`
+  would alter a shipped tick payload.
 
 After the first review:
 
