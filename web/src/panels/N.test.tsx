@@ -55,13 +55,13 @@ describe("N", () => {
     expect(await screen.findByText("Apple unveils something")).toBeInTheDocument();
     expect(screen.getByText("Reuters")).toBeInTheDocument();
     // Nothing is open until the user picks a row.
-    expect(screen.queryByRole("link", { name: "Open article" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^Open article/ })).not.toBeInTheDocument();
 
     await userEvent.keyboard("j");
     await userEvent.keyboard("{Enter}");
 
     expect(screen.getByText("No summary.")).toBeInTheDocument();
-    const link = screen.getByRole("link", { name: "Open article" });
+    const link = screen.getByRole("link", { name: /^Open article/ });
     expect(link).toHaveAttribute("href", "https://example.com/older");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");

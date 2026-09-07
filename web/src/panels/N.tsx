@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getNews, type NewsItem } from "../api/client";
 import type { PanelProps, PanelSpec } from "../commands/types";
 import { EmptyCard, ErrorCard, MissingCard, useListKeys, usePanelData } from "./common";
@@ -8,19 +8,54 @@ function when(iso: string): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
 }
 
+function isHttpUrl(value: string | null): value is string {
+  return value !== null && /^https?:\/\//i.test(value);
+}
+
+function Detail({ article }: { article: NewsItem }) {
+  const link = isHttpUrl(article.link) ? article.link : null;
+  const thumb = isHttpUrl(article.thumbnail_url) ? article.thumbnail_url : null;
+  return (
+    <article className="detail" aria-label="article">
+      {thumb && <img className="thumb" src={thumb} alt="" />}
+      <h3>{link ? <a href={link} target="_blank" rel="noopener noreferrer">{article.title}</a> : article.title}</h3>
+      <p className="detail-meta">
+        {article.provider_name ?? "Unknown source"} · {when(article.pub_date)}
+      </p>
+      <p>{article.summary ?? "No summary."}</p>
+      {link && (
+        <a href={link} target="_blank" rel="noopener noreferrer">
+          Open article ↗
+        </a>
+      )}
+    </article>
+  );
+}
+
 function NewsList({ rows }: { rows: NewsItem[] }) {
   const [open, setOpen] = useState<number | null>(null);
   const [selected, setSelected] = useListKeys(rows.length, (index) => setOpen(index));
+  const listRef = useRef<HTMLUListElement>(null);
   const article = open === null ? undefined : rows[open];
 
+  // Keep the keyboard selection in view; a 50-row list scrolls past the fold.
+  useEffect(() => {
+    const el = listRef.current?.children[selected];
+    if (el instanceof HTMLElement && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ block: "nearest" });
+    }
+  }, [selected]);
+
   return (
-    <>
-      <ul className="list" aria-label="news">
+    <div className="split">
+      <ul className="list split-list" role="listbox" aria-label="news" ref={listRef}>
         {rows.map((row, index) => (
           <li
             key={row.news_id}
+            role="option"
+            tabIndex={-1}
             className={index === selected ? "list-row row-selected" : "list-row"}
-            aria-selected={index === selected ? "true" : undefined}
+            aria-selected={index === selected}
             onClick={() => {
               setSelected(index);
               setOpen(index);
@@ -32,18 +67,10 @@ function NewsList({ rows }: { rows: NewsItem[] }) {
           </li>
         ))}
       </ul>
-      {article && (
-        <div className="detail">
-          <h3>{article.title}</h3>
-          <p>{article.summary ?? "No summary."}</p>
-          {article.link && (
-            <a href={article.link} target="_blank" rel="noopener noreferrer">
-              Open article
-            </a>
-          )}
-        </div>
-      )}
-    </>
+      <div className="split-detail">
+        {article ? <Detail article={article} /> : <p className="muted">Enter or click opens an article here.</p>}
+      </div>
+    </div>
   );
 }
 

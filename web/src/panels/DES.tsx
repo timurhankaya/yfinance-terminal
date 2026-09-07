@@ -3,7 +3,7 @@ import { getSymbol, type SymbolDetail } from "../api/client";
 import type { PanelProps, PanelSpec } from "../commands/types";
 import { ErrorCard, MissingCard, usePanelData } from "./common";
 
-type Kind = "text" | "big" | "num" | "pct";
+type Kind = "text" | "big" | "num" | "pct" | "link";
 
 // Keys are the API's: the `info` snapshot is normalised to snake_case on
 // the way into the database, not yfinance's camelCase. Numbers arrive as
@@ -19,8 +19,12 @@ const INFO_ROWS: ReadonlyArray<[key: string, label: string, kind: Kind]> = [
   ["beta", "Beta", "num"],
   ["fifty_two_week_low", "52w low", "num"],
   ["fifty_two_week_high", "52w high", "num"],
-  ["website", "Website", "text"],
+  ["website", "Website", "link"],
 ];
+
+function isHttpUrl(value: unknown): value is string {
+  return typeof value === "string" && /^https?:\/\//i.test(value);
+}
 
 export function formatBig(value: number): string {
   const units: Array<[number, string]> = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "K"]];
@@ -41,7 +45,7 @@ export function asNumber(value: unknown): number | null {
 
 function format(value: unknown, kind: Kind): string | null {
   if (value === null || value === undefined) return null;
-  if (kind === "text") return String(value);
+  if (kind === "text" || kind === "link") return String(value);
   const n = asNumber(value);
   if (n === null) return null;
   if (kind === "big") return formatBig(n);
@@ -79,9 +83,17 @@ export function DES({ symbol }: PanelProps) {
           if (text === null) return null;
           // Fragment, not a wrapper: <dl> only allows dt/dd children, and
           // an inline style= would be blocked by the page's CSP anyway.
+          const value = info[key];
           return (
             <Fragment key={key}>
-              <dt>{label}</dt><dd>{text}</dd>
+              <dt>{label}</dt>
+              <dd>
+                {kind === "link" && isHttpUrl(value) ? (
+                  <a href={value} target="_blank" rel="noopener noreferrer">{text}</a>
+                ) : (
+                  text
+                )}
+              </dd>
             </Fragment>
           );
         })}

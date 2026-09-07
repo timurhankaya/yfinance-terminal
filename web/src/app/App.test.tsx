@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
@@ -139,6 +139,28 @@ describe("AppRoutes", () => {
     expect(box).toHaveValue("");
     await userEvent.keyboard("/");
     expect(box).toHaveFocus();
+  });
+
+  it("offers every function in a bar; clicking one runs it on the current symbol", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
+      if (url.startsWith("/v1/symbols/")) {
+        const symbol = url.split("/").pop()!;
+        return json(200, symbolBody(symbol, `${symbol} Corp`));
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    mount("/ui/t/AAPL/DES");
+    await screen.findByText("AAPL Corp");
+    const bar = screen.getByRole("navigation", { name: "functions" });
+    expect(bar).toHaveTextContent("DES");
+    expect(bar).toHaveTextContent("FAKEFA");
+    await userEvent.click(within(bar).getByRole("button", { name: "FAKEFA" }));
+    expect(await screen.findByText("fake FA panel")).toBeInTheDocument();
+    // HELP keeps the symbol, so the bar stays usable from the help page.
+    await userEvent.click(within(bar).getByRole("button", { name: "HELP" }));
+    expect(await screen.findByRole("heading", { name: "Help" })).toBeInTheDocument();
+    expect(within(bar).getByRole("button", { name: "DES" })).toBeEnabled();
   });
 
   it("gives the password field focus on first load, not the command box", async () => {

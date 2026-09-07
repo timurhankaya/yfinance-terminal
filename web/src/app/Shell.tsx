@@ -3,7 +3,7 @@ import type { KeyboardEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { ApiError, getSymbol, UnauthorizedError } from "../api/client";
 import { commandToPath, parse, pathToCommand, SYMBOL_RE } from "../commands/parser";
-import { getPanel, isMnemonic } from "../commands/registry";
+import { getPanel, isMnemonic, listPanels } from "../commands/registry";
 import type { PanelArgs } from "../commands/types";
 import { CommandPalette } from "./CommandPalette";
 import { useGlobalKeys } from "./keys";
@@ -147,6 +147,24 @@ export function Shell() {
         />
         {warning && <p className="warn">{warning}</p>}
       </header>
+      <nav className="fnbar" aria-label="functions">
+        {listPanels().map((panel) => {
+          const runnable = !panel.needsSymbol || hasSymbol;
+          return (
+            <button
+              key={panel.code}
+              type="button"
+              className={panel.code === command.code ? "fn fn-active" : "fn"}
+              aria-current={panel.code === command.code ? "page" : undefined}
+              disabled={!runnable}
+              title={panel.title}
+              onClick={() => void navigate(commandToPath({ symbol: command.symbol, code: panel.code, args: {} }))}
+            >
+              {panel.code}
+            </button>
+          );
+        })}
+      </nav>
       {hasSymbol && (
         <div className="strip">
           <span className="strip-symbol">{command.symbol}</span>

@@ -45,7 +45,7 @@ function FilingList({ data }: { data: Filings }) {
   const [selected, setSelected] = useListKeys(filings.length, toggle);
 
   return (
-    <ul className="list" aria-label="filings">
+    <ul className="list" role="listbox" aria-label="filings">
       {filings.map((row, index) => {
         const id = String(row.filing_id ?? index);
         const attached = exhibits.get(id) ?? [];
@@ -53,9 +53,11 @@ function FilingList({ data }: { data: Filings }) {
         return (
           <li
             key={id}
+            role="option"
+            tabIndex={-1}
             className={index === selected ? "list-row row-selected" : "list-row"}
-            aria-selected={index === selected ? "true" : undefined}
-            aria-expanded={index === expanded}
+            aria-selected={index === selected}
+            data-expanded={index === expanded}
             onClick={() => {
               setSelected(index);
               toggle(index);
@@ -67,7 +69,7 @@ function FilingList({ data }: { data: Filings }) {
             <span className="muted">
               {text(row, "exhibit_count")} {text(row, "exhibit_count") === "1" ? "exhibit" : "exhibits"}
             </span>{" "}
-            {typeof edgar === "string" && (
+            {typeof edgar === "string" && /^https?:\/\//i.test(edgar) && (
               <a href={edgar} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
                 EDGAR ↗
               </a>

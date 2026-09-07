@@ -48,7 +48,9 @@ describe("parse", () => {
     ["GIP 15m", { kind: "command", command: { symbol: "AAPL", code: "GIP", args: { interval: "15m" } } }],
     ["GIP 15M", { kind: "command", command: { symbol: "AAPL", code: "GIP", args: { interval: "15m" } } }],
     ["AAPL GIP 1m", { kind: "command", command: { symbol: "AAPL", code: "GIP", args: { interval: "1m" } } }],
-    ["HELP", { kind: "command", command: { symbol: null, code: "HELP", args: {} } }],
+    // A symbol-less panel still carries the context symbol, so the next
+    // "FA" after HELP has something to run against.
+    ["HELP", { kind: "command", command: { symbol: "AAPL", code: "HELP", args: {} } }],
     ["BRK-B", { kind: "command", command: { symbol: "BRK-B", code: "DES", args: {} } }],
     ["^GSPC DES", { kind: "command", command: { symbol: "^GSPC", code: "DES", args: {} } }],
     ["FA DES x", { kind: "command", command: { symbol: "FA", code: "DES", args: { a: "x" } } }],

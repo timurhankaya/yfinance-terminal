@@ -141,7 +141,8 @@ export function FA({ symbol, args }: PanelProps) {
       {table && (
         <>
           <p className="muted">
-            {symbol} · {statement} · {freq}
+            {symbol} · {STATEMENT_TABS.find(([v]) => v === statement)?.[1] ?? statement} ·{" "}
+            {FREQ_TABS.find(([v]) => v === freq)?.[1] ?? freq}
             {table.currency ? ` · ${table.currency}` : ""}
           </p>
           <DataTable columns={columns} rows={table.rows} rowKey={(row) => row.item} />

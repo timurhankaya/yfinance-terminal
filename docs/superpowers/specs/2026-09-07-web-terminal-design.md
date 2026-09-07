@@ -372,7 +372,8 @@ gösterir.
   yaratmaz; hosted fazında kullanıcı tablosuyla değişir.
 - `pages.py` `index.html`'i döndürürken başlıkları koyar:
   `Content-Security-Policy: default-src 'self'; connect-src 'self';
-  img-src 'self' data:; style-src 'self'; frame-ancestors 'none'` ve
+  img-src 'self' data: https:; style-src 'self'; frame-ancestors 'none';
+  base-uri 'none'; form-action 'self'` ve
   `X-Frame-Options: DENY`. `connect-src 'self'` aynı origin WS'i kapsar.
   lightweight-charts ve cmdk'nın inline stil gereksinimi 1a'da
   doğrulanır; gerekiyorsa `style-src` nonce ile açılır. Middleware

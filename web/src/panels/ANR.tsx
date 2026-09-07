@@ -63,14 +63,17 @@ function newestOnly(rows: Row[]): Row[] {
 }
 
 const TARGET_COLUMNS: Column<Row>[] = ["current", "low", "mean", "median", "high"].map((key) => ({
-  key, label: key, align: "right", format: (row: Row) => num(row, key),
+  key, label: key.charAt(0).toUpperCase() + key.slice(1), align: "right", format: (row: Row) => num(row, key),
 }));
 
 const RECOMMENDATION_COLUMNS: Column<Row>[] = [
   { key: "as_of_date", label: "As of", format: (r) => text(r, "as_of_date") },
   { key: "period", label: "Period", format: (r) => text(r, "period") },
   ...["strong_buy", "buy", "hold", "sell", "strong_sell"].map((key) => ({
-    key, label: key.replace("_", " "), align: "right" as const, format: (r: Row) => text(r, key),
+    key,
+    label: key.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+    align: "right" as const,
+    format: (r: Row) => text(r, key),
   })),
 ];
 

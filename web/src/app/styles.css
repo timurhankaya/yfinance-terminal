@@ -9,7 +9,22 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 ui-mon
 .panel { flex: 1; overflow: auto; padding: 10px; }
 .muted { color: var(--muted); }
 .error { color: #ff6b6b; }
-.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: grid; place-items: center; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.7); display: grid; place-items: center; }
+.fnbar { display: flex; gap: 2px; padding: 4px 10px 0; border-bottom: 1px solid var(--line); }
+.fn { padding: 3px 10px; color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; font: inherit; cursor: pointer; }
+.fn:hover:not(:disabled) { color: var(--fg); }
+.fn:disabled { opacity: .4; cursor: default; }
+.fn-active { color: var(--accent); border-bottom-color: var(--accent); }
+a { color: var(--accent); }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 40%); gap: 12px; height: 100%; }
+.split-list { overflow: auto; min-height: 0; }
+.split-detail { overflow: auto; min-height: 0; border-left: 1px solid var(--line); padding-left: 12px; }
+.list-row { cursor: pointer; }
+.list-row:focus-visible, .list-row[aria-selected="true"] { outline: none; }
+.detail-meta { color: var(--muted); margin: 0 0 8px; }
+.thumb { max-width: 100%; height: auto; display: block; margin-bottom: 8px; border: 1px solid var(--line); }
+.help-fn { color: var(--accent); background: none; border: 0; font: inherit; cursor: pointer; padding: 0; }
+.help-fn:disabled { color: var(--muted); cursor: default; }
 .modal { background: #12171d; border: 1px solid var(--line); padding: 20px 24px; display: grid; gap: 10px; min-width: 280px; }
 .modal input { font: inherit; padding: 6px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); }
 .modal button { font: inherit; padding: 6px 10px; background: var(--accent); color: #000; border: 0; cursor: pointer; }

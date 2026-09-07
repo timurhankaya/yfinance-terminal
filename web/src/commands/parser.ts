@@ -32,7 +32,9 @@ function build(symbol: string | null, code: string, rawArgs: string[]): ParseRes
   } catch (err) {
     return { kind: "error", message: err instanceof Error ? err.message : String(err) };
   }
-  return { kind: "command", command: { symbol: spec.needsSymbol ? symbol : null, code: spec.code, args } };
+  // The context symbol rides along even into panels that do not need it
+  // (HELP): otherwise "AAPL DES, HELP, FA" would forget AAPL half-way.
+  return { kind: "command", command: { symbol, code: spec.code, args } };
 }
 
 export function parse(input: string, ctx: ParseContext): ParseResult {

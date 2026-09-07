@@ -21,8 +21,11 @@ from starlette.staticfiles import StaticFiles
 
 #: `connect-src 'self'` covers same-origin WebSocket in every current
 #: browser; no `ws:` scheme is listed because that would allow any host.
+#: `img-src https:` is for news thumbnails, which live on the publishers'
+#: CDNs; images cannot run script, so the widening costs nothing the
+#: other directives protect.
 CSP = (
-    "default-src 'self'; connect-src 'self'; img-src 'self' data:; "
+    "default-src 'self'; connect-src 'self'; img-src 'self' data: https:; "
     "style-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
     "form-action 'self'"
 )
