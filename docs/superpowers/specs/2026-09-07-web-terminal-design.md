@@ -63,7 +63,7 @@ Sürümler npm/PyPI'dan okundu.
 | Grafik | `lightweight-charts` | 5.2.1, Apache-2.0 | Çoklu pane, marker, whitespace verisi, v5.1 data conflation. uPlot daha hızlı ama finans UX'i elle yazılır; Highcharts Stock lisansı riskli. |
 | Tablo | kendi `DataTable`'ımız (FA, ANR); `@tanstack/react-virtual` (QR, 1d) | 3.14, MIT | 1b'de `@tanstack/react-table` kullanılmadı: pivot ve beş analist tablosu düz `<table>` ile yeterli. QR'ın sanallaştırması 1d'de. AG Grid faz 1'de gerekmez. |
 | Komut paleti | `cmdk` | 1.1, MIT | Düz `<Command>`; `Command.Dialog` kullanılmaz (radix dialog `<style>` enjekte eder, CSP engeller). Kısayollar tek `keydown` dinleyicisi (`react-hotkeys-hook` 1b'de gereksiz görüldü). kbar 1.0 Ağustos 2026'da çıktı, olgunlaşmamış. |
-| Durum | `@tanstack/react-query` + `zustand` | 5.102 / 5.0, MIT | REST için Query; canlı store için Zustand seçici abonelik. |
+| Durum | `usePanelData` (REST) + `zustand` (1c, canlı store) | zustand 5.0, MIT | REST yükleme kendi hook'umuzda: oturum kapısı, iptal, 401/404/boş durumları tek yerde; `@tanstack/react-query` 1a-1b'de kullanılmadı. Canlı tick store'u 1c'de Zustand seçici abonelik. |
 | Yönlendirme | `react-router` | 7.x, MIT | URL ↔ `(symbol, code, args)` eşlemesi ve history tabanlı gezinme. REST yükleme 1a ve 1b'de `usePanelData` hook'u ile (`@tanstack/react-query` kullanılmadı: oturum kapısı, iptal ve 401 akışı tek hook'ta). |
 | Canlı taşıma | FastAPI WebSocket + Redis pub/sub | -- | Çift yönlü abonelik; SSE abonelik değişikliği için ayrı REST ister. PG LISTEN/NOTIFY 8 kB sınırı ve bağlantı maliyeti yüzünden reddedildi. Kafka opsiyonel extra, UI için zorunlu kılınmaz. |
 

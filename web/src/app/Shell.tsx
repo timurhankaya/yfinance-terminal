@@ -63,10 +63,19 @@ export function Shell() {
       }
       setWarning(null);
       setDraft("");
+      // Hand the keyboard to the panel: while the box keeps focus, j/k/Enter
+      // would be typed into it instead of moving a list selection.
+      inputRef.current?.blur();
       void navigate(commandToPath(next));
     },
     [command, navigate, requireLogin],
   );
+
+  // Focus the box once the session exists. A static autoFocus would race
+  // the login modal's password field on first load and win.
+  useEffect(() => {
+    if (me?.authenticated) inputRef.current?.focus();
+  }, [me?.authenticated]);
 
   // The last command re-runs after a successful login.
   useEffect(() => {
@@ -135,7 +144,6 @@ export function Shell() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
-          autoFocus
         />
         {warning && <p className="warn">{warning}</p>}
       </header>

@@ -120,6 +120,38 @@ describe("AppRoutes", () => {
     expect(await screen.findByText("MSFT Corp")).toBeInTheDocument();
   });
 
+  it("hands focus to the panel after a command so j/k reach the list, and refocuses on '/'", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/me") return json(200, { authenticated: true, expires_at: 1, live_enabled: false });
+      if (url.startsWith("/v1/symbols/")) {
+        const symbol = url.split("/").pop()!;
+        return json(200, symbolBody(symbol, `${symbol} Corp`));
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    mount("/ui/t/AAPL/DES");
+    const box = await screen.findByLabelText("command");
+    await waitFor(() => expect(box).toHaveFocus());
+    await userEvent.type(box, "msft{enter}");
+    await screen.findByText("MSFT Corp");
+    expect(box).not.toHaveFocus();
+    await userEvent.keyboard("j");
+    expect(box).toHaveValue("");
+    await userEvent.keyboard("/");
+    expect(box).toHaveFocus();
+  });
+
+  it("gives the password field focus on first load, not the command box", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/me") return json(200, { authenticated: false, expires_at: null, live_enabled: false });
+      throw new Error(`unexpected ${url}`);
+    });
+    mount("/ui/t/AAPL/DES");
+    const password = await screen.findByLabelText("password");
+    await waitFor(() => expect(password).toHaveFocus());
+    expect(screen.getByLabelText("command")).not.toHaveFocus();
+  });
+
   it("shows an unreachable-API message when login fails with a network error", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/me") return json(200, { authenticated: false, expires_at: null, live_enabled: false });

@@ -64,14 +64,18 @@ function FilingList({ data }: { data: Filings }) {
             <span className="muted">{text(row, "filing_date")}</span>{" "}
             <span>{text(row, "filing_type")}</span>{" "}
             <span>{text(row, "title")}</span>{" "}
-            <span className="muted">{text(row, "exhibit_count")} exhibits</span>{" "}
+            <span className="muted">
+              {text(row, "exhibit_count")} {text(row, "exhibit_count") === "1" ? "exhibit" : "exhibits"}
+            </span>{" "}
             {typeof edgar === "string" && (
               <a href={edgar} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
                 EDGAR ↗
               </a>
             )}
             {index === expanded && (
-              <div className="detail">
+              // Clicks inside the exhibit list must not bubble to the row
+              // and collapse what the user is reading.
+              <div className="detail" onClick={(e) => e.stopPropagation()}>
                 {attached.length === 0 ? (
                   <p className="muted">
                     No exhibits fetched for this filing (the exhibits feed is capped at 200 rows).

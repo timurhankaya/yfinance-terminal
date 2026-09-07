@@ -21,7 +21,9 @@ dl.des dt { color: var(--muted); }
 .grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .row-selected { background: var(--line); }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
-.tab { padding: 4px 10px; color: var(--muted); cursor: pointer; }
+.tab { padding: 4px 10px; color: var(--muted); cursor: pointer; background: none; border: 0; font: inherit; }
+.anr-section { margin-bottom: 16px; }
+.anr-section h3 { margin: 8px 0 4px; font-size: 13px; color: var(--muted); }
 .tab-active { color: var(--fg); border-bottom: 2px solid var(--accent); }
 .list { list-style: none; margin: 0; padding: 0; }
 .list-row { padding: 4px 8px; border-bottom: 1px solid var(--line); }

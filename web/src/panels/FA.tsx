@@ -68,9 +68,13 @@ export function pivot(facts: FinancialFact[]): Pivot {
   return { periods, rows, currency: facts[0]?.currency ?? null };
 }
 
-function cell(value: unknown): string {
+// Statements mix magnitudes: revenue in the hundreds of billions next to
+// EPS at 8.76 and tax rates at 0.17. Below a thousand the K/M/B/T scaler
+// would round those to "9" and "0", so small values keep two decimals.
+export function cell(value: unknown): string {
   const n = asNumber(value);
-  return n === null ? "—" : formatBig(n);
+  if (n === null) return "—";
+  return Math.abs(n) < 1000 ? n.toFixed(2) : formatBig(n);
 }
 
 export function FA({ symbol, args }: PanelProps) {

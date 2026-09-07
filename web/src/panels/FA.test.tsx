@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation } from "react-router";
-import { FA, FA_PANEL } from "./FA";
+import { FA, FA_PANEL, cell } from "./FA";
 import { SessionProvider } from "../app/session";
 
 function json(status: number, body: unknown): Response {
@@ -41,6 +41,16 @@ function renderFA(args: Record<string, string> = {}, path = "/ui/t/AAPL/FA") {
     </SessionProvider>,
   );
 }
+
+describe("cell", () => {
+  it("keeps two decimals below a thousand and scales above it", () => {
+    expect(cell("8.76")).toBe("8.76");
+    expect(cell("0.173027")).toBe("0.17");
+    expect(cell("-321000000")).toBe("-321.00M");
+    expect(cell("391035000000")).toBe("391.04B");
+    expect(cell(null)).toBe("—");
+  });
+});
 
 describe("FA_PANEL.parseArgs", () => {
   it.each([
