@@ -210,4 +210,4 @@ _SPECS: tuple[tuple[str, StatementKind, StatementFreq], ...] = (
 )
 
 for _name, _statement, _freq in _SPECS:
-    register(StatementDataset(_name, _statement, _freq), family="financials")
+    register(StatementDataset(_name, _statement, _freq), group="financials")

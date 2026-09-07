@@ -78,4 +78,4 @@ class AnalystPriceTargetsDataset(AsOfDataset[AsOfMappingPayload]):
         )
 
 
-register(AnalystPriceTargetsDataset(), family="analysis")
+register(AnalystPriceTargetsDataset(), group="analysis")

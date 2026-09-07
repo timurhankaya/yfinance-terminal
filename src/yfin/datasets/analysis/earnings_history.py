@@ -113,4 +113,4 @@ class EarningsHistoryDataset(Dataset[RangedFramePayload]):
         )
 
 
-register(EarningsHistoryDataset(), family="analysis")
+register(EarningsHistoryDataset(), group="analysis")

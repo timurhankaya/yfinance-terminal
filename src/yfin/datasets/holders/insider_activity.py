@@ -135,4 +135,4 @@ class InsiderPurchasesDataset(AsOfDataset[AsOfFramePayload]):
         )
 
 
-register(InsiderPurchasesDataset(), family="holders")
+register(InsiderPurchasesDataset(), group="holders")

@@ -146,4 +146,4 @@ class UpgradesDowngradesDataset(Dataset[RangedFramePayload]):
         )
 
 
-register(UpgradesDowngradesDataset(), family="analysis")
+register(UpgradesDowngradesDataset(), group="analysis")

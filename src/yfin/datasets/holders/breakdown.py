@@ -88,4 +88,4 @@ class MajorHoldersDataset(AsOfDataset[AsOfFramePayload]):
         )
 
 
-register(MajorHoldersDataset(), family="holders")
+register(MajorHoldersDataset(), group="holders")

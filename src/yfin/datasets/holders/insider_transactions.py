@@ -174,4 +174,4 @@ class InsiderTransactionsDataset(Dataset[RangedFramePayload]):
         )
 
 
-register(InsiderTransactionsDataset(), family="holders")
+register(InsiderTransactionsDataset(), group="holders")

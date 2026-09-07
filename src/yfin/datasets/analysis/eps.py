@@ -70,5 +70,5 @@ class EpsRevisionsDataset(PeriodFrameDataset):
     )
 
 
-register(EpsTrendDataset(), family="analysis")
-register(EpsRevisionsDataset(), family="analysis")
+register(EpsTrendDataset(), group="analysis")
+register(EpsRevisionsDataset(), group="analysis")

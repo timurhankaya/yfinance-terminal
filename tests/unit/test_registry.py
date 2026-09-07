@@ -254,10 +254,10 @@ def test_a_family_grows_with_its_MEMBERS() -> None:
             self.name = name
 
     registry: Registry[_Member] = Registry()
-    registry.register(_Member("first"), family="things")
+    registry.register(_Member("first"), group="things")
     assert registry.aliases["things"] == ("first",)
 
-    registry.register(_Member("second"), family="things")
+    registry.register(_Member("second"), group="things")
     assert registry.aliases["things"] == ("first", "second")
     assert [d.name for d in registry.resolve(["things"])] == ["first", "second"]
 
@@ -275,7 +275,7 @@ def test_a_family_cannot_shadow_an_explicit_alias() -> None:
 
     registry: Registry[_Member] = Registry(aliases={"things": ("other",)})
     with pytest.raises(ValueError, match="already an explicit alias"):
-        registry.register(_Member(), family="things")
+        registry.register(_Member(), group="things")
 
 
 def test_all_can_be_COMBINED_with_an_opt_in_dataset() -> None:

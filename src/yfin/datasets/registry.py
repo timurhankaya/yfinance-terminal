@@ -72,11 +72,11 @@ class Registry[D: Registrable]:
         self.bootstrap = bootstrap
         #: Aliases whose members are genuinely arbitrary -- a rename, a
         #: convenience grouping, a pair of names that happen to belong
-        #: together. A family that is simply "every dataset of this kind"
-        #: is NOT written here; see `register(family=...)`.
+        #: together. A group that is simply "every dataset of this kind"
+        #: is NOT written here; see `register(group=...)`.
         self.explicit_aliases: dict[str, tuple[str, ...]] = dict(aliases or {})
-        #: Families, collected from the registration sites.
-        self._families: dict[str, list[str]] = {}
+        #: Alias groups, collected from the registration sites.
+        self._groups: dict[str, list[str]] = {}
         self._items: dict[str, D] = {}
         # Datasets that never run UNLESS NAMED EXPLICITLY. The opposite of
         # `bootstrap`: that one gets ADDED to every resolution, these get
@@ -87,21 +87,26 @@ class Registry[D: Registrable]:
 
     @property
     def aliases(self) -> dict[str, tuple[str, ...]]:
-        """Every name that expands to several: explicit ones and families.
+        """Every name that expands to several: explicit ones and groups.
 
-        A family cannot shadow a dataset or an explicit alias -- that is
+        A group cannot shadow a dataset or an explicit alias -- that is
         checked at registration -- so merging them is unambiguous.
         """
         return {
-            **{name: tuple(members) for name, members in self._families.items()},
+            **{name: tuple(members) for name, members in self._groups.items()},
             **self.explicit_aliases,
         }
 
-    def register(self, ds: D, *, opt_in: bool = False, family: str | None = None) -> D:
+    def register(self, ds: D, *, opt_in: bool = False, group: str | None = None) -> D:
         """Both flags are declared here, at the registration site.
 
-        `family="financials"` puts the dataset in the `--datasets financials`
-        group. Declared here rather than listed in this module, for the
+        `group="financials"` puts the dataset in the `--datasets financials`
+        group. It is deliberately NOT called `family`: `DataFamily`
+        (`core/families.py`) is the authorisation unit the API derives its
+        scopes from, and this is a CLI convenience with no relation to it.
+        The two were both spelled `family` and sat ten lines apart in
+        `holders/institutional.py`, meaning different things.
+        Declared here rather than listed in this module, for the
         reason the `bars` alias already gives: a hand-written list that
         misses a new member registers it and then silently skips it. `bars`
         derived its members and three neighbouring families did not, so
@@ -133,12 +138,12 @@ class Registry[D: Registrable]:
             self._opt_in.add(ds.name)
         else:
             self._opt_in.discard(ds.name)
-        if family is not None:
-            if family in self.explicit_aliases:
+        if group is not None:
+            if group in self.explicit_aliases:
                 raise ValueError(
-                    f"{ds.name}: family {family!r} is already an explicit alias"
+                    f"{ds.name}: group {group!r} is already an explicit alias"
                 )
-            members = self._families.setdefault(family, [])
+            members = self._groups.setdefault(group, [])
             if ds.name not in members:
                 members.append(ds.name)
         return ds
@@ -268,7 +273,7 @@ SYMBOL_DATASETS: Registry[Dataset[Any]] = Registry(
         # source its body is `return self.get_recommendations(as_dict=as_dict)`
         # (base.py:220).
         "recommendations_summary": ("recommendations",),
-        # `analysis`, `holders` and `financials` are FAMILIES now, declared
+        # `analysis`, `holders` and `financials` are GROUPS now, declared
         # at each dataset's registration site rather than listed here.
         # `sustainability` simply declares none: it is a monitoring dataset
         # with no table, and its exclusion is now visible where it is
@@ -308,25 +313,25 @@ DOMAIN_DATASETS: Registry[DomainDataset[Any]] = Registry(
 
 
 def register(
-    ds: Dataset[Any], *, opt_in: bool = False, family: str | None = None
+    ds: Dataset[Any], *, opt_in: bool = False, group: str | None = None
 ) -> Dataset[Any]:
     """Registers a symbol-scoped dataset (used as a decorator in dataset modules).
 
-    `opt_in=True` -> excluded from the `all` expansion; `family=` puts it in
-    a `--datasets <family>` group. See `Registry.register`.
+    `opt_in=True` -> excluded from the `all` expansion; `group=` puts it in
+    a `--datasets <group>` alias. See `Registry.register`.
     """
-    return SYMBOL_DATASETS.register(ds, opt_in=opt_in, family=family)
+    return SYMBOL_DATASETS.register(ds, opt_in=opt_in, group=group)
 
 
 def register_market(
-    ds: GlobalDataset[Any], *, opt_in: bool = False, family: str | None = None
+    ds: GlobalDataset[Any], *, opt_in: bool = False, group: str | None = None
 ) -> GlobalDataset[Any]:
     """Registers a market-scoped dataset."""
-    return MARKET_DATASETS.register(ds, opt_in=opt_in, family=family)
+    return MARKET_DATASETS.register(ds, opt_in=opt_in, group=group)
 
 
 def register_domain(
-    ds: DomainDataset[Any], *, family: str | None = None
+    ds: DomainDataset[Any], *, group: str | None = None
 ) -> DomainDataset[Any]:
     """Registers a sector / industry-scoped dataset."""
-    return DOMAIN_DATASETS.register(ds, family=family)
+    return DOMAIN_DATASETS.register(ds, group=group)
