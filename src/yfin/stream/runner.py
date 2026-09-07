@@ -26,6 +26,7 @@ from sqlalchemy import Engine
 
 from yfin.core.config import Settings
 from yfin.core.logging_setup import get_logger
+from yfin.core.text import comma_list
 from yfin.models.stream import StreamStatus
 from yfin.storage.db import advisory_lock, session_factory
 from yfin.stream.repository import STREAM_LOCK_NAME, StreamRepository
@@ -60,11 +61,7 @@ def canary_symbols(settings: Settings) -> tuple[str, ...]:
     They occupy quota like anything else, which is why the per-connection
     size is 95 rather than 100.
     """
-    return tuple(
-        symbol.strip().upper()
-        for symbol in settings.yf_stream_canary_symbols.split(",")
-        if symbol.strip()
-    )
+    return tuple(comma_list(settings.yf_stream_canary_symbols, upper=True))
 
 
 def writer_config(settings: Settings) -> WriterConfig:

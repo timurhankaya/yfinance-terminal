@@ -24,6 +24,7 @@ from sqlalchemy import text
 from yfin.api.core.config import ApiSettings
 from yfin.api.core.errors import TYPE_RATE_LIMIT, ApiProblem
 from yfin.api.core.openapi import contract
+from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.core.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -41,30 +42,6 @@ class Readiness(BaseModel):
     status: Status
     database: Literal["ok", "fail"]
     redis: Literal["ok", "fail"]
-
-
-class _FixedWindow:
-    """Per-IP counter in a one-minute window.
-
-    Deliberately tiny: it protects one endpoint from floods, it is not
-    the API's rate limiter. Entries are swept when the window rolls so a
-    long uptime cannot grow the dict without bound.
-    """
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._window = 0
-        self._hits: dict[str, int] = {}
-
-    def allow(self, key: str, limit: int) -> bool:
-        window = int(time.time() // 60)
-        with self._lock:
-            if window != self._window:
-                self._window = window
-                self._hits = {}
-            count = self._hits.get(key, 0) + 1
-            self._hits[key] = count
-            return count <= limit
 
 
 class _ReadinessCache:
@@ -85,7 +62,7 @@ class _ReadinessCache:
             self._expires = time.monotonic() + ttl
 
 
-_limiter = _FixedWindow()
+_limiter = FixedWindow()
 _cache = _ReadinessCache()
 
 

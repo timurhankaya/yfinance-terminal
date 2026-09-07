@@ -24,7 +24,6 @@ import typer
 from yfin.cli.api import api_app
 from yfin.cli.bars import bars_app, scope_app
 from yfin.cli.common import (
-    csv_upper,
     echo_tally,
     filtered_symbols,
     parse_date,
@@ -41,6 +40,7 @@ from yfin.cli.stream import stream_app
 from yfin.cli.symbols import discover_app, symbols_app
 from yfin.core.config import get_settings
 from yfin.core.logging_setup import configure_logging, get_logger
+from yfin.core.text import comma_list
 
 log = get_logger(__name__)
 
@@ -121,7 +121,7 @@ def sync(
     configure_logging(settings.log_level)
     engine = create_db_engine(settings)
 
-    selected = SYMBOL_DATASETS.resolve(None if datasets.strip() == "all" else datasets.split(","))
+    selected = SYMBOL_DATASETS.resolve(None if datasets.strip() == "all" else comma_list(datasets))
 
     start_date = parse_day(start, option="--start")
     end_date = parse_day(end, option="--end")
@@ -129,8 +129,8 @@ def sync(
         typer.echo("--start cannot be later than --end", err=True)
         raise typer.Exit(code=1)
 
-    exchanges = csv_upper(exchange)
-    quote_types = csv_upper(quote_type)
+    exchanges = comma_list(exchange, upper=True)
+    quote_types = comma_list(quote_type, upper=True)
     filtered = bool(exchanges or quote_types or suffix)
 
     if symbols and filtered:
@@ -151,7 +151,7 @@ def sync(
         raise typer.Exit(code=1)
 
     if symbols:
-        codes = [nz.normalize_symbol(s) for s in symbols.split(",") if s.strip()]
+        codes = [nz.normalize_symbol(s) for s in comma_list(symbols)]
     else:
         stmt = select(Symbol.symbol).order_by(Symbol.symbol)
         if not include_inactive:

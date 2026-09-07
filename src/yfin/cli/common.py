@@ -46,10 +46,6 @@ def parse_day(value: str | None, *, option: str) -> date | None:
         raise typer.Exit(code=1) from None
 
 
-def csv_upper(value: str | None) -> list[str]:
-    return [part.strip().upper() for part in (value or "").split(",") if part.strip()]
-
-
 def selector(
     *,
     exchange: list[str],
@@ -150,7 +146,7 @@ def filtered_symbols(
 
 def engine() -> Engine:
     # Imported here, not at module level: `yfin --help` reaches this module
-    # for `parse_day` and `csv_upper`, and `storage.db` pulls the model
+    # for `parse_day` and `selector`, and `storage.db` pulls the model
     # package in behind it.
     from yfin.storage.db import create_db_engine
 

@@ -30,6 +30,7 @@ from sqlalchemy.orm import sessionmaker
 
 from yfin.core.config import Settings, get_settings
 from yfin.core.logging_setup import get_logger
+from yfin.core.text import comma_list
 from yfin.datasets.asof_base import GLOBAL_REGION_MARKER
 from yfin.datasets.domain.base import DomainContext, DomainDataset
 from yfin.datasets.domain.common import as_of_day, fetch_domain
@@ -100,7 +101,7 @@ def domain_regions(
     """
     cfg = settings or get_settings()
     getter = fetch or fetch_domain
-    regions = [r.strip().upper() for r in cfg.yf_domain_regions.split(",") if r.strip()]
+    regions = comma_list(cfg.yf_domain_regions, upper=True)
     if not regions:
         raise RegionValidationError("YF_DOMAIN_REGIONS must not be empty")
     bad = [r for r in regions if not _REGION_PATTERN.fullmatch(r)]

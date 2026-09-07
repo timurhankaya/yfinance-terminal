@@ -22,6 +22,7 @@ from sqlalchemy.orm import sessionmaker
 
 from yfin.core.config import Settings, get_settings
 from yfin.core.logging_setup import get_logger
+from yfin.core.text import comma_list
 from yfin.datasets.market.base import GlobalDataset, MarketContext
 from yfin.datasets.registry import MARKET_DATASETS
 from yfin.models import RunScope
@@ -57,7 +58,7 @@ def market_regions(settings: Settings | None = None) -> list[str]:
     cfg = settings or get_settings()
     # MarketRegion isn't a StrEnum: str(member) gives "MarketRegion.US"
     valid = {member.value for member in MarketRegion}
-    regions = [r.strip().upper() for r in cfg.yf_market_regions.split(",") if r.strip()]
+    regions = comma_list(cfg.yf_market_regions, upper=True)
     unknown = [r for r in regions if r not in valid]
     if unknown:
         raise ValueError(f"invalid market region: {', '.join(unknown)}")

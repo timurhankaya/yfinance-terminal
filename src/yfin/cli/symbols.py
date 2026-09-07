@@ -17,6 +17,7 @@ from yfin.cli.common import (
     session_factory,
 )
 from yfin.core.logging_setup import get_logger
+from yfin.core.text import comma_list
 
 log = get_logger(__name__)
 
@@ -239,7 +240,7 @@ def discover_term(
         )
         raise typer.Exit(code=1)
 
-    selected = SYMBOL_DATASETS.resolve([d for d in datasets.split(",") if d.strip()])
+    selected = SYMBOL_DATASETS.resolve(comma_list(datasets))
     engine = create_db_engine(settings)
     try:
         summary = run_sync(engine, [term], selected, settings=settings, selector=f"term={term}")
