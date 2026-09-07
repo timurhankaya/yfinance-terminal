@@ -24,7 +24,18 @@ export function isHttpUrl(value: unknown): value is string {
 export function formatDecimal(value: unknown): string {
   const n = asNumber(value);
   if (n === null) return "—";
+  // A fraction below one (an ownership share of 0.0165) would round to
+  // 0.02 at two places; four places keep it honest. The raw string is
+  // in the row detail regardless.
+  if (Math.abs(n) < 1) return n.toFixed(4);
   return Math.abs(n) < 1000 ? n.toFixed(2) : formatBig(n);
+}
+
+/** The value as the API sent it, trailing zeros trimmed: the detail
+ *  shows full precision where the grid rounds. */
+export function rawDecimal(value: unknown): string {
+  if (typeof value !== "string") return formatDecimal(value);
+  return value.includes(".") ? value.replace(/0+$/, "").replace(/\.$/, "") : value;
 }
 
 const YEAR_RE = /year|born/;
@@ -144,10 +155,13 @@ function Field({ name, type, value }: { name: string; type: string; value: unkno
       </>
     );
   }
+  const shown = type === "string (decimal)" && value !== null && value !== undefined
+    ? rawDecimal(value)
+    : formatCell(value, type, name);
   return (
     <>
       <dt>{name}</dt>
-      <dd>{formatCell(value, type, name)}</dd>
+      <dd>{shown}</dd>
     </>
   );
 }
@@ -201,7 +215,7 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
   return (
     <div className="dataset">
       <p className="detail-meta">
-        {rows.length.toLocaleString(LOCALE)} rows{truncated ? " (more exist: the list was cut at the page cap)" : ""} ·{" "}
+        {rows.length.toLocaleString(LOCALE)} {rows.length === 1 ? "row" : "rows"}{truncated ? " (more exist: the list was cut at the page cap)" : ""} ·{" "}
         {shown.length} of {columns.length} columns in the grid; Enter or click a row for every field
       </p>
       <div className="scroll-x" ref={tableRef}>

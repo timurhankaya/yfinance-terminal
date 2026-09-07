@@ -48,7 +48,7 @@ export function PX({ symbol, args }: PanelProps) {
   return (
     <section>
       <p className="detail-meta">
-        {interval} bars, oldest {rows} the archive holds, shown newest first. {PX_USAGE.slice(7)}
+        The newest {rows} {interval} bars, newest first. {PX_USAGE.slice(7)}
       </p>
       <DatasetTable columns={BAR_COLUMNS} rows={state.data} hide={["symbol"]} reverse />
     </section>

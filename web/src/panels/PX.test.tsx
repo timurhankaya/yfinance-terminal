@@ -48,7 +48,7 @@ describe("PX", () => {
     );
     const rows = await screen.findAllByRole("row");
     expect(rows[1]!.textContent).toContain("2026-09-04");
-    expect(seen).toContain("/ui/api/v1/symbols/AAPL/bars?interval=1d&limit=2");
+    expect(seen.some((u) => u.startsWith("/ui/api/v1/symbols/AAPL/bars?interval=1d&from=") && u.endsWith("&limit=1000"))).toBe(true);
     expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).not.toContain("symbol");
   });
 });

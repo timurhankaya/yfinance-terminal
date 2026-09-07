@@ -37,8 +37,18 @@ export async function loadDataset(
   const params: Record<string, string> = { ...filters };
   const scoped = mode === "auto" && entry.symbol_scoped && symbol !== null;
   if (scoped) params.symbol = symbol;
-  const rows = await getDatasetRows(entry.name, params);
-  return { entry, rows, symbol: scoped ? symbol : null };
+  try {
+    const rows = await getDatasetRows(entry.name, params);
+    return { entry, rows, symbol: scoped ? symbol : null };
+  } catch (err) {
+    // The API refuses an unknown filter rather than ignoring it; say
+    // which ones this dataset takes so the next attempt is right.
+    if (err instanceof ApiError && err.status === 422 && Object.keys(filters).length > 0) {
+      const accepted = entry.filters.length > 0 ? entry.filters.map((f) => `${f}=`).join(" ") : "no filters";
+      throw new Error(`${err.message}; ${entry.name} accepts ${accepted}`);
+    }
+    throw err;
+  }
 }
 
 /** Splits `k=v` tokens into filters. A token without `=` is an error the

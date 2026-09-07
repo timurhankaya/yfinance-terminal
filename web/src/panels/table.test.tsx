@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CatalogColumn } from "../api/client";
-import { DatasetTable, formatCell, formatDateTime, formatDecimal, formatInteger } from "./table";
+import { DatasetTable, formatCell, formatDateTime, formatDecimal, formatInteger, rawDecimal } from "./table";
 
 afterEach(cleanup);
 
@@ -31,7 +31,12 @@ const ROWS = [
 
 describe("cell formatting by wire type", () => {
   it("formats decimals, integers, booleans, dates and nulls", () => {
-    expect(formatDecimal("0.664350000000")).toBe("0.66");
+    expect(formatDecimal("0.664350000000")).toBe("0.6643"); // binary float: 0.66435 sits just under
+    expect(formatDecimal("0.016480000000")).toBe("0.0165");
+    expect(formatDecimal("7.49")).toBe("7.49");
+    expect(rawDecimal("0.664350000000")).toBe("0.66435");
+    expect(rawDecimal("2.000000000000")).toBe("2");
+    expect(rawDecimal("12")).toBe("12");
     expect(formatDecimal("1234567")).toBe("1.23M");
     expect(formatDecimal(null)).toBe("—");
     expect(formatInteger(7751)).toBe("7,751");
@@ -59,6 +64,7 @@ describe("DatasetTable", () => {
     const detail = screen.getByRole("region", { name: "row detail" });
     expect(detail.textContent).toContain("symbol");
     expect(detail.textContent).toContain("AAPL");
+    expect(detail.textContent).toContain("0.66435"); // full precision, not the grid's rounding
     expect(detail.textContent).toContain('"a": 1'); // raw_json pretty-printed
     expect(detail.textContent).toContain("unlisted"); // a field the catalogue did not list
     expect(detail.textContent).toContain("kept");

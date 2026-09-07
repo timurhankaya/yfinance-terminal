@@ -94,7 +94,7 @@ describe("DS", () => {
     const seen: string[] = [];
     mockApi([{ symbol: "AAPL", as_of_date: "2026-09-06", insiders_pct_held: "0.01648" }], seen);
     renderDS("AAPL", { name: "major_holders" });
-    expect(await screen.findByText("0.02")).toBeInTheDocument();
+    expect(await screen.findByText("0.0165")).toBeInTheDocument();
     expect(seen.some((u) => u.startsWith("/ui/api/v1/datasets/major_holders?") && u.includes("symbol=AAPL"))).toBe(true);
     const headers = screen.getAllByRole("columnheader").map((th) => th.textContent);
     // "open" carries the quote-page link every symbol row implies.
@@ -109,6 +109,19 @@ describe("DS", () => {
     const url = seen.find((u) => u.startsWith("/ui/api/v1/datasets/market_status?"))!;
     expect(url).toContain("region=US");
     expect(url).not.toContain("symbol=");
+  });
+
+  it("names the accepted filters when the API refuses one", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/ui/api/me") return json(200, me);
+      if (url === "/ui/api/v1/datasets") return json(200, { data: CATALOG, next_cursor: null });
+      return new Response(JSON.stringify({ type: "invalid_parameter", title: "Unknown filter" }), {
+        status: 422, headers: { "content-type": "application/problem+json" },
+      });
+    });
+    renderDS("AAPL", { name: "market_status", bogus: "1" });
+    expect(await screen.findByText(/Unknown filter; market_status accepts region=/)).toBeInTheDocument();
   });
 
   it("says when the name is not in the catalogue", async () => {

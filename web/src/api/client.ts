@@ -245,12 +245,29 @@ export function getActions(symbol: string): Promise<Rows> {
 //: The API's ReadableInterval, verbatim.
 export const BAR_INTERVALS = ["1m", "5m", "15m", "60m", "1d", "1wk", "1mo"];
 
-/** One page of bars, oldest first as the API sends them. */
-export async function getBars(symbol: string, interval: string, limit: number): Promise<Row[]> {
+//: Calendar milliseconds one bar of each interval spans, generously:
+//: intraday bars only exist during sessions, so a day of 1m bars is ~390
+//: bars in 24 hours, and weekends hold none.
+const BAR_SPAN_MS: Record<string, number> = {
+  "1m": 4 * 60_000,
+  "5m": 20 * 60_000,
+  "15m": 60 * 60_000,
+  "60m": 4 * 3_600_000,
+  "1d": 1.6 * 86_400_000,
+  "1wk": 8 * 86_400_000,
+  "1mo": 32 * 86_400_000,
+};
+
+/** The newest `rows` bars, oldest first as the API sends them. The API
+ *  pages from the oldest bar, so the request starts far enough back for
+ *  `rows` bars to fit and keeps the tail. */
+export async function getBars(symbol: string, interval: string, rows: number, now = Date.now()): Promise<Row[]> {
   const code = encodeURIComponent(symbol.trim().toUpperCase());
-  const search = new URLSearchParams({ interval, limit: String(limit) });
-  const page = await apiFetch<Page<Row>>(`${DATA_BASE}/symbols/${code}/bars?${search}`);
-  return page.data;
+  const span = BAR_SPAN_MS[interval] ?? BAR_SPAN_MS["1d"]!;
+  const from = new Date(now - span * rows).toISOString();
+  const search = new URLSearchParams({ interval, from, limit: String(PAGE_LIMIT) });
+  const all = await followPages(`${DATA_BASE}/symbols/${code}/bars?${search}`, MAX_PAGES);
+  return all.rows.slice(-rows);
 }
 
 export async function getNews(symbol: string): Promise<NewsItem[]> {

@@ -80,7 +80,7 @@ describe("tabbedPanel", () => {
         </SessionProvider>
       </MemoryRouter>,
     );
-    expect(await screen.findByText("0.50")).toBeInTheDocument();
+    expect(await screen.findByText("0.5000")).toBeInTheDocument();
     expect(seen.some((u) => u.includes("/datasets/major_holders?") && u.includes("symbol=AAPL"))).toBe(true);
     expect(screen.getByRole("tab", { name: "Major" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(screen.getByRole("tab", { name: "Insider transactions" }));

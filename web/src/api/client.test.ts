@@ -209,8 +209,18 @@ describe("catalogue and dataset rows", () => {
       .spyOn(globalThis, "fetch")
       .mockImplementation(() => Promise.resolve(respond(200, { data: [], next_cursor: null })));
     await getActions("aapl");
-    await getBars("aapl", "1d", 50);
+    const now = Date.parse("2026-09-07T00:00:00Z");
+    await getBars("aapl", "1d", 50, now);
     expect(spy.mock.calls[0]![0]).toBe(`/ui/api/v1/symbols/AAPL/actions?limit=${PAGE_LIMIT}`);
-    expect(spy.mock.calls[1]![0]).toBe("/ui/api/v1/symbols/AAPL/bars?interval=1d&limit=50");
+    // 50 daily bars: 80 calendar days back, one full page, the tail kept.
+    const from = encodeURIComponent(new Date(now - 1.6 * 86_400_000 * 50).toISOString());
+    expect(spy.mock.calls[1]![0]).toBe(`/ui/api/v1/symbols/AAPL/bars?interval=1d&from=${from}&limit=${PAGE_LIMIT}`);
+  });
+
+  it("getBars keeps only the newest rows of what the pages returned", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.resolve(respond(200, { data: [{ n: 1 }, { n: 2 }, { n: 3 }], next_cursor: null })),
+    );
+    await expect(getBars("aapl", "1d", 2)).resolves.toEqual([{ n: 2 }, { n: 3 }]);
   });
 });
