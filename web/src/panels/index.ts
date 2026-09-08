@@ -1,4 +1,5 @@
-import { registerPanel } from "../commands/registry";
+import { registerAction, registerPanel } from "../commands/registry";
+import { ACTIONS } from "../workspace/actions";
 import { ANR_PANEL } from "./ANR";
 import { CA_PANEL } from "./CA";
 import { CF_PANEL } from "./CF";
@@ -19,6 +20,7 @@ import { QR_PANEL } from "./QR";
 import { WLA_PANEL } from "./WLA";
 
 export function registerAll(): void {
+  for (const action of ACTIONS) registerAction(action);
   registerPanel(ANR_PANEL);
   registerPanel(CA_PANEL);
   registerPanel(CF_PANEL);

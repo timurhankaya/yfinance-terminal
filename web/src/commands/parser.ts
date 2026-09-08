@@ -4,7 +4,7 @@
 // interval and "15M" is not. The one ambiguity (a ticker that is also a
 // mnemonic, like CF) is settled by position: two leading mnemonics mean the
 // first is the symbol.
-import { getPanel, isMnemonic } from "./registry";
+import { getAction, getPanel, isMnemonic } from "./registry";
 import type { Command, PanelArgs } from "./types";
 
 export const SYMBOL_RE = /^[A-Z0-9.^=-]+$/;
@@ -47,12 +47,21 @@ export interface ParseContext {
 
 export enum ParseKind {
   Command = "command",
+  /** A bare ticker. Not a command yet: on a page with groups it moves a
+   *  letter, and only where there are none does it mean "this panel, that
+   *  symbol" (`symbolCommand`). The shell knows which; the grammar does
+   *  not. */
+  Symbol = "symbol",
+  /** `GRP B`: changes the page, fills no panel. */
+  Action = "action",
   Empty = "empty",
   Error = "error",
 }
 
 export type ParseResult =
   | { kind: ParseKind.Command; command: Command }
+  | { kind: ParseKind.Symbol; symbol: string }
+  | { kind: ParseKind.Action; code: string; tokens: string[] }
   | { kind: ParseKind.Empty }
   | { kind: ParseKind.Error; message: string };
 
@@ -80,13 +89,14 @@ export function parse(input: string, ctx: ParseContext): ParseResult {
   const first = upper[0] ?? "";
   const second = upper[1];
 
+  if (getAction(first) !== undefined) {
+    return { kind: ParseKind.Action, code: first, tokens: raw.slice(1) };
+  }
+
   if (raw.length === 1) {
     if (isMnemonic(first)) return build(ctx.symbol, first, []);
     if (!SYMBOL_RE.test(first)) return { kind: ParseKind.Error, message: `${first} is not a symbol` };
-    // A bare symbol keeps the current panel, unless that panel takes no symbol.
-    const current = getPanel(ctx.code);
-    const code = current && current.needsSymbol ? current.code : DEFAULT_CODE;
-    return build(first, code, []);
+    return { kind: ParseKind.Symbol, symbol: first };
   }
 
   // Two or more tokens.
@@ -100,6 +110,14 @@ export function parse(input: string, ctx: ParseContext): ParseResult {
     return { kind: ParseKind.Error, message: `Unknown function ${second ?? ""}` };
   }
   return build(first, second, raw.slice(2));
+}
+
+/** What a bare ticker means where no letter claims the panel: keep the
+ *  panel and change its symbol, unless that panel takes none. */
+export function symbolCommand(symbol: string, ctxCode: string): ParseResult {
+  const current = getPanel(ctxCode);
+  const code = current && current.needsSymbol ? current.code : DEFAULT_CODE;
+  return build(symbol, code, []);
 }
 
 /** True when the code names a page that is not about one symbol.

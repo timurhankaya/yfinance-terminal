@@ -3,7 +3,7 @@
 // every shortcut, and how tables and links behave. The function list is
 // read from the registry so it can never drift from what is installed.
 import { usePanelRun } from "../workspace/frame";
-import { listPanels } from "../commands/registry";
+import { listActions, listPanels } from "../commands/registry";
 import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
 
 //: Functions in reading order, grouped. A registered code not named
@@ -145,6 +145,26 @@ export function HELP({ symbol }: PanelProps) {
           </ul>
         </div>
       ))}
+
+      <h3>Page commands</h3>
+      <p>
+        These change the page rather than fill a panel, so they draw nothing and are not in the
+        function bar. A letter can only be pinned to a panel that is about one symbol: a watchlist,
+        a screener, a heat map and a comparison carry their own list of them.
+      </p>
+      <ul className="list">
+        {listActions().map((action) => (
+          <li key={action.code} className="list-row">
+            <span className="ds-name">{action.code}</span> {action.title}
+            {action.usage && (
+              <>
+                {" "}
+                <code className="usage">{action.usage}</code>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
 
       <h3>Keyboard</h3>
       <table className="grid">

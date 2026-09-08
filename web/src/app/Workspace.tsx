@@ -13,14 +13,20 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelProps } from "dockview-react";
 import { getPanel } from "../commands/registry";
+import { Layout } from "../commands/types";
 import type { Command, PanelArgs } from "../commands/types";
 import { FrameProvider } from "../workspace/frame";
+import { groupLabel, symbolFor } from "../workspace/groups";
+import type { Group, GroupSymbols } from "../workspace/groups";
+import { Strip } from "./Strip";
 
-/** One panel's content: the command it is showing. */
+/** One panel's content: the command it is showing, and the letter whose
+ *  symbol it follows -- null when it is about its own. */
 export interface PanelParams {
   code: string;
   symbol: string | null;
   args: PanelArgs;
+  group: Group | null;
 }
 
 export interface PanelSeed extends PanelParams {
@@ -37,12 +43,27 @@ const COMPONENT = "panel";
  *  every render of the page. */
 const RunContext = createContext<(id: string, command: Command) => void>(() => undefined);
 
-function Body({ code, symbol, args }: PanelParams) {
+/** What each letter is pointed at. In a context rather than in `params`
+ *  because it belongs to the page, not to any one panel: a letter's
+ *  symbol is the same fact for every panel wearing it. */
+const GroupContext = createContext<GroupSymbols>({});
+
+function Body({ code, symbol, args, group }: PanelParams) {
+  const groups = useContext(GroupContext);
   const spec = getPanel(code);
+  const shown = symbolFor(groups, group, symbol);
   if (spec === undefined) return <p className="muted">Unknown function {code}.</p>;
-  if (spec.needsSymbol && symbol === null) return <p className="muted">Type a symbol to begin.</p>;
+  if (spec.needsSymbol && shown === null) return <p className="muted">Type a symbol to begin.</p>;
   const Component = spec.component;
-  return <Component symbol={symbol} args={args} />;
+  return (
+    <>
+      {/* The strip belongs to the panel, not to the page: two `headed`
+          panels in two groups are two symbols, and one band above the
+          dock could only have told the truth about one of them. */}
+      {spec.layout === Layout.Headed && shown !== null && <Strip symbol={shown} live />}
+      <Component symbol={shown} args={args} />
+    </>
+  );
 }
 
 /** The single component dockview renders: a frame around a `PanelSpec`. */
@@ -58,10 +79,11 @@ function DockPanel(props: IDockviewPanelProps<PanelParams>) {
 
   const run = useCallback((command: Command) => runInPanel(api.id, command), [runInPanel, api.id]);
 
+  const edge = params.group === null ? "dock-panel" : `dock-panel group-${params.group}`;
   return (
-    <div className="dock-panel">
+    <div className={edge}>
       <FrameProvider value={{ run, focused }}>
-        <Body code={params.code} symbol={params.symbol} args={params.args} />
+        <Body {...params} />
       </FrameProvider>
     </div>
   );
@@ -69,9 +91,12 @@ function DockPanel(props: IDockviewPanelProps<PanelParams>) {
 
 const components = { [COMPONENT]: DockPanel };
 
-/** `AAPL GIP`, or just `HEAT` for a page that is not about one symbol. */
-export function title(params: PanelParams): string {
-  return params.symbol === null ? params.code : `${params.symbol} ${params.code}`;
+/** `AAPL GIP`, `A · AAPL GIP` once it follows a letter, or just `HEAT`
+ *  for a page that is not about one symbol. */
+export function title(params: PanelParams, groups: GroupSymbols = {}): string {
+  const shown = symbolFor(groups, params.group, params.symbol);
+  const body = shown === null ? params.code : `${shown} ${params.code}`;
+  return params.group === null ? body : `${groupLabel(params.group)} · ${body}`;
 }
 
 export interface WorkspaceProps {
@@ -84,9 +109,11 @@ export interface WorkspaceProps {
   /** The panel the keyboard is talking to changed. The shell needs this
    *  because the command box lives outside the dock. */
   onActive?: (id: string | null) => void;
+  /** What each letter is pointed at. */
+  groups?: GroupSymbols;
 }
 
-export function Workspace({ panels, onRun, onActive }: WorkspaceProps) {
+export function Workspace({ panels, onRun, onActive, groups = {} }: WorkspaceProps) {
   const apiRef = useRef<DockviewApi | null>(null);
   const seedRef = useRef(panels);
   seedRef.current = panels;
@@ -94,6 +121,8 @@ export function Workspace({ panels, onRun, onActive }: WorkspaceProps) {
   runRef.current = onRun;
   const activeRef = useRef(onActive);
   activeRef.current = onActive;
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
 
   const onReady = useCallback((event: DockviewReadyEvent) => {
     apiRef.current = event.api;
@@ -103,8 +132,8 @@ export function Workspace({ panels, onRun, onActive }: WorkspaceProps) {
       event.api.addPanel<PanelParams>({
         id: seed.id,
         component: COMPONENT,
-        title: title(seed),
-        params: { code: seed.code, symbol: seed.symbol, args: seed.args },
+        title: title(seed, groupsRef.current),
+        params: { code: seed.code, symbol: seed.symbol, args: seed.args, group: seed.group },
         position: previous === undefined ? undefined : { referencePanel: previous, direction: "right" },
       });
       previous = seed.id;
@@ -124,28 +153,30 @@ export function Workspace({ panels, onRun, onActive }: WorkspaceProps) {
       if (!wanted.has(panel.id)) api.removePanel(panel);
     }
     for (const seed of panels) {
-      const params = { code: seed.code, symbol: seed.symbol, args: seed.args };
+      const params = { code: seed.code, symbol: seed.symbol, args: seed.args, group: seed.group };
       const panel = api.getPanel(seed.id);
       if (panel === undefined) {
         api.addPanel<PanelParams>({
           id: seed.id,
           component: COMPONENT,
-          title: title(seed),
+          title: title(seed, groupsRef.current),
           params,
           position: { direction: "right" },
         });
         continue;
       }
       panel.api.updateParameters(params);
-      panel.api.setTitle(title(seed));
+      panel.api.setTitle(title(seed, groups));
     }
-  }, [panels]);
+  }, [panels, groups]);
 
   const run = useCallback((id: string, command: Command) => runRef.current(id, command), []);
 
   return (
-    <RunContext.Provider value={run}>
-      <DockviewReact className="dock" components={components} onReady={onReady} disableFloatingGroups />
-    </RunContext.Provider>
+    <GroupContext.Provider value={groups}>
+      <RunContext.Provider value={run}>
+        <DockviewReact className="dock" components={components} onReady={onReady} disableFloatingGroups />
+      </RunContext.Provider>
+    </GroupContext.Provider>
   );
 }

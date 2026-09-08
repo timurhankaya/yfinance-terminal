@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { clearRegistry, registerPanel } from "./registry";
-import { commandToPath, isMarketCode, parse, ParseKind, pathToCommand } from "./parser";
+import { clearRegistry, registerAction, registerPanel } from "./registry";
+import { commandToPath, isMarketCode, parse, ParseKind, pathToCommand, symbolCommand } from "./parser";
 import { Layout, type PanelArgs, type PanelSpec } from "./types";
 
 const Noop = () => null;
@@ -40,7 +40,10 @@ describe("parse", () => {
   it.each([
     ["", { kind: ParseKind.Empty }],
     ["   ", { kind: ParseKind.Empty }],
-    ["msft", { kind: ParseKind.Command, command: { symbol: "MSFT", code: "DES", args: {} } }],
+    // A bare ticker is not a command yet: on a page with groups it moves
+    // a letter, and the shell asks `symbolCommand` what it means where
+    // there are none.
+    ["msft", { kind: ParseKind.Symbol, symbol: "MSFT" }],
     ["FA", { kind: ParseKind.Command, command: { symbol: "AAPL", code: "FA", args: {} } }],
     ["msft fa", { kind: ParseKind.Command, command: { symbol: "MSFT", code: "FA", args: {} } }],
     ["CF DES", { kind: ParseKind.Command, command: { symbol: "CF", code: "DES", args: {} } }],
@@ -51,7 +54,7 @@ describe("parse", () => {
     // A symbol-less panel still carries the context symbol, so the next
     // "FA" after HELP has something to run against.
     ["HELP", { kind: ParseKind.Command, command: { symbol: "AAPL", code: "HELP", args: {} } }],
-    ["BRK-B", { kind: ParseKind.Command, command: { symbol: "BRK-B", code: "DES", args: {} } }],
+    ["BRK-B", { kind: ParseKind.Symbol, symbol: "BRK-B" }],
     ["^GSPC DES", { kind: ParseKind.Command, command: { symbol: "^GSPC", code: "DES", args: {} } }],
     ["FA DES x", { kind: ParseKind.Command, command: { symbol: "FA", code: "DES", args: { a: "x" } } }],
   ])("%j", (input, expected) => {
@@ -59,12 +62,20 @@ describe("parse", () => {
   });
 
   it("keeps the panel when only a symbol is typed, unless the panel needs no symbol", () => {
-    expect(parse("MSFT", { symbol: null, code: "HELP" })).toEqual({
+    // `parse` reports the ticker; `symbolCommand` is where "which panel"
+    // is decided, so that a group can take the same input somewhere else.
+    expect(symbolCommand("MSFT", "HELP")).toEqual({
       kind: ParseKind.Command, command: { symbol: "MSFT", code: "DES", args: {} },
     });
-    expect(parse("MSFT", { symbol: "AAPL", code: "FA" })).toEqual({
+    expect(symbolCommand("MSFT", "FA")).toEqual({
       kind: ParseKind.Command, command: { symbol: "MSFT", code: "FA", args: {} },
     });
+  });
+
+  it("reads a group command as an action, not as a ticker", () => {
+    registerAction({ code: "GRP", title: "group" });
+    expect(parse("GRP B", ctx)).toEqual({ kind: ParseKind.Action, code: "GRP", tokens: ["B"] });
+    expect(parse("GRP", ctx)).toEqual({ kind: ParseKind.Action, code: "GRP", tokens: [] });
   });
 
   it("refuses a function that needs a symbol when there is none", () => {
@@ -77,7 +88,7 @@ describe("parse", () => {
     expect(parse("A$B", ctx)).toEqual({ kind: ParseKind.Error, message: "A$B is not a symbol" });
     expect(parse("AAPL XYZ", ctx)).toEqual({ kind: ParseKind.Error, message: "Unknown function XYZ" });
     expect(parse("XYZ", { symbol: null, code: "HELP" })).toEqual({
-      kind: ParseKind.Command, command: { symbol: "XYZ", code: "DES", args: {} },
+      kind: ParseKind.Symbol, symbol: "XYZ",
     });
   });
 

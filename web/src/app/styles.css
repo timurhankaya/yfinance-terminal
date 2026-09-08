@@ -162,3 +162,14 @@ dl.des dd { margin: 0; word-break: break-word; }
   height: 100%;
 }
 .dock-panel { height: 100%; overflow: auto; padding: 10px; }
+
+/* A panel's letter, as a line down its edge. Identity, not direction:
+   the same seven colours the comparison chart draws its series with. */
+.dock-panel { border-left: 3px solid transparent; }
+.group-a { border-left-color: var(--group-a); }
+.group-b { border-left-color: var(--group-b); }
+.group-c { border-left-color: var(--group-c); }
+.group-d { border-left-color: var(--group-d); }
+.group-e { border-left-color: var(--group-e); }
+.group-f { border-left-color: var(--group-f); }
+.group-g { border-left-color: var(--group-g); }

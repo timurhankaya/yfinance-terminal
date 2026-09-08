@@ -310,6 +310,58 @@ describe("AppRoutes", () => {
     expect(screen.getByText("panel AAA")).toBeInTheDocument();
   });
 
+  it("pins a panel to a letter, and then a bare ticker moves the letter", async () => {
+    mockFetch((url) => {
+      if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      if (url === "/ui/api/v1/symbols/MSFT") return json(200, symbolBody("MSFT", "Microsoft"));
+      return json(404, { detail: "not here" });
+    });
+    registerPanel({
+      code: "SYM",
+      title: "Sym",
+      needsSymbol: true,
+      layout: Layout.Single,
+      parseArgs: () => ({}),
+      component: ({ symbol }) => <p>sym {symbol}</p>,
+    });
+    const user = userEvent.setup();
+    mount("/ui/w/-");
+    const box = await screen.findByLabelText("command");
+
+    await user.click(box);
+    await user.keyboard("AAPL SYM{Enter}");
+    expect(await screen.findByText("sym AAPL")).toBeInTheDocument();
+
+    await user.click(box);
+    await user.keyboard("GRP B{Enter}");
+    await user.click(box);
+    await user.keyboard("MSFT{Enter}");
+    // The ticker went to the letter, and the letter carried the panel.
+    expect(await screen.findByText("sym MSFT")).toBeInTheDocument();
+  });
+
+  it("refuses a letter on a panel that carries its own symbols", async () => {
+    mockFetch(() => json(404, { detail: "not here" }));
+    registerPanel({
+      code: "LIST",
+      title: "List",
+      needsSymbol: false,
+      layout: Layout.Single,
+      parseArgs: () => ({}),
+      component: () => <p>a list of many symbols</p>,
+    });
+    const user = userEvent.setup();
+    mount("/ui/w/-");
+    const box = await screen.findByLabelText("command");
+
+    await user.click(box);
+    await user.keyboard("LIST{Enter}");
+    await screen.findByText("a list of many symbols");
+    await user.click(box);
+    await user.keyboard("GRP A{Enter}");
+    expect(await screen.findByText(/carries its own symbols/)).toBeInTheDocument();
+  });
+
   it("focuses the command box on '/' when it is not already focused", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));

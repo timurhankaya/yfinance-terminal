@@ -9,6 +9,7 @@ import { Layout } from "../commands/types";
 import type { Command } from "../commands/types";
 import { useListKeys } from "../panels/common";
 import { usePanelRun } from "../workspace/frame";
+import { Group } from "../workspace/groups";
 
 afterEach(() => {
   cleanup();
@@ -29,19 +30,19 @@ function ListPanel({ symbol }: { symbol: string | null }) {
   );
 }
 
-function registerList(code: string) {
+function registerList(code: string, layout = Layout.Single) {
   registerPanel({
     code,
     title: code,
-    needsSymbol: false,
-    layout: Layout.Single,
+    needsSymbol: layout === Layout.Headed,
+    layout,
     parseArgs: () => ({}),
     component: ListPanel,
   });
 }
 
-function seed(id: string, code: string, symbol: string | null): PanelSeed {
-  return { id, code, symbol, args: {} };
+function seed(id: string, code: string, symbol: string | null, group: Group | null = null): PanelSeed {
+  return { id, code, symbol, args: {}, group };
 }
 
 /** The app always has a router around it; a panel with no frame reaches
@@ -98,6 +99,45 @@ describe("Workspace", () => {
     draw([seed("p1", "LIST", "AAPL"), seed("p2", "LIST", "MSFT")], { onActive });
     await screen.findByText("MSFT row 0");
     expect(onActive).toHaveBeenCalledWith("p2");
+  });
+
+  it("shows each panel the symbol its letter is pointed at", async () => {
+    registerList("LIST");
+    draw([seed("p1", "LIST", null, Group.A), seed("p2", "LIST", null, Group.B)], {
+      groups: { [Group.A]: "AAPL", [Group.B]: "MSFT" },
+    });
+    expect(await screen.findByText("AAPL row 0")).toBeInTheDocument();
+    expect(screen.getByText("MSFT row 0")).toBeInTheDocument();
+  });
+
+  it("moves every panel wearing a letter when the letter moves", async () => {
+    registerList("LIST");
+    const { rerender } = draw([seed("p1", "LIST", null, Group.A), seed("p2", "LIST", null, Group.A)], {
+      groups: { [Group.A]: "AAPL" },
+    });
+    expect(await screen.findAllByText("AAPL row 0")).toHaveLength(2);
+    rerender(
+      <MemoryRouter>
+        <Workspace
+          panels={[seed("p1", "LIST", null, Group.A), seed("p2", "LIST", null, Group.A)]}
+          onRun={() => undefined}
+          groups={{ [Group.A]: "NVDA" }}
+        />
+      </MemoryRouter>,
+    );
+    expect(await screen.findAllByText("NVDA row 0")).toHaveLength(2);
+  });
+
+  it("gives a headed panel its own strip, so two symbols can be right at once", async () => {
+    registerList("HEADED", Layout.Headed);
+    const { container } = draw([
+      seed("p1", "HEADED", null, Group.A),
+      seed("p2", "HEADED", null, Group.B),
+    ], { groups: { [Group.A]: "AAPL", [Group.B]: "MSFT" } });
+    await screen.findByText("AAPL row 0");
+    // One band per panel: a single one above the dock could only have
+    // named one of the two symbols on screen.
+    expect(container.querySelectorAll(".strip")).toHaveLength(2);
   });
 
   it("follows a panel's content when its params change", async () => {

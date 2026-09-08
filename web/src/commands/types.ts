@@ -33,6 +33,15 @@ export interface PanelSpec {
   component: ComponentType<PanelProps>;
 }
 
+/** A command that changes the page rather than filling a panel:
+ *  `GRP B` pins the focused panel to a letter. It has a code and a usage
+ *  line like a panel, and nothing else -- there is nothing to render. */
+export interface ActionSpec {
+  code: string;
+  title: string;
+  usage?: string;
+}
+
 export interface Command {
   symbol: string | null;
   code: string;

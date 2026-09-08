@@ -8,16 +8,18 @@ import {
   parse,
   ParseKind,
   pathToCommand,
+  symbolCommand,
   SYMBOL_RE,
 } from "../commands/parser";
 import { getPanel, isMnemonic, listPanels } from "../commands/registry";
-import { Layout } from "../commands/types";
 import type { Command, PanelArgs, PanelSpec } from "../commands/types";
 import { useGo } from "../commands/go";
 import { CommandPalette } from "./CommandPalette";
-import { Strip } from "./Strip";
 import { Workspace } from "./Workspace";
 import type { PanelSeed } from "./Workspace";
+import { GROUP_DETACH, GRP_CODE } from "../workspace/actions";
+import { canJoinGroup, parseGroup, symbolFor } from "../workspace/groups";
+import type { GroupSymbols } from "../workspace/groups";
 import { useGlobalKeys } from "./keys";
 
 /** The symbol a market page inherits, carried in the history entry.
@@ -67,8 +69,11 @@ export function Shell() {
   // been given anywhere to be saved yet.
   const saved = pageName !== undefined;
   const [pagePanels, setPagePanels] = useState<PanelSeed[]>(() => [
-    { id: "p1", code: HOME_CODE, symbol: null, args: {} },
+    { id: "p1", code: HOME_CODE, symbol: null, args: {}, group: null },
   ]);
+  // What each letter is pointed at. A page-level fact: every panel
+  // wearing the letter reads the same symbol from here.
+  const [groups, setGroups] = useState<GroupSymbols>({});
   const [activeId, setActiveId] = useState<string | null>("p1");
   const nextId = useRef(2);
   const market = rawSymbol === undefined;
@@ -106,11 +111,15 @@ export function Shell() {
       }
       if (split) {
         const id = `p${nextId.current++}`;
-        setPagePanels((current) => [...current, { id, ...next }]);
+        setPagePanels((current) => [...current, { id, ...next, group: null }]);
         return;
       }
       setPagePanels((current) =>
-        current.map((panel) => (panel.id === activeId ? { id: panel.id, ...next } : panel)),
+        current.map((panel) =>
+          // A panel keeps its letter when its content changes: `GIP` in a
+          // group-B panel is still B's.
+          panel.id === activeId ? { id: panel.id, group: panel.group, ...next } : panel,
+        ),
       );
     },
     [saved, go, activeId],
@@ -123,13 +132,15 @@ export function Shell() {
         go(next);
         return;
       }
-      setPagePanels((current) => current.map((panel) => (panel.id === id ? { id, ...next } : panel)));
+      setPagePanels((current) =>
+        current.map((panel) => (panel.id === id ? { id, group: panel.group, ...next } : panel)),
+      );
     },
     [saved, go],
   );
 
   const urlPanels = useMemo<PanelSeed[]>(
-    () => [{ id: "main", code: command.code, symbol: command.symbol, args: command.args }],
+    () => [{ id: "main", code: command.code, symbol: command.symbol, args: command.args, group: null }],
     [command],
   );
   const dockPanels = saved ? pagePanels : urlPanels;
@@ -140,8 +151,80 @@ export function Shell() {
    *  it is whichever panel has the keyboard: typing `GIP` there means
    *  "this panel, intraday", and the strip and the function bar are about
    *  the same panel the command box is. */
+  const focusedPanel = saved ? pagePanels.find((panel) => panel.id === activeId) : undefined;
   const here: Command =
-    (saved ? pagePanels.find((panel) => panel.id === activeId) : undefined) ?? command;
+    focusedPanel === undefined
+      ? command
+      : {
+          symbol: symbolFor(groups, focusedPanel.group, focusedPanel.symbol),
+          code: focusedPanel.code,
+          args: focusedPanel.args,
+        };
+
+  /** Pins the focused panel to a letter, or takes its letter away.
+   *
+   *  A letter only means something on a panel that is about one symbol,
+   *  and it says so rather than silently doing nothing. */
+  const runGroup = useCallback(
+    (tokens: string[]) => {
+      const token = tokens[0];
+      if (token === undefined) {
+        setWarning("GRP needs a letter: GRP B, or GRP - to unpin");
+        return;
+      }
+      if (focusedPanel === undefined) {
+        setWarning("GRP works on a page: press Ctrl+Enter to open a second panel first");
+        return;
+      }
+      const spec = getPanel(focusedPanel.code);
+      const group = token === GROUP_DETACH ? null : parseGroup(token);
+      if (group === null && token !== GROUP_DETACH) {
+        setWarning(`${token.toUpperCase()} is not a group letter (A-G)`);
+        return;
+      }
+      if (group !== null && !canJoinGroup(spec)) {
+        setWarning(`${focusedPanel.code} carries its own symbols, so a letter cannot speak for it`);
+        return;
+      }
+      setWarning(null);
+      setDraft("");
+      setPagePanels((current) =>
+        current.map((panel) =>
+          panel.id !== focusedPanel.id
+            ? panel
+            : {
+                ...panel,
+                group,
+                // Unpinning keeps what the panel was showing: the letter
+                // goes, the symbol on screen does not.
+                symbol: group === null ? symbolFor(groups, panel.group, panel.symbol) : panel.symbol,
+              },
+        ),
+      );
+    },
+    [focusedPanel, groups],
+  );
+
+  /** Checks a symbol against the archive, opening the palette when it is
+   *  not there. `false` means the caller should stop. */
+  const known = useCallback(
+    async (symbol: string, pending: { code: string; args: PanelArgs }): Promise<boolean> => {
+      try {
+        await getSymbol(symbol);
+        return true;
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          setWarning(`No such symbol ${symbol}`);
+          pendingRef.current = pending;
+          setPalette({ open: true, query: symbol });
+          return false;
+        }
+        setWarning("Could not reach the API. Try again.");
+        return false;
+      }
+    },
+    [],
+  );
 
   const submit = useCallback(
     async (text: string, split = false) => {
@@ -151,20 +234,40 @@ export function Shell() {
         setWarning(result.message);
         return;
       }
-      const next = result.command;
-      if (next.symbol && next.symbol !== here.symbol) {
-        try {
-          await getSymbol(next.symbol);
-        } catch (err) {
-          if (err instanceof ApiError && err.status === 404) {
-            setWarning(`No such symbol ${next.symbol}`);
-            pendingRef.current = { code: next.code, args: next.args };
-            setPalette({ open: true, query: next.symbol });
-            return;
-          }
-          setWarning("Could not reach the API. Try again.");
+      if (result.kind === ParseKind.Action) {
+        if (result.code === GRP_CODE) runGroup(result.tokens);
+        return;
+      }
+
+      // A bare ticker: where a letter claims the focused panel it moves
+      // the letter -- every panel wearing it follows -- and where none
+      // does it is what it always was, this panel on another symbol.
+      if (result.kind === ParseKind.Symbol) {
+        const group = focusedPanel?.group ?? null;
+        const fallback = symbolCommand(result.symbol, here.code);
+        if (group === null && fallback.kind === ParseKind.Error) {
+          setWarning(fallback.message);
           return;
         }
+        const pending =
+          fallback.kind === ParseKind.Command
+            ? { code: fallback.command.code, args: fallback.command.args }
+            : { code: here.code, args: {} };
+        if (!(await known(result.symbol, pending))) return;
+        setWarning(null);
+        setDraft("");
+        inputRef.current?.blur();
+        if (group !== null) {
+          setGroups((current) => ({ ...current, [group]: result.symbol }));
+          return;
+        }
+        if (fallback.kind === ParseKind.Command) runHere(fallback.command, split);
+        return;
+      }
+
+      const next = result.command;
+      if (next.symbol && next.symbol !== here.symbol) {
+        if (!(await known(next.symbol, { code: next.code, args: next.args }))) return;
       }
       setWarning(null);
       setDraft("");
@@ -173,7 +276,7 @@ export function Shell() {
       inputRef.current?.blur();
       runHere(next, split);
     },
-    [here, runHere],
+    [here, runHere, runGroup, known, focusedPanel],
   );
 
   // Focus the box once, on mount: the shell owns the keyboard from the
@@ -263,15 +366,8 @@ export function Shell() {
           />
         ))}
       </nav>
-      {hasSymbol && here.symbol !== null && (
-        // `headed` is what turns the strip live. A `single` panel gets
-        // the symbol and nothing else, so opening a statement or a
-        // filing list does not hold a subscription for a price nobody is
-        // looking at.
-        <Strip symbol={here.symbol} live={spec?.layout === Layout.Headed} />
-      )}
       <main className="panel">
-        <Workspace panels={dockPanels} onRun={onRun} onActive={setActiveId} />
+        <Workspace panels={dockPanels} onRun={onRun} onActive={setActiveId} groups={groups} />
       </main>
       <footer className="credits" aria-label="credits">
         <span>Data</span>
