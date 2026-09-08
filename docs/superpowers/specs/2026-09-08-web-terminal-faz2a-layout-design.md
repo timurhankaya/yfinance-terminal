@@ -428,6 +428,16 @@ zaman ekseni sayfaya asılır, gruba değil) ve kalıcılık tek bir modülün
 
 2026-09-08, 2a-3 uygulanırken:
 
+- **Adres → çalışma sayfası geçişi 2a-1'de atlanmıştı, sonradan
+  bağlandı.** "Adres ve yönlendirme" bölümü bir adres sayfasının
+  bölünür bölünmez `/ui/w/-`'ye taşındığını yazıyordu ama
+  `runHere`'ın `!saved` dalı `split`'i yok sayıp düpedüz geziniyordu;
+  yani çok panelli görünüme girmenin tek yolu URL'yi elle yazmaktı.
+  İki panel history girdisinde taşınıyor (`useGo`'nun sembol için
+  kullandığı yer), geçiş `replace` ve çalışma sayfasının önceki içeriği
+  sorulmadan değişiyor: `-` adsız sayfa, bir sayfayı saklamanın yolu
+  `PG SAVE` ile ad vermek.
+
 - **`PG` hem panel hem action olarak kayıtlı.** Panel sayfa
   yöneticisidir ve fonksiyon çubuğunda yeri vardır; `PG SAVE trading` ve
   `PG trading` ise ya depoya yazar ya da pencerenin tamamının hangi

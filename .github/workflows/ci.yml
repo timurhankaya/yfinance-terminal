@@ -32,8 +32,16 @@ jobs:
       # The kafka extra is for mypy: `outbox/kafka.py` imports
       # confluent_kafka, and without it installed the module is checked
       # against nothing.
+      # The otel extra is for mypy as well, and its absence is louder than
+      # kafka's: `core/tracing.py` and the log chain's trace context import
+      # opentelemetry inside try/except, which is a runtime fallback, not a
+      # type-checking one. With the extra missing, `mypy --strict` fails
+      # with import-not-found on all eight import lines rather than
+      # checking them against nothing.
       - name: Dependencies
-        run: uv sync --extra dev --extra api --extra scheduler --extra kafka
+        run: >-
+          uv sync --extra dev --extra api --extra scheduler --extra kafka
+          --extra otel
 
       - name: ruff
         run: uv run ruff check .

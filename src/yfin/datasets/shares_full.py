@@ -1,4 +1,13 @@
-"""shares_full dataset."""
+"""shares_full dataset.
+
+**`Ticker.get_shares()` is deliberately not a second dataset.** It reads
+`Fundamentals.shares`, which is never populated -- the property raises
+`YFNotImplementedError('shares')` on every symbol (yfinance 1.7.0,
+`scrapers/fundamentals.py`). `get_shares_full()` is the live path and is
+what this collects; a dataset for the other would be a scheduled call
+that can only ever fail. Recorded rather than left silent because this
+codebase justifies every exclusion in writing.
+"""
 
 from __future__ import annotations
 

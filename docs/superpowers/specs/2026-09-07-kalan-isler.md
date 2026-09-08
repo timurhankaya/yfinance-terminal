@@ -23,7 +23,7 @@ uv run ruff check . && uv run mypy src/yfin
 uv run pytest -q tests/unit && uv run pytest -q -m repo tests/repo
 uv run python scripts/dump_openapi.py --check
 ```
-Şu an hepsi yeşil: unit 1911, repo 640.
+Şu an hepsi yeşil: unit 2131, repo 684 (2026-09-08).
 
 ## Birinci turda tamamlananlar (2026-09-07)
 
@@ -100,38 +100,65 @@ birlikte commit'leyin.
   bildiriminden kuruyor. Literal ile öznitelik ayrışsaydı gate kimsenin
   yazmadığı bir tabloya bakardı ve her satır sonsuza dek yeni görünürdü.
 
+## Dördüncü turda tamamlananlar (2026-09-08)
+
+- **Madde 1 kapandı — sağlık kayıtları event loop'tan çıktı.**
+  `HealthBox` (`stream/supervisor.py`), `LatestBox`'ın birebir kalıbı:
+  event loop kaydeder, writer thread `_flush_health()` ile yazar. Kutu
+  bağlantı başına yalnız en yenisini tutar, yani 50 kanarya mesajı bir
+  `INSERT` eder. Kutuya **kopya** konuyor: `ConnectionHealth` mutable ve
+  bağlantı onu değiştirmeye devam ediyor, canlı referans writer
+  thread'in yarı değişmiş bir satır okumasına izin verirdi.
+  `heartbeat_at` artık writer thread'in de yaşadığını kanıtlıyor.
+
+- **Madde 2'nin somut zararı kapandı; yapısal kısmı açık.**
+  `SnapshotWrite` iki eksenin ortak yazma politikası oldu
+  (`SnapshotDataset` ve `SnapshotGlobalDataset` artık onu miras alıyor);
+  `plain_upsert` iki özdeş gövdenin yerine geçti. `key_columns`'ın
+  varsayılanı **kaldırıldı** — beş snapshot dataset'inin üçünde
+  `("symbol",)` doğru, ikisinde yanlış, ve çoğunlukla doğru olan bir
+  varsayılan tam olarak bir market dataset'inin sahip olmadığı bir
+  kolonla anahtarlanma biçimi. `tests/unit/test_dataset_contracts.py`
+  her kayıtlı dataset için bildirilen ama atanmayan her özniteliği
+  kontrol ediyor: eskiden ilk yazmada (Yahoo çağrısı ödendikten sonra)
+  patlayan hata artık CI'da patlıyor.
+  **Açık kalan:** `upsert`'ün metot yerine bir `WritePolicy` protokolüne
+  taşınması (kompozisyon). Tekrar ve sözleşme ayrışması gitti; kalıtım
+  ekseni duruyor ve hâlâ ~6 base + ~25 dataset'lik kendi turunu hak
+  ediyor.
+
+- **Madde 3 ikiye ayrıldı; ikisi kapandı, biri açık.**
+  `Ticker.earnings`/`quarterly_earnings` upstream'de deprecated ve
+  düpedüz `None` döndürüyor ("Look for \"Net Income\" in
+  Ticker.income_stmt", yfinance 1.7.0) — o net kâr zaten
+  `financial_facts`'te `NetIncome` olarak var. `Ticker.get_shares()` ise
+  `Fundamentals.shares`'i okuyor ve o property her sembolde
+  `YFNotImplementedError` atıyor; canlı yol `get_shares_full()` ve o
+  toplanıyor. İkisinin de gerekçesi artık dataset'lerin yanında yazılı
+  ve `docs/measurements/yahoo-api.md`'de kayıtlı.
+
 ## Kalan işler (öncelik sırasıyla)
 
-### 1. Sağlık kayıtları event loop'u bloke ediyor
-`stream/connection.py:259` her kanarya mesajında `_emit_health()` →
-`supervisor.py:323` → `repository.py:220` **senkron `INSERT`**, hem de asyncio
-event loop'unun içinde. Kanarya `BTC-USD` 7/24 tikliyor ve her bağlantıya
-ekleniyor. `supervisor._offer`'ın docstring'i (`supervisor.py:294`) event loop'u
-bloke etmenin ping/pong'u kaçırıp **her sembolü** durduracağını açıkça yazıyor —
-kuyruk için uyulmuş, sağlık yolu için gözden kaçmış.
-**Yapılacak:** `LatestBox` deseni: thread-safe `HealthBox`, writer thread'i
-`_flush_counters` içinde toplu yazsın.
+### 1. `options` / `option_chain` için dataset yok
+yfinance'in `Ticker.option_chain()` / `options` yüzeyi hiç toplanmıyor
+ve repo genelinde (docs, test, yorum dahil) tek kelime geçmiyor. Yukarıda
+kapanan iki kardeşinin aksine bu **upstream'de canlı**: gerçek bir kapsam
+eksiği.
+**Yapılacak:** tablo ailesi + dataset. Yeni özellik, kendi tasarımını hak
+ediyor — vade listesi ile zincirin kendisi iki ayrı istek, zincir
+(sembol, vade) başına iki DataFrame, ve as-of/gate politikası seçilmeli.
 
-### 2. Yazma politikası metot olduğu için kalıtımla çoğalıyor
-`upsert` `Dataset`'in metodu; 4 politika × 3 eksen = bugün 6 sınıf + 2 mixin +
-1 serbest fonksiyon. Somut zarar bugün var: `SnapshotDataset.key_columns`
-varsayılanı `("symbol",)` (`snapshot_base.py:73`) ama `SnapshotGlobalDataset`'te
-varsayılansız (`market/base.py:135`) — kardeş sınıflar, aynı isim, farklı
-sözleşme; market tarafında unutulan `key_columns` import'ta değil ilk yazmada,
-yani Yahoo çağrısı ödendikten sonra patlıyor.
-**Yapılacak:** `upsert`'ü `WritePolicy` protokolüne çevir (`PlainUpsert`,
-`SnapshotPolicy`, `HashGatePolicy`, `AsOfPolicy`); gated base sınıflarını sil.
+### 2. Yazma politikası metot olduğu için kalıtımla çoğalıyor (yapısal kısım)
+Somut zarar dördüncü turda kapandı (yukarıya bakın). Geriye "upsert bir
+metot olduğu için politika kalıtım ekseninde çoğalıyor" duruyor:
+`WritePolicy` protokolü (`PlainUpsert`, `SnapshotPolicy`,
+`HashGatePolicy`, `AsOfPolicy`) + gated base sınıflarının silinmesi.
 **Büyük iş** — ~6 base dosyası + ~25 dataset. Kendi planını hak ediyor.
 
-### 3. `options` / `option_chain` için dataset yok
-yfinance'in `Ticker.option_chain()` / `options` yüzeyi hiç toplanmıyor ve repo
-genelinde (docs, test, yorum dahil) tek kelime geçmiyor. Bu kod tabanı her
-dışlamayı yazılı gerekçelendiriyor (`sustainability`, atlanan interval'ler,
-`valuation`'ın ayrı alias olması) — gerekçe yokluğu burada **unutulmuş kapsam**
-işareti. Ayrıca `get_shares()` ve `earnings`/`quarterly_earnings` yok.
-**Yapılacak:** `options` için tablo ailesi + dataset (yeni özellik, kendi
-tasarımını hak ediyor); `shares` ve `earnings` için "türetilebilir/deprecated"
-gerekçesini koda yaz.
+### 3. Tam evren tek IP'ye sığmıyor
+5.888 sembolün tam senkronu tek IP'de ~33 saat sürüyor, yani gecelik
+cadence'e sığmıyor. Bu bir kod kusuru değil, bekleyen bir **proxy
+kararı**; kod tarafı (`yfin proxy`) hazır.
 
 ## Zaten reddedilmiş iddialar (tekrar açmayın)
 
@@ -159,5 +186,5 @@ gerekçesini koda yaz.
 
 ## Nasıl ilerleyelim
 
-Üç madde kaldı. Madde 1 dar ve tek başına alınabilir; 2 ve 3 kendi tasarım
-turlarını hak ediyor.
+Üç madde kaldı ve üçü de kendi turunu hak ediyor: 1 yeni bir tablo
+ailesi, 2 bir refactor planı, 3 kod değil bir işletme kararı.

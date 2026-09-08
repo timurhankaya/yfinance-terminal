@@ -55,6 +55,11 @@ import type { Accent } from "./accent";
  *  carry. */
 interface HistoryContext {
   symbol?: string | null;
+  /** Panels a split handed over on the way from an address to the
+   *  working page. The history entry is the right lifetime for them for
+   *  the same reason it is right for the symbol: they belong to this
+   *  step and to no other. */
+  panels?: PanelSeed[];
 }
 
 function FnButton(props: {
@@ -215,7 +220,37 @@ export function Shell() {
   const runHere = useCallback(
     (next: Command, split = false) => {
       if (!saved) {
-        go(next);
+        if (!split) {
+          go(next);
+          return;
+        }
+        // An address page IS one panel, so splitting it is the moment it
+        // stops being an address (spec, "Adres ve yönlendirme"). Both
+        // panels ride in the history entry; the working page picks them
+        // up from there.
+        //
+        // `replace`, because splitting is an edit rather than a step
+        // (Karar 6): Esc goes back to wherever the reader was BEFORE this
+        // page, not to the unsplit version of it, which they left on
+        // purpose.
+        //
+        // Whatever the working page held is replaced, and no confirmation
+        // is asked. `-` is the page with no name; naming one with
+        // `PG SAVE` is how a page is kept, and a prompt on every split
+        // would tax the common gesture to protect the page the terminal
+        // calls scratch.
+        void navigate(pagePath(PageName.Scratch), {
+          replace: true,
+          state: {
+            panels: [
+              // `command`, not `here`: on a page that is an address the
+              // two are the same thing, and this one is what the address
+              // itself parsed to.
+              { id: panelId(command.code, nextId), ...command, group: null },
+              { id: panelId(next.code, nextId), ...next, group: null },
+            ],
+          } satisfies HistoryContext,
+        });
         return;
       }
       if (split) {
@@ -232,7 +267,7 @@ export function Shell() {
         ),
       }));
     },
-    [saved, go],
+    [saved, go, navigate, command],
   );
 
   /** A panel ran a command: it replaces itself, wherever it is. */
@@ -270,6 +305,21 @@ export function Shell() {
 
   useEffect(() => {
     if (!saved || pageName === undefined) return;
+    const carried = (state as HistoryContext | null)?.panels;
+    if (carried !== undefined && carried.length > 0) {
+      epoch.current += 1;
+      applyPage({
+        name: pageName,
+        panels: carried,
+        groups: {},
+        // The new panel has the keyboard, not the one that was split
+        // (Karar 6): opening does not enter history, moving the focus
+        // does, and this entry is the new panel's.
+        activeId: carried[carried.length - 1]?.id ?? null,
+        epoch: epoch.current,
+      });
+      return;
+    }
     const encoded = new URLSearchParams(search).get(SHARE_PARAM);
     if (encoded !== null) {
       const link = decodePage(encoded);
@@ -297,7 +347,7 @@ export function Shell() {
     }
     epoch.current += 1;
     applyPage(loadPage(pageName, epoch.current));
-  }, [saved, pageName, search, applyPage, navigate]);
+  }, [saved, pageName, search, state, applyPage, navigate]);
 
   /** Writes the page back, at most once per quarter second.
    *

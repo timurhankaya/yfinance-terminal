@@ -127,3 +127,25 @@ enabling it spends one request per symbol to record an empty cell.
 `VWCE.DE` both report `False` and still return 5 and 8 extended bars
 respectively. The only dependable source is the `tradingPeriods`
 start/end range.
+
+## Surfaces that no longer exist upstream — 2026-09-08
+
+Two `Ticker` properties look like uncollected coverage and are not.
+Observed against the pinned yfinance 1.7.0, by reading
+`yfinance/scrapers/fundamentals.py` rather than by calling them:
+
+| Surface | What it does now | Where the data is instead |
+|---|---|---|
+| `Ticker.earnings`, `Ticker.quarterly_earnings` | returns `None` and warns: "deprecated as not available via API. Look for \"Net Income\" in Ticker.income_stmt" | `financial_facts`, item `NetIncome` (the `income_stmt` datasets) |
+| `Ticker.get_shares()` | reads `Fundamentals.shares`, which is never populated: the property raises `YFNotImplementedError('shares')` | `shares_full` (`get_shares_full()`), which is the live path |
+
+**Why this is written down.** Both are absences a reader can only
+distinguish from an oversight by checking upstream, and this project
+justifies every exclusion in writing. The justification is now beside
+each dataset as well (`datasets/shares_full.py`,
+`datasets/financials/statements.py`).
+
+**What IS an oversight, and is still open:** `Ticker.options` and
+`Ticker.option_chain()` are alive upstream and collected nowhere. That is
+a new table family and needs its own design
+(`docs/superpowers/specs/2026-09-07-kalan-isler.md`, madde 3).

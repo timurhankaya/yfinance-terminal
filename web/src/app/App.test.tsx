@@ -431,8 +431,11 @@ describe("saved pages", () => {
 
     await user.click(box);
     await user.keyboard("PG SAVE trading{Enter}");
-    await waitFor(() => expect(readStore().order).toEqual(["trading"]));
-    expect(readStore().pages.trading?.dock).toBeDefined();
+    // Whether the scratch page it was on has also been flushed by now is
+    // a debounce race and not what this is about: `trading` is stored,
+    // with the layout in it, and it has a key.
+    await waitFor(() => expect(readStore().pages.trading?.dock).toBeDefined());
+    expect(readStore().order).toContain("trading");
   });
 
   it("refuses a name an address cannot carry", async () => {
@@ -444,9 +447,10 @@ describe("saved pages", () => {
     await user.keyboard("PG SAVE ../etc{Enter}");
     expect(await screen.findByText(/A page name is letters, digits and dashes/)).toBeInTheDocument();
     // The working page writes itself after a quarter second, so "nothing
-    // was stored" is not the claim -- "that name was not" is.
+    // was stored" is not the claim -- "that name was not, and neither was
+    // any other" is.
     expect(readStore().pages["../etc"]).toBeUndefined();
-    expect(readStore().order).not.toContain("../etc");
+    expect(readStore().order.filter((name) => name !== "-")).toEqual([]);
   });
 
   it("brings a saved page back, panels and all", async () => {
@@ -541,6 +545,45 @@ describe("saved pages", () => {
     await user.click(box);
     await user.keyboard("{Enter}");
     expect(await screen.findByText("panel BBB")).toBeInTheDocument();
+  });
+
+
+  it("turns an address into the working page when it is split", async () => {
+    // An address page IS one panel. Splitting it is the moment it stops
+    // being an address, and what it was showing comes along -- otherwise
+    // Ctrl+Enter on `/ui/t/AAPL/DES` would either do nothing or throw the
+    // page away.
+    stubApi();
+    registerSimple("AAA");
+    const user = userEvent.setup();
+    mount("/ui/t/AAPL/FAKEFA");
+    await screen.findByText("fake FA panel");
+
+    const box = await screen.findByLabelText("command");
+    await user.click(box);
+    await user.keyboard("AAA{Control>}{Enter}{/Control}");
+
+    expect(await screen.findByText("panel AAA")).toBeInTheDocument();
+    // Both panels, on the working page.
+    expect(screen.getByText("fake FA panel")).toBeInTheDocument();
+    await waitFor(() => expect(readStore().pages["-"]).toBeDefined());
+    const seeds = Object.values(
+      (readStore().pages["-"]?.dock as unknown as { panels: Record<string, unknown> }).panels,
+    );
+    expect(seeds).toHaveLength(2);
+  });
+
+  it("still just navigates when an address page is not split", async () => {
+    stubApi();
+    registerSimple("AAA");
+    const user = userEvent.setup();
+    mount("/ui/t/AAPL/FAKEFA");
+    await screen.findByText("fake FA panel");
+    const box = await screen.findByLabelText("command");
+    await user.click(box);
+    await user.keyboard("AAA{Enter}");
+    expect(await screen.findByText("panel AAA")).toBeInTheDocument();
+    expect(screen.queryByText("fake FA panel")).not.toBeInTheDocument();
   });
 
   it("leaves the page alone when the link is not one", async () => {
