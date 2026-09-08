@@ -194,6 +194,31 @@ def test_settings_page_shows_schema_state_and_source(monkeypatch: pytest.MonkeyP
     assert 'action="/admin/settings/yf_domain_regions/unset"' not in html
 
 
+def test_the_settings_page_groups_keys_and_names_what_was_changed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Seventy keys in one flat table is a document, not a console. They
+    are split by the group the schema already carries, and the ones that
+    no longer match their default are named at the top -- that is the
+    question an operator opens this page with."""
+    monkeypatch.setattr(ops, "fetch_rows", lambda _settings: {"yf_max_shards": "4"})
+    html = make_client(monkeypatch).get("/admin/settings", auth=AUTH).text
+
+    # The group the key belongs to is a section with an anchor, and the
+    # summary at the top links to the row itself.
+    assert 'id="g-shard"' in html
+    assert 'id="s-yf_max_shards"' in html
+    assert '<a href="#s-yf_max_shards">yf_max_shards</a>' in html
+    assert "settings differ from their defaults" in html
+
+    # The changed row is marked as such; a default one is not.
+    assert '<tr id="s-yf_max_shards" class="changed">' in html
+    assert '<tr id="s-yf_domain_regions" class="">' in html
+
+    # The source reads as a place, not as the storage layer's shorthand.
+    assert ">database</span>" in html
+
+
 def test_settings_save_goes_through_the_validated_store(monkeypatch: pytest.MonkeyPatch) -> None:
     written: list[tuple[str, str]] = []
 
@@ -306,7 +331,7 @@ def test_proxies_refusal_is_shown_not_raised(monkeypatch: pytest.MonkeyPatch) ->
         "/admin/proxies", data={"url": "http://h:1"}, auth=AUTH
     )
     assert "already present as p7" in response.text
-    assert "No proxies." in response.text
+    assert "No proxies yet." in response.text
 
 
 def test_screens_page_and_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
