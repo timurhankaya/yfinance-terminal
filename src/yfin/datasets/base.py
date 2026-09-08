@@ -13,9 +13,11 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Literal, Protocol
 
+from yfin.datasets.common import mark_known
 from yfin.datasets.exposure import ApiExposure
 from yfin.storage.contracts import (
     RowWriter,
+    SymbolLookup,
     TableWrite,
     WriteStats,
     apply_write,
@@ -208,6 +210,41 @@ def plain_upsert(writer: RowWriter, result: NormalizedResult) -> WriteStats:
     for write in result.writes:
         apply_write(writer, write, stats)
     return stats
+
+
+
+def mark_known_in(
+    writer: SymbolLookup,
+    result: NormalizedResult,
+    *,
+    select: Callable[[TableWrite], bool],
+    column: str = "symbol",
+) -> NormalizedResult:
+    """`result` again, with `is_known` filled on the writes `select` picks.
+
+    `mark_known` (datasets/common.py) already answers "which of these
+    symbols are in the universe" once for all five datasets that need it.
+    What was still written out per dataset is the splice: marking a SUBSET
+    of the writes and putting them back where they came from. Two of the
+    five did it identically, keyed by `id()` -- a dictionary that is only
+    correct as long as nothing copies a `TableWrite` in between, which
+    nothing does today and nothing promises.
+
+    The predicate is evaluated once per write and the marked writes come
+    back in order, so position does the work `id()` was doing.
+    """
+    chosen = [select(write) for write in result.writes]
+    targets = [write for write, take in zip(result.writes, chosen, strict=True) if take]
+    if not targets:
+        return result
+    flagged = iter(mark_known(writer, targets, column=column))
+    return NormalizedResult(
+        writes=[
+            next(flagged) if take else write
+            for write, take in zip(result.writes, chosen, strict=True)
+        ],
+        skipped=dict(result.skipped),
+    )
 
 
 class Dataset[RawT](ABC):

@@ -17,8 +17,7 @@ from typing import Any
 from yfin.core import normalize as nz
 from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
-from yfin.datasets.base import NormalizedResult
-from yfin.datasets.common import mark_known
+from yfin.datasets.base import NormalizedResult, mark_known_in
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.market.base import MarketContext, MarketScope, SnapshotGlobalDataset
 from yfin.datasets.payloads import MarketStatusPayload, MarketSummaryPayload
@@ -259,9 +258,8 @@ class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
     ) -> WriteStats:
         # Board symbols (ES=F, ^GSPC) may be outside the universe: no FK,
         # the is_known flag is marked instead (same pattern as news_symbols).
-        marked = NormalizedResult(
-            writes=mark_known(writer, result.writes), skipped=dict(result.skipped)
-        )
+        # Every write here carries the column, so every write is marked.
+        marked = mark_known_in(writer, result, select=lambda write: bool(write.rows))
         return super().upsert(writer, marked, full_refresh=full_refresh)
 
 

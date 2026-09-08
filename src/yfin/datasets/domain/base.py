@@ -25,10 +25,10 @@ from yfin.datasets.asof_base import (
     GLOBAL_REGION_MARKER,
     AsOfGate,
 )
-from yfin.datasets.base import NormalizedResult
+from yfin.datasets.base import NormalizedResult, plain_upsert
 from yfin.datasets.exposure import ApiExposure
 from yfin.models.domains import DomainType
-from yfin.storage.contracts import RowWriter, WriteStats, apply_write
+from yfin.storage.contracts import RowWriter, WriteStats
 
 #: `DomainType` is the SAME enum the `domains` table is typed with
 #: (`models.domains`). It used to be a second, Literal-typed declaration
@@ -138,10 +138,7 @@ class DomainDataset[RawT](ABC):
     ) -> WriteStats:
         """`full_refresh` is accepted and ignored: an ungated domain dataset
         writes everything it normalized either way."""
-        stats = WriteStats(skipped=dict(result.skipped))
-        for write in result.writes:
-            apply_write(writer, write, stats)
-        return stats
+        return plain_upsert(writer, result)
 
 
 class DomainAsOfDataset[RawT](AsOfGate, DomainDataset[RawT]):

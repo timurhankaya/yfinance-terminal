@@ -27,8 +27,8 @@ from yfin.core import normalize as nz
 from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
-from yfin.datasets.base import NormalizedResult, SyncContext
-from yfin.datasets.common import key_value, mark_known, to_fact_value
+from yfin.datasets.base import NormalizedResult, SyncContext, mark_known_in
+from yfin.datasets.common import key_value, to_fact_value
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import FundsPayload
 from yfin.datasets.registry import register
@@ -493,15 +493,13 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
         # universe (BRK-B, 2330.TW, 005930.KQ, 0700.HK, and the fund symbols
         # VRTPX, BISXX). With an FK, the per-symbol single transaction would
         # roll back ALL of the fund's data.
-        targets = [w for w in result.writes if w.table == HOLDINGS_TABLE and w.rows]
-        flagged = mark_known(writer, targets, column="holding_symbol")
-        marked = {id(w): m for w, m in zip(targets, flagged, strict=True)}
-        writes = [marked.get(id(write), write) for write in result.writes]
-        return super().upsert(
+        marked = mark_known_in(
             writer,
-            NormalizedResult(writes=writes, skipped=dict(result.skipped)),
-            full_refresh=full_refresh,
+            result,
+            select=lambda write: write.table == HOLDINGS_TABLE and bool(write.rows),
+            column="holding_symbol",
         )
+        return super().upsert(writer, marked, full_refresh=full_refresh)
 
 
 register(FundsDataDataset())

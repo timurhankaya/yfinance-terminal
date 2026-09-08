@@ -14,8 +14,7 @@ from typing import Any
 from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import DOMAIN_GATE_TABLE, asof_produces
-from yfin.datasets.base import NormalizedResult
-from yfin.datasets.common import mark_known
+from yfin.datasets.base import NormalizedResult, mark_known_in
 from yfin.datasets.domain.base import DomainAsOfDataset, DomainContext
 from yfin.datasets.domain.common import (
     MAPPED_KEYS,
@@ -134,14 +133,12 @@ class _DomainRankingsDataset(DomainAsOfDataset[DomainPayload]):
         # No FK on `symbol`: SGE.L, 285A.T, ODINE.IS and 0P0001WO1I are
         # outside the universe, and an FK would drop the whole pass's
         # transaction over one foreign symbol.
-        targets = [w for w in result.writes if w.rows and "is_known" in w.update_columns]
-        marked = {id(w): m for w, m in zip(targets, mark_known(writer, targets), strict=True)}
-        writes = [marked.get(id(write), write) for write in result.writes]
-        return super().upsert(
+        marked = mark_known_in(
             writer,
-            NormalizedResult(writes=writes, skipped=dict(result.skipped)),
-            full_refresh=full_refresh,
+            result,
+            select=lambda write: bool(write.rows) and "is_known" in write.update_columns,
         )
+        return super().upsert(writer, marked, full_refresh=full_refresh)
 
 
 class SectorRankingsDataset(_DomainRankingsDataset):
