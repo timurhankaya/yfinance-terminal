@@ -193,6 +193,23 @@ class SyncContext:
         return self._gap_provider(self.symbol, interval)
 
 
+
+def plain_upsert(writer: RowWriter, result: NormalizedResult) -> WriteStats:
+    """The write policy of a dataset with no gate: write everything.
+
+    A module function, not a method, because the SAME policy is the
+    default on both axes -- a symbol-scoped `Dataset` and a market-scoped
+    `GlobalDataset` (`datasets/market/base.py`). Written twice as a method
+    it was two identical bodies that had to be kept identical by hand,
+    which is exactly the drift the two sibling snapshot classes had
+    already shown is possible.
+    """
+    stats = WriteStats(skipped=dict(result.skipped))
+    for write in result.writes:
+        apply_write(writer, write, stats)
+    return stats
+
+
 class Dataset[RawT](ABC):
     """Fetching, normalizing, and writing a single yfinance API.
 
@@ -250,8 +267,7 @@ class Dataset[RawT](ABC):
     def upsert(
         self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
     ) -> WriteStats:
-        """Default implementation: idempotent upsert plus key-existence
-        verification for each TableWrite.
+        """Default implementation: `plain_upsert`.
 
         `full_refresh` is accepted and ignored here -- an ungated dataset
         writes everything it normalized either way. It is part of the base
@@ -260,7 +276,4 @@ class Dataset[RawT](ABC):
         keyword only some of them accept is the kind of contract that is
         discovered by a TypeError in production.
         """
-        stats = WriteStats(skipped=dict(result.skipped))
-        for write in result.writes:
-            apply_write(writer, write, stats)
-        return stats
+        return plain_upsert(writer, result)

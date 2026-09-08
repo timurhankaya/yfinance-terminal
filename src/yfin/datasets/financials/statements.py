@@ -4,6 +4,14 @@ Eight registrations are parameterized instances of one `StatementDataset`
 class. They are registered separately for ERROR ISOLATION: each (table,
 frequency) is a separate HTTP request, and the others must still write if
 one fails.
+
+**`Ticker.earnings` / `quarterly_earnings` are deliberately not
+collected.** Upstream they are deprecated and return `None` outright --
+"'Ticker.earnings' is deprecated as not available via API. Look for
+\"Net Income\" in Ticker.income_stmt." (yfinance 1.7.0,
+`scrapers/fundamentals.py`). That net income is already here, as the
+`NetIncome` item of the income statement, so the surface is not a gap in
+coverage; it is the same number under a name Yahoo stopped serving.
 """
 
 from __future__ import annotations

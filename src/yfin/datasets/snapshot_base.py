@@ -138,18 +138,32 @@ def snapshot_upsert(
     return stats
 
 
-class SnapshotDataset[RawT](Dataset[RawT]):
-    """Writes to two tables: current snapshot + history.
+class SnapshotWrite:
+    """The snapshot + history write policy, declared ONCE for both axes.
 
-    The hash comparison needs a DB read, so it happens in upsert(), not
-    normalize(); normalize stays pure.
+    A symbol-scoped snapshot (`ticker_info`) and a market-scoped one
+    (`market_status`) differ in what they fetch and in nothing else about
+    how they are written, so they share this rather than each carrying a
+    copy. They used to carry a copy, and the copies had already drifted:
+    one declared a default `key_columns` and the other did not, so the
+    same omission was harmless on one side and an AttributeError on the
+    other -- raised at the first write, which is after the Yahoo call has
+    been paid for.
+
+    `key_columns` has NO default here on purpose. ("symbol",) is right
+    for three of the five and wrong for the other two, and a default that
+    is right most of the time is how a market dataset ends up keyed by a
+    column it does not have. `tests/unit/test_dataset_contracts.py`
+    checks that every registered snapshot dataset declares all three.
     """
 
+    #: The table holding one row per key: what the gate compares against.
     snapshot_table: str
+    #: The table holding one row per key per fetch.
     history_table: str
-    # Snapshot table's key columns: ("symbol",) for ticker_*, ("region",)
-    # for market_status, ("region", "board_code") for market_summary.
-    key_columns: tuple[str, ...] = ("symbol",)
+    #: The snapshot's key: ("symbol",) for ticker_*, ("region",) for
+    #: market_status, ("region", "board_code") for market_summary.
+    key_columns: tuple[str, ...]
 
     def upsert(
         self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
@@ -162,3 +176,11 @@ class SnapshotDataset[RawT](Dataset[RawT]):
             key_columns=self.key_columns,
             full_refresh=full_refresh,
         )
+
+
+class SnapshotDataset[RawT](SnapshotWrite, Dataset[RawT]):
+    """A symbol-scoped dataset that writes a snapshot + history.
+
+    The hash comparison needs a DB read, so it happens in upsert(), not
+    normalize(); normalize stays pure.
+    """

@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from yfin.stream.connection import ConnectionHealth
 from yfin.stream.rejects import REJECT_DECODE_FAILED, REJECT_UNKNOWN_SYMBOL, Reject
 from yfin.stream.repository import ScopeEntry
 from yfin.stream.supervisor import StreamSupervisor, SupervisorConfig
@@ -32,6 +33,7 @@ TS = datetime(2026, 9, 7, 14, 30, tzinfo=UTC)
 class FakeRepository:
     def __init__(self) -> None:
         self.counters: list[dict[str, int]] = []
+        self.health: list[dict[str, Any]] = []
 
     def load_scope(self) -> list[ScopeEntry]:
         return []
@@ -44,6 +46,9 @@ class FakeRepository:
 
     def add_session_counters(self, session_id: int, **fields: int) -> None:
         self.counters.append(fields)
+
+    def record_health(self, session_id: int, **fields: Any) -> None:
+        self.health.append(fields)
 
 
 def _row(symbol: str = "AAPL", ts: datetime = TS, **extra: Any) -> dict[str, Any]:
@@ -180,6 +185,63 @@ def test_no_session_means_no_counter_write() -> None:
     writer._session_id = None
     supervisor.counters.messages = 5
     writer._flush_counters(written=1)
+    assert repository.counters == []
+
+
+# --- health ----------------------------------------------------------------
+
+
+def test_health_is_written_by_this_thread_not_the_event_loop() -> None:
+    """The supervisor boxes it; this is where it reaches the database."""
+    writer, supervisor, repository = _writer()
+    supervisor._on_health(ConnectionHealth(connection_key="NMS", state="open", subscribed_count=4))
+    writer._flush_health()
+    assert repository.health == [
+        {
+            "connection_key": "NMS",
+            "state": "open",
+            "subscribed_count": 4,
+            "connected_at": None,
+            "last_message_at": None,
+            "last_canary_at": None,
+            "reconnect_count": 0,
+            "last_error": None,
+        }
+    ]
+
+
+def test_health_is_written_once_per_cycle_not_once_per_canary() -> None:
+    """The canary ticks on every connection around the clock; the row it
+    produces is one INSERT per writer batch, not one per message."""
+    writer, supervisor, repository = _writer()
+    for _ in range(50):
+        supervisor._on_health(ConnectionHealth(connection_key="NMS", state="open"))
+    writer._flush_health()
+    assert len(repository.health) == 1
+    writer._flush_health()
+    assert len(repository.health) == 1
+
+
+def test_no_session_leaves_health_in_the_box() -> None:
+    """Connections emit state while the session row is still being opened.
+    The box keeps only the newest per connection, so waiting costs
+    nothing and loses nothing."""
+    writer, supervisor, repository = _writer()
+    writer._session_id = None
+    supervisor._on_health(ConnectionHealth(connection_key="NMS", state="open"))
+    writer._flush_health()
+    assert repository.health == []
+    writer.set_session(1)
+    writer._flush_health()
+    assert len(repository.health) == 1
+
+
+def test_a_quiet_cycle_still_writes_health() -> None:
+    """A connection that has gone quiet is exactly when its row matters."""
+    writer, supervisor, repository = _writer(batch_interval_ms=1)
+    supervisor._on_health(ConnectionHealth(connection_key="NMS", state="open"))
+    writer._cycle()
+    assert len(repository.health) == 1
     assert repository.counters == []
 
 

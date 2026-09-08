@@ -23,6 +23,7 @@ class FastInfoDataset(SnapshotDataset[FastInfoPayload]):
     produces = ("ticker_fast_info", "ticker_fast_info_history")
     snapshot_table = "ticker_fast_info"
     history_table = "ticker_fast_info_history"
+    key_columns = ("symbol",)
     api = (
         ApiExposure(
             name="fast_info",

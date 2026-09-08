@@ -20,10 +20,10 @@ from enum import StrEnum
 from typing import Any
 
 from yfin.core.config import Settings
-from yfin.datasets.base import NormalizedResult
+from yfin.datasets.base import NormalizedResult, plain_upsert
 from yfin.datasets.exposure import ApiExposure
-from yfin.datasets.snapshot_base import snapshot_upsert
-from yfin.storage.contracts import RowWriter, VariantState, WriteStats, apply_write
+from yfin.datasets.snapshot_base import SnapshotWrite
+from yfin.storage.contracts import RowWriter, VariantState, WriteStats
 
 
 class MarketScope(StrEnum):
@@ -141,33 +141,14 @@ class GlobalDataset[RawT](ABC):
     ) -> WriteStats:
         """`full_refresh` is accepted and ignored: an ungated market dataset
         writes everything it normalized either way."""
-        stats = WriteStats(skipped=dict(result.skipped))
-        for write in result.writes:
-            apply_write(writer, write, stats)
-        return stats
+        return plain_upsert(writer, result)
 
 
-class SnapshotGlobalDataset[RawT](GlobalDataset[RawT]):
+class SnapshotGlobalDataset[RawT](SnapshotWrite, GlobalDataset[RawT]):
     """Market dataset that writes a snapshot + history.
 
-    Shares the SAME policy as `SnapshotDataset` on the symbol side:
-    comparison against the snapshot table, write to _history; key columns
-    are declarative (("region",) for market_status, ("region",
-    "board_code") for market_summary).
+    The policy itself is `SnapshotWrite`, the same object the symbol side
+    uses: "compare against the snapshot table, write both it and the
+    history" is one rule, and it was written out twice here until the two
+    copies disagreed about whether `key_columns` had a default.
     """
-
-    snapshot_table: str
-    history_table: str
-    key_columns: tuple[str, ...]
-
-    def upsert(
-        self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
-    ) -> WriteStats:
-        return snapshot_upsert(
-            writer,
-            result,
-            snapshot_table=self.snapshot_table,
-            history_table=self.history_table,
-            key_columns=self.key_columns,
-            full_refresh=full_refresh,
-        )

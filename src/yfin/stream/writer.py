@@ -262,6 +262,10 @@ class StreamWriter:
     def _cycle(self) -> None:
         rows = self._collect()
         rejects = self._collect_rejects()
+        # Health first, and on every cycle including the empty ones: a
+        # connection that has gone quiet is exactly when its row matters,
+        # and `_collect` returns on its own timeout when no tick arrives.
+        self._flush_health()
         if not rows and not rejects:
             self._flush_counters()
             return
@@ -581,6 +585,33 @@ class StreamWriter:
             guard_column="ts_utc",
         )
         apply_write(PostgresRowWriter(session), write, WriteStats())
+
+    def _flush_health(self) -> None:
+        """Writes the health the event loop recorded in memory.
+
+        Here rather than where it is emitted: this thread owns the
+        database and the event loop must never wait on it. `heartbeat_at`
+        is stamped by the repository at write time, which now also proves
+        the writer thread is alive -- a row that stopped being refreshed
+        is the honest signal either way.
+        """
+        if self._session_id is None:
+            # Nothing to attach the rows to yet. They are left in the box,
+            # which keeps only the newest per connection, so waiting costs
+            # nothing and loses nothing.
+            return
+        for health in self._supervisor.health.drain():
+            self._repository.record_health(
+                self._session_id,
+                connection_key=health.connection_key,
+                state=health.state,
+                subscribed_count=health.subscribed_count,
+                connected_at=health.connected_at,
+                last_message_at=health.last_message_at,
+                last_canary_at=health.last_canary_at,
+                reconnect_count=health.reconnect_count,
+                last_error=health.last_error,
+            )
 
     def _flush_counters(self, *, written: int = 0) -> None:
         """Pushes the supervisor's counters onto the session row.

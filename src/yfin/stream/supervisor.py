@@ -26,7 +26,7 @@ import contextlib
 import queue
 import threading
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from yfin.core.logging_setup import get_logger
@@ -96,6 +96,45 @@ class LatestBox:
             return len(self._rows)
 
 
+
+class HealthBox:
+    """The latest health row per connection, for `stream_connection_health`.
+
+    The same shape as `LatestBox` above and for the same reason. Health
+    is emitted from the event loop -- on every state change and on every
+    canary message, and the canary (`BTC-USD`) ticks around the clock on
+    every connection -- while the row it produces is an `INSERT ... ON
+    CONFLICT`. Writing that where it is emitted puts a synchronous
+    database round trip in the middle of the read loop, which is exactly
+    what `_offer` below refuses to do for ticks: block the loop and
+    ping/pong goes unanswered, Yahoo drops the connection, and EVERY
+    symbol stops.
+
+    A COPY is stored, not the connection's own object. `ConnectionHealth`
+    is mutable and the connection keeps mutating it; handing the writer
+    thread a live reference would let it read a row half-way through a
+    state change.
+    """
+
+    def __init__(self) -> None:
+        self._rows: dict[str, ConnectionHealth] = {}
+        self._lock = threading.Lock()
+
+    def put(self, health: ConnectionHealth) -> None:
+        with self._lock:
+            self._rows[health.connection_key] = replace(health)
+
+    def drain(self) -> list[ConnectionHealth]:
+        with self._lock:
+            drained = list(self._rows.values())
+            self._rows = {}
+        return drained
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._rows)
+
+
 @dataclass
 class SupervisorConfig:
     """The settings the supervisor actually reads.
@@ -145,6 +184,7 @@ class StreamSupervisor:
 
         self.queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=config.queue_maxsize)
         self.latest = LatestBox()
+        self.health = HealthBox()
         self.counters = StreamCounters()
         self.rejects: queue.Queue[Reject] = queue.Queue(maxsize=config.queue_maxsize)
 
@@ -320,22 +360,17 @@ class StreamSupervisor:
             self.rejects.put_nowait(reject)
 
     def _on_health(self, health: ConnectionHealth) -> None:
+        """Records health in memory. The writer thread puts it on disk.
+
+        Called from the event loop, so nothing here may touch the
+        database: the canary ticks on every connection around the clock,
+        and a synchronous `INSERT` per canary message is a round trip
+        inside the read loop.
+        """
         entry = self._running.get(health.connection_key)
         if entry is not None:
             entry.health = health
-        if self._session_id is None:
-            return
-        self._repository.record_health(
-            self._session_id,
-            connection_key=health.connection_key,
-            state=health.state,
-            subscribed_count=health.subscribed_count,
-            connected_at=health.connected_at,
-            last_message_at=health.last_message_at,
-            last_canary_at=health.last_canary_at,
-            reconnect_count=health.reconnect_count,
-            last_error=health.last_error,
-        )
+        self.health.put(health)
 
     # --- lifecycle ---------------------------------------------------------
 

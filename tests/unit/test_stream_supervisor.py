@@ -186,23 +186,46 @@ def test_full_reject_queue_does_not_raise() -> None:
 # --- health ----------------------------------------------------------------
 
 
-def test_health_is_recorded_once_a_session_exists() -> None:
+def test_health_is_boxed_rather_than_written() -> None:
+    """The event loop records health; the writer thread puts it on disk.
+
+    The canary ticks on every connection around the clock, so a
+    synchronous INSERT here would be a database round trip inside the
+    read loop -- which is what `_offer` refuses to do for ticks, for the
+    same reason: block the loop and ping/pong goes unanswered.
+    """
     repository = FakeRepository()
     supervisor = _supervisor(repository)
     supervisor._session_id = 1
     supervisor._on_health(
         ConnectionHealth(connection_key="NMS", state=STATE_OPEN, subscribed_count=3)
     )
-    assert repository.health[0]["connection_key"] == "NMS"
-    assert repository.health[0]["state"] == STATE_OPEN
-
-
-def test_health_before_a_session_is_ignored() -> None:
-    """Connections emit state while the session row is still being opened."""
-    repository = FakeRepository()
-    supervisor = _supervisor(repository)
-    supervisor._on_health(ConnectionHealth(connection_key="NMS"))
     assert repository.health == []
+    boxed = supervisor.health.drain()
+    assert [(one.connection_key, one.state) for one in boxed] == [("NMS", STATE_OPEN)]
+
+
+def test_health_keeps_only_the_newest_per_connection() -> None:
+    """A connection that changed state twice between two writer batches is
+    one row, not two: the table holds current state, not a history."""
+    supervisor = _supervisor(FakeRepository())
+    supervisor._on_health(ConnectionHealth(connection_key="NMS", state=STATE_OPEN))
+    supervisor._on_health(ConnectionHealth(connection_key="NMS", state="closed"))
+    supervisor._on_health(ConnectionHealth(connection_key="NYQ", state=STATE_OPEN))
+    drained = {one.connection_key: one.state for one in supervisor.health.drain()}
+    assert drained == {"NMS": "closed", "NYQ": STATE_OPEN}
+    assert supervisor.health.drain() == []
+
+
+def test_boxed_health_is_a_copy_of_the_connection_s_own() -> None:
+    """`ConnectionHealth` is mutable and the connection keeps mutating it;
+    a live reference would let the writer thread read a row half-way
+    through a state change."""
+    supervisor = _supervisor(FakeRepository())
+    live = ConnectionHealth(connection_key="NMS", state=STATE_OPEN)
+    supervisor._on_health(live)
+    live.state = "closed"
+    assert supervisor.health.drain()[0].state == STATE_OPEN
 
 
 def test_stale_threshold_is_two_rescans() -> None:

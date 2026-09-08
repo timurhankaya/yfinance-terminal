@@ -73,6 +73,7 @@ class InfoDataset(SnapshotDataset[InfoPayload]):
     produces = ("ticker_info", "ticker_info_history", "company_officers")
     snapshot_table = "ticker_info"
     history_table = "ticker_info_history"
+    key_columns = ("symbol",)
     # The snapshot itself is served by /v1/symbols/{symbol}; what was
     # unreachable is the officer roster and the point-in-time history.
     api = (
