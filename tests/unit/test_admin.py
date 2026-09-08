@@ -69,6 +69,21 @@ def test_wrong_secret_is_401_and_five_misses_become_429(monkeypatch: pytest.Monk
     assert client.get("/admin/settings", auth=AUTH).status_code == 429
 
 
+def test_working_the_page_does_not_spend_the_login_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Five is failures per minute, not requests per minute. An operator
+    reading four pages and saving a setting is one minute of ordinary
+    work, and it must not end in a 429 on their own admin."""
+    client = make_client(monkeypatch)
+    for _ in range(auth.FAILURES_PER_MINUTE * 3):
+        assert client.get("/admin/settings", auth=AUTH).status_code == 200
+    # And the brake still works afterwards: the window was never touched.
+    for _ in range(auth.FAILURES_PER_MINUTE):
+        assert client.get("/admin/settings", auth=("x", "wrong")).status_code == 401
+    assert client.get("/admin/settings", auth=("x", "wrong")).status_code == 429
+
+
 class TestCrossSiteWrites:
     """Basic auth says WHO; nothing in a cross-site form POST says the
     operator asked for it. The browser attaches the cached credential
@@ -111,9 +126,7 @@ class TestCrossSiteWrites:
         response = self._post(client, **{"sec-fetch-site": "same-origin"})
         assert response.status_code == 303
 
-    def test_a_foreign_origin_is_refused_without_fetch_metadata(
-        self, client: TestClient
-    ) -> None:
+    def test_a_foreign_origin_is_refused_without_fetch_metadata(self, client: TestClient) -> None:
         """Older browsers send no `Sec-Fetch-Site`; `Origin` is then what
         there is, compared the way `/ui/ws` compares it."""
         response = self._post(client, origin="https://evil.example")
@@ -151,9 +164,7 @@ class TestCrossSiteWrites:
             response = client.post(path, data=payload, auth=AUTH, headers=cross_site)
             assert response.status_code == 403, path
 
-    def test_a_cross_site_post_does_not_spend_the_login_window(
-        self, client: TestClient
-    ) -> None:
+    def test_a_cross_site_post_does_not_spend_the_login_window(self, client: TestClient) -> None:
         """It is not a failed login, and counting it as one would let a
         cross-site page lock the operator out of their own admin."""
         for _ in range(auth.FAILURES_PER_MINUTE + 1):

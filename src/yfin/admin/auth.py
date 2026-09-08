@@ -75,18 +75,23 @@ def require_admin(
         )
     if credentials is None:
         raise _challenge()
-    expected = settings.admin_password.encode()
-    given = credentials.password.encode()
-    # The window is charged before the comparison so a burst of wrong
-    # guesses is refused with 429 rather than costing a compare each.
-    if not _failures.allow(client_ip, FAILURES_PER_MINUTE):
+    # Read before the comparison, so a burst of wrong guesses is refused
+    # with 429 rather than costing a compare each, and once the brake is
+    # on it stays on for the window -- the right secret waits it out too.
+    if _failures.over(client_ip, FAILURES_PER_MINUTE):
         raise ApiProblem(
             429,
             TYPE_RATE_LIMIT,
             "Too many failed admin logins from this address",
             headers={"Retry-After": "60"},
         )
+    expected = settings.admin_password.encode()
+    given = credentials.password.encode()
     if not expected or not hmac.compare_digest(expected, given):
+        # Charged here and nowhere else: these are FAILURES per minute.
+        # Counting the requests that succeed instead would lock the
+        # operator out of their own page after five page loads.
+        _failures.allow(client_ip, FAILURES_PER_MINUTE)
         raise _challenge()
 
 

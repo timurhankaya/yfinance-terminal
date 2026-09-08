@@ -42,6 +42,25 @@ class FixedWindow:
             self._hits[key] = count
             return count <= limit
 
+    def over(self, key: str, limit: int) -> bool:
+        """Whether the key has already spent its limit, WITHOUT charging
+        the window.
+
+        `allow` asks "may this one through, and count it". A caller that
+        counts only SOME of what it sees -- the admin login, which charges
+        failures and lets a correct credential through free -- needs the
+        two halves apart, or every request it waves through would still
+        push the key towards the ceiling.
+        """
+        window = int(time.time() // self._window_seconds)
+        with self._lock:
+            # A rolled window is empty, and saying so is enough: the drop
+            # belongs to `allow`, so that reading the brake never has a
+            # side effect.
+            if window != self._window:
+                return False
+            return self._hits.get(key, 0) >= limit
+
     def reset(self) -> None:
         """Drops the window. For tests, which share one process."""
         with self._lock:
