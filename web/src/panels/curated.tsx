@@ -4,7 +4,7 @@
 // even before that).
 import { useGo } from "../commands/go";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
-import { DatasetView, SymbolMode, filtersOf, parseFilters } from "./dataset";
+import { DatasetView, ExtraColumn, SymbolMode, filtersOf, parseFilters } from "./dataset";
 
 /** How a tab takes the strip's symbol. `Required`: the tab needs it and
  *  says so without one; `Auto`/`None` as in DatasetView. */
@@ -27,6 +27,9 @@ export interface Tab {
   label: string;
   dataset: string;
   symbol: TabSymbol;
+  /** Columns beyond the catalogue's, declared here and built by the
+   *  view. Configuration, like the rest of a tab. */
+  extra?: ExtraColumn[];
 }
 
 export interface TabbedPanelSpec {
@@ -89,6 +92,7 @@ export function tabbedPanel(spec: TabbedPanelSpec): PanelSpec {
             symbol={symbol}
             filters={filters}
             mode={MODE_OF[current.symbol]}
+            extra={current.extra}
           />
         )}
       </section>
@@ -111,9 +115,9 @@ export function tabbedPanel(spec: TabbedPanelSpec): PanelSpec {
   };
 }
 
-const sym = (key: string, label: string, dataset: string): Tab => ({ key, label, dataset, symbol: TabSymbol.Required });
-const mkt = (key: string, label: string, dataset: string): Tab => ({ key, label, dataset, symbol: TabSymbol.None });
-const opt = (key: string, label: string, dataset: string): Tab => ({ key, label, dataset, symbol: TabSymbol.Auto });
+const sym = (key: string, label: string, dataset: string, extra?: ExtraColumn[]): Tab => ({ key, label, dataset, symbol: TabSymbol.Required, extra });
+const mkt = (key: string, label: string, dataset: string, extra?: ExtraColumn[]): Tab => ({ key, label, dataset, symbol: TabSymbol.None, extra });
+const opt = (key: string, label: string, dataset: string, extra?: ExtraColumn[]): Tab => ({ key, label, dataset, symbol: TabSymbol.Auto, extra });
 
 export const HDS_PANEL = tabbedPanel({
   code: "HDS",
@@ -183,7 +187,9 @@ export const SCR_PANEL = tabbedPanel({
   tabs: [
     mkt("list", "Screens", "screens"),
     mkt("runs", "Runs", "screen_runs"),
-    opt("members", "Members", "screen_members"),
+    // The one curated tab that is a roster of symbols, which is what a
+    // sparkline column is for.
+    opt("members", "Members", "screen_members", [ExtraColumn.Sparkline]),
     sym("quotes", "Quote snapshot", "screen_quotes"),
   ],
 });

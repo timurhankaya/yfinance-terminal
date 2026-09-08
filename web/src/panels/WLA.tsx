@@ -22,6 +22,8 @@ import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../comm
 import { useLinkState, useLiveEnabled, useQuote } from "../live/hooks";
 import { LinkState, MarketHours } from "../live/types";
 import { useListKeys } from "./common";
+import { SparkCell, sparkLabel, useSparklines } from "./spark";
+import type { SparkData } from "./spark";
 import { formatDecimal, formatInteger } from "./table";
 
 //: The server's own per-connection ceiling (`ui/live.py`, MAX_SYMBOLS).
@@ -69,7 +71,9 @@ function parseArgs(tokens: string[]): PanelArgs {
   return { symbols: symbols.join(",") };
 }
 
-function Row({ symbol, selected }: { symbol: string; selected: boolean }): ReactElement {
+function Row(
+  { symbol, selected, spark }: { symbol: string; selected: boolean; spark: SparkData },
+): ReactElement {
   // One subscription per row, and one selector per row: this is the
   // hook whose isolation makes the whole panel affordable.
   const quote = useQuote(symbol);
@@ -88,6 +92,13 @@ function Row({ symbol, selected }: { symbol: string; selected: boolean }): React
         {quote?.cp === undefined ? "—" : `${formatDecimal(quote.cp)}%`}
       </td>
       <td className="num">{quote?.v === undefined ? "—" : formatInteger(quote.v)}</td>
+      {/* The one cell on the row that does NOT come from the socket. It
+          is a month of closes, so a tick cannot change it -- and does
+          not redraw it either: `Sparkline` is memoised and `closes` is
+          the same array across renders. */}
+      <td className="spark-cell">
+        <SparkCell data={spark} symbol={symbol} />
+      </td>
       <td>{quote === undefined ? "" : (SESSION_LABEL[quote.mh] ?? "?")}</td>
       <td>
         {/* Not "no data": a symbol outside `yfin stream scope` has no
@@ -112,6 +123,9 @@ export function WLA({ symbol, args }: PanelProps) {
   const watched = symbols.length > 0 ? symbols : symbol === null ? [] : [symbol];
   const enabled = useLiveEnabled();
   const link = useLinkState();
+  // One request for the whole list, not one per row: that is the whole
+  // reason `/ui/api/sparklines` exists.
+  const spark = useSparklines(watched);
   const open = (index: number) => {
     const picked = watched[index];
     if (picked !== undefined) {
@@ -148,13 +162,14 @@ export function WLA({ symbol, args }: PanelProps) {
             <th className="num">Change</th>
             <th className="num">%</th>
             <th className="num">Volume</th>
+            <th>{sparkLabel(spark)}</th>
             <th>Session</th>
             <th>Last</th>
           </tr>
         </thead>
         <tbody>
           {watched.map((code, index) => (
-            <Row key={code} symbol={code} selected={index === selected} />
+            <Row key={code} symbol={code} selected={index === selected} spark={spark} />
           ))}
         </tbody>
       </table>

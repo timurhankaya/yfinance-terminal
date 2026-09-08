@@ -1,4 +1,18 @@
 :root { color-scheme: dark; --bg: #0b0e11; --fg: #d7dde3; --muted: #7f8a96; --line: #1f262e; --accent: #f2b544; }
+/* Direction. The one place a rise and a fall are given a colour: the
+   tables, the strip and every SVG primitive read these, so a change
+   here moves all of them together. */
+:root { --up: #4cc38a; --down: #ff6b6b; }
+/* Identity, seven of them: the group letters a page can be split into,
+   and the series colours of a comparison. Okabe-Ito, chosen because it
+   is designed to stay distinguishable under the common colour-vision
+   deficiencies -- a group letter that two readers cannot tell apart is
+   not an identity. Ordered so that consecutive assignments are far
+   apart on the wheel, since a two-series chart uses a and b. */
+:root {
+  --group-a: #56b4e9; --group-b: #e69f00; --group-c: #009e73; --group-d: #cc79a7;
+  --group-e: #f0e442; --group-f: #0072b2; --group-g: #d55e00;
+}
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 ui-monospace, "SF Mono", Menlo, monospace; }
 .shell { display: flex; flex-direction: column; height: 100vh; }
@@ -73,8 +87,8 @@ dl.des dd { margin: 0; word-break: break-word; }
 .load-more { margin: 8px 0; list-style: none; }
 .dataset.split { align-items: start; height: auto; }
 .strip-price { font-weight: 600; }
-.strip-change.up { color: #4cc38a; }
-.strip-change.down { color: #ff6b6b; }
+.strip-change.up { color: var(--up); }
+.strip-change.down { color: var(--down); }
 .strip-link { color: #ff6b6b; }
 .chart { height: 62vh; min-height: 320px; width: 100%; }
 .chart-note { display: flex; gap: 12px; align-items: baseline; margin: 0 0 6px; color: var(--muted); }
@@ -86,8 +100,8 @@ dl.des dd { margin: 0; word-break: break-word; }
 .tape-head .num { text-align: right; }
 .tape-line { display: grid; grid-template-columns: 96px 1fr 1fr 1fr; gap: 8px; }
 .tape-line .num { text-align: right; font-variant-numeric: tabular-nums; }
-.grid td.up, .strip-change.up { color: #4cc38a; }
-.grid td.down, .strip-change.down { color: #ff6b6b; }
+.grid td.up, .strip-change.up { color: var(--up); }
+.grid td.down, .strip-change.down { color: var(--down); }
 .fn-group { padding: 3px 8px 3px 2px; color: var(--muted); font-size: 11px; text-transform: uppercase; align-self: center; }
 .fn-group:not(:first-child) { border-left: 1px solid var(--line); margin-left: 8px; padding-left: 10px; }
 .home { max-width: 110ch; }
@@ -101,4 +115,21 @@ dl.des dd { margin: 0; word-break: break-word; }
 .strip-price.flash-down { animation: flash-down .8s ease-out; }
 @keyframes tape-in { from { background: rgba(242, 181, 68, .3); } to { background: transparent; } }
 .tape-line.tape-new { animation: tape-in 1.2s ease-out; }
+/* The SVG primitives (web/src/panels/viz). Size, spacing and type are
+   CSS's job; colour never is -- it goes on a fill/stroke attribute, since
+   style-src 'self' blocks an inline style attribute outright. */
+.viz-figure { margin: 8px 0 12px; }
+.viz { display: block; width: 100%; height: auto; }
+.viz-treemap { aspect-ratio: 16 / 9; }
+.viz-tick, .viz-cell-label { font-size: 11px; }
+.viz-cell-label { font-weight: 600; }
+.viz-cell { cursor: pointer; }
+.viz-cell:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.viz-legend { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 6px 0 0; color: var(--muted); }
+.viz-swatch { width: 10px; height: 10px; vertical-align: baseline; }
+.viz-ramp { width: 120px; height: 10px; }
+/* A sparkline in a grid cell: a fixed box, so 200 rows line up and the
+   column does not resize as symbols come and go. */
+.spark { width: 72px; height: 18px; }
+.grid td.spark-cell { width: 88px; padding-top: 2px; padding-bottom: 2px; }
 @media (prefers-reduced-motion: reduce) { .strip-price, .tape-line { animation: none !important; } }

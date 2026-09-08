@@ -16,7 +16,11 @@ it is operational bookkeeping, not market data, and the intraday chart is
 the one reader that needs it -- an hour with no candles means either a
 closed market or a missed fetch, and only this table can tell them apart.
 
-All three sit outside the OpenAPI document and outside the metered
+`sparklines` because a watchlist draws one line per row and `/v1` has no
+batch: 200 rows through `/v1/symbols/{s}/bars` is 200 requests to show
+200 tiny lines. One statement over `price_history` answers all of them.
+
+All four sit outside the OpenAPI document and outside the metered
 surface -- reachable by anyone, like the rest of the terminal, with
 `RequestBrake` the only thing in front of them. Promoting any of them to
 `/v1` is a separate decision (spec, "Kararlar" 8).
@@ -24,13 +28,15 @@ surface -- reachable by anyone, like the rest of the terminal, with
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Iterator, Sequence
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import Select, and_, select
+from sqlalchemy import Select, and_, func, select
 from sqlalchemy.orm import Session
 
 from yfin.api.core.errors import TYPE_INVALID_PARAMETER, TYPE_NOT_FOUND, ApiProblem
@@ -43,6 +49,7 @@ from yfin.models import ReadableInterval
 from yfin.models.bars import BarGap
 from yfin.models.discovery import Screen, ScreenMember, ScreenRun, screen_quotes
 from yfin.models.news import News, NewsSymbol
+from yfin.models.prices import PriceHistory
 from yfin.models.stream import LiveQuote, LiveTick
 from yfin.stream.publish import tick_body
 
@@ -176,6 +183,168 @@ def symbol_ticks(
     # a tick's own ts_utc is when it happened, and there is no separate
     # "when was this verified" to report.
     return Collection[dict[str, Any]](data=rows, next_cursor=None, as_of=None)
+
+
+# --- sparklines -------------------------------------------------------------
+#
+# The batch `/v1` deliberately does not offer. Every other read here exists
+# because the public surface does not join; this one exists because it does
+# not BATCH -- and the arithmetic is what makes that a route rather than a
+# loop in the browser: a 200-symbol watchlist is 200 requests for 200 lines
+# of thirty numbers each.
+
+#: The same ceiling one live socket connection may subscribe to
+#: (`ui/live.py`, MAX_SYMBOLS), for the same reason: this is the other half
+#: of a watchlist row, so whatever a page can watch it can also draw.
+SPARKLINE_MAX_SYMBOLS = 200
+
+#: POINTS, NOT DAYS: trading sessions, i.e. rows. Thirty calendar days
+#: would be ~21 closes, and a sparkline whose length varied with the
+#: holidays of its exchange would be comparing shapes of different spans.
+SPARKLINE_DEFAULT_POINTS = 30
+SPARKLINE_MIN_POINTS = 5
+SPARKLINE_MAX_POINTS = 90
+
+#: Calendar days read per point asked for. Sessions are ~5/7 of the
+#: calendar, so 2x carries a long weekend and a holiday week and still
+#: leaves the tail to be cut in the process.
+SPARKLINE_CALENDAR_FACTOR = 2
+
+
+class SparklineSeries(BaseModel):
+    """One symbol's closes, oldest first.
+
+    The dates bracket the series rather than labelling each point: a
+    sparkline has no axis, and what a reader needs to know is which window
+    the shape covers.
+    """
+
+    symbol: str
+    closes: list[str]
+    first_date: date
+    last_date: date
+
+
+class SparklineSet(BaseModel):
+    points: int
+    series: list[SparklineSeries]
+    #: Symbols with no bars in the window. Named rather than omitted: the
+    #: panel draws "no data" in that cell, and a silently short list would
+    #: leave a row looking like a symbol that never moved.
+    missing: list[str]
+
+
+def parse_sparkline_symbols(value: str) -> list[str]:
+    """The `symbols` parameter as a list, in the order it was asked for.
+
+    Deduplicated because a repeated symbol is one series, and normalised
+    through the same function every other route uses so `aapl` and `AAPL`
+    are not two queries.
+    """
+    seen: dict[str, None] = {}
+    for token in value.split(","):
+        stripped = token.strip()
+        if stripped:
+            seen.setdefault(normalize_symbol(stripped), None)
+    return list(seen)
+
+
+def read_sparklines(session: Session, symbols: Sequence[str], points: int) -> SparklineSet:
+    """The last `points` daily closes for each symbol.
+
+    `price_history`, not `price_bars`: the daily close of a session lives
+    in the former and the latter is the intraday archive
+    (`models/bars.py:99-102`). The primary key is `(symbol, session_date)`,
+    so the filter below is a prefix scan of it.
+
+    The window is found from the archive's own latest session rather than
+    from today: an archive that has not synced since Friday should draw
+    Friday's month, not four empty days.
+    """
+    latest = session.scalar(
+        select(func.max(PriceHistory.session_date)).where(PriceHistory.symbol.in_(symbols))
+    )
+    if latest is None:
+        return SparklineSet(points=points, series=[], missing=list(symbols))
+
+    since = latest - timedelta(days=points * SPARKLINE_CALENDAR_FACTOR)
+    stmt = (
+        select(PriceHistory.symbol, PriceHistory.session_date, PriceHistory.close)
+        .where(PriceHistory.symbol.in_(symbols), PriceHistory.session_date >= since)
+        .order_by(PriceHistory.symbol, PriceHistory.session_date)
+    )
+    closes: dict[str, list[tuple[date, Decimal]]] = defaultdict(list)
+    for symbol, session_date, close in session.execute(stmt):
+        closes[symbol].append((session_date, close))
+
+    series: list[SparklineSeries] = []
+    missing: list[str] = []
+    for symbol in symbols:
+        # Cut in the process, not in SQL: a per-symbol LIMIT is a lateral
+        # join or a window function over the whole range, and the range is
+        # already bounded to a couple of calendar months.
+        rows = closes.get(symbol, [])[-points:]
+        if not rows:
+            missing.append(symbol)
+            continue
+        series.append(
+            SparklineSeries(
+                symbol=symbol,
+                # `to_number` like every other row of the API: a NUMERIC
+                # serialised as a JSON number would stop being exact at
+                # the boundary where it is least visible.
+                closes=[to_number(close) or "0" for _, close in rows],
+                first_date=rows[0][0],
+                last_date=rows[-1][0],
+            )
+        )
+    return SparklineSet(points=points, series=series, missing=missing)
+
+
+@router.get("/sparklines", response_model=Resource[SparklineSet])
+def sparklines(
+    session: SessionDep,
+    symbols: Annotated[str, Query()],
+    points: Annotated[int | None, Query()] = None,
+    interval: Annotated[str | None, Query()] = None,
+) -> Resource[SparklineSet]:
+    # Declared only to be refused. FastAPI ignores a query parameter no
+    # route declares, so without this `?interval=5m` would come back as a
+    # month of daily closes -- the wrong data under the caller's own label.
+    if interval is not None:
+        raise ApiProblem(
+            422,
+            TYPE_INVALID_PARAMETER,
+            "Sparklines are daily closes",
+            detail="interval is not accepted; intraday bars are /v1/symbols/{symbol}/bars",
+        )
+    size = points if points is not None else SPARKLINE_DEFAULT_POINTS
+    if size < SPARKLINE_MIN_POINTS or size > SPARKLINE_MAX_POINTS:
+        raise ApiProblem(
+            422,
+            TYPE_INVALID_PARAMETER,
+            "Point count outside the window",
+            detail=(
+                f"points must be between {SPARKLINE_MIN_POINTS} and {SPARKLINE_MAX_POINTS}"
+            ),
+        )
+    wanted = parse_sparkline_symbols(symbols)
+    if not wanted:
+        raise ApiProblem(
+            422, TYPE_INVALID_PARAMETER, "No symbols", detail="symbols must name at least one"
+        )
+    if len(wanted) > SPARKLINE_MAX_SYMBOLS:
+        raise ApiProblem(
+            422,
+            TYPE_INVALID_PARAMETER,
+            "Too many symbols",
+            detail=f"symbols must not exceed {SPARKLINE_MAX_SYMBOLS}",
+        )
+    limits.apply_statement_timeout(session)
+    # `as_of` stays None for the same reason the price routes leave it
+    # None: when a bar was last verified against the source is a per-row
+    # question, and the envelope answers a per-response one.
+    return Resource[SparklineSet](data=read_sparklines(session, wanted, size), as_of=None)
 
 
 # --- bar gaps ---------------------------------------------------------------
