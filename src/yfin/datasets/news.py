@@ -7,13 +7,13 @@ from typing import Any
 from yfin.core import normalize as nz
 from yfin.core.config import get_settings
 from yfin.core.families import DataFamily
-from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
-from yfin.datasets.common import key_value, mark_known
+from yfin.datasets.base import Dataset, NormalizedResult, SyncContext, mark_known_in, plain_upsert
+from yfin.datasets.common import key_value
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import NewsPayload
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_yahoo, make_ticker
-from yfin.storage.contracts import RowWriter, TableWrite, WriteStats, apply_write
+from yfin.storage.contracts import RowWriter, TableWrite, WriteStats
 
 _NEWS_UPDATE = (
     "title",
@@ -219,15 +219,16 @@ class NewsDataset(Dataset[NewsPayload]):
         self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
     ) -> WriteStats:
         """`full_refresh` is accepted and ignored: this dataset has no gate."""
-        stats = WriteStats(skipped=dict(result.skipped))
-        for write in result.writes:
-            if write.table == "news_symbols" and write.rows:
-                # No FK on news_symbols.symbol: upstream sends symbols from
-                # outside the universe, and one transaction per symbol means
-                # an FK violation would roll back ALL of that symbol's data.
-                write = mark_known(writer, [write])[0]
-            apply_write(writer, write, stats)
-        return stats
+        # No FK on news_symbols.symbol: upstream sends symbols from outside
+        # the universe, and one transaction per symbol means an FK
+        # violation would roll back ALL of that symbol's data. The other
+        # table has no such column and must not be marked.
+        marked = mark_known_in(
+            writer,
+            result,
+            select=lambda write: write.table == "news_symbols" and bool(write.rows),
+        )
+        return plain_upsert(writer, marked)
 
 
 

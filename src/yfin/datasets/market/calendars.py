@@ -26,14 +26,14 @@ from yfin.core import normalize as nz
 from yfin.core.config import get_settings
 from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
-from yfin.datasets.base import NormalizedResult
-from yfin.datasets.common import key_value, mark_known
+from yfin.datasets.base import NormalizedResult, mark_known_in, plain_upsert
+from yfin.datasets.common import key_value
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.market.base import GlobalDataset, MarketContext
 from yfin.datasets.payloads import CalendarFramePayload
 from yfin.datasets.registry import register_market
 from yfin.ingest.client import call_yahoo
-from yfin.storage.contracts import RowWriter, TableWrite, WriteStats, apply_write
+from yfin.storage.contracts import RowWriter, TableWrite, WriteStats
 
 log = get_logger(__name__)
 
@@ -139,11 +139,10 @@ class CalendarDatasetBase(GlobalDataset[CalendarFramePayload]):
         self, writer: RowWriter, result: NormalizedResult, *, full_refresh: bool = False
     ) -> WriteStats:
         """`full_refresh` is accepted and ignored: this dataset has no gate."""
-        stats = WriteStats(skipped=dict(result.skipped))
-        writes = mark_known(writer, result.writes) if self.has_symbol else result.writes
-        for write in writes:
-            apply_write(writer, write, stats)
-        return stats
+        marked = mark_known_in(
+            writer, result, select=lambda write: self.has_symbol and bool(write.rows)
+        )
+        return plain_upsert(writer, marked)
 
 
 def _symbol_of(index: Any, *, dataset: str) -> str | None:

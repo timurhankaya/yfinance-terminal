@@ -127,6 +127,31 @@ birlikte commit'leyin.
   ekseni duruyor ve hâlâ ~6 base + ~25 dataset'lik kendi turunu hak
   ediyor.
 
+- **Madde 2 kapandı, ama önerilen biçimde değil — ölçüm başka şey
+  söyledi.** "4 politika × 3 eksen" çarpımı üçüncü turdan sonra zaten
+  kalmamıştı: `plain_upsert` tek fonksiyon, `SnapshotWrite` tek sınıf,
+  `AsOfGate` zaten iki ekseni paylaşan tek mixin, `HashGatedDataset` tek
+  eksen. Geriye üç tane tek satırlık delegasyon ve altı tane gerçekten
+  farklı davranış kalıyordu. `upsert`'ü bir `WritePolicy` protokolüne
+  çevirmek bu altısına dataset'e geri referans taşıyan politika nesneleri
+  yazdırırdı — üç satır delegasyonu silmek için ~25 dataset'lik bir
+  dokunuş ve bir dolaylılık katmanı. YAGNI: yapılmadı, ve nedeni burada
+  yazılı.
+
+  **Bunun yerine gerçekte duran tekrar bulundu ve silindi:**
+  `domain/base.py` `plain_upsert`'ün üçüncü kopyasını taşıyordu
+  (`news.py` ve `market/calendars.py` dördüncü ve beşincisini);
+  `funds.py` ile `domain/rankings.py` ise **birebir aynı beş satırı**
+  taşıyordu — bir alt kümeyi `mark_known`'dan geçirip `id()`'ye
+  anahtarlanmış bir sözlükle yerine koymak. `id()` yalnız arada hiçbir
+  şey `TableWrite` kopyalamadığı sürece doğru; bugün kopyalamıyor ama
+  bunu kimse taahhüt etmiyor. `base.mark_known_in` o yamayı bir kez ve
+  konumla yazıyor, ve beş dataset (`funds`, `domain/rankings`, `news`,
+  `market/calendars`, `market/status`) artık aynı biçimde okunuyor.
+  Yan kazanç: `news` her eşleşen write için ayrı bir `known_symbols`
+  sorgusu atıyordu, `mark_known`'ın "tek çağrı hepsini kapsar" sözüne
+  rağmen; artık tek çağrı.
+
 - **Madde 3 tamamen kapandı.** `options` / `option_chain` için tablo
   ailesi ve dataset yazıldı
   (`docs/superpowers/specs/2026-09-08-options-design.md`): iki tablo,
@@ -144,14 +169,7 @@ birlikte commit'leyin.
 
 ## Kalan işler (öncelik sırasıyla)
 
-### 1. Yazma politikası metot olduğu için kalıtımla çoğalıyor (yapısal kısım)
-Somut zarar dördüncü turda kapandı (yukarıya bakın). Geriye "upsert bir
-metot olduğu için politika kalıtım ekseninde çoğalıyor" duruyor:
-`WritePolicy` protokolü (`PlainUpsert`, `SnapshotPolicy`,
-`HashGatePolicy`, `AsOfPolicy`) + gated base sınıflarının silinmesi.
-**Büyük iş** — ~6 base dosyası + ~25 dataset. Kendi planını hak ediyor.
-
-### 2. Tam evren tek IP'ye sığmıyor
+### 1. Tam evren tek IP'ye sığmıyor
 5.888 sembolün tam senkronu tek IP'de ~33 saat sürüyor, yani gecelik
 cadence'e sığmıyor. Bu bir kod kusuru değil, bekleyen bir **proxy
 kararı**; kod tarafı (`yfin proxy`) hazır.
@@ -161,6 +179,12 @@ kararı**; kod tarafı (`yfin proxy`) hazır.
 - Advisory-lock "sarmalayıcısı 3 yerde tekrar" değil: üç runner'daki
   `if acquire_lock: with advisory_lock(...): return run(..., acquire_lock=False)`
   yeniden girişi üçer satır ve katlamanın her yolu daha uzun bir thunk istiyor.
+- **`upsert`'ü `WritePolicy` protokolüne çevirmeyin.** Dördüncü turda
+  ölçüldü: politika başına tek bir uygulama kaldı, çarpım yok. Protokol
+  altı bespoke `upsert`'e dataset'e geri referans taşıyan nesneler
+  yazdırır ve üç satır delegasyon uğruna ~25 dataset'e dokunur. Gerekçe
+  "Dördüncü turda tamamlananlar"da tam olarak yazılı.
+
 - `policy.clear_cache`, `Registry.unregister` ve `Registry.is_opt_in` "sadece
   testlerde kullanılıyor" diye silinemez: birincisi TTL cache'i süreç içinde
   sıfırlamanın tek yolu, ikincisi modül düzeyi singleton'a yapılan test
@@ -182,4 +206,4 @@ kararı**; kod tarafı (`yfin proxy`) hazır.
 
 ## Nasıl ilerleyelim
 
-İki madde kaldı: 1 bir refactor planı, 2 kod değil bir işletme kararı.
+Bir madde kaldı ve o da kod değil: proxy kararı.
