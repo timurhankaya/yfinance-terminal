@@ -122,7 +122,7 @@ function parseArgs(tokens: string[]): PanelArgs {
  *  `domain_metrics` is as-of and sorted newest first, so the first row
  *  seen for a key is that domain's latest -- which is right even when
  *  the sectors were not all fetched on the same day. */
-async function loadSectors(period: HeatPeriod): Promise<TreemapItem[]> {
+export async function loadSectors(period: HeatPeriod): Promise<TreemapItem[]> {
   const column = SECTOR_COLUMN[period];
   if (column === undefined) throw new Error(`${period} is not a sector window`);
   const [taxonomy, metrics] = await Promise.all([

@@ -60,6 +60,19 @@ function draw(panels: PanelSeed[], props: Partial<WorkspaceProps> = {}) {
 }
 
 describe("Workspace", () => {
+  it("offers a + on the tab bar, and it copies the panel it sits on", async () => {
+    registerList("LIST");
+    const onSplit = vi.fn<(command: Command) => void>();
+    const user = userEvent.setup();
+    draw([seed("p1", "LIST", "AAPL")], { onSplit });
+    await screen.findByText("AAPL row 0");
+    // The only thing on screen that says a page can hold two panels.
+    await user.click(screen.getByRole("button", { name: "Open a second panel" }));
+    // Through the shell, not into the dock: on a page that is an address
+    // this gesture is what moves the reader to a layout.
+    expect(onSplit).toHaveBeenCalledWith({ symbol: "AAPL", code: "LIST", args: {} });
+  });
+
   it("renders a panel's body from its params", async () => {
     registerList("LIST");
     draw([seed("p1", "LIST", "AAPL")]);

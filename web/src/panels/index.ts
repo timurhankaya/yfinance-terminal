@@ -13,7 +13,7 @@ import { GIP_PANEL } from "./GIP";
 import { GP_PANEL } from "./GP";
 import { HEAT_PANEL } from "./HEAT";
 import { HELP_PANEL } from "./HELP";
-import { HOME_PANEL } from "./HOME";
+import { HOME_PANEL } from "./home";
 import { N_PANEL } from "./N";
 import { PG_PANEL } from "../workspace/PG";
 import { PX_PANEL } from "./PX";

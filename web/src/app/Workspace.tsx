@@ -14,6 +14,7 @@ import { DockviewReact } from "dockview-react";
 import type {
   DockviewApi,
   DockviewReadyEvent,
+  IDockviewHeaderActionsProps,
   IDockviewPanelProps,
   SerializedDockview,
 } from "dockview-react";
@@ -52,6 +53,11 @@ const RunContext = createContext<(id: string, command: Command) => void>(() => u
  *  because it belongs to the page, not to any one panel: a letter's
  *  symbol is the same fact for every panel wearing it. */
 const GroupContext = createContext<GroupSymbols>({});
+
+/** What the tab bar's + does. In a context for the same reason the run
+ *  callback is: dockview renders the header actions in its own tree, and
+ *  this must not be serialised with a panel. */
+const SplitContext = createContext<(command: Command) => void>(() => undefined);
 
 function Body({ code, symbol, args, group }: PanelParams) {
   const groups = useContext(GroupContext);
@@ -96,6 +102,33 @@ function DockPanel(props: IDockviewPanelProps<PanelParams>) {
 
 const components = { [COMPONENT]: DockPanel };
 
+/** The one thing on screen that says a page can hold more than one panel.
+ *
+ *  It copies the panel it sits on -- same function, same symbol, beside
+ *  it, which is the split a terminal reader wants most (one chart, two
+ *  symbols) and needs no empty state to design. It goes through the
+ *  shell rather than adding a panel here: on a page that is an address,
+ *  splitting is what MOVES the reader to a layout, and only the shell
+ *  knows that. The title carries the keyboard way, so the button teaches
+ *  the shortcut. */
+function AddPanel(props: IDockviewHeaderActionsProps) {
+  const split = useContext(SplitContext);
+  const active = props.group.activePanel;
+  if (active === undefined) return null;
+  const params = active.params as PanelParams;
+  return (
+    <button
+      type="button"
+      className="dock-add"
+      title="Open a second panel beside this one (Ctrl+Enter)"
+      aria-label="Open a second panel"
+      onClick={() => split({ symbol: params.symbol, code: params.code, args: params.args })}
+    >
+      +
+    </button>
+  );
+}
+
 /** `AAPL GIP`, `A · AAPL GIP` once it follows a letter, or just `HEAT`
  *  for a page that is not about one symbol. */
 export function title(params: PanelParams, groups: GroupSymbols = {}): string {
@@ -131,10 +164,12 @@ export interface WorkspaceProps {
    *  for declaratively: where the panels are on screen, which is what
    *  "the panel to the left" means. */
   onApi?: (api: DockviewApi) => void;
+  /** The tab bar's + was pressed on a panel showing this command. */
+  onSplit?: (command: Command) => void;
 }
 
 export function Workspace(props: WorkspaceProps) {
-  const { panels, onRun, onActive, groups = {}, initial, onLayout, onLayoutError } = props;
+  const { panels, onRun, onActive, groups = {}, initial, onLayout, onLayoutError, onSplit } = props;
   const apiRef = useRef<DockviewApi | null>(null);
   const seedRef = useRef(panels);
   seedRef.current = panels;
@@ -222,12 +257,23 @@ export function Workspace(props: WorkspaceProps) {
   }, [panels, groups]);
 
   const run = useCallback((id: string, command: Command) => runRef.current(id, command), []);
+  const splitRef = useRef(onSplit);
+  splitRef.current = onSplit;
+  const split = useCallback((command: Command) => splitRef.current?.(command), []);
 
   return (
     <GroupContext.Provider value={groups}>
-      <RunContext.Provider value={run}>
-        <DockviewReact className="dock" components={components} onReady={onReady} disableFloatingGroups />
-      </RunContext.Provider>
+      <SplitContext.Provider value={split}>
+        <RunContext.Provider value={run}>
+        <DockviewReact
+          className="dock"
+          components={components}
+          onReady={onReady}
+          rightHeaderActionsComponent={AddPanel}
+          disableFloatingGroups
+        />
+        </RunContext.Provider>
+      </SplitContext.Provider>
     </GroupContext.Provider>
   );
 }

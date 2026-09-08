@@ -396,6 +396,10 @@ export function Shell() {
     [command],
   );
   const dockPanels = saved ? pagePanels : urlPanels;
+  //: One panel on screen: the reader has not met the dock yet, so the
+  //: command box says how. `activeId` is dockview's, so this follows the
+  //: page as it is, not as it was seeded.
+  const alone = page.panels.length <= 1;
 
   /** What the shell's own controls are about.
    *
@@ -743,6 +747,14 @@ export function Shell() {
           </div>
         </div>
         {warning && <p className="warn">{warning}</p>}
+        {alone && (
+          // Said once, where the reader is typing, and only while there
+          // is one panel: after that the page has shown them.
+          <p className="muted hint">
+            <code className="usage">Ctrl+Enter</code> opens a second panel beside this one ·{" "}
+            <code className="usage">PG SAVE</code> keeps the layout under a name
+          </p>
+        )}
         {offer !== null && (
           <p className="warn">
             This link carries a page. Enter to replace the working page — anything else leaves it
@@ -792,6 +804,7 @@ export function Shell() {
           onLayout={saved ? onLayout : undefined}
           onLayoutError={onLayoutError}
           onApi={(api) => (apiRef.current = api)}
+          onSplit={(command) => runHere(command, true)}
         />
       </main>
       <footer className="credits" aria-label="credits">

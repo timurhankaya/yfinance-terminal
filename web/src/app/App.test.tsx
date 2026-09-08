@@ -382,6 +382,30 @@ describe("AppRoutes", () => {
     expect(document.documentElement.dataset.accent).toBe("violet");
   });
 
+  it("says how to open a second panel while there is only one, and stops once there are two", async () => {
+    mockFetch(() => json(404, { detail: "not here" }));
+    registerPanel({
+      code: "AAA",
+      title: "AAA",
+      needsSymbol: false,
+      layout: Layout.Single,
+      parseArgs: () => ({}),
+      component: () => <p>panel AAA</p>,
+    });
+    const user = userEvent.setup();
+    mount("/ui/w/-");
+    const box = await screen.findByLabelText("command");
+    expect(screen.getByText(/opens a second panel beside this one/)).toBeInTheDocument();
+
+    await user.click(box);
+    await user.keyboard("AAA{Control>}{Enter}{/Control}");
+    await screen.findByText("panel AAA");
+    // The page has shown them; the line has nothing left to say.
+    await waitFor(() =>
+      expect(screen.queryByText(/opens a second panel beside this one/)).not.toBeInTheDocument(),
+    );
+  });
+
   it("focuses the command box on '/' when it is not already focused", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));

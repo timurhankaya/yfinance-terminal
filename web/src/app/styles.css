@@ -223,3 +223,24 @@ dl.des dd { margin: 0; word-break: break-word; }
 .control-number, .control-text, .control-date { background: transparent; border: 1px solid var(--line); color: var(--fg); font: inherit; font-size: 12px; padding: 2px 6px; }
 .control-number { width: 6em; text-align: right; font-variant-numeric: tabular-nums; }
 .control-text { width: 14em; }
+
+/* The home page: a dense grid, because a terminal's first screen should
+   be full of the archive rather than of instructions. Three columns
+   where there is room, one in a dock panel. */
+.home-grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 800px) { .home-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1200px) { .home-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.home-block { border: 1px solid var(--line); padding: 8px 10px; min-width: 0; overflow: hidden; }
+.home-block-wide { grid-column: 1 / -1; }
+.home-title { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); display: flex; gap: 8px; align-items: baseline; }
+.home-note { color: var(--muted); text-transform: none; letter-spacing: 0; }
+.home-news .home-when, .home-block .home-when { font-variant-numeric: tabular-nums; }
+.home-movers { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.home-guide .list-row { white-space: normal; }
+/* The + on a group's tab bar: the one affordance that says a page can
+   hold more than one panel. */
+.dock-add { background: none; border: 0; color: var(--muted); font: inherit; font-size: 15px; line-height: 1; padding: 0 8px; cursor: pointer; }
+.dock-add:hover { color: var(--accent); }
+.dock-add:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+/* The hint under the command box, while a page still has one panel. */
+.hint { margin: 2px 0 0; font-size: 11px; }
