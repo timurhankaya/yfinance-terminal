@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { WireType, type CatalogColumn, type Row } from "../api/client";
-import { DataTable, useListKeys, type Column } from "./common";
+import { DataTable, useListKeys, useSortedRows, type Column } from "./common";
 import { LOCALE, asNumber, formatBig, isHttpUrl } from "./format";
 import type { LinkRule } from "./links";
 
@@ -191,7 +191,11 @@ export interface DatasetTableProps {
 /** A dataset as a grid with j/k/Enter and click opening the row detail. */
 export function DatasetTable(props: DatasetTableProps): ReactElement {
   const { columns, rows: given, hide = [], reverse = false, truncated = false, links = [], onLoadMore, loadingMore = false, extra = [] } = props;
-  const rows = reverse ? [...given].reverse() : given;
+  const ordered = reverse ? [...given].reverse() : given;
+  // The sort sits here rather than inside the table, because this is
+  // where j/k and the row detail count from: the keyboard has to walk
+  // the order the reader is looking at.
+  const { rows, sort, toggle: sortBy } = useSortedRows(ordered);
   const [open, setOpen] = useState<number | null>(null);
   const toggle = (index: number) => setOpen((current) => (current === index ? null : index));
   const [selected, setSelected] = useListKeys(rows.length, toggle);
@@ -238,6 +242,8 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
           <DataTable
             columns={gridColumns}
             rows={rows}
+            sort={sort}
+            onSort={sortBy}
             rowKey={(_row, index) => String(index)}
             selected={selected}
             onSelect={(index) => {

@@ -39,7 +39,7 @@ import type {
 } from "lightweight-charts";
 import { MarkerKind } from "./chart-data";
 import { LOCALE } from "./format";
-import { vizTheme } from "./viz";
+import { useVizTheme, vizTheme } from "./viz";
 import type { ActionMarker, Candle, LinePoint, VolumeBar, Whitespace } from "./chart-data";
 
 export interface ChartProps {
@@ -66,6 +66,7 @@ function stamp<T extends { time: number }>(rows: T[]): Array<T & { time: UTCTime
 }
 
 export function Chart(props: ChartProps): ReactElement {
+  const theme = useVizTheme();
   const { candles, volume, markers, whitespace, band, timeVisible, label } = props;
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -162,12 +163,25 @@ export function Chart(props: ChartProps): ReactElement {
       markers.map((marker) => ({
         time: marker.time as UTCTimestamp,
         position: "belowBar" as const,
-        color: vizTheme().accent,
+        color: theme.accent,
         shape: MARKER_SHAPE[marker.kind],
         text: marker.text,
       })),
     );
-  }, [markers]);
+  }, [markers, theme]);
+
+  // The reader can change the accent while a chart is on screen. What is
+  // painted on a canvas does not follow a stylesheet, so it is re-applied
+  // here rather than waiting for the next symbol.
+  useEffect(() => {
+    chart.current?.applyOptions({
+      layout: { background: { color: theme.bg }, textColor: theme.fg },
+      grid: { vertLines: { color: theme.line }, horzLines: { color: theme.line } },
+      rightPriceScale: { borderColor: theme.line },
+      timeScale: { borderColor: theme.line },
+      crosshair: { vertLine: { color: theme.accent }, horzLine: { color: theme.accent } },
+    });
+  }, [theme]);
 
   return <div className="chart" ref={host} role="img" aria-label={label} />;
 }

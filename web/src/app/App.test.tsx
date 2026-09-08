@@ -365,6 +365,23 @@ describe("AppRoutes", () => {
     expect(await screen.findByText(/carries its own symbols/)).toBeInTheDocument();
   });
 
+  it("lets the reader pick the accent, and remembers which", async () => {
+    mockFetch(() => json(404, { detail: "not here" }));
+    const user = userEvent.setup();
+    const first = mount("/ui");
+    await user.click(await screen.findByRole("button", { name: "violet" }));
+    expect(document.documentElement.dataset.accent).toBe("violet");
+    expect(await screen.findByRole("button", { name: "violet" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // The choice is the reader's, not the tab's.
+    first.unmount();
+    mount("/ui");
+    expect(document.documentElement.dataset.accent).toBe("violet");
+  });
+
   it("focuses the command box on '/' when it is not already focused", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));

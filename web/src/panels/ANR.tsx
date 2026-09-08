@@ -1,7 +1,15 @@
 import type { ReactNode } from "react";
 import { getDataset } from "../api/client";
 import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
-import { DataTable, EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData, type Column } from "./common";
+import {
+  EmptyCard,
+  ErrorCard,
+  LoadState,
+  MissingCard,
+  SortedTable,
+  usePanelData,
+  type Column,
+} from "./common";
 import { asNumber, formatPrice, text } from "./format";
 import { Bars, Bullet, type BarSeries } from "./viz";
 
@@ -197,7 +205,7 @@ function SectionView(props: {
       ) : (
         <>
           {chart}
-          <DataTable columns={columns} rows={pick(section.rows)} rowKey={rowKey} />
+          <SortedTable columns={columns} rows={pick(section.rows)} rowKey={rowKey} />
         </>
       )}
     </section>

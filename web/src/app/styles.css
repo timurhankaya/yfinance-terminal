@@ -1,4 +1,11 @@
 :root { color-scheme: dark; --bg: #0b0e11; --fg: #d7dde3; --muted: #7f8a96; --line: #1f262e; --accent: #f2b544; }
+/* Emphasis, and the one colour the reader picks. Amber is what the
+   terminal has always opened with; the other two are for people who read
+   it beside something else all day. Each is checked against `--bg` for
+   contrast and against `--up`/`--down` so emphasis never reads as a
+   direction. */
+:root[data-accent="blue"] { --accent: #4da3ff; }
+:root[data-accent="violet"] { --accent: #b18cf0; }
 /* Direction. The one place a rise and a fall are given a colour: the
    tables, the strip and every SVG primitive read these, so a change
    here moves all of them together. */
@@ -47,7 +54,11 @@ dl.des dt { color: var(--muted); }
 .grid { width: 100%; border-collapse: collapse; }
 .grid th { text-align: left; color: var(--muted); font-weight: 400; border-bottom: 1px solid var(--line); padding: 4px 8px; }
 .grid td { padding: 4px 8px; border-bottom: 1px solid var(--line); }
-.grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* A heading sits over its own column. The alignment was on `td` alone,
+   so a right-aligned number hung under the NEXT column's left-aligned
+   label and the table read as though it were offset by one. */
+.grid th.num, .grid td.num { text-align: right; }
+.grid td.num { font-variant-numeric: tabular-nums; }
 .row-selected { background: var(--line); }
 .tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
 .tab { padding: 4px 10px; color: var(--muted); cursor: pointer; background: none; border: 0; font: inherit; }
@@ -177,3 +188,23 @@ dl.des dd { margin: 0; word-break: break-word; }
 .group-e { border-left-color: var(--group-e); }
 .group-f { border-left-color: var(--group-f); }
 .group-g { border-left-color: var(--group-g); }
+
+/* The accent picker, at the right of the command line. Small, quiet, and
+   the same shape as the function bar's buttons. */
+.accent { display: flex; gap: 4px; margin-left: auto; align-items: center; }
+.accent-swatch { width: 14px; height: 14px; padding: 0; border: 1px solid var(--line); background: none; cursor: pointer; border-radius: 2px; }
+.accent-swatch[aria-pressed="true"] { border-color: var(--fg); }
+.accent-swatch:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.accent-amber { background: #f2b544; }
+.accent-blue { background: #4da3ff; }
+.accent-violet { background: #b18cf0; }
+.command-row { display: flex; align-items: center; gap: 10px; }
+.command-row input { flex: 1; }
+
+/* A sortable heading is still a heading: the button carries no chrome,
+   only the arrow that says which way the column is pointed. */
+.th-sort { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; display: inline-flex; gap: 4px; align-items: baseline; }
+.th-sort:hover { color: var(--fg); }
+.th-sort:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.grid th.num .th-sort { flex-direction: row-reverse; }
+.th-arrow { font-size: 9px; color: var(--accent); }

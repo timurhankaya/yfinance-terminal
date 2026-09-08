@@ -42,6 +42,8 @@ import type { DockviewApi, SerializedDockview } from "dockview-react";
 import { Direction, pickNeighbour } from "../workspace/neighbour";
 import type { Box } from "../workspace/neighbour";
 import { useGlobalKeys } from "./keys";
+import { ACCENTS, applyAccent, readAccent } from "./accent";
+import type { Accent } from "./accent";
 
 /** The symbol a market page inherits, carried in the history entry.
  *
@@ -189,6 +191,14 @@ export function Shell() {
   //: The dock itself, for the one question that is about pixels: which
   //: panel is to the left of this one.
   const apiRef = useRef<DockviewApi | null>(null);
+  const [accent, setAccent] = useState<Accent>(() => readAccent());
+
+  // The document carries the choice; the dock is rebuilt so that what is
+  // drawn on a canvas -- a chart's own line -- is redrawn in it, rather
+  // than staying the old colour until the panel happens to update.
+  useEffect(() => {
+    applyAccent(accent);
+  }, [accent]);
   /** A page that arrived in a link and is waiting to be let in, because
    *  the working page already has something on it. */
   const [offer, setOffer] = useState<Page | null>(null);
@@ -659,14 +669,29 @@ export function Shell() {
   return (
     <div className="shell">
       <header className="command-bar">
-        <input
-          ref={inputRef}
-          aria-label="command"
-          placeholder="Symbol, function, args… Enter to run"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-        />
+        <div className="command-row">
+          <input
+            ref={inputRef}
+            aria-label="command"
+            placeholder="Symbol, function, args… Enter to run"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={onKeyDown}
+          />
+          <div className="accent" role="group" aria-label="accent colour">
+            {ACCENTS.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                className={`accent-swatch accent-${choice}`}
+                aria-label={choice}
+                aria-pressed={choice === accent}
+                title={`Accent: ${choice}`}
+                onClick={() => setAccent(choice)}
+              />
+            ))}
+          </div>
+        </div>
         {warning && <p className="warn">{warning}</p>}
         {offer !== null && (
           <p className="warn">

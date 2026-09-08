@@ -4,7 +4,8 @@
 // An optional reference line is what turns a cloud into a statement --
 // "above this line the market pays more for the same growth".
 import type { ReactElement } from "react";
-import { vizTheme } from "./colors";
+
+import { useVizTheme } from "./useVizTheme";
 import { extent, linearScale, niceTicks } from "./scale";
 
 export interface ScatterPoint {
@@ -46,7 +47,7 @@ const PLOT = {
 
 export function Scatter(props: ScatterProps): ReactElement | null {
   const { points, label, xLabel, yLabel, reference, format } = props;
-  const theme = vizTheme();
+  const theme = useVizTheme();
   const usable = points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
   const xSpan = extent(usable.map((p) => p.x));
   const ySpan = extent(usable.map((p) => p.y));

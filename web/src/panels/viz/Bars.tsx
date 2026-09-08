@@ -6,7 +6,8 @@
 // bar draws a loss as a short rise. `lightweight-charts` is not this: it
 // draws time, and a fiscal quarter is a category rather than an instant.
 import type { ReactElement } from "react";
-import { seriesColors, vizTheme } from "./colors";
+import { seriesColors } from "./colors";
+import { useVizTheme } from "./useVizTheme";
 import { extent, linearScale, niceTicks } from "./scale";
 
 export interface BarSeries {
@@ -59,7 +60,7 @@ function finite(values: ReadonlyArray<number | null>): number[] {
 
 export function Bars(props: BarsProps): ReactElement | null {
   const { categories, series, line, marks = NO_MARKS, label, format } = props;
-  const theme = vizTheme();
+  const theme = useVizTheme();
   const all = series.flatMap((s) => finite(s.values));
   const span = extent([...all, 0]);
   if (span === null || categories.length === 0) return null;

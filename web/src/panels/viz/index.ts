@@ -34,3 +34,4 @@ export {
 export type { VizTheme } from "./colors";
 export { extent, linearScale, niceTicks, normalize100 } from "./scale";
 export type { Extent } from "./scale";
+export { useVizTheme } from "./useVizTheme";

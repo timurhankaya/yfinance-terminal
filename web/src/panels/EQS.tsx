@@ -25,6 +25,7 @@ import {
   LoadState,
   MissingCard,
   useListKeys,
+  useSortedRows,
   usePanelData,
   type Column,
 } from "./common";
@@ -221,7 +222,7 @@ function Roster({ name, symbol }: { name: string; symbol: string | null }) {
     () => getScreen(name, offset),
   );
   const detail = state.kind === LoadState.Ready ? state.data : null;
-  const rows = detail?.rows ?? EMPTY_ROWS;
+  const { rows, sort, toggle: sortBy } = useSortedRows(detail?.rows ?? EMPTY_ROWS);
 
   const open = (index: number) => {
     const row = rows[index];
@@ -307,6 +308,8 @@ function Roster({ name, symbol }: { name: string; symbol: string | null }) {
           <DataTable
             columns={columns}
             rows={rows}
+            sort={sort}
+            onSort={sortBy}
             rowKey={(row) => row.symbol}
             selected={selected}
             onSelect={(index) => {

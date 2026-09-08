@@ -97,9 +97,22 @@ export function vizTheme(): VizTheme {
   return cached;
 }
 
-/** Tests only: forget what was read, so the next call reads again. */
+//: Everything that draws with these colours needs to know when they
+//: change -- the reader can pick the accent, and a chart that kept the
+//: old one would be the only thing on screen still wearing it.
+const listeners = new Set<() => void>();
+
+/** Watch for the palette changing. Returns the unsubscribe. */
+export function subscribeVizTheme(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** Forget what was read, so the next call reads again, and tell everyone
+ *  drawing with it. Called when the accent changes, and by tests. */
 export function resetVizTheme(): void {
   cached = null;
+  for (const listener of listeners) listener();
 }
 
 export function groupColor(group: Group): string {

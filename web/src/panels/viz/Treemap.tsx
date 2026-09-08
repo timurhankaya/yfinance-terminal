@@ -11,7 +11,8 @@
 // the accessibility tree, and the boxes -- the whole content -- would
 // stop existing for a screen reader.
 import type { ReactElement } from "react";
-import { divergingHeat, vizTheme } from "./colors";
+import { divergingHeat } from "./colors";
+import { useVizTheme } from "./useVizTheme";
 
 export interface TreemapItem {
   key: string;
@@ -180,7 +181,7 @@ export interface TreemapProps {
 
 export function Treemap(props: TreemapProps): ReactElement | null {
   const { items, label, span, onOpen, format } = props;
-  const theme = vizTheme();
+  const theme = useVizTheme();
   const boxes = squarify(capCells(items), WIDTH, HEIGHT);
   if (boxes.length === 0) return null;
 

@@ -4,7 +4,8 @@
 // of a table make the reader do the arithmetic of "where is the price in
 // that range" themselves. That distance is the whole question.
 import type { ReactElement } from "react";
-import { vizTheme } from "./colors";
+
+import { useVizTheme } from "./useVizTheme";
 import { linearScale } from "./scale";
 
 export interface BulletProps {
@@ -25,7 +26,7 @@ const TRACK = { y: 18, height: 12 };
 
 export function Bullet(props: BulletProps): ReactElement | null {
   const { low, high, mean, actual, label, format } = props;
-  const theme = vizTheme();
+  const theme = useVizTheme();
   if (!Number.isFinite(low) || !Number.isFinite(high) || high < low) return null;
 
   const x = linearScale({ min: low, max: high }, { min: PAD, max: WIDTH - PAD });

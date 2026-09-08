@@ -2,7 +2,16 @@ import { useMemo } from "react";
 import { getFinancials, type FinancialFact } from "../api/client";
 import { usePanelRun } from "../workspace/frame";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
-import { DataTable, EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData, type Column } from "./common";
+import {
+  DataTable,
+  EmptyCard,
+  ErrorCard,
+  LoadState,
+  MissingCard,
+  usePanelData,
+  useSortedRows,
+  type Column,
+} from "./common";
 import { asNumber, formatBig } from "./format";
 import { Bars } from "./viz";
 
@@ -239,10 +248,26 @@ export function FA({ symbol, args }: PanelProps) {
               format={cell}
             />
           )}
-          <DataTable columns={columns} rows={table.rows} rowKey={(row) => row.item} />
+          <StatementTable columns={columns} rows={table.rows} />
         </>
       )}
     </section>
+  );
+}
+
+/** The statement, in whatever order the reader clicked a period into.
+ *  A hook cannot live inside the conditional above, so the table is its
+ *  own component. */
+function StatementTable({ columns, rows }: { columns: Column<PivotRow>[]; rows: PivotRow[] }) {
+  const { rows: ordered, sort, toggle } = useSortedRows(rows);
+  return (
+    <DataTable
+      columns={columns}
+      rows={ordered}
+      rowKey={(row) => row.item}
+      sort={sort}
+      onSort={toggle}
+    />
   );
 }
 

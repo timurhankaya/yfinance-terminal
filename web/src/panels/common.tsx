@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { ApiError } from "../api/client";
+import { LOCALE } from "./format";
 import { usePanelFocus } from "../workspace/frame";
 
 /** Where a panel's one load has got to. */
@@ -183,6 +184,82 @@ export interface Column<Row> {
   label: string;
   align?: "left" | "right";
   format?: (row: Row) => ReactNode;
+  /** Off for a column with no value to compare -- a sparkline is a
+   *  shape, not a number. Defaults to on. */
+  sortable?: boolean;
+}
+
+export enum SortDirection {
+  Asc = "asc",
+  Desc = "desc",
+}
+
+export interface Sort {
+  key: string;
+  direction: SortDirection;
+}
+
+//: What a cell is worth, for ordering. The archive sends decimals as
+//: strings, so "9" must not sort after "10"; a date must order by time
+//: rather than by its first character; and anything left is compared as
+//: text in the terminal's own fixed locale.
+type Ranked = { number: number } | { text: string };
+
+function rank(value: unknown): Ranked | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "boolean") return { number: value ? 1 : 0 };
+  if (typeof value === "number") return Number.isFinite(value) ? { number: value } : null;
+  if (typeof value !== "string") return { text: String(value) };
+  const numeric = Number(value);
+  if (value.trim() !== "" && Number.isFinite(numeric)) return { number: numeric };
+  const time = Date.parse(value);
+  if (!Number.isNaN(time) && /\d{4}-\d{2}-\d{2}/.test(value)) return { number: time };
+  return { text: value };
+}
+
+function compare(left: Ranked, right: Ranked): number {
+  if ("number" in left && "number" in right) return left.number - right.number;
+  const text = "text" in left ? left.text : String(left.number);
+  const other = "text" in right ? right.text : String(right.number);
+  return text.localeCompare(other, LOCALE);
+}
+
+/** Rows in the order the reader asked for, and the control that asks.
+ *
+ *  The sort lives with whoever holds the rows rather than inside the
+ *  table, because that is also whoever owns j/k: sorting inside the
+ *  table would leave the keyboard walking the old order under the new
+ *  one. */
+export function useSortedRows<Row extends Record<string, unknown>>(
+  rows: Row[],
+): { rows: Row[]; sort: Sort | null; toggle: (key: string) => void } {
+  const [sort, setSort] = useState<Sort | null>(null);
+
+  const toggle = useCallback((key: string) => {
+    setSort((current) => {
+      if (current === null || current.key !== key) return { key, direction: SortDirection.Asc };
+      if (current.direction === SortDirection.Asc) return { key, direction: SortDirection.Desc };
+      // Third press puts the table back the way the panel sent it --
+      // which for most of them is the order the archive is keyed in.
+      return null;
+    });
+  }, []);
+
+  const sorted = useMemo(() => {
+    if (sort === null) return rows;
+    const sign = sort.direction === SortDirection.Asc ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const left = rank(a[sort.key]);
+      const right = rank(b[sort.key]);
+      // An empty cell sorts last whichever way the column is pointed: an
+      // absence is not the smallest number, so the direction does not
+      // apply to it.
+      if (left === null || right === null) return (left === null ? 1 : 0) - (right === null ? 1 : 0);
+      return sign * compare(left, right);
+    });
+  }, [rows, sort]);
+
+  return { rows: sorted, sort, toggle };
 }
 
 export function DataTable<Row extends Record<string, unknown>>(props: {
@@ -191,17 +268,49 @@ export function DataTable<Row extends Record<string, unknown>>(props: {
   rowKey: (row: Row, index: number) => string;
   selected?: number;
   onSelect?: (index: number) => void;
+  /** The column the rows are ordered by, and the way to change it.
+   *  Both absent leaves the headings as plain text. */
+  sort?: Sort | null;
+  onSort?: (key: string) => void;
 }): ReactElement {
-  const { columns, rows, rowKey, selected, onSelect } = props;
+  const { columns, rows, rowKey, selected, onSelect, sort, onSort } = props;
   return (
     <table className="grid">
       <thead>
         <tr>
-          {columns.map((column) => (
-            <th key={column.key} className={column.align === "right" ? "num" : undefined}>
-              {column.label}
-            </th>
-          ))}
+          {columns.map((column) => {
+            const sortable = onSort !== undefined && column.sortable !== false;
+            const active = sort?.key === column.key ? sort.direction : null;
+            return (
+              <th
+                key={column.key}
+                className={column.align === "right" ? "num" : undefined}
+                aria-sort={
+                  active === null
+                    ? undefined
+                    : active === SortDirection.Asc
+                      ? "ascending"
+                      : "descending"
+                }
+              >
+                {sortable ? (
+                  <button
+                    type="button"
+                    className="th-sort"
+                    onClick={() => onSort(column.key)}
+                    title={`Sort by ${column.label}`}
+                  >
+                    {column.label}
+                    <span aria-hidden="true" className="th-arrow">
+                      {active === SortDirection.Asc ? "▲" : active === SortDirection.Desc ? "▼" : ""}
+                    </span>
+                  </button>
+                ) : (
+                  column.label
+                )}
+              </th>
+            );
+          })}
         </tr>
       </thead>
       <tbody>
@@ -225,6 +334,22 @@ export function DataTable<Row extends Record<string, unknown>>(props: {
         ))}
       </tbody>
     </table>
+  );
+}
+
+/** A `DataTable` that sorts itself.
+ *
+ *  For the tables nobody walks with j/k -- an analyst section, a
+ *  statement -- where there is no selection for the order to disagree
+ *  with, so the hook can live inside the table after all. */
+export function SortedTable<Row extends Record<string, unknown>>(props: {
+  columns: Column<Row>[];
+  rows: Row[];
+  rowKey: (row: Row, index: number) => string;
+}): ReactElement {
+  const { rows, sort, toggle } = useSortedRows(props.rows);
+  return (
+    <DataTable columns={props.columns} rows={rows} rowKey={props.rowKey} sort={sort} onSort={toggle} />
   );
 }
 
