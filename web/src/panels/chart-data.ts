@@ -13,6 +13,11 @@
 import type { Row } from "../api/client";
 import { MarketHours } from "../live/types";
 import type { Tick } from "../live/types";
+// The modules, not the barrel: this file has no components in it and
+// must not pull five of them into every panel that imports a
+// transform.
+import { vizTheme } from "./viz/colors";
+import { normalize100 } from "./viz/scale";
 
 export interface Candle {
   time: number;
@@ -47,9 +52,6 @@ export interface ActionMarker {
   kind: MarkerKind;
   text: string;
 }
-
-export const UP_COLOR = "#4cc38a";
-export const DOWN_COLOR = "#ff6b6b";
 
 function seconds(value: unknown): number | null {
   if (typeof value !== "string") return null;
@@ -99,6 +101,10 @@ export function toVolume(candles: Candle[], rows: Row[]): VolumeBar[] {
     if (time === null || value === null) continue;
     volumes.set(time, value);
   }
+  // The stylesheet's `--up`/`--down`, like every other colour in the
+  // terminal: a volume bar is the same rise as the candle above it, and
+  // a hex here would be a second definition of one.
+  const { up, down } = vizTheme();
   const bars: VolumeBar[] = [];
   for (const candle of candles) {
     const value = volumes.get(candle.time);
@@ -106,7 +112,7 @@ export function toVolume(candles: Candle[], rows: Row[]): VolumeBar[] {
     bars.push({
       time: candle.time,
       value,
-      color: candle.close >= candle.open ? UP_COLOR : DOWN_COLOR,
+      color: candle.close >= candle.open ? up : down,
     });
   }
   return bars;
@@ -300,4 +306,62 @@ export function applyTick(
   }
   if (time < last.time) return null;
   return extend(last);
+}
+
+
+// --- the comparison ---------------------------------------------------------
+
+export interface LinePoint {
+  time: number;
+  value: number;
+}
+
+export interface ComparisonSeries {
+  symbol: string;
+  points: LinePoint[];
+  /** The close every point is a percentage of, and the session it was
+   *  taken from. Each series is normalised to ITS OWN first session, so
+   *  a symbol whose archive starts later still begins at 100 -- and the
+   *  panel says which date that was, because otherwise two lines
+   *  starting together would imply they started on the same day. */
+  base: number;
+  baseTime: number;
+  /** The whole window's move, in percent: the last point minus 100. */
+  changePercent: number;
+}
+
+/** One symbol's daily closes as a series indexed to 100 at its first.
+ *
+ *  Null below two closes: one point is not a shape, and a series drawn
+ *  as a single dot at 100 would say a symbol went nowhere when what
+ *  happened is that the archive has one session of it.
+ *
+ *  Duplicate instants keep the LAST row, as `toCandles` does and for the
+ *  same reason: the library refuses times that are not strictly
+ *  increasing, and a duplicate is what a page overlap looks like. */
+export function toComparison(symbol: string, rows: Row[]): ComparisonSeries | null {
+  const byTime = new Map<number, number>();
+  for (const row of rows) {
+    const time = seconds(row.ts_utc);
+    const close = num(row.close);
+    if (time === null || close === null) continue;
+    byTime.set(time, close);
+  }
+  const times = [...byTime.keys()].sort((a, b) => a - b);
+  if (times.length < 2) return null;
+  const closes = times.map((time) => byTime.get(time) ?? 0);
+  const base = closes[0] ?? 0;
+  // A first close of zero has no ratio to take. `normalize100` throws on
+  // it rather than returning Infinity, so the series is refused here
+  // instead and the panel lists the symbol as having no usable bars.
+  if (base === 0) return null;
+  const indexed = normalize100(closes);
+  const last = indexed[indexed.length - 1] ?? 100;
+  return {
+    symbol,
+    points: times.map((time, i) => ({ time, value: indexed[i] ?? 100 })),
+    base,
+    baseTime: times[0] ?? 0,
+    changePercent: last - 100,
+  };
 }

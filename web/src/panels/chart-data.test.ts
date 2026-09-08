@@ -7,6 +7,7 @@ import {
   bucketOf,
   gapBands,
   toCandles,
+  toComparison,
   toMarkers,
   toVolume,
 } from "./chart-data";
@@ -251,5 +252,69 @@ describe("applyTick, daily", () => {
 
   it("has nothing to extend on an empty chart", () => {
     expect(applyTick(undefined, tick(), 86_400, BucketMode.Session)).toBeNull();
+  });
+});
+
+
+describe("toComparison", () => {
+  const row = (date: string, close: string | null) => ({
+    symbol: "AAPL",
+    ts_utc: date,
+    open: close,
+    high: close,
+    low: close,
+    close,
+    volume: 1,
+  });
+
+  it("indexes every close to 100 at the first session", () => {
+    const series = toComparison("AAPL", [
+      row("2026-09-01T00:00:00Z", "50"),
+      row("2026-09-02T00:00:00Z", "55"),
+      row("2026-09-03T00:00:00Z", "45"),
+    ]);
+    expect(series?.points.map((p) => p.value)).toEqual([100, 110, 90]);
+    expect(series?.base).toBe(50);
+    expect(series?.changePercent).toBe(-10);
+  });
+
+  it("sorts by instant, so a page that arrived out of order still rises", () => {
+    const series = toComparison("AAPL", [
+      row("2026-09-03T00:00:00Z", "60"),
+      row("2026-09-01T00:00:00Z", "50"),
+    ]);
+    expect(series?.points.map((p) => p.value)).toEqual([100, 120]);
+  });
+
+  it("keeps the last of two rows at one instant", () => {
+    // What a page overlap looks like when two cursors meet; the library
+    // refuses times that are not strictly increasing.
+    const series = toComparison("AAPL", [
+      row("2026-09-01T00:00:00Z", "50"),
+      row("2026-09-02T00:00:00Z", "55"),
+      row("2026-09-02T00:00:00Z", "56"),
+    ]);
+    expect(series?.points).toHaveLength(2);
+    expect(series?.points[1]?.value).toBe(112);
+  });
+
+  it("is null below two sessions: one point is not a shape", () => {
+    expect(toComparison("AAPL", [row("2026-09-01T00:00:00Z", "50")])).toBeNull();
+    expect(toComparison("AAPL", [])).toBeNull();
+  });
+
+  it("is null when the first close is zero rather than dividing by it", () => {
+    expect(
+      toComparison("AAPL", [row("2026-09-01T00:00:00Z", "0"), row("2026-09-02T00:00:00Z", "5")]),
+    ).toBeNull();
+  });
+
+  it("skips a row with no close", () => {
+    const series = toComparison("AAPL", [
+      row("2026-09-01T00:00:00Z", "50"),
+      row("2026-09-02T00:00:00Z", null),
+      row("2026-09-03T00:00:00Z", "60"),
+    ]);
+    expect(series?.points).toHaveLength(2);
   });
 });

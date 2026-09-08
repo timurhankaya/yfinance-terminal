@@ -29,6 +29,7 @@ import {
   type Column,
 } from "./common";
 import { DatasetView, SymbolMode } from "./dataset";
+import { SparkCell, sparkLabel, useSparklines } from "./spark";
 import { formatDateTime, formatDecimal, formatInteger } from "./table";
 
 /** A screen's sub-pages. `Members` is the roster; `Runs` is the same
@@ -229,6 +230,10 @@ function Roster({ name, symbol }: { name: string; symbol: string | null }) {
     if (row) go({ symbol: row.symbol, code: "DES", args: {} });
   };
   const [selected, setSelected] = useListKeys(rows.length, open);
+  // One request for the page of the roster on screen. A roster can hold
+  // a thousand members; only the 250 of this page are asked for, and the
+  // hook cuts at the route's cap above that.
+  const spark = useSparklines(rows.map((row) => row.symbol));
 
   const columns = useMemo<Column<ScreenRow>[]>(
     () => [
@@ -273,8 +278,16 @@ function Roster({ name, symbol }: { name: string; symbol: string | null }) {
         format: (r) => percent(r.fifty_two_week_change_percent),
       },
       { key: "exchange", label: "Exchange", format: (r) => r.exchange ?? "—" },
+      // Last, unlike `WLA`'s: this grid is eleven columns wide and the
+      // shape belongs beside the rank rather than in the middle of the
+      // quote.
+      {
+        key: "spark",
+        label: sparkLabel(spark),
+        format: (r) => <SparkCell data={spark} symbol={r.symbol} />,
+      },
     ],
-    [],
+    [spark],
   );
 
   if (state.kind === LoadState.Loading) return <p className="muted">Loading {name}…</p>;

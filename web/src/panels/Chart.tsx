@@ -14,40 +14,33 @@
 // The library writes its own styles through the CSSOM (`el.style.x = v`),
 // which the page's `style-src 'self'` allows; it injects no `<style>`
 // element, which that directive would block.
+//
+// Colours come from `viz/colors.ts`, which reads the stylesheet: the
+// chart cannot drift from the rest of the terminal when a colour
+// changes, and there is no second definition of one anywhere in
+// TypeScript.
 import { useEffect, useRef } from "react";
 import type { ReactElement } from "react";
 import {
   CandlestickSeries,
   HistogramSeries,
+  LineSeries,
   createChart,
   createSeriesMarkers,
 } from "lightweight-charts";
 import type {
   IChartApi,
+  IPriceLine,
   ISeriesApi,
   ISeriesMarkersPluginApi,
   SeriesMarker,
   Time,
   UTCTimestamp,
 } from "lightweight-charts";
-import { DOWN_COLOR, MarkerKind, UP_COLOR } from "./chart-data";
-import type { ActionMarker, Candle, VolumeBar, Whitespace } from "./chart-data";
-
-//: Read once from the stylesheet so the chart cannot drift from the rest
-//: of the terminal when a colour changes. The fallbacks are the same
-//: values `styles.css` sets, for a test environment with no computed
-//: style to read.
-function theme(): { bg: string; fg: string; grid: string; accent: string } {
-  const style = getComputedStyle(document.documentElement);
-  const read = (name: string, fallback: string) =>
-    style.getPropertyValue(name).trim() || fallback;
-  return {
-    bg: read("--bg", "#0b0e11"),
-    fg: read("--fg", "#d7dde3"),
-    grid: read("--line", "#1f262e"),
-    accent: read("--accent", "#f2b544"),
-  };
-}
+import { MarkerKind } from "./chart-data";
+import { LOCALE } from "./format";
+import { vizTheme } from "./viz";
+import type { ActionMarker, Candle, LinePoint, VolumeBar, Whitespace } from "./chart-data";
 
 export interface ChartProps {
   candles: Candle[];
@@ -86,31 +79,34 @@ export function Chart(props: ChartProps): ReactElement {
   useEffect(() => {
     const element = host.current;
     if (element === null) return;
-    const colors = theme();
+    const colors = vizTheme();
     const instance = createChart(element, {
       // ResizeObserver, so the chart follows the panel without a listener
       // of ours; width/height are the fallback if it is unavailable.
       autoSize: true,
+      // A fixed locale, like every other number in the terminal: the axis
+      // must not read 1.234,56 on a tr-TR machine and 1,234.56 here.
+      localization: { locale: LOCALE },
       layout: {
         background: { color: colors.bg },
         textColor: colors.fg,
         attributionLogo: false,
       },
       grid: {
-        vertLines: { color: colors.grid },
-        horzLines: { color: colors.grid },
+        vertLines: { color: colors.line },
+        horzLines: { color: colors.line },
       },
-      rightPriceScale: { borderColor: colors.grid },
-      timeScale: { borderColor: colors.grid, timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: colors.line },
+      timeScale: { borderColor: colors.line, timeVisible: true, secondsVisible: false },
       crosshair: { vertLine: { color: colors.accent }, horzLine: { color: colors.accent } },
     });
     chart.current = instance;
     priceSeries.current = instance.addSeries(CandlestickSeries, {
-      upColor: UP_COLOR,
-      downColor: DOWN_COLOR,
+      upColor: colors.up,
+      downColor: colors.down,
       borderVisible: false,
-      wickUpColor: UP_COLOR,
-      wickDownColor: DOWN_COLOR,
+      wickUpColor: colors.up,
+      wickDownColor: colors.down,
     });
     // An overlay on the price pane (`priceScaleId: ""`), scaled to the
     // full height: the band marks WHEN, and has nothing to say about
@@ -166,12 +162,128 @@ export function Chart(props: ChartProps): ReactElement {
       markers.map((marker) => ({
         time: marker.time as UTCTimestamp,
         position: "belowBar" as const,
-        color: theme().accent,
+        color: vizTheme().accent,
         shape: MARKER_SHAPE[marker.kind],
         text: marker.text,
       })),
     );
   }, [markers]);
+
+  return <div className="chart" ref={host} role="img" aria-label={label} />;
+}
+
+
+// --- the comparison chart ---------------------------------------------------
+//
+// Same library, same file, a different question. `Chart` above draws ONE
+// instrument in full -- open, high, low, close, volume, the actions on
+// it. This draws SEVERAL, each reduced to a single number per session,
+// because the only thing a comparison can show is relative shape.
+//
+// Not an SVG primitive: `viz/` exists for the pictures this library does
+// not draw (a treemap, a bullet, a scatter), and a multi-year daily line
+// with a shared time axis, a crosshair and pan is exactly what it does
+// draw. The rule that one file touches `lightweight-charts` is what
+// keeps that from becoming two chart stacks.
+
+export interface LineSeriesSpec {
+  key: string;
+  label: string;
+  /** Identity, from the group palette: this series is THIS symbol, and
+   *  says nothing about whether it rose. */
+  colour: string;
+  points: LinePoint[];
+}
+
+export interface LineChartProps {
+  series: LineSeriesSpec[];
+  label: string;
+  /** A dashed line to measure against -- 100 for a series normalised to
+   *  its own start. Omitted draws none. */
+  baseline?: number;
+}
+
+export function LineChart({ series, label, baseline }: LineChartProps): ReactElement {
+  const host = useRef<HTMLDivElement>(null);
+  const chart = useRef<IChartApi | null>(null);
+  // Keyed by symbol, because the set of series changes: retyping the
+  // command with one symbol fewer must remove one line, not redraw
+  // every line under shifted colours.
+  const lines = useRef(new Map<string, ISeriesApi<"Line">>());
+  const baseLine = useRef<IPriceLine | null>(null);
+
+  useEffect(() => {
+    const element = host.current;
+    if (element === null) return;
+    const colors = vizTheme();
+    const instance = createChart(element, {
+      autoSize: true,
+      localization: { locale: LOCALE },
+      layout: {
+        background: { color: colors.bg },
+        textColor: colors.fg,
+        attributionLogo: false,
+      },
+      grid: {
+        vertLines: { color: colors.line },
+        horzLines: { color: colors.line },
+      },
+      rightPriceScale: { borderColor: colors.line },
+      timeScale: { borderColor: colors.line, timeVisible: false, secondsVisible: false },
+      crosshair: { vertLine: { color: colors.accent }, horzLine: { color: colors.accent } },
+    });
+    chart.current = instance;
+    const drawn = lines.current;
+    return () => {
+      instance.remove();
+      chart.current = null;
+      baseLine.current = null;
+      drawn.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    const instance = chart.current;
+    if (instance === null) return;
+    const drawn = lines.current;
+    const wanted = new Set(series.map((one) => one.key));
+    for (const [key, line] of drawn) {
+      if (!wanted.has(key)) {
+        instance.removeSeries(line);
+        drawn.delete(key);
+      }
+    }
+    for (const one of series) {
+      let line = drawn.get(one.key);
+      if (line === undefined) {
+        line = instance.addSeries(LineSeries, { lineWidth: 2, priceLineVisible: false });
+        drawn.set(one.key, line);
+      }
+      // Applied every pass, not only on creation: the colours are
+      // assigned by position, so dropping the first symbol recolours
+      // every series after it.
+      line.applyOptions({ color: one.colour, title: one.label });
+      line.setData(stamp(one.points));
+    }
+  }, [series]);
+
+  useEffect(() => {
+    const first = series[0];
+    const line = first === undefined ? undefined : lines.current.get(first.key);
+    if (line !== undefined && baseLine.current !== null) {
+      line.removePriceLine(baseLine.current);
+      baseLine.current = null;
+    }
+    if (line === undefined || baseline === undefined) return;
+    baseLine.current = line.createPriceLine({
+      price: baseline,
+      color: vizTheme().muted,
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: "start",
+    });
+  }, [series, baseline]);
 
   return <div className="chart" ref={host} role="img" aria-label={label} />;
 }

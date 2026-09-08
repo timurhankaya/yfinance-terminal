@@ -182,11 +182,15 @@ export interface DatasetTableProps {
    *  button, which calls it. */
   onLoadMore?: () => void;
   loadingMore?: boolean;
+  /** Columns the panel adds beside the catalogue's own -- a sparkline
+   *  drawn from a second read, say. The engine's own `Column<Row>`, not
+   *  a second column type: a cell is a cell whichever read filled it. */
+  extra?: Column<Row>[];
 }
 
 /** A dataset as a grid with j/k/Enter and click opening the row detail. */
 export function DatasetTable(props: DatasetTableProps): ReactElement {
-  const { columns, rows: given, hide = [], reverse = false, truncated = false, links = [], onLoadMore, loadingMore = false } = props;
+  const { columns, rows: given, hide = [], reverse = false, truncated = false, links = [], onLoadMore, loadingMore = false, extra = [] } = props;
   const rows = reverse ? [...given].reverse() : given;
   const [open, setOpen] = useState<number | null>(null);
   const toggle = (index: number) => setOpen((current) => (current === index ? null : index));
@@ -209,6 +213,9 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
     align: isNumericType(c.type) ? "right" : "left",
     format: (row) => formatCell(row[c.name], c.type, c.name),
   }));
+  // After the catalogue's, so the grid's own columns keep the order the
+  // dataset declares them in.
+  gridColumns.push(...extra);
   if (links.length > 0) {
     // First, not last: a wide grid scrolls sideways and the links would be off-screen.
     gridColumns.unshift({ key: "__links", label: "open", format: (row) => <Links row={row} rules={links} /> });

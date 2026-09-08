@@ -367,6 +367,43 @@ export async function getTicks(symbol: string, limit = TICKS_DEFAULT): Promise<T
   return page.data;
 }
 
+// --- sparklines -------------------------------------------------------------
+
+export interface SparklineSeries {
+  symbol: string;
+  /** Closes, oldest first, as the API sends decimals: strings. */
+  closes: string[];
+  first_date: string;
+  last_date: string;
+}
+
+export interface SparklineSet {
+  points: number;
+  series: SparklineSeries[];
+  /** Symbols the archive has no bars for in the window. */
+  missing: string[];
+}
+
+//: The route's own defaults and ceilings (`ui/data.py`). The symbol cap
+//: is the socket's, since this is the other half of a watchlist row.
+export const SPARKLINE_POINTS = 30;
+export const SPARKLINE_MAX_SYMBOLS = 200;
+
+/** The last `points` daily closes for a list of symbols, in ONE request.
+ *
+ *  One of the terminal's own reads, like `news` and `screens` -- not
+ *  because `/v1` does not join this time, but because it does not batch:
+ *  a 200-row watchlist through `/v1/symbols/{s}/bars` is 200 requests to
+ *  draw 200 lines of thirty numbers. */
+export async function getSparklines(
+  symbols: string[],
+  points: number = SPARKLINE_POINTS,
+): Promise<SparklineSet> {
+  const search = new URLSearchParams({ symbols: symbols.join(","), points: String(points) });
+  const envelope = await apiFetch<{ data: SparklineSet }>(`/ui/api/sparklines?${search}`);
+  return envelope.data;
+}
+
 // --- the screener -----------------------------------------------------------
 
 export interface ScreenSummary {

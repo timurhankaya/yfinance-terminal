@@ -48,6 +48,17 @@ function row(over: Record<string, unknown> = {}) {
   };
 }
 
+/** Every fetch stub below answers the roster route. The roster grid now
+ *  also asks for one batch of sparklines, and answering THAT url with a
+ *  roster body would hand the column a payload of the wrong shape -- so
+ *  the sparkline request is routed separately here, once. */
+function routed(body: unknown, status = 200) {
+  return async (input: RequestInfo | URL): Promise<Response> =>
+    String(input).includes("/sparklines")
+      ? json({ data: { points: 30, series: [], missing: [] }, as_of: null })
+      : json(body, status);
+}
+
 /** The panel navigates, so it needs a router around it. */
 function draw(args: Record<string, string>) {
   return render(
@@ -79,8 +90,7 @@ describe("EQS parseArgs", () => {
 
 describe("the screen list", () => {
   it("shows each screen with when it ran and how many it matched", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      json({ data: [summary()], next_cursor: null }),
+    vi.spyOn(globalThis, "fetch").mockImplementation(routed({ data: [summary()], next_cursor: null }),
     );
     draw({});
     expect(await screen.findByText("day_gainers")).toBeInTheDocument();
@@ -89,8 +99,7 @@ describe("the screen list", () => {
   });
 
   it("says when nothing is enabled instead of leaving a blank panel", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      json({ data: [], next_cursor: null }),
+    vi.spyOn(globalThis, "fetch").mockImplementation(routed({ data: [], next_cursor: null }),
     );
     draw({});
     expect(await screen.findByText(/None are enabled/)).toBeInTheDocument();
@@ -99,8 +108,7 @@ describe("the screen list", () => {
 
 describe("the roster", () => {
   it("keeps the screen's order and says what that order is", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      json({
+    vi.spyOn(globalThis, "fetch").mockImplementation(routed({
         data: {
           screen: summary(),
           rows: [row(), row({ rank_index: 1, symbol: "AAA", short_name: "Aaa Inc" })],
@@ -122,8 +130,7 @@ describe("the roster", () => {
     // `screen_quotes` is outside the gate's delete scope, so a member can
     // exist without one; dropping it would shorten a roster whose length
     // is itself reported.
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      json({
+    vi.spyOn(globalThis, "fetch").mockImplementation(routed({
         data: {
           screen: summary(),
           rows: [row({ symbol: "BBB", is_known: false, short_name: null, price: null })],
@@ -141,8 +148,7 @@ describe("the roster", () => {
     // A roster is 1,000 rows at the default `yf_screen_size` x
     // `yf_screen_max_pages`, so "there is more" without a Next button
     // is a dead end on most screens.
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      json({
+    vi.spyOn(globalThis, "fetch").mockImplementation(routed({
         data: { screen: summary(), rows: [row()], offset: 0, truncated: true },
         as_of: null,
       }),
@@ -158,6 +164,9 @@ describe("the roster", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       asked.push(url);
+      if (url.includes("/sparklines")) {
+        return json({ data: { points: 30, series: [], missing: [] }, as_of: null });
+      }
       const offset = url.includes("offset=250") ? 250 : 0;
       return json({
         data: {
@@ -178,8 +187,7 @@ describe("the roster", () => {
   });
 
   it("shows no paging control on a roster that fits", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      json({
+    vi.spyOn(globalThis, "fetch").mockImplementation(routed({
         data: { screen: summary(), rows: [row()], offset: 0, truncated: false },
         as_of: null,
       }),
@@ -192,16 +200,14 @@ describe("the roster", () => {
   it("tells the reader where the other ninety-odd columns are", async () => {
     // The terminal's rule is that nothing in the archive is unreachable;
     // a curated grid has to name the way to the rest.
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      json({ data: { screen: summary(), rows: [row()], offset: 0, truncated: false }, as_of: null }),
+    vi.spyOn(globalThis, "fetch").mockImplementation(routed({ data: { screen: summary(), rows: [row()], offset: 0, truncated: false }, as_of: null }),
     );
     draw({ screen: "day_gainers" });
     expect(await screen.findByText(/DS screen_quotes/)).toBeInTheDocument();
   });
 
   it("reports an unknown screen as missing", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      json({ type: "not_found", title: "No such screen" }, 404),
+    vi.spyOn(globalThis, "fetch").mockImplementation(routed({ type: "not_found", title: "No such screen" }, 404),
     );
     draw({ screen: "nope" });
     expect(await screen.findByText(/No such symbol: nope/)).toBeInTheDocument();
@@ -218,8 +224,7 @@ describe("sub-pages", () => {
   });
 
   it("offers both tabs on a screen", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      json({
+    vi.spyOn(globalThis, "fetch").mockImplementation(routed({
         data: { screen: summary(), rows: [row()], offset: 0, truncated: false },
         as_of: null,
       }),
@@ -250,8 +255,7 @@ describe("sub-pages", () => {
   });
 
   it("falls back to the roster when the URL names no such tab", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      json({
+    vi.spyOn(globalThis, "fetch").mockImplementation(routed({
         data: { screen: summary(), rows: [row()], offset: 0, truncated: false },
         as_of: null,
       }),
