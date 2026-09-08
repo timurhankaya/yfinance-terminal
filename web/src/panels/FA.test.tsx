@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation } from "react-router";
 import { Layout } from "../commands/types";
-import { FA, FA_PANEL, cell } from "./FA";
+import { FA, FA_PANEL, Freq, cell, incomeChart } from "./FA";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -140,5 +140,90 @@ describe("FA", () => {
     renderFA({ statement: "balance_sheet", freq: "quarterly" });
     expect(await screen.findByText("No financial statements for this symbol.")).toBeInTheDocument();
     expect(spy.mock.calls.some(([u]) => String(u).includes("statement=balance_sheet&freq=quarterly"))).toBe(true);
+  });
+});
+
+
+describe("incomeChart", () => {
+  const table = (periods: string[], rows: Array<{ item: string } & Record<string, unknown>>) => ({
+    periods,
+    rows,
+    currency: "USD",
+  });
+
+  it("reads revenue and net income, oldest first", () => {
+    // The table beside it is newest-first, because a table is read down;
+    // an axis is time and is read left to right.
+    const chart = incomeChart(
+      table(
+        ["2025-09-30", "2024-09-30"],
+        [
+          { item: "TotalRevenue", "2025-09-30": "400", "2024-09-30": "200" },
+          { item: "NetIncome", "2025-09-30": "100", "2024-09-30": "40" },
+        ],
+      ),
+      Freq.Annual,
+    );
+    expect(chart?.categories).toEqual(["2024", "2025"]);
+    expect(chart?.revenue).toEqual([200, 400]);
+    expect(chart?.income).toEqual([40, 100]);
+    expect(chart?.margin).toEqual([20, 25]);
+  });
+
+  it("labels a quarter with its month, so two of a year can be told apart", () => {
+    const chart = incomeChart(
+      table(
+        ["2026-06-30", "2026-03-31"],
+        [
+          { item: "TotalRevenue", "2026-06-30": "2", "2026-03-31": "1" },
+          { item: "NetIncome", "2026-06-30": "1", "2026-03-31": "1" },
+        ],
+      ),
+      Freq.Quarterly,
+    );
+    expect(chart?.categories).toEqual(["2026-03", "2026-06"]);
+  });
+
+  it("has no margin where revenue is missing or not positive", () => {
+    const chart = incomeChart(
+      table(
+        ["2025-09-30", "2024-09-30"],
+        [
+          { item: "TotalRevenue", "2025-09-30": null, "2024-09-30": "0" },
+          { item: "NetIncome", "2025-09-30": "100", "2024-09-30": "40" },
+        ],
+      ),
+      Freq.Annual,
+    );
+    expect(chart?.margin).toEqual([null, null]);
+  });
+
+  it("is null on a statement with no revenue: half a chart is worse than none", () => {
+    const balance = table(["2025-09-30"], [{ item: "TotalAssets", "2025-09-30": "1" }]);
+    expect(incomeChart(balance, Freq.Annual)).toBeNull();
+  });
+});
+
+describe("FA's chart", () => {
+  it("draws revenue and net income above the table, on the income statement", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      json(200, { data: incomeRows, next_cursor: null }),
+    );
+    renderFA();
+    const chart = await screen.findByRole("img", { name: /revenue and net income/ });
+    const table = screen.getByRole("table");
+    expect(chart.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("draws none on the balance sheet, which has neither", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      json(200, {
+        data: [{ period_end: "2025-09-30", item_key: "TotalAssets", value: "1", currency: "USD" }],
+        next_cursor: null,
+      }),
+    );
+    renderFA({ statement: "balance_sheet", freq: "annual" });
+    await screen.findByRole("table");
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 });

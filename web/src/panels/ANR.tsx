@@ -1,7 +1,9 @@
+import type { ReactNode } from "react";
 import { getDataset } from "../api/client";
 import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
 import { DataTable, EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData, type Column } from "./common";
-import { asNumber, text } from "./format";
+import { asNumber, formatPrice, text } from "./format";
+import { Bars, Bullet, type BarSeries } from "./viz";
 
 type Row = Record<string, unknown>;
 type Section = { rows: Row[] } | { error: string };
@@ -99,6 +101,80 @@ const TREND_COLUMNS: Column<Row>[] = [
   })),
 ];
 
+
+// --- the two pictures --------------------------------------------------------
+//
+// Both sit ABOVE their table rather than instead of it (spec,
+// "Kararlar" 3): a chart's one weakness is the exact figure, and an
+// analyst's exact figure is the point of the section.
+
+export interface TargetRange {
+  low: number;
+  high: number;
+  mean: number;
+  /** Where the price actually is, or null when the snapshot has none. */
+  actual: number | null;
+}
+
+/** The newest price-target row as a range with a mark on it.
+ *
+ *  Null unless low, mean and high are all there and in order: three
+ *  numbers about one thing is what makes the picture, and a range drawn
+ *  from two of them would be a different claim. */
+export function targetRange(rows: Row[]): TargetRange | null {
+  const newest = rows[0];
+  if (newest === undefined) return null;
+  const low = asNumber(newest.low);
+  const high = asNumber(newest.high);
+  const mean = asNumber(newest.mean);
+  if (low === null || high === null || mean === null || high < low) return null;
+  return { low, high, mean, actual: asNumber(newest.current) };
+}
+
+//: The five buckets Yahoo counts analysts into, strongest first -- which
+//: is also the order they read in on the axis.
+const RATINGS: Array<[key: string, label: string]> = [
+  ["strong_buy", "Strong buy"],
+  ["buy", "Buy"],
+  ["hold", "Hold"],
+  ["sell", "Sell"],
+  ["strong_sell", "Strong sell"],
+];
+
+export interface RecommendationBars {
+  categories: string[];
+  series: BarSeries[];
+}
+
+/** The newest snapshot's recommendation counts, one group per period.
+ *
+ *  Three or four periods, because that is what the source carries (`0m`
+ *  back to `-3m`) -- the chart has exactly as many groups as the table
+ *  has rows. Oldest first: the axis is time, and the interesting thing
+ *  is which way the counts moved. */
+export function recommendationBars(rows: Row[]): RecommendationBars | null {
+  const snapshot = newestOnly(rows);
+  const ordered = [...snapshot].sort((a, b) => monthsAgo(a) - monthsAgo(b));
+  if (ordered.length === 0) return null;
+  const series: BarSeries[] = RATINGS.map(([key, label]) => ({
+    key,
+    label,
+    values: ordered.map((row) => asNumber(row[key])),
+  }));
+  // Every count missing is not a distribution; the table still shows
+  // whatever the row did carry.
+  if (series.every((one) => one.values.every((value) => value === null))) return null;
+  return { categories: ordered.map((row) => String(row.period ?? "?")), series };
+}
+
+/** `-3m` -> -3, `0m` -> 0. A relative period key, sorted as the number
+ *  it is: sorted as text, `-1m` would come before `0m` but after
+ *  `-3m` only by luck. */
+function monthsAgo(row: Row): number {
+  const parsed = Number.parseInt(String(row.period ?? ""), 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function SectionView(props: {
   title: string;
   what: string;
@@ -107,8 +183,10 @@ function SectionView(props: {
   pick: (rows: Row[]) => Row[];
   rowKey: (row: Row, index: number) => string;
   onRetry: () => void;
+  /** Drawn above the table when the section has one. */
+  chart?: ReactNode;
 }) {
-  const { title, what, section, columns, pick, rowKey, onRetry } = props;
+  const { title, what, section, columns, pick, rowKey, onRetry, chart = null } = props;
   return (
     <section className="anr-section">
       <h3>{title}</h3>
@@ -117,7 +195,10 @@ function SectionView(props: {
       ) : section.rows.length === 0 ? (
         <p className="muted">No {what}.</p>
       ) : (
-        <DataTable columns={columns} rows={pick(section.rows)} rowKey={rowKey} />
+        <>
+          {chart}
+          <DataTable columns={columns} rows={pick(section.rows)} rowKey={rowKey} />
+        </>
       )}
     </section>
   );
@@ -136,13 +217,37 @@ export function ANR({ symbol }: PanelProps) {
   if (state.kind === LoadState.Empty) return <EmptyCard what="analyst data" />;
 
   const s = state.data;
+  const range = "rows" in s.targets ? targetRange(s.targets.rows) : null;
+  const distribution = "rows" in s.recommendations ? recommendationBars(s.recommendations.rows) : null;
   return (
     <div className="anr">
       <SectionView title="Price targets" what="price targets" section={s.targets} columns={TARGET_COLUMNS}
-        pick={(rows) => rows.slice(0, 1)} rowKey={(r) => String(r.as_of_date)} onRetry={retry} />
+        pick={(rows) => rows.slice(0, 1)} rowKey={(r) => String(r.as_of_date)} onRetry={retry}
+        chart={
+          range === null ? null : (
+            <Bullet
+              label={`${symbol} price target: ${formatPrice(range.low)} to ${formatPrice(range.high)}, mean ${formatPrice(range.mean)}`}
+              low={range.low}
+              high={range.high}
+              mean={range.mean}
+              actual={range.actual}
+              format={formatPrice}
+            />
+          )
+        } />
       <SectionView title="Recommendations" what="recommendations" section={s.recommendations}
         columns={RECOMMENDATION_COLUMNS} pick={(rows) => rows.slice(0, 4)}
-        rowKey={(r) => `${r.as_of_date}|${r.period}`} onRetry={retry} />
+        rowKey={(r) => `${r.as_of_date}|${r.period}`} onRetry={retry}
+        chart={
+          distribution === null ? null : (
+            <Bars
+              label={`${symbol} recommendations by period`}
+              categories={distribution.categories}
+              series={distribution.series}
+              format={(value) => String(Math.round(value))}
+            />
+          )
+        } />
       <SectionView title="Upgrades and downgrades" what="grade changes" section={s.grades} columns={GRADE_COLUMNS}
         pick={(rows) => rows.slice(0, 20)} rowKey={(r) => `${r.grade_ts_utc}|${r.firm}`} onRetry={retry} />
       <SectionView title="Earnings estimate (EPS)" what="earnings estimates" section={s.estimates}

@@ -5,6 +5,7 @@
 import { usePanelRun } from "../workspace/frame";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import { DatasetView, ExtraColumn, SymbolMode, filtersOf, parseFilters } from "./dataset";
+import { TabChart } from "./tabcharts";
 
 /** How a tab takes the strip's symbol. `Required`: the tab needs it and
  *  says so without one; `Auto`/`None` as in DatasetView. */
@@ -22,14 +23,19 @@ const MODE_OF: Record<TabSymbol, SymbolMode> = {
   [TabSymbol.None]: SymbolMode.None,
 };
 
-export interface Tab {
+/** What a tab wants beyond its table. Both are DECLARATIONS: a tab
+ *  cannot fetch, and both a sparkline column and a chart are built by
+ *  the view once it has the rows. */
+export interface TabExtras {
+  extra?: ExtraColumn[];
+  chart?: TabChart;
+}
+
+export interface Tab extends TabExtras {
   key: string;
   label: string;
   dataset: string;
   symbol: TabSymbol;
-  /** Columns beyond the catalogue's, declared here and built by the
-   *  view. Configuration, like the rest of a tab. */
-  extra?: ExtraColumn[];
 }
 
 export interface TabbedPanelSpec {
@@ -93,6 +99,7 @@ export function tabbedPanel(spec: TabbedPanelSpec): PanelSpec {
             filters={filters}
             mode={MODE_OF[current.symbol]}
             extra={current.extra}
+            chart={current.chart}
           />
         )}
       </section>
@@ -115,20 +122,20 @@ export function tabbedPanel(spec: TabbedPanelSpec): PanelSpec {
   };
 }
 
-const sym = (key: string, label: string, dataset: string, extra?: ExtraColumn[]): Tab => ({ key, label, dataset, symbol: TabSymbol.Required, extra });
-const mkt = (key: string, label: string, dataset: string, extra?: ExtraColumn[]): Tab => ({ key, label, dataset, symbol: TabSymbol.None, extra });
-const opt = (key: string, label: string, dataset: string, extra?: ExtraColumn[]): Tab => ({ key, label, dataset, symbol: TabSymbol.Auto, extra });
+const sym = (key: string, label: string, dataset: string, more: TabExtras = {}): Tab => ({ ...more, key, label, dataset, symbol: TabSymbol.Required });
+const mkt = (key: string, label: string, dataset: string, more: TabExtras = {}): Tab => ({ ...more, key, label, dataset, symbol: TabSymbol.None });
+const opt = (key: string, label: string, dataset: string, more: TabExtras = {}): Tab => ({ ...more, key, label, dataset, symbol: TabSymbol.Auto });
 
 export const HDS_PANEL = tabbedPanel({
   code: "HDS",
   title: "Holders: major, institutional, funds, insiders",
   tabs: [
     sym("major", "Major", "major_holders"),
-    sym("inst", "Institutions", "institutional_holders"),
+    sym("inst", "Institutions", "institutional_holders", { chart: TabChart.InstitutionalShare }),
     sym("funds", "Mutual funds", "mutualfund_holders"),
     sym("roster", "Insider roster", "insider_roster_holders"),
     sym("trades", "Insider transactions", "insider_transactions"),
-    sym("activity", "Insider activity", "insider_purchases"),
+    sym("activity", "Insider activity", "insider_purchases", { chart: TabChart.InsiderFlow }),
   ],
 });
 
@@ -189,7 +196,7 @@ export const SCR_PANEL = tabbedPanel({
     mkt("runs", "Runs", "screen_runs"),
     // The one curated tab that is a roster of symbols, which is what a
     // sparkline column is for.
-    opt("members", "Members", "screen_members", [ExtraColumn.Sparkline]),
+    opt("members", "Members", "screen_members", { extra: [ExtraColumn.Sparkline] }),
     sym("quotes", "Quote snapshot", "screen_quotes"),
   ],
 });

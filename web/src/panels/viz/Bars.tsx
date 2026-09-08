@@ -24,10 +24,19 @@ export interface BarsLine {
   values: ReadonlyArray<number | null>;
 }
 
+/** A category worth pointing at: a quarter a company split its stock,
+ *  say. A mark has no value of its own -- it says WHEN, which is why it
+ *  sits on the axis rather than on the scale. */
+export interface BarMark {
+  category: string;
+  label: string;
+}
+
 export interface BarsProps {
   categories: readonly string[];
   series: readonly BarSeries[];
   line?: BarsLine;
+  marks?: readonly BarMark[];
   label: string;
   /** The axis tick text. Numbers are formatted by the caller, which is
    *  the only place that knows whether they are dollars or a count. */
@@ -42,12 +51,14 @@ const PLOT = {
   height: HEIGHT - MARGIN.top - MARGIN.bottom,
 };
 
+const NO_MARKS: BarMark[] = [];
+
 function finite(values: ReadonlyArray<number | null>): number[] {
   return values.filter((value): value is number => value !== null && Number.isFinite(value));
 }
 
 export function Bars(props: BarsProps): ReactElement | null {
-  const { categories, series, line, label, format } = props;
+  const { categories, series, line, marks = NO_MARKS, label, format } = props;
   const theme = vizTheme();
   const all = series.flatMap((s) => finite(s.values));
   const span = extent([...all, 0]);
@@ -130,6 +141,23 @@ export function Bars(props: BarsProps): ReactElement | null {
             );
           }),
         )}
+        {marks.map((mark) => {
+          const index = categories.indexOf(mark.category);
+          if (index < 0) return null;
+          const x = MARGIN.left + band * (index + 0.5);
+          const y = HEIGHT - MARGIN.bottom + 4;
+          // A triangle on the axis, not a bar: a split has no amount, and
+          // drawn on the value scale it would claim one.
+          return (
+            <polygon
+              key={`${mark.category}-${mark.label}`}
+              points={`${x},${y} ${x - 4},${y + 7} ${x + 4},${y + 7}`}
+              fill={theme.accent}
+            >
+              <title>{mark.label}</title>
+            </polygon>
+          );
+        })}
         {linePoints.length > 1 && (
           <path
             d={`M${linePoints.join("L")}`}
@@ -149,6 +177,13 @@ export function Bars(props: BarsProps): ReactElement | null {
         {line !== undefined && (
           <span>
             <Swatch colour={theme.accent} /> {line.label} (right)
+          </span>
+        )}
+        {marks.length > 0 && (
+          <span>
+            <span aria-hidden="true">▲</span> {marks.length}{" "}
+            {marks.length === 1 ? "mark" : "marks"} on the axis: {marks[0]?.label}
+            {marks.length > 1 ? " and others" : ""}
           </span>
         )}
       </figcaption>
