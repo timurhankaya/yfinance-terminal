@@ -2,7 +2,17 @@
 // the curated tabbed panels (a fixed list of datasets per family).
 import { useMemo } from "react";
 import type { ReactElement } from "react";
-import { ApiError, getCatalog, getDatasetPage, type CatalogEntry, type Row } from "../api/client";
+import {
+  ApiError,
+  getCatalog,
+  getDatasetPage,
+  PAGE_LIMIT,
+  PAGE_SIZE,
+  WireType,
+  type CatalogEntry,
+  type Row,
+} from "../api/client";
+import { Controls, NumberArg, TextArg } from "./controls";
 import type { PanelArgs } from "../commands/types";
 import { EmptyCard, ErrorCard, LoadState, NextPageError, usePagedRows, usePanelData, type Column } from "./common";
 import { linksFor } from "./links";
@@ -45,7 +55,7 @@ export interface DatasetPage {
 }
 
 async function loadDataset(
-  name: string, symbol: string | null, filters: PanelArgs, mode: SymbolMode,
+  name: string, symbol: string | null, filters: PanelArgs, mode: SymbolMode, limit: number,
 ): Promise<DatasetPage> {
   const catalog = await getCatalog();
   const entry = catalog.find((e) => e.name === name);
@@ -54,7 +64,7 @@ async function loadDataset(
   const scoped = mode === SymbolMode.Auto && entry.symbol_scoped && symbol !== null;
   if (scoped) params.symbol = symbol;
   try {
-    const page = await getDatasetPage(entry.name, params);
+    const page = await getDatasetPage(entry.name, params, null, limit);
     return { entry, rows: page.rows, next_cursor: page.next_cursor, symbol: scoped ? symbol : null, params };
   } catch (err) {
     // The API refuses an unknown filter rather than ignoring it; say
@@ -96,23 +106,30 @@ export function DatasetView(props: {
   mode: SymbolMode;
   extra?: ExtraColumn[];
   chart?: TabChart;
+  /** Rows per request. The panel keeps it in its own args, so a page of
+   *  500 is part of the address like everything else. */
+  pageSize?: number;
+  /** Changes an argument -- a filter, or the page size. Absent leaves the
+   *  filters as the sentence they were: a panel that does not own its
+   *  args cannot offer to edit them. */
+  onArgs?: (next: PanelArgs) => void;
 }): ReactElement {
-  const { name, symbol, filters, mode, extra = NO_EXTRAS, chart } = props;
+  const { name, symbol, filters, mode, extra = NO_EXTRAS, chart, pageSize = PAGE_SIZE, onArgs } = props;
   const filterKey = Object.entries(filters)
     .sort()
     .map(([k, v]) => `${k}=${v}`)
     .join("&");
-  const key = `${name}|${symbol ?? ""}|${mode}|${filterKey}`;
+  const key = `${name}|${symbol ?? ""}|${mode}|${filterKey}|${pageSize}`;
   const { state, retry } = usePanelData<DatasetPage>(
     key,
-    () => loadDataset(name, symbol, filters, mode),
+    () => loadDataset(name, symbol, filters, mode, pageSize),
     (loaded) => loaded.rows.length === 0,
   );
   const first = state.kind === LoadState.Ready ? state.data : null;
   const paged = usePagedRows<Row>(key, first?.next_cursor ?? null, (cursor) =>
     first === null
       ? Promise.reject(new Error("no first page"))
-      : getDatasetPage(first.entry.name, first.params, cursor),
+      : getDatasetPage(first.entry.name, first.params, cursor, pageSize),
   );
   // Hoisted above the early returns, because the sparkline hook below
   // needs the rows and a hook cannot run after a conditional return.
@@ -156,9 +173,33 @@ export function DatasetView(props: {
     <section>
       <p className="detail-meta">
         <strong>{entry.name}</strong> · {entry.family} · {entry.description}
-        {entry.filters.length > 0 && <> · filters: {entry.filters.map((f) => `${f}=`).join(" ")}</>}
         {state.data.symbol !== null && <> · {state.data.symbol}</>}
       </p>
+      {onArgs !== undefined && (
+        <Controls>
+          {entry.filters.map((filter) => (
+            <TextArg
+              key={filter}
+              label={filter}
+              value={filters[filter] ?? ""}
+              placeholder="any"
+              // A date filter gets a date field, read from the
+              // catalogue's own column type rather than guessed from the
+              // filter's name.
+              type={isDateFilter(entry, filter) ? "date" : "text"}
+              onSet={(value) => onArgs({ [filter]: value })}
+            />
+          ))}
+          <NumberArg
+            label="Page"
+            value={pageSize}
+            min={1}
+            max={PAGE_LIMIT}
+            onSet={(value) => onArgs({ rows: String(value) })}
+            suffix="rows"
+          />
+        </Controls>
+      )}
       {/* Above the table, never instead of it: the one thing a chart
           cannot show is the exact figure. */}
       {chart !== undefined && <TabChartView kind={chart} rows={rows} symbol={state.data.symbol ?? symbol} />}
@@ -175,6 +216,16 @@ export function DatasetView(props: {
       {paged.error !== null && <NextPageError message={paged.error} />}
     </section>
   );
+}
+
+/** Whether a filter names a column the catalogue calls a date.
+ *
+ *  From the schema, not from the filter's spelling: `as_of_date` and
+ *  `session_date` are dates and `screen_key` is not, and only the
+ *  catalogue knows which is which. */
+function isDateFilter(entry: CatalogEntry, filter: string): boolean {
+  const column = entry.columns.find((c) => c.name === filter);
+  return column !== undefined && (column.type === WireType.Date || column.type === WireType.DateTime);
 }
 
 //: Shared empties, so a re-render with nothing loaded does not restart

@@ -23,6 +23,7 @@ import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../comm
 import { LineChart, type LineSeriesSpec } from "./Chart";
 import { toComparison, type ComparisonSeries } from "./chart-data";
 import { EmptyCard, ErrorCard, LoadState, usePanelData } from "./common";
+import { Choice, Controls, useArgs } from "./controls";
 import { LOCALE } from "./format";
 import { GROUP_ORDER, Swatch, seriesColors } from "./viz";
 
@@ -120,8 +121,9 @@ async function loadOne(symbol: string, from: string): Promise<ComparisonSeries |
   return toComparison(symbol, rows);
 }
 
-export function COMP({ args }: PanelProps): ReactElement {
+export function COMP({ symbol, args }: PanelProps): ReactElement {
   const asked = parseSymbols(args.symbols);
+  const set = useArgs("COMP", symbol, args);
   // Not memoised, and it does not need to be: what identifies the query
   // is the joined string below, and `usePanelData` holds the loader in a
   // ref rather than in a dependency.
@@ -185,6 +187,15 @@ export function COMP({ args }: PanelProps): ReactElement {
 
   return (
     <section>
+      <Controls>
+        <Choice
+          label="Window"
+          value={period}
+          options={PERIODS}
+          onPick={(next) => set({ period: next })}
+          format={(option) => PERIOD_LABEL[option]}
+        />
+      </Controls>
       <p className="chart-note">
         <span>
           {series.length} {series.length === 1 ? "series" : "series"} · {PERIOD_LABEL[period]} ·

@@ -3,10 +3,11 @@
 // decimal whichever of the 56 datasets it sits in. Nothing is dropped:
 // the one column the grid hides (raw_json, a blob the width of the page)
 // is in the row detail, along with every other field of the row.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { WireType, type CatalogColumn, type Row } from "../api/client";
 import { DataTable, useListKeys, useSortedRows, type Column } from "./common";
+import { Controls, RowFilter } from "./controls";
 import { LOCALE, asNumber, formatBig, isHttpUrl } from "./format";
 import type { LinkRule } from "./links";
 
@@ -188,14 +189,33 @@ export interface DatasetTableProps {
   extra?: Column<Row>[];
 }
 
+/** Rows containing the text, anywhere in any column the reader can see.
+ *
+ *  This narrows what is loaded rather than asking the archive for less:
+ *  the API filters by column, not by free text, and pretending otherwise
+ *  would have a reader believe they had searched the dataset when they
+ *  had searched one page of it. `RowFilter` says which it is. */
+function narrow(rows: Row[], query: string): Row[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return rows;
+  return rows.filter((row) =>
+    Object.entries(row).some(
+      ([key, value]) =>
+        key !== "raw_json" && value !== null && String(value).toLowerCase().includes(needle),
+    ),
+  );
+}
+
 /** A dataset as a grid with j/k/Enter and click opening the row detail. */
 export function DatasetTable(props: DatasetTableProps): ReactElement {
   const { columns, rows: given, hide = [], reverse = false, truncated = false, links = [], onLoadMore, loadingMore = false, extra = [] } = props;
   const ordered = reverse ? [...given].reverse() : given;
-  // The sort sits here rather than inside the table, because this is
-  // where j/k and the row detail count from: the keyboard has to walk
-  // the order the reader is looking at.
-  const { rows, sort, toggle: sortBy } = useSortedRows(ordered);
+  const [query, setQuery] = useState("");
+  // Narrowing before ordering, and both before j/k and the row detail
+  // count from them: the keyboard has to walk the rows the reader is
+  // actually looking at.
+  const narrowed = useMemo(() => narrow(ordered, query), [ordered, query]);
+  const { rows, sort, toggle: sortBy } = useSortedRows(narrowed);
   const [open, setOpen] = useState<number | null>(null);
   const toggle = (index: number) => setOpen((current) => (current === index ? null : index));
   const [selected, setSelected] = useListKeys(rows.length, toggle);
@@ -232,6 +252,19 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
   return (
     <div className={detail ? "dataset split" : "dataset"}>
       <div className={detail ? "split-list" : undefined}>
+        <Controls>
+          <RowFilter
+            value={query}
+            onChange={(next) => {
+              setQuery(next);
+              // The detail was open on a row that may not be in the
+              // narrowed list any more.
+              setOpen(null);
+            }}
+            count={rows.length}
+            total={ordered.length}
+          />
+        </Controls>
         <p className="detail-meta">
           {rows.length.toLocaleString(LOCALE)} {rows.length === 1 ? "row" : "rows"}
           {more ? " loaded, more available" : ""}

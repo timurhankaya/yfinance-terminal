@@ -6,6 +6,8 @@
 // it hands over, and what it says around them. The transforms themselves
 // are `chart-data.test.ts`, where they are ordinary functions.
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChartProps } from "./Chart";
 import { GIP, GIP_PANEL, GIP_USAGE } from "./GIP";
@@ -83,6 +85,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** The chart panels carry interval and window controls now, and a
+ *  control runs a command -- so they need the router the app always has
+ *  around them. */
+function draw(element: ReactElement) {
+  return render(<MemoryRouter>{element}</MemoryRouter>);
+}
+
 describe("GP parseArgs", () => {
   it("takes a year count inside the archive's daily range", () => {
     expect(GP_PANEL.parseArgs([])).toEqual({ years: "2" });
@@ -107,7 +116,7 @@ describe("GP", () => {
       return page([bar("2026-09-03T13:30:00Z"), bar("2026-09-04T13:30:00Z")]);
     });
 
-    render(<GP symbol="AAPL" args={{ years: "2" }} />);
+    draw(<GP symbol="AAPL" args={{ years: "2" }} />);
     await screen.findByTestId("chart");
 
     const props = lastChart();
@@ -126,7 +135,7 @@ describe("GP", () => {
     // A fresh Response per call: a body can only be read once, and GP
     // asks for bars and actions at the same time.
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => page([]));
-    render(<GP symbol="ZZZZ" args={{}} />);
+    draw(<GP symbol="ZZZZ" args={{}} />);
     expect(await screen.findByText(/No daily bars/)).toBeInTheDocument();
   });
 
@@ -179,7 +188,7 @@ describe("GIP", () => {
       return page([bar("2026-09-08T13:30:00Z"), bar("2026-09-08T13:55:00Z")]);
     });
 
-    render(<GIP symbol="AAPL" args={{ interval: "5m" }} />);
+    draw(<GIP symbol="AAPL" args={{ interval: "5m" }} />);
     await screen.findByTestId("chart");
 
     const props = lastChart();
@@ -202,7 +211,7 @@ describe("GIP", () => {
       barFetches += 1;
       return page([bar("2026-09-08T13:30:00Z")]);
     });
-    render(<GIP symbol="AAPL" args={{ interval: "5m" }} />);
+    draw(<GIP symbol="AAPL" args={{ interval: "5m" }} />);
     const node = await screen.findByTestId("chart");
     expect(barFetches).toBe(1);
 
@@ -222,7 +231,7 @@ describe("GIP", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
       String(input).includes("/gaps") ? page([]) : page([bar("2026-09-08T13:30:00Z")]),
     );
-    render(<GIP symbol="AAPL" args={{}} />);
+    draw(<GIP symbol="AAPL" args={{}} />);
     expect(await screen.findByText(/no open gaps/)).toBeInTheDocument();
   });
 });
@@ -243,7 +252,7 @@ describe("QR", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
       page([tick({ t: 2_000, p: "2" }), tick({ t: 1_000, p: "1" })]),
     );
-    render(<QR symbol="AAPL" args={{}} />);
+    draw(<QR symbol="AAPL" args={{}} />);
     const list = await screen.findByRole("list", { name: /time and sales/ });
     expect(list.textContent).toContain("2.00");
     expect(screen.getByText(/2 ticks/)).toBeInTheDocument();
@@ -251,7 +260,7 @@ describe("QR", () => {
 
   it("explains an empty tape instead of leaving a blank panel", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => page([]));
-    render(<QR symbol="ZZZZ" args={{}} />);
+    draw(<QR symbol="ZZZZ" args={{}} />);
     expect(await screen.findByText(/live stream is off/)).toBeInTheDocument();
   });
 

@@ -26,6 +26,7 @@ import { Chart } from "./Chart";
 import { BucketMode, gapBands, toCandles, toVolume } from "./chart-data";
 import { useLiveSeries } from "./chart-live";
 import { EmptyCard, ErrorCard, LoadState, MissingCard, useKeptData, usePanelData } from "./common";
+import { Choice, Controls, useArgs } from "./controls";
 
 //: Shared empties, so "no rows yet" keeps its identity across renders.
 const NO_ROWS: Row[] = [];
@@ -61,6 +62,7 @@ interface Intraday {
 
 export function GIP({ symbol, args }: PanelProps) {
   const interval = intradayOr(args.interval, DEFAULT_INTERVAL);
+  const set = useArgs("GIP", symbol, args);
   const link = useLinkState();
   // Bumped to refetch: when the live bar rolls into a bucket the archive
   // has not written yet, and when the socket comes back after a gap in
@@ -126,9 +128,40 @@ export function GIP({ symbol, args }: PanelProps) {
   }, [link]);
 
   if (symbol === null) return null;
-  if (state.kind === LoadState.Missing) return <MissingCard symbol={symbol} />;
-  if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
-  if (state.kind === LoadState.Empty) return <EmptyCard what={`${interval} bars`} />;
+  // The controls are the panel's, not its ready state's: an interval
+  // with no bars is exactly when a reader needs to pick another one.
+  const controls = (
+    <Controls>
+      <Choice
+          label="Interval"
+          value={interval}
+          options={INTRADAY_INTERVALS}
+          onPick={(next) => set({ interval: next })}
+        />
+    </Controls>
+  );
+
+  if (state.kind === LoadState.Missing)
+    return (
+      <section>
+        {controls}
+        <MissingCard symbol={symbol} />
+      </section>
+    );
+  if (state.kind === LoadState.Error)
+    return (
+      <section>
+        {controls}
+        <ErrorCard message={state.message} onRetry={retry} />
+      </section>
+    );
+  if (state.kind === LoadState.Empty)
+    return (
+      <section>
+        {controls}
+        <EmptyCard what={`${interval} bars`} />
+      </section>
+    );
   // Only the FIRST load has nothing to show; a refresh renders the
   // payload it is refreshing.
   if (data === null) {
@@ -137,6 +170,7 @@ export function GIP({ symbol, args }: PanelProps) {
 
   return (
     <section>
+      {controls}
       <p className="chart-note">
         <span>
           {symbol} · {interval} · last {WINDOW_DAYS} days · regular session · {candles.length} bars

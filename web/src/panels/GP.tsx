@@ -13,6 +13,7 @@ import { Chart } from "./Chart";
 import { BucketMode, toCandles, toMarkers, toVolume } from "./chart-data";
 import { useLiveSeries } from "./chart-live";
 import { EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData } from "./common";
+import { Controls, NumberArg, useArgs } from "./controls";
 
 //: One shared empty array, so "no rows yet" keeps its identity across
 //: renders (see the memo below).
@@ -43,6 +44,7 @@ interface Daily {
 
 export function GP({ symbol, args }: PanelProps) {
   const years = Number(args.years ?? DEFAULT_YEARS);
+  const set = useArgs("GP", symbol, args);
   const { state, retry } = usePanelData<Daily>(
     `${symbol ?? ""}|${years}`,
     async () => {
@@ -80,13 +82,53 @@ export function GP({ symbol, args }: PanelProps) {
   const markers = useMemo(() => toMarkers(actions, base), [actions, base]);
 
   if (symbol === null) return null;
-  if (state.kind === LoadState.Loading) return <p className="muted">Loading {symbol} daily bars…</p>;
-  if (state.kind === LoadState.Missing) return <MissingCard symbol={symbol} />;
-  if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
-  if (state.kind === LoadState.Empty) return <EmptyCard what="daily bars" />;
+  // The controls are the panel's, not its ready state's: an interval
+  // with no bars is exactly when a reader needs to pick another one.
+  const controls = (
+    <Controls>
+      <NumberArg
+          label="Window"
+          value={years}
+          min={1}
+          max={MAX_YEARS}
+          onSet={(next) => set({ years: String(next) })}
+          suffix={years === 1 ? "year" : "years"}
+        />
+    </Controls>
+  );
+
+  if (state.kind === LoadState.Loading)
+    return (
+      <section>
+        {controls}
+        <p className="muted">Loading {symbol} daily bars…</p>
+      </section>
+    );
+  if (state.kind === LoadState.Missing)
+    return (
+      <section>
+        {controls}
+        <MissingCard symbol={symbol} />
+      </section>
+    );
+  if (state.kind === LoadState.Error)
+    return (
+      <section>
+        {controls}
+        <ErrorCard message={state.message} onRetry={retry} />
+      </section>
+    );
+  if (state.kind === LoadState.Empty)
+    return (
+      <section>
+        {controls}
+        <EmptyCard what="daily bars" />
+      </section>
+    );
 
   return (
     <section>
+      {controls}
       <p className="chart-note">
         <span>
           {symbol} · daily · {years} {years === 1 ? "year" : "years"} · {candles.length} bars · UTC

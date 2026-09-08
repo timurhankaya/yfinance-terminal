@@ -155,6 +155,9 @@ export function HELP({ symbol }: PanelProps) {
       <p>
         Click a code to run it. Arguments are optional and positional; <code>[a|b|c]</code> lists the
         choices, <code>filter=value</code> narrows a dataset by one of the filters the catalogue lists for it.
+        Every argument below can also be clicked: the controls above a panel — intervals, windows, row
+        counts, filters — edit the same arguments this line documents, so <code>PX 5m 500</code> and
+        clicking them are one command and one address.
       </p>
       {groups.map(([title, list]) => (
         <div key={title}>

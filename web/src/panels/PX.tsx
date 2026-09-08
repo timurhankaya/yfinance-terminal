@@ -13,6 +13,7 @@ import {
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import { EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData } from "./common";
 import { DatasetTable } from "./table";
+import { Choice, Controls, NumberArg, useArgs } from "./controls";
 
 export const PX_ARGS = `PX [${BAR_INTERVALS.join("|")}] [rows 1-${PAGE_LIMIT}]`;
 export const PX_USAGE = `Usage: ${PX_ARGS}`;
@@ -54,6 +55,7 @@ export const BAR_COLUMNS: CatalogColumn[] = [
 export function PX({ symbol, args }: PanelProps) {
   const interval = intervalOr(args.interval, DEFAULT_INTERVAL);
   const rows = Number(args.rows ?? DEFAULT_ROWS);
+  const set = useArgs("PX", symbol, args);
   const { state, retry } = usePanelData<Row[]>(
     `${symbol ?? ""}|${interval}|${rows}`,
     () =>
@@ -63,16 +65,43 @@ export function PX({ symbol, args }: PanelProps) {
     (data) => data.length === 0,
   );
   if (symbol === null) return null;
-  if (state.kind === LoadState.Loading) return <p className="muted">Loading {symbol} {interval} bars…</p>;
-  if (state.kind === LoadState.Missing) return <MissingCard symbol={symbol} />;
-  if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
-  if (state.kind === LoadState.Empty) return <EmptyCard what={`${interval} bars`} />;
+  // The controls are the panel's, not its ready state's: an interval
+  // with no bars is exactly when a reader needs to pick another one.
+  const controls = (
+    <Controls>
+      <Choice
+        label="Interval"
+        value={interval}
+        options={BAR_INTERVALS}
+        onPick={(next) => set({ interval: next })}
+      />
+      <NumberArg
+        label="Rows"
+        value={rows}
+        min={1}
+        max={PAGE_LIMIT}
+        onSet={(next) => set({ rows: String(next) })}
+      />
+    </Controls>
+  );
+  let body;
+  if (state.kind === LoadState.Loading) body = <p className="muted">Loading {symbol} {interval} bars…</p>;
+  else if (state.kind === LoadState.Missing) body = <MissingCard symbol={symbol} />;
+  else if (state.kind === LoadState.Error) body = <ErrorCard message={state.message} onRetry={retry} />;
+  else if (state.kind === LoadState.Empty) body = <EmptyCard what={`${interval} bars`} />;
+  else
+    body = (
+      <>
+        <p className="detail-meta">
+          The newest {rows} {interval} bars, newest first. {PX_ARGS}
+        </p>
+        <DatasetTable columns={BAR_COLUMNS} rows={state.data} hide={["symbol"]} reverse />
+      </>
+    );
   return (
     <section>
-      <p className="detail-meta">
-        The newest {rows} {interval} bars, newest first. {PX_ARGS}
-      </p>
-      <DatasetTable columns={BAR_COLUMNS} rows={state.data} hide={["symbol"]} reverse />
+      {controls}
+      {body}
     </section>
   );
 }

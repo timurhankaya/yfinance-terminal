@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CA } from "./CA";
 import { PX, PX_PANEL, PX_USAGE } from "./PX";
@@ -53,8 +54,12 @@ describe("PX", () => {
         next_cursor: null,
       });
     });
+    // The interval and row controls run a command, so the panel needs
+    // the router the app always has around it.
     render(
-      <PX symbol="AAPL" args={{ interval: "1d", rows: "2" }} />,
+      <MemoryRouter>
+        <PX symbol="AAPL" args={{ interval: "1d", rows: "2" }} />
+      </MemoryRouter>,
     );
     const rows = await screen.findAllByRole("row");
     expect(rows[1]!.textContent).toContain("2026-09-04");

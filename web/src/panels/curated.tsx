@@ -5,6 +5,18 @@
 import { usePanelRun } from "../workspace/frame";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import { DatasetView, ExtraColumn, SymbolMode, filtersOf, parseFilters } from "./dataset";
+import { useArgs } from "./controls";
+import { PAGE_SIZE } from "../api/client";
+
+//: The args a tabbed panel owns itself: which tab, and how big a page
+//: asks for. Everything else is the dataset's filter.
+const OWN_ARGS = ["tab", "rows"];
+
+//: The page size follows the reader across tabs -- they set it because
+//: of how they read, not because of which table they were on.
+function pageArg(args: PanelArgs): PanelArgs {
+  return args.rows === undefined ? {} : { rows: args.rows };
+}
 import { TabChart } from "./tabcharts";
 
 /** How a tab takes the strip's symbol. `Required`: the tab needs it and
@@ -71,7 +83,8 @@ export function tabbedPanel(spec: TabbedPanelSpec): PanelSpec {
   function Component({ symbol, args }: PanelProps) {
     const go = usePanelRun();
     const current = spec.tabs.find((t) => t.key === args.tab) ?? first;
-    const filters = filtersOf(args, ["tab"]);
+    const filters = filtersOf(args, OWN_ARGS);
+    const set = useArgs(spec.code, symbol, args);
     const needs = current.symbol === TabSymbol.Required && symbol === null;
     return (
       <section>
@@ -82,7 +95,9 @@ export function tabbedPanel(spec: TabbedPanelSpec): PanelSpec {
               role="tab"
               aria-selected={tab.key === current.key}
               className={tab.key === current.key ? "tab tab-active" : "tab"}
-              onClick={() => go(({ symbol, code: spec.code, args: { ...filters, tab: tab.key } }))}
+              onClick={() =>
+                go({ symbol, code: spec.code, args: { ...filters, tab: tab.key, ...pageArg(args) } })
+              }
             >
               {tab.label}
             </button>
@@ -100,6 +115,8 @@ export function tabbedPanel(spec: TabbedPanelSpec): PanelSpec {
             mode={MODE_OF[current.symbol]}
             extra={current.extra}
             chart={current.chart}
+            pageSize={Number(args.rows ?? PAGE_SIZE)}
+            onArgs={(next) => set(next)}
           />
         )}
       </section>

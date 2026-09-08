@@ -8,6 +8,13 @@ import { usePanelRun } from "../workspace/frame";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import { ErrorCard, LoadState, useListKeys, usePanelData } from "./common";
 import { DatasetView, SymbolMode, filtersOf, parseFilters } from "./dataset";
+import { useArgs } from "./controls";
+import { PAGE_SIZE } from "../api/client";
+
+//: The args that are the panel's own rather than the dataset's
+//: filters: the dataset it is showing, and how many rows a page asks
+//: for.
+const OWN_ARGS = ["name", "rows"];
 
 export const DS_USAGE = "Usage: DS [dataset] [filter=value ...]  (DS alone lists every dataset)";
 
@@ -87,8 +94,18 @@ function Catalog({ symbol }: { symbol: string | null }) {
 
 export function DS({ symbol, args }: PanelProps) {
   const name = args.name;
+  const set = useArgs("DS", symbol, args);
   if (name === undefined) return <Catalog symbol={symbol} />;
-  return <DatasetView name={name} symbol={symbol} filters={filtersOf(args, ["name"])} mode={SymbolMode.Auto} />;
+  return (
+    <DatasetView
+      name={name}
+      symbol={symbol}
+      filters={filtersOf(args, OWN_ARGS)}
+      mode={SymbolMode.Auto}
+      pageSize={Number(args.rows ?? PAGE_SIZE)}
+      onArgs={(next) => set(next)}
+    />
+  );
 }
 
 export const DS_PANEL: PanelSpec = {

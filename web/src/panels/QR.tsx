@@ -18,6 +18,7 @@ import type { Tick } from "../live/types";
 import type { PanelArgs, PanelProps, PanelSpec } from "../commands/types";
 import { Layout } from "../commands/types";
 import { EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData } from "./common";
+import { Controls, NumberArg, useArgs } from "./controls";
 import { formatInteger } from "./table";
 import { formatPrice } from "./format";
 
@@ -82,6 +83,7 @@ export function mergeTape(tape: Tick[], history: Tick[], breaks: Set<string>): T
 
 export function QR({ symbol, args }: PanelProps) {
   const rows = Number(args.rows ?? TICKS_DEFAULT);
+  const set = useArgs("QR", symbol, args);
   const tape = useTape(symbol);
   const link = useLinkState();
   const enabled = useLiveEnabled();
@@ -115,9 +117,42 @@ export function QR({ symbol, args }: PanelProps) {
   const items = useMemo(() => mergeTape(tape, history, breaks), [tape, history, breaks]);
 
   if (symbol === null) return null;
-  if (state.kind === LoadState.Loading) return <p className="muted">Loading {symbol} ticks…</p>;
-  if (state.kind === LoadState.Missing) return <MissingCard symbol={symbol} />;
-  if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
+  // The controls are the panel's, not its ready state's: an interval
+  // with no bars is exactly when a reader needs to pick another one.
+  const controls = (
+    <Controls>
+      <NumberArg
+          label="Tape"
+          value={rows}
+          min={1}
+          max={MAX_ROWS}
+          onSet={(next) => set({ rows: String(next) })}
+          suffix="rows"
+        />
+    </Controls>
+  );
+
+  if (state.kind === LoadState.Loading)
+    return (
+      <section>
+        {controls}
+        <p className="muted">Loading {symbol} ticks…</p>
+      </section>
+    );
+  if (state.kind === LoadState.Missing)
+    return (
+      <section>
+        {controls}
+        <MissingCard symbol={symbol} />
+      </section>
+    );
+  if (state.kind === LoadState.Error)
+    return (
+      <section>
+        {controls}
+        <ErrorCard message={state.message} onRetry={retry} />
+      </section>
+    );
   if (items.length === 0) {
     return (
       <section>
@@ -135,6 +170,7 @@ export function QR({ symbol, args }: PanelProps) {
   const visible = items.slice(0, shown);
   return (
     <section>
+      {controls}
       <p className="chart-note">
         <span>
           {symbol} · time and sales · {items.length} {items.length === 1 ? "tick" : "ticks"} · UTC
