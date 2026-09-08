@@ -18,6 +18,7 @@ from yfin.datasets import (  # noqa: F401
     isin,
     market,
     news,
+    options,
     shares_full,
     symbols,
 )

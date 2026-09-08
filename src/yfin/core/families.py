@@ -30,6 +30,13 @@ class DataFamily(enum.StrEnum):
     NEWS = "news"
     DISCOVERY = "discovery"  # search, lookup, screener results
     DOMAINS = "domains"  # sector / industry
+    # Option expirations and chains. Not BARS, and the difference is
+    # behavioural rather than taxonomic: membership in that family
+    # routes a table through range change events and `_purge_bars`,
+    # both of which assume a series keyed by an instant. An option
+    # chain is keyed by (expiry, type, contract) and satisfies
+    # neither.
+    DERIVATIVES = "derivatives"  # option expirations and chains
 
 
 #: Every scope is read-only; the API writes nothing.

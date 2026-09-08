@@ -145,7 +145,10 @@ justifies every exclusion in writing. The justification is now beside
 each dataset as well (`datasets/shares_full.py`,
 `datasets/financials/statements.py`).
 
-**What IS an oversight, and is still open:** `Ticker.options` and
-`Ticker.option_chain()` are alive upstream and collected nowhere. That is
-a new table family and needs its own design
-(`docs/superpowers/specs/2026-09-07-kalan-isler.md`, madde 3).
+**The third surface WAS an oversight and is now collected.**
+`Ticker.options` and `Ticker.option_chain()` are alive upstream, and the
+`options` dataset writes both (`docs/superpowers/specs/2026-09-08-options-design.md`).
+Its cost is the thing to know: one request returns the expiry LIST plus
+the FIRST expiry's chain, and every expiry after that is another request.
+A symbol carries ten to twenty of them, so the dataset is opt-in and
+`yf_option_expiries` (default 4) bounds it.

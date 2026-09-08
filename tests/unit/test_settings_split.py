@@ -25,9 +25,9 @@ from yfin.core.config import (
 # browser publish path added two more on 2026-09-08, and they went to
 # DIFFERENT sides -- the switch is DB-managed, the Redis URL is env-only
 # because it carries a credential.
-SNAPSHOT_TOTAL = 83
+SNAPSHOT_TOTAL = 84
 SNAPSHOT_ENV_ONLY = 11
-SNAPSHOT_DB_MANAGED = 72
+SNAPSHOT_DB_MANAGED = 73
 
 SECRET_NAME_RE = re.compile(r"secret|password|token|credential")
 

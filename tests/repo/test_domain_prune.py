@@ -34,7 +34,9 @@ def test_symbol_side_defaults_are_unchanged() -> None:
     """Parameterizing this introduces zero behavior change."""
     mapping = asof_table_datasets()
     assert "asof_state" not in mapping
-    assert len(mapping) == 14
+    # Fourteen until the two option tables joined them (2026-09-08); they
+    # are picked up by being as-of, not by being listed anywhere.
+    assert len(mapping) == 16
     assert mapping["institutional_holders"] == ["institutional_holders", "mutualfund_holders"]
     # Domain tables do not leak into the symbol side's scope
     assert not any(name.startswith("domain_") for name in mapping)
@@ -164,7 +166,7 @@ def test_run_prune_calls_both_registries(db_session: Session) -> None:
     assert isinstance(AS_OF, date)
 
 
-def test_symbol_side_registry_still_has_thirteen_asof_datasets() -> None:
+def test_symbol_side_registry_still_has_fourteen_asof_datasets() -> None:
     """The `asof_state` gate family is still 13.
 
     Counted by gate table, not just by type: `search`/`lookup` are also
@@ -179,4 +181,4 @@ def test_symbol_side_registry_still_has_thirteen_asof_datasets() -> None:
         if isinstance(SYMBOL_DATASETS[n], AsOfDataset)
         and SYMBOL_DATASETS[n].asof_gate_table == GATE_TABLE
     )
-    assert count == 13
+    assert count == 14

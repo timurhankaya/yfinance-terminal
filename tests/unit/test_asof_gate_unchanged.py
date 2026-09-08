@@ -88,8 +88,15 @@ def _discovery_datasets() -> list[AsOfDataset[Any]]:
     ]
 
 
-def test_there_are_still_thirteen_symbol_side_asof_datasets() -> None:
-    assert len(_asof_datasets()) == 13
+def test_there_are_still_fourteen_symbol_side_asof_datasets() -> None:
+    """A count, so that adding one is a decision rather than a diff.
+
+    Thirteen until `options` joined them (2026-09-08): it is as-of by the
+    same argument as the holder lists -- one row per contract per day,
+    and the gate says when the chain was last verified rather than when
+    it last moved.
+    """
+    assert len(_asof_datasets()) == 14
 
 
 def test_symbol_side_gate_contract_is_unchanged() -> None:

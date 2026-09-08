@@ -93,15 +93,21 @@ def test_gate_table_is_never_pruned() -> None:
     assert "asof_state" not in asof_table_datasets()
 
 
-def test_asof_table_count_matches_the_fourteen_as_of_tables() -> None:
+def test_asof_table_count_matches_the_sixteen_as_of_tables() -> None:
     """Discovery tables have their own gate family, separate from this count.
 
     `asof_table_datasets` filters by gate table; `search`/`lookup` are also
     `AsOfGate` but do not count here. Without the filter this count would
-    jump from 14 to 24, and `prune_asof(asof_state)` would try to prune
+    jump from 16 to 26, and `prune_asof(asof_state)` would try to prune
     discovery tables using the wrong gate.
+
+    Fourteen until `option_expirations` and `option_quotes` joined them
+    (2026-09-08). Nothing was configured for them: the table list is
+    derived from the dataset's base class, so an as-of table is pruned by
+    being one -- which is the retention an option chain wants, since only
+    the recent surface is read and the newest day is always kept.
     """
-    assert len(asof_table_datasets()) == 14
+    assert len(asof_table_datasets()) == 16
 
 
 # --- pruning -------------------------------------------------------------

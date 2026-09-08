@@ -127,7 +127,12 @@ birlikte commit'leyin.
   ekseni duruyor ve hâlâ ~6 base + ~25 dataset'lik kendi turunu hak
   ediyor.
 
-- **Madde 3 ikiye ayrıldı; ikisi kapandı, biri açık.**
+- **Madde 3 tamamen kapandı.** `options` / `option_chain` için tablo
+  ailesi ve dataset yazıldı
+  (`docs/superpowers/specs/2026-09-08-options-design.md`): iki tablo,
+  `DataFamily.DERIVATIVES`, `opt_in=True` ve vade başına ayarlanabilir
+  bir tavan — maliyet bu tasarımın ana kısıtıydı, çünkü her vade ayrı
+  bir istek. Diğer iki yüzey ise eksik değildi:
   `Ticker.earnings`/`quarterly_earnings` upstream'de deprecated ve
   düpedüz `None` döndürüyor ("Look for \"Net Income\" in
   Ticker.income_stmt", yfinance 1.7.0) — o net kâr zaten
@@ -139,23 +144,14 @@ birlikte commit'leyin.
 
 ## Kalan işler (öncelik sırasıyla)
 
-### 1. `options` / `option_chain` için dataset yok
-yfinance'in `Ticker.option_chain()` / `options` yüzeyi hiç toplanmıyor
-ve repo genelinde (docs, test, yorum dahil) tek kelime geçmiyor. Yukarıda
-kapanan iki kardeşinin aksine bu **upstream'de canlı**: gerçek bir kapsam
-eksiği.
-**Yapılacak:** tablo ailesi + dataset. Yeni özellik, kendi tasarımını hak
-ediyor — vade listesi ile zincirin kendisi iki ayrı istek, zincir
-(sembol, vade) başına iki DataFrame, ve as-of/gate politikası seçilmeli.
-
-### 2. Yazma politikası metot olduğu için kalıtımla çoğalıyor (yapısal kısım)
+### 1. Yazma politikası metot olduğu için kalıtımla çoğalıyor (yapısal kısım)
 Somut zarar dördüncü turda kapandı (yukarıya bakın). Geriye "upsert bir
 metot olduğu için politika kalıtım ekseninde çoğalıyor" duruyor:
 `WritePolicy` protokolü (`PlainUpsert`, `SnapshotPolicy`,
 `HashGatePolicy`, `AsOfPolicy`) + gated base sınıflarının silinmesi.
 **Büyük iş** — ~6 base dosyası + ~25 dataset. Kendi planını hak ediyor.
 
-### 3. Tam evren tek IP'ye sığmıyor
+### 2. Tam evren tek IP'ye sığmıyor
 5.888 sembolün tam senkronu tek IP'de ~33 saat sürüyor, yani gecelik
 cadence'e sığmıyor. Bu bir kod kusuru değil, bekleyen bir **proxy
 kararı**; kod tarafı (`yfin proxy`) hazır.
@@ -186,5 +182,4 @@ kararı**; kod tarafı (`yfin proxy`) hazır.
 
 ## Nasıl ilerleyelim
 
-Üç madde kaldı ve üçü de kendi turunu hak ediyor: 1 yeni bir tablo
-ailesi, 2 bir refactor planı, 3 kod değil bir işletme kararı.
+İki madde kaldı: 1 bir refactor planı, 2 kod değil bir işletme kararı.

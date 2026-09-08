@@ -113,6 +113,17 @@ class Settings(BaseSettings):
     yf_retry_max_sec: float = _cfg(
         "client", "Backoff wait cap (seconds).", default=16.0, ge=0
     )
+    # Expiries fetched per symbol. The cost lives here and nowhere else:
+    # the first request returns the expiry LIST plus the first chain, and
+    # every expiry after that is one more request. A symbol has 10-20 of
+    # them, so "all" would multiply a run by fifteen; four covers a month
+    # of weeklies or a quarter of monthlies, and one alone is not a term
+    # structure. The dataset is opt-in regardless, so this only binds an
+    # operator who has asked for it.
+    yf_option_expiries: int = _cfg(
+        "datasets", "Expiries fetched per symbol; each one is a request.", default=4, ge=1, le=24
+    )
+
     yf_news_count: int = _cfg(
         "datasets", "Number of news items to fetch per symbol.", default=50, ge=1
     )

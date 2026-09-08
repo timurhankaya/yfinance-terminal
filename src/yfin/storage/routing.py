@@ -59,6 +59,7 @@ _HOLDERS = DataFamily.HOLDERS
 _NEWS = DataFamily.NEWS
 _DISCOVERY = DataFamily.DISCOVERY
 _DOMAINS = DataFamily.DOMAINS
+_DERIVATIVES = DataFamily.DERIVATIVES
 
 
 ROUTES: Final[Mapping[str, Route]] = {
@@ -109,6 +110,9 @@ ROUTES: Final[Mapping[str, Route]] = {
     "calendar_ipo": Route(_FUNDAMENTALS, "symbol"),
     "calendar_splits": Route(_FUNDAMENTALS, "symbol"),
     "calendar_economic": Route(_FUNDAMENTALS, "region"),
+    # --- derivatives ----------------------------------------------------
+    "option_expirations": Route(_DERIVATIVES, "symbol"),
+    "option_quotes": Route(_DERIVATIVES, "symbol"),
     # --- holders --------------------------------------------------------
     "holder_breakdown": Route(_HOLDERS, "symbol"),
     "institutional_holders": Route(_HOLDERS, "symbol"),

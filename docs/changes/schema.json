@@ -963,6 +963,55 @@
       "partition_key": "symbol",
       "topic": "yfin.changes.news"
     },
+    "option_expirations": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "expiry_date": "string (date)",
+        "fetched_at": "string (date-time)",
+        "symbol": "string"
+      },
+      "family": "derivatives",
+      "key_columns": [
+        "symbol",
+        "as_of_date",
+        "expiry_date"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.derivatives"
+    },
+    "option_quotes": {
+      "columns": {
+        "as_of_date": "string (date)",
+        "ask": "string (decimal)",
+        "bid": "string (decimal)",
+        "change": "string (decimal)",
+        "contract_size": "string",
+        "contract_symbol": "string",
+        "currency": "string",
+        "expiry_date": "string (date)",
+        "fetched_at": "string (date-time)",
+        "implied_volatility": "string (decimal)",
+        "in_the_money": "boolean",
+        "last_price": "string (decimal)",
+        "last_trade_ts_utc": "string (date-time)",
+        "open_interest": "integer",
+        "option_type": "string",
+        "percent_change": "string (decimal)",
+        "strike": "string (decimal)",
+        "symbol": "string",
+        "volume": "integer"
+      },
+      "family": "derivatives",
+      "key_columns": [
+        "symbol",
+        "as_of_date",
+        "expiry_date",
+        "option_type",
+        "contract_symbol"
+      ],
+      "partition_key": "symbol",
+      "topic": "yfin.changes.derivatives"
+    },
     "periodic_bars": {
       "columns": {
         "bar_interval": "string",
