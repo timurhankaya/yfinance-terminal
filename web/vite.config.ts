@@ -4,6 +4,8 @@ import react from "@vitejs/plugin-react";
 
 // Served by the API process under /ui; the build lands inside the Python
 // package so a wheel carries it (pyproject: package-data "yfin.ui").
+const API_ORIGIN = process.env.VITE_API_ORIGIN ?? "http://localhost:8000";
+
 export default defineConfig({
   plugins: [react()],
   base: "/ui/",
@@ -12,12 +14,15 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    // Same origin for the cookie: the dev server forwards everything the
-    // page calls to the API on :8000.
+    // Same origin, so the dev server forwards everything the page calls
+    // to the API. The port is not always 8000: `docker-compose` publishes
+    // `API_PORT`, and a machine with something else on 8000 sets it to
+    // something else -- so `VITE_API_ORIGIN` says where the API actually
+    // is, and 8000 stays the default it has always been.
     proxy: {
-      "/ui/api": "http://localhost:8000",
-      "/ui/ws": { target: "ws://localhost:8000", ws: true },
-      "/v1": "http://localhost:8000",
+      "/ui/api": API_ORIGIN,
+      "/ui/ws": { target: API_ORIGIN.replace(/^http/, "ws"), ws: true },
+      "/v1": API_ORIGIN,
     },
   },
   test: {
