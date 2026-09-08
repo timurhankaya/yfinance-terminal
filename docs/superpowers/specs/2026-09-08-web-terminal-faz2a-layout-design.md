@@ -1,6 +1,8 @@
 # Web terminal faz 2a: yerleşim, gruplar ve kayıtlı sayfalar
 
-Status: approved, not yet implemented
+Status: implemented, 2026-09-08 (2a-1 the layout skeleton, 2a-2 the
+group letters, 2a-3 saved pages. What changed while building it is in
+"Revizyonlar")
 Date: 2026-09-08
 Revised 2026-09-08 after three independent reviews (see "Revizyonlar").
 `2026-09-07-web-terminal-design.md`'nin çocuğu;
@@ -423,6 +425,36 @@ zaman ekseni sayfaya asılır, gruba değil) ve kalıcılık tek bir modülün
 2a-1 ile 2c-1 paralel yürütülebilir.
 
 ## Revizyonlar
+
+2026-09-08, 2a-3 uygulanırken:
+
+- **`PG` hem panel hem action olarak kayıtlı.** Panel sayfa
+  yöneticisidir ve fonksiyon çubuğunda yeri vardır; `PG SAVE trading` ve
+  `PG trading` ise ya depoya yazar ya da pencerenin tamamının hangi
+  sayfada olduğunu değiştirir — ikisi de bir panelin `parseArgs`'ının,
+  hele kaydetmeye çalıştığı yerleşimin içinden, yapabileceği iş değil.
+  Parser action'ları önce çözdüğü için yazılan her `PG` shell'e gelir;
+  çıplak biçimi paneli açar. Terminalde kodu paylaşan başka bir şey yok.
+- **Paylaşılan link önce depoya yazılıyor.**
+  İlk yazımda link doğrudan ekrana uygulanıyordu; ama adresten `?l=`
+  düşürülünce sayfa yeniden yükleme efekti depodan okuyup az önce
+  uygulananı siliyordu. Link artık `savePage` ile depoya yazılıp
+  adrese gidiliyor — sayfa her sayfayla aynı kapıdan giriyor.
+- **`useState` başlangıcı linki okumuyor.** Link uygulanmadan önce
+  sorulması gerekebilir ve o sorunun cevabını yalnız efekt bekleyebilir;
+  başlangıç değeri linki okusaydı teklif edilen sayfa zaten uygulanmış
+  olurdu.
+- **Abonelik bütçesi için `resubscribe()` eklendi.**
+  `subscribe` bilerek zaten istenmiş sembolleri atlıyor; sunucu bir
+  `sub` çerçevesini bütün olarak reddettiğinde istemcinin bildiği küme
+  sunucununkinin ilerisinde kalıyor, dolayısıyla panel kapanınca kümenin
+  tamamı yeniden isteniyor.
+- **`Page.dock` yalnız gerçek bir dockview belgesi olabilir.** Elle
+  yazılmış bir yerleşim `fromJSON`'da patlıyor (ve sayfa düşürülüyor);
+  testler bu yüzden sayfayı arayüzden kurup depodan okuyor.
+- **`chart-data.ts`'in renk sabitleri kaldırıldı** ve `Chart.tsx`'in
+  kendi `theme()`'i `viz/colors.ts`'e bağlandı: 2c'nin Karar 4'ü
+  TS'te ikinci renk tanımı bırakmıyor (2c-2 turunda).
 
 2026-09-08, üç bağımsız inceleme sonrası:
 

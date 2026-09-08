@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactElement } from "react";
-import { useLocation, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { ApiError, getSymbol } from "../api/client";
 import {
   DEFAULT_CODE,
@@ -17,9 +17,28 @@ import { useGo } from "../commands/go";
 import { CommandPalette } from "./CommandPalette";
 import { Workspace } from "./Workspace";
 import type { PanelSeed } from "./Workspace";
-import { GROUP_DETACH, GRP_CODE } from "../workspace/actions";
+import {
+  GROUP_DETACH,
+  GRP_CODE,
+  PG_CODE,
+  PG_SAVE,
+  SHARE_CODE,
+} from "../workspace/actions";
 import { canJoinGroup, parseGroup, symbolFor } from "../workspace/groups";
 import type { GroupSymbols } from "../workspace/groups";
+import { normalizeName, pagePath } from "../workspace/PG";
+import { PageName, decodePage, encodePage, seedsFromDock } from "../workspace/page";
+import type { Page } from "../workspace/page";
+import {
+  SAVE_DEBOUNCE_MS,
+  debounce,
+  dropPage,
+  pageKeyName,
+  readPage,
+  readStore,
+  savePage,
+} from "../workspace/store";
+import type { SerializedDockview } from "dockview-react";
 import { useGlobalKeys } from "./keys";
 
 /** The symbol a market page inherits, carried in the history entry.
@@ -56,26 +75,95 @@ function FnButton(props: {
   );
 }
 
+
+/** Everything a page is while it is on screen.
+ *
+ *  `panels` is what each panel is showing and `dock` is where they are;
+ *  the two come from the same stored document and go back to it
+ *  together, so there is no second copy to drift. `epoch` changes when a
+ *  DIFFERENT page is loaded, which is what remounts the dock -- dockview
+ *  reads a layout once, on the way up. */
+interface PageState {
+  name: string;
+  panels: PanelSeed[];
+  groups: GroupSymbols;
+  activeId: string | null;
+  /** The layout to restore, when this page came from the store or a link. */
+  dock?: SerializedDockview;
+  epoch: number;
+}
+
+//: A page nobody has arranged yet.
+function blankPage(name: string, epoch: number): PageState {
+  return {
+    name,
+    panels: [{ id: "home-1", code: HOME_CODE, symbol: null, args: {}, group: null }],
+    groups: {},
+    activeId: "home-1",
+    epoch,
+  };
+}
+
+function fromPage(page: Page, epoch: number): PageState {
+  const panels = seedsFromDock(page.dock);
+  return {
+    name: page.name,
+    panels: panels.length > 0 ? panels : blankPage(page.name, epoch).panels,
+    groups: page.groups,
+    activeId: panels[0]?.id ?? "home-1",
+    dock: panels.length > 0 ? page.dock : undefined,
+    epoch,
+  };
+}
+
+/** The page an address means: the one in the store, or a blank one.
+ *
+ *  A link is deliberately NOT read here. It may need to be offered
+ *  rather than applied, and that is a question with an answer only the
+ *  effect below can wait for. */
+function loadPage(name: string | undefined, epoch = 0): PageState {
+  if (name === undefined) return blankPage(PageName.Scratch, epoch);
+  const stored = readPage(name);
+  return stored === null ? blankPage(name, epoch) : fromPage(stored, epoch);
+}
+
+/** The counter in a panel id, or 0 for one shaped differently. */
+function idNumber(seed: PanelSeed): number {
+  const parsed = Number.parseInt(seed.id.slice(seed.id.lastIndexOf("-") + 1), 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** `gip-3`: the code and a counter.
+ *
+ *  Not a uuid. A shared link carries every id in it, and `SHARE`'s
+ *  character budget is spent on layout rather than on 36 characters of
+ *  randomness per panel. */
+function panelId(code: string, counter: { current: number }): string {
+  return `${code.toLowerCase()}-${counter.current++}`;
+}
+
+//: The query parameter a shared page arrives in.
+export const SHARE_PARAM = "l";
+
 export function Shell() {
   // `symbol` is absent on the market routes (`/ui/m/:code`, `/ui`);
   // present on `/ui/t/:symbol/:code`. Which of the two we are on is
   // therefore readable from the params alone.
   const { symbol: rawSymbol, code: rawCode, name: pageName } = useParams();
   const { search, state } = useLocation();
+  const navigate = useNavigate();
   const go = useGo();
   // A saved page is the one kind of page whose panels are not in its
-  // address. Until 2a-3 gives it a store they live here, so a reload
-  // starts it over -- which is the honest state of a page that has not
-  // been given anywhere to be saved yet.
+  // address: a grid of four does not fit in one, which is the whole
+  // reason the store exists.
   const saved = pageName !== undefined;
-  const [pagePanels, setPagePanels] = useState<PanelSeed[]>(() => [
-    { id: "p1", code: HOME_CODE, symbol: null, args: {}, group: null },
-  ]);
-  // What each letter is pointed at. A page-level fact: every panel
-  // wearing the letter reads the same symbol from here.
-  const [groups, setGroups] = useState<GroupSymbols>({});
-  const [activeId, setActiveId] = useState<string | null>("p1");
-  const nextId = useRef(2);
+  const [page, setPage] = useState<PageState>(() => loadPage(pageName));
+  const { panels: pagePanels, groups, activeId } = page;
+  const nextId = useRef(1);
+  // dockview's own document for the page on screen, kept so that a
+  // change to the LETTERS -- which are not in it -- can be saved without
+  // waiting for the next drag.
+  const dockRef = useRef<SerializedDockview | null>(null);
   const market = rawSymbol === undefined;
   const code = rawCode ?? (market ? HOME_CODE : DEFAULT_CODE);
   const context = (state as HistoryContext | null)?.symbol ?? null;
@@ -96,6 +184,12 @@ export function Shell() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState("");
   const [warning, setWarning] = useState<string | null>(null);
+  /** A page that arrived in a link and is waiting to be let in, because
+   *  the working page already has something on it. */
+  const [offer, setOffer] = useState<Page | null>(null);
+  /** The link `SHARE` wrote, shown under the command box until the next
+   *  command. */
+  const [shareLink, setShareLink] = useState<string | null>(null);
   const [palette, setPalette] = useState<{ open: boolean; query: string }>({ open: false, query: "" });
   const pendingRef = useRef<{ code: string; args: PanelArgs } | null>(null);
 
@@ -110,19 +204,20 @@ export function Shell() {
         return;
       }
       if (split) {
-        const id = `p${nextId.current++}`;
-        setPagePanels((current) => [...current, { id, ...next, group: null }]);
+        const id = panelId(next.code, nextId);
+        setPage((current) => ({ ...current, panels: [...current.panels, { id, ...next, group: null }] }));
         return;
       }
-      setPagePanels((current) =>
-        current.map((panel) =>
+      setPage((current) => ({
+        ...current,
+        panels: current.panels.map((panel) =>
           // A panel keeps its letter when its content changes: `GIP` in a
           // group-B panel is still B's.
-          panel.id === activeId ? { id: panel.id, group: panel.group, ...next } : panel,
+          panel.id === current.activeId ? { id: panel.id, group: panel.group, ...next } : panel,
         ),
-      );
+      }));
     },
-    [saved, go, activeId],
+    [saved, go],
   );
 
   /** A panel ran a command: it replaces itself, wherever it is. */
@@ -132,12 +227,104 @@ export function Shell() {
         go(next);
         return;
       }
-      setPagePanels((current) =>
-        current.map((panel) => (panel.id === id ? { id, group: panel.group, ...next } : panel)),
-      );
+      setPage((current) => ({
+        ...current,
+        panels: current.panels.map((panel) =>
+          panel.id === id ? { id, group: panel.group, ...next } : panel,
+        ),
+      }));
     },
     [saved, go],
   );
+
+  const setActiveId = useCallback((id: string | null) => {
+    setPage((current) => (current.activeId === id ? current : { ...current, activeId: id }));
+  }, []);
+
+  // A different address is a different page: read it, and give the dock a
+  // new `epoch` so it is rebuilt from the layout rather than being asked
+  // to morph into it.
+  const epoch = useRef(0);
+  const applyPage = useCallback((loaded: PageState) => {
+    dockRef.current = loaded.dock ?? null;
+    // Ids from a stored page are `code-n`; the counter has to clear the
+    // highest of them or the next split would collide with one.
+    nextId.current = 1 + loaded.panels.reduce((top, seed) => Math.max(top, idNumber(seed)), 0);
+    setPage(loaded);
+  }, []);
+
+  useEffect(() => {
+    if (!saved || pageName === undefined) return;
+    const encoded = new URLSearchParams(search).get(SHARE_PARAM);
+    if (encoded !== null) {
+      const link = decodePage(encoded);
+      if (link === null) {
+        // The working page is left exactly as it was: a link that will
+        // not decode is not a reason to throw away what is on screen.
+        setWarning("That link does not carry a page.");
+        void navigate(pagePath(pageName), { replace: true });
+        return;
+      }
+      // A link is only let in over an empty page. Anywhere else it is an
+      // offer, because the arrangement it would replace took work.
+      const current = readPage(pageName);
+      if (current !== null && seedsFromDock(current.dock).length > 0) {
+        setOffer({ ...link, name: pageName });
+        return;
+      }
+      // Stored, then navigated to: the page comes back through the same
+      // door every other page does, and the parameter is spent -- a link
+      // left in the address would be re-applied by the next Back, over
+      // whatever had been done since.
+      savePage({ ...link, name: pageName });
+      void navigate(pagePath(pageName), { replace: true });
+      return;
+    }
+    epoch.current += 1;
+    applyPage(loadPage(pageName, epoch.current));
+  }, [saved, pageName, search, applyPage, navigate]);
+
+  /** Writes the page back, at most once per quarter second.
+   *
+   *  dockview reports a layout change on every frame of a drag; a
+   *  `JSON.stringify` of the whole page per frame is a cost with nothing
+   *  to show for it. */
+  const persist = useMemo(
+    () =>
+      debounce(SAVE_DEBOUNCE_MS, (next: Page) => {
+        savePage(next);
+      }),
+    [],
+  );
+  useEffect(() => () => persist.cancel(), [persist]);
+
+  const onLayout = useCallback(
+    (dock: SerializedDockview) => {
+      dockRef.current = dock;
+      persist({ name: pageName ?? PageName.Scratch, groups, dock });
+    },
+    [persist, pageName, groups],
+  );
+
+  // The letters are a page-level fact and are not in dockview's document,
+  // so a change to them has to be written on its own rather than waiting
+  // for the next drag.
+  useEffect(() => {
+    if (!saved) return;
+    const dock = dockRef.current;
+    if (dock === null) return;
+    persist({ name: pageName ?? PageName.Scratch, groups, dock });
+  }, [saved, pageName, groups, persist]);
+
+  /** A stored layout dockview refused. The page is dropped rather than
+   *  left to fail on every visit; what it held is not recoverable and was
+   *  never data, only an arrangement. */
+  const onLayoutError = useCallback(() => {
+    const name = pageName ?? PageName.Scratch;
+    dropPage(name);
+    dockRef.current = null;
+    setWarning(`${name} could not be restored and has been forgotten.`);
+  }, [pageName]);
 
   const urlPanels = useMemo<PanelSeed[]>(
     () => [{ id: "main", code: command.code, symbol: command.symbol, args: command.args, group: null }],
@@ -152,14 +339,20 @@ export function Shell() {
    *  "this panel, intraday", and the strip and the function bar are about
    *  the same panel the command box is. */
   const focusedPanel = saved ? pagePanels.find((panel) => panel.id === activeId) : undefined;
-  const here: Command =
-    focusedPanel === undefined
-      ? command
-      : {
-          symbol: symbolFor(groups, focusedPanel.group, focusedPanel.symbol),
-          code: focusedPanel.code,
-          args: focusedPanel.args,
-        };
+  // Memoised because half a dozen callbacks depend on it: rebuilt every
+  // render, every one of them would be a new function every render too,
+  // and the effects that hold them would re-run for nothing.
+  const here: Command = useMemo(
+    () =>
+      focusedPanel === undefined
+        ? command
+        : {
+            symbol: symbolFor(groups, focusedPanel.group, focusedPanel.symbol),
+            code: focusedPanel.code,
+            args: focusedPanel.args,
+          },
+    [focusedPanel, command, groups],
+  );
 
   /** Pins the focused panel to a letter, or takes its letter away.
    *
@@ -188,8 +381,9 @@ export function Shell() {
       }
       setWarning(null);
       setDraft("");
-      setPagePanels((current) =>
-        current.map((panel) =>
+      setPage((current) => ({
+        ...current,
+        panels: current.panels.map((panel) =>
           panel.id !== focusedPanel.id
             ? panel
             : {
@@ -197,13 +391,83 @@ export function Shell() {
                 group,
                 // Unpinning keeps what the panel was showing: the letter
                 // goes, the symbol on screen does not.
-                symbol: group === null ? symbolFor(groups, panel.group, panel.symbol) : panel.symbol,
+                symbol:
+                  group === null ? symbolFor(current.groups, panel.group, panel.symbol) : panel.symbol,
               },
         ),
-      );
+      }));
     },
-    [focusedPanel, groups],
+    [focusedPanel],
   );
+
+  /** `PG`, `PG SAVE <name>`, `PG <name>`.
+   *
+   *  Saving is the shell's job rather than the panel's: the thing being
+   *  saved is the layout the panel is sitting inside, and opening one
+   *  changes what the whole window is. */
+  const runPage = useCallback(
+    (tokens: string[]) => {
+      setShareLink(null);
+      const [first, second] = tokens;
+      if (first === undefined) {
+        runHere({ symbol: here.symbol, code: PG_CODE, args: {} });
+        setDraft("");
+        return;
+      }
+      if (first.toUpperCase() === PG_SAVE) {
+        const name = second === undefined ? null : normalizeName(second);
+        if (name === null) {
+          setWarning(`A page name is letters, digits and dashes: PG ${PG_SAVE} trading`);
+          return;
+        }
+        const dock = dockRef.current;
+        if (!saved || dock === null) {
+          setWarning("There is no page to save yet: split this one with Ctrl+Enter first.");
+          return;
+        }
+        savePage({ name, groups, dock });
+        setWarning(null);
+        setDraft("");
+        // The name IS the address, so saving moves there: a page called
+        // `trading` that stayed on `/ui/w/-` would not be shareable or
+        // reloadable, which is what naming it was for.
+        void navigate(pagePath(name));
+        return;
+      }
+      const name = normalizeName(first);
+      if (name === null || readPage(name) === null) {
+        setWarning(`No page called ${first}.`);
+        runHere({ symbol: here.symbol, code: PG_CODE, args: {} });
+        return;
+      }
+      setWarning(null);
+      setDraft("");
+      void navigate(pagePath(name));
+    },
+    [runHere, here.symbol, saved, groups, navigate],
+  );
+
+  /** `SHARE`: the page as a link, written under the command box.
+   *
+   *  Nothing is sent anywhere. The terminal is public and has no user to
+   *  own a stored page, so the layout travels inside the address itself. */
+  const runShare = useCallback(() => {
+    const dock = dockRef.current;
+    if (!saved || dock === null) {
+      setWarning("SHARE works on a page: this address already is its own link.");
+      return;
+    }
+    const encoded = encodePage({ name: pageName ?? PageName.Scratch, groups, dock });
+    if (encoded === null) {
+      setWarning("This page is too big to put in a link. Close a panel or two and try again.");
+      return;
+    }
+    setWarning(null);
+    setDraft("");
+    setShareLink(
+      `${window.location.origin}${pagePath(PageName.Scratch)}?${SHARE_PARAM}=${encoded}`,
+    );
+  }, [saved, pageName, groups]);
 
   /** Checks a symbol against the archive, opening the palette when it is
    *  not there. `false` means the caller should stop. */
@@ -229,13 +493,27 @@ export function Shell() {
   const submit = useCallback(
     async (text: string, split = false) => {
       const result = parse(text, { symbol: here.symbol, code: here.code });
-      if (result.kind === ParseKind.Empty) return;
+      if (result.kind === ParseKind.Empty) {
+        // Enter on an empty box does nothing -- except answer the one
+        // question the shell ever asks, which is whether a link may
+        // replace the page that is already there.
+        if (offer !== null) {
+          savePage(offer);
+          setOffer(null);
+          setWarning(null);
+          void navigate(pagePath(offer.name), { replace: true });
+        }
+        return;
+      }
+      setShareLink(null);
       if (result.kind === ParseKind.Error) {
         setWarning(result.message);
         return;
       }
       if (result.kind === ParseKind.Action) {
         if (result.code === GRP_CODE) runGroup(result.tokens);
+        else if (result.code === PG_CODE) runPage(result.tokens);
+        else if (result.code === SHARE_CODE) runShare();
         return;
       }
 
@@ -258,7 +536,10 @@ export function Shell() {
         setDraft("");
         inputRef.current?.blur();
         if (group !== null) {
-          setGroups((current) => ({ ...current, [group]: result.symbol }));
+          setPage((current) => ({
+            ...current,
+            groups: { ...current.groups, [group]: result.symbol },
+          }));
           return;
         }
         if (fallback.kind === ParseKind.Command) runHere(fallback.command, split);
@@ -276,7 +557,7 @@ export function Shell() {
       inputRef.current?.blur();
       runHere(next, split);
     },
-    [here, runHere, runGroup, known, focusedPanel],
+    [here, runHere, runGroup, runPage, runShare, known, focusedPanel, offer, navigate],
   );
 
   // Focus the box once, on mount: the shell owns the keyboard from the
@@ -322,9 +603,22 @@ export function Shell() {
     runHere({ symbol: here.symbol, code: "HELP", args: {} });
   }, [runHere, here.symbol]);
 
-  useGlobalKeys({ inputRef, paletteOpen: palette.open, openHelp });
+  /** F1-F4, F7-F10: the saved page in that position. */
+  const onPageKey = useCallback(
+    (key: string) => {
+      const name = pageKeyName(readStore(), key);
+      if (name === null) {
+        setWarning(`${key} has no page yet. Arrange one and type PG ${PG_SAVE} <name>.`);
+        return;
+      }
+      setWarning(null);
+      void navigate(pagePath(name));
+    },
+    [navigate],
+  );
 
-  const spec = getPanel(here.code);
+  useGlobalKeys({ inputRef, paletteOpen: palette.open, openHelp, onPageKey });
+
   const hasSymbol = here.symbol !== null;
   const panels = listPanels();
   const market_panels = panels.filter((panel) => !panel.needsSymbol);
@@ -342,6 +636,18 @@ export function Shell() {
           onKeyDown={onKeyDown}
         />
         {warning && <p className="warn">{warning}</p>}
+        {offer !== null && (
+          <p className="warn">
+            This link carries a page. Enter to replace the working page — anything else leaves it
+            alone.
+          </p>
+        )}
+        {shareLink !== null && (
+          // Written out rather than copied to the clipboard: a terminal
+          // that silently took the clipboard would be doing something the
+          // reader did not ask for, and this is selectable.
+          <p className="share">{shareLink}</p>
+        )}
       </header>
       {/* Two groups, because they are two kinds of page and the URL now
           says so: a market page has no symbol in its address, a symbol
@@ -367,7 +673,18 @@ export function Shell() {
         ))}
       </nav>
       <main className="panel">
-        <Workspace panels={dockPanels} onRun={onRun} onActive={setActiveId} groups={groups} />
+        <Workspace
+          // A different page is a different dock: dockview reads a layout
+          // once, on the way up, so restoring one means building it.
+          key={page.epoch}
+          panels={dockPanels}
+          onRun={onRun}
+          onActive={setActiveId}
+          groups={groups}
+          initial={page.dock}
+          onLayout={saved ? onLayout : undefined}
+          onLayoutError={onLayoutError}
+        />
       </main>
       <footer className="credits" aria-label="credits">
         <span>Data</span>

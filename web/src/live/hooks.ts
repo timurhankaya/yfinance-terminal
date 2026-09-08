@@ -45,3 +45,10 @@ export function useLinkState(): LinkState {
 export function useDropped(): number {
   return useLive((state) => state.dropped);
 }
+
+/** True when the connection has been refused a subscription for being
+ *  over its symbol ceiling. Shown rather than swallowed: a panel with no
+ *  price looks like a quiet market. */
+export function useBudgetFull(): boolean {
+  return useLive((state) => state.budgetFull);
+}

@@ -16,7 +16,7 @@
 // Keeping every symbol's would grow without limit for a panel nobody has
 // open.
 import { create } from "zustand";
-import { LinkState, MarketHours, Op } from "./types";
+import { LinkState, MarketHours, Op, WsErrorCode } from "./types";
 import type { ServerFrame, Tick } from "./types";
 import { LiveSocket } from "./socket";
 import type { SocketLike } from "./socket";
@@ -33,6 +33,10 @@ export interface LiveState {
   link: LinkState;
   /** Ticks the server dropped for this connection, cumulative. */
   dropped: number;
+  /** True once the server has refused a subscription for being over the
+   *  connection's symbol ceiling. A page can reach it without any one
+   *  panel being unreasonable: two watchlists are 400 symbols. */
+  budgetFull: boolean;
   quotes: Record<string, Tick>;
   tapeSymbol: string | null;
   tape: Tick[];
@@ -42,6 +46,7 @@ export const useLive = create<LiveState>(() => ({
   enabled: false,
   link: LinkState.Closed,
   dropped: 0,
+  budgetFull: false,
   quotes: {},
   tapeSymbol: null,
   tape: [],
@@ -119,9 +124,13 @@ export function handleFrame(frame: ServerFrame): void {
       useLive.setState((state) => ({ dropped: state.dropped + frame.n }));
       return;
     case Op.Error:
-      // Nothing to repaint: `too_many` means this frame was refused and
-      // `bad_symbol` means one token was not a symbol. Both are the
-      // page's own bug, and the panel already shows what it has.
+      // `too_many` is recorded, because the server refuses the frame
+      // WHOLE: every symbol in it stays unsubscribed and the panels that
+      // asked would otherwise sit there quietly showing no price, which
+      // looks exactly like a quiet market. `bad_symbol` is still
+      // ignored: it names one token the page should not have sent, and
+      // the panel already shows what it has.
+      if (frame.code === WsErrorCode.TooMany) useLive.setState({ budgetFull: true });
       return;
   }
 }
@@ -161,6 +170,15 @@ export function release(symbol: string): void {
     retained.delete(symbol);
     snapAt.delete(symbol);
     socket?.unsubscribe([symbol]);
+    // Room again. Closing a panel is the reader's own answer to a full
+    // budget, so the set is asked for once more rather than waiting for
+    // a reconnection to do it. The duplicate `snap` this can cause for
+    // symbols the server did accept is the price of the retry, and it is
+    // paid only after a refusal.
+    if (useLive.getState().budgetFull) {
+      useLive.setState({ budgetFull: false });
+      socket?.resubscribe();
+    }
     return;
   }
   retained.set(symbol, count - 1);
@@ -188,6 +206,7 @@ export function resetLive(): void {
     enabled: false,
     link: LinkState.Closed,
     dropped: 0,
+    budgetFull: false,
     quotes: {},
     tapeSymbol: null,
     tape: [],

@@ -67,6 +67,17 @@ export class LiveSocket {
     if (fresh.length > 0) this.send({ op: Op.Sub, symbols: fresh });
   }
 
+  /** Asks for the whole set again.
+   *
+   *  For one situation only: the server refuses a `sub` frame WHOLE when
+   *  it would take the connection past its symbol ceiling
+   *  (`ui/live.py`), so after such a refusal the client's idea of what is
+   *  subscribed is ahead of the server's. `subscribe` cannot fix that --
+   *  it deliberately skips symbols it has already asked for. */
+  resubscribe(): void {
+    if (this.symbols.size > 0) this.send({ op: Op.Sub, symbols: [...this.symbols] });
+  }
+
   unsubscribe(symbols: string[]): void {
     const known = symbols.filter((symbol) => this.symbols.has(symbol));
     for (const symbol of known) this.symbols.delete(symbol);

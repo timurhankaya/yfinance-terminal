@@ -1,11 +1,14 @@
 import { useEffect } from "react";
 import type { RefObject } from "react";
 import { useNavigate } from "react-router";
+import { PAGE_KEYS } from "../workspace/store";
 
 export interface GlobalKeysArgs {
   inputRef: RefObject<HTMLInputElement | null>;
   paletteOpen: boolean;
   openHelp: () => void;
+  /** F1-F4 and F7-F10: the saved page in that position. */
+  onPageKey?: (key: string) => void;
 }
 
 function isTextInput(el: Element | null): boolean {
@@ -20,7 +23,7 @@ function isTextInput(el: Element | null): boolean {
  * turns Escape into "go back" when focus is elsewhere. Shift+Esc always
  * goes forward. The remaining shortcuts (Ctrl/Meta+K, "/", "?") are inert
  * while any INPUT/TEXTAREA is focused, so they never interrupt typing. */
-export function useGlobalKeys({ inputRef, paletteOpen, openHelp }: GlobalKeysArgs): void {
+export function useGlobalKeys({ inputRef, paletteOpen, openHelp, onPageKey }: GlobalKeysArgs): void {
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -44,6 +47,16 @@ export function useGlobalKeys({ inputRef, paletteOpen, openHelp }: GlobalKeysArg
         return;
       }
 
+      // The page keys are the one exception to "shortcuts are inert while
+      // a text field has focus": a function key types nothing, and a
+      // reader half-way through a command still expects F2 to be their
+      // second page.
+      if (PAGE_KEYS.includes(event.key)) {
+        event.preventDefault();
+        onPageKey?.(event.key);
+        return;
+      }
+
       if (isTextInput(document.activeElement)) return;
 
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
@@ -63,5 +76,5 @@ export function useGlobalKeys({ inputRef, paletteOpen, openHelp }: GlobalKeysArg
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [inputRef, paletteOpen, openHelp, navigate]);
+  }, [inputRef, paletteOpen, openHelp, onPageKey, navigate]);
 }

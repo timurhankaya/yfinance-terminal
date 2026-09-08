@@ -6,6 +6,9 @@ import { AppRoutes } from "./App";
 import { clearRegistry, registerPanel } from "../commands/registry";
 import { Layout } from "../commands/types";
 import { registerAll } from "../panels";
+import { PAGE_KEYS, readStore, savePage } from "../workspace/store";
+import { encodePage } from "../workspace/page";
+import type { Page } from "../workspace/page";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -374,5 +377,157 @@ describe("AppRoutes", () => {
     expect(document.activeElement).not.toBe(input);
     await userEvent.keyboard("/");
     expect(document.activeElement).toBe(input);
+  });
+});
+
+describe("saved pages", () => {
+  function stubApi() {
+    mockFetch((url) => {
+      if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
+      return json(404, { detail: "not here" });
+    });
+  }
+
+  function registerSimple(code: string) {
+    registerPanel({
+      code,
+      title: code,
+      needsSymbol: false,
+      layout: Layout.Single,
+      parseArgs: () => ({}),
+      component: () => <p>panel {code}</p>,
+    });
+  }
+
+  it("names the working page, stores it, and moves to its address", async () => {
+    // The name IS the address: a page called `trading` that stayed on
+    // `/ui/w/-` could be neither reloaded nor shared, which is what
+    // naming it was for.
+    stubApi();
+    registerSimple("AAA");
+    const user = userEvent.setup();
+    mount("/ui/w/-");
+    const box = await screen.findByLabelText("command");
+    await user.click(box);
+    await user.keyboard("AAA{Enter}");
+    await screen.findByText("panel AAA");
+
+    await user.click(box);
+    await user.keyboard("PG SAVE trading{Enter}");
+    await waitFor(() => expect(readStore().order).toEqual(["trading"]));
+    expect(readStore().pages.trading?.dock).toBeDefined();
+  });
+
+  it("refuses a name an address cannot carry", async () => {
+    stubApi();
+    const user = userEvent.setup();
+    mount("/ui/w/-");
+    const box = await screen.findByLabelText("command");
+    await user.click(box);
+    await user.keyboard("PG SAVE ../etc{Enter}");
+    expect(await screen.findByText(/A page name is letters, digits and dashes/)).toBeInTheDocument();
+    expect(readStore().order).toEqual([]);
+  });
+
+  it("brings a saved page back, panels and all", async () => {
+    stubApi();
+    registerSimple("AAA");
+    const user = userEvent.setup();
+    const first = mount("/ui/w/-");
+    const box = await screen.findByLabelText("command");
+    await user.click(box);
+    await user.keyboard("AAA{Enter}");
+    await screen.findByText("panel AAA");
+    await user.click(box);
+    await user.keyboard("PG SAVE trading{Enter}");
+    await waitFor(() => expect(readStore().pages.trading).toBeDefined());
+    first.unmount();
+
+    mount("/ui/w/trading");
+    expect(await screen.findByText("panel AAA")).toBeInTheDocument();
+  });
+
+  /** Builds a page through the UI and hands back what was stored.
+   *
+   *  A layout fixture cannot be hand-written: only dockview can produce
+   *  a document dockview will load, and a hand-made one is refused --
+   *  which is a real behaviour, tested elsewhere, and a useless fixture
+   *  here. */
+  async function buildPage(name: string, code: string): Promise<Page> {
+    const user = userEvent.setup();
+    const view = mount("/ui/w/-");
+    const box = await screen.findByLabelText("command");
+    await user.click(box);
+    await user.keyboard(`${code}{Enter}`);
+    await screen.findByText(`panel ${code}`);
+    await user.click(box);
+    await user.keyboard(`PG SAVE ${name}{Enter}`);
+    await waitFor(() => expect(readStore().pages[name]).toBeDefined());
+    view.unmount();
+    const stored = readStore().pages[name];
+    if (stored === undefined) throw new Error(`${name} was not stored`);
+    return stored;
+  }
+
+  it("opens a page from its function key, and says when a key has none", async () => {
+    stubApi();
+    registerSimple("AAA");
+    await buildPage("trading", "AAA");
+    const user = userEvent.setup();
+    mount("/ui/w/-");
+    await screen.findByLabelText("command");
+
+    await user.keyboard(`{${PAGE_KEYS[0] ?? "F1"}}`);
+    expect(await screen.findByText("panel AAA")).toBeInTheDocument();
+
+    await user.keyboard(`{${PAGE_KEYS[3] ?? "F4"}}`);
+    expect(await screen.findByText(/has no page yet/)).toBeInTheDocument();
+  });
+
+  it("writes the page as a link, and refuses when there is no page", async () => {
+    stubApi();
+    registerSimple("AAA");
+    const user = userEvent.setup();
+    mount("/ui/w/-");
+    const box = await screen.findByLabelText("command");
+    await user.click(box);
+    await user.keyboard("AAA{Enter}");
+    await screen.findByText("panel AAA");
+
+    await user.click(box);
+    await user.keyboard("SHARE{Enter}");
+    const link = await screen.findByText(/\?l=/);
+    expect(link.textContent ?? "").toContain("/ui/w/-?l=");
+  });
+
+  it("asks before a link replaces a page that has something on it", async () => {
+    // The arrangement a link would overwrite took work, so it is an
+    // offer rather than an ambush.
+    stubApi();
+    registerSimple("AAA");
+    registerSimple("BBB");
+    const other = await buildPage("other", "BBB");
+    const shared = encodePage({ ...other, name: "-" });
+    // The working page was left holding AAA on the way through.
+    savePage({ ...(await buildPage("kept", "AAA")), name: "-" });
+
+    const user = userEvent.setup();
+    mount(`/ui/w/-?l=${shared ?? ""}`);
+
+    expect(await screen.findByText(/Enter to replace the working page/)).toBeInTheDocument();
+    expect(await screen.findByText("panel AAA")).toBeInTheDocument();
+
+    const box = await screen.findByLabelText("command");
+    await user.click(box);
+    await user.keyboard("{Enter}");
+    expect(await screen.findByText("panel BBB")).toBeInTheDocument();
+  });
+
+  it("leaves the page alone when the link is not one", async () => {
+    stubApi();
+    const user = userEvent.setup();
+    mount("/ui/w/-?l=not-a-page");
+    expect(await screen.findByText(/does not carry a page/)).toBeInTheDocument();
+    expect(user).toBeDefined();
   });
 });

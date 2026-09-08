@@ -9,11 +9,15 @@
 // their own words.
 import { useEffect, useRef } from "react";
 import type { ReactElement } from "react";
-import { useDropped, useLinkState, useLiveEnabled, useQuote } from "../live/hooks";
+import { useBudgetFull, useDropped, useLinkState, useLiveEnabled, useQuote } from "../live/hooks";
 import { LinkState, MarketHours } from "../live/types";
 import type { Tick } from "../live/types";
 import { formatDecimal } from "../panels/table";
 import { formatPrice } from "../panels/format";
+
+//: The server's own ceiling, per connection and cumulative: a `sub`
+//: frame that would cross it is refused whole (`ui/live.py`, MAX_SYMBOLS).
+export const LIVE_MAX_SYMBOLS = 200;
 
 //: Keyed by `number`, not by `MarketHours`: `tick.mh` is whatever code
 //: the wire carried, and asserting it into the enum would make the
@@ -89,6 +93,7 @@ export function Strip({ symbol, live }: { symbol: string; live: boolean }): Reac
   const enabled = useLiveEnabled();
   const link = useLinkState();
   const dropped = useDropped();
+  const budgetFull = useBudgetFull();
 
   return (
     <div className="strip">
@@ -105,6 +110,14 @@ export function Strip({ symbol, live }: { symbol: string; live: boolean }): Reac
       {live && enabled && link !== LinkState.Open && (
         <span className="strip-link" title="reconnecting" aria-label="disconnected">
           ●
+        </span>
+      )}
+      {live && budgetFull && (
+        // A page, not a panel, can run out of budget: two watchlists are
+        // 400 symbols against a ceiling of 200. Said out loud, because a
+        // panel with no price is indistinguishable from a quiet market.
+        <span className="warn" title="close a panel to free subscriptions">
+          subscription budget full ({LIVE_MAX_SYMBOLS} symbols)
         </span>
       )}
       {live && dropped > 0 && (

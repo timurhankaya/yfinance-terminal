@@ -3,10 +3,10 @@
 // market, so each reason for stillness gets its own words.
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Strip, clock, direction, tickMove } from "./Strip";
+import { LIVE_MAX_SYMBOLS, Strip, clock, direction, tickMove } from "./Strip";
 import { handleFrame, resetLive, setSocketFactory, useLive } from "../live/store";
 import type { SocketLike } from "../live/socket";
-import { LinkState, MarketHours, Op } from "../live/types";
+import { LinkState, MarketHours, Op, WsErrorCode } from "../live/types";
 import type { Tick } from "../live/types";
 
 class DeadSocket implements SocketLike {
@@ -178,5 +178,30 @@ describe("direction", () => {
     expect(direction("-1.25")).toBe("down");
     expect(direction("0")).toBeUndefined();
     expect(direction(undefined)).toBeUndefined();
+  });
+});
+
+
+describe("the subscription budget", () => {
+  it("says when the connection has run out, and what the ceiling is", () => {
+    // A page can reach it without any one panel being unreasonable: two
+    // watchlists are 400 symbols against a ceiling of 200. A panel with
+    // no price looks like a quiet market, so this is said out loud.
+    render(<Strip symbol="AAPL" live />);
+    expect(screen.queryByText(/subscription budget/)).not.toBeInTheDocument();
+    act(() => {
+      handleFrame({ op: Op.Error, code: WsErrorCode.TooMany });
+    });
+    expect(
+      screen.getByText(`subscription budget full (${LIVE_MAX_SYMBOLS} symbols)`),
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing on a strip that is not live", () => {
+    render(<Strip symbol="AAPL" live={false} />);
+    act(() => {
+      handleFrame({ op: Op.Error, code: WsErrorCode.TooMany });
+    });
+    expect(screen.queryByText(/subscription budget/)).not.toBeInTheDocument();
   });
 });

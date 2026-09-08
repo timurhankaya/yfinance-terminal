@@ -25,7 +25,7 @@ keeping them in design documents would tie them to a design that changes.
 | [`database.md`](database.md) | PostgreSQL and TimescaleDB behaviours the schema depends on |
 | [`websocket.md`](websocket.md) | Yahoo's live quote socket: subscription and connection limits, message cadence, field coverage, the float32 artefact, snapshot lag, envelope format, write-path ceiling |
 | [`observability.md`](observability.md) | What watching the pipeline costs it: the freshness query against audit retention, log/span/scrape overhead, and why `asof_state` cannot answer the freshness question |
-| [`web-viz.md`](web-viz.md) | The terminal's SVG primitives: treemap layout and render by cell count, the 400-cell cap, a watchlist of sparklines |
+| [`web-viz.md`](web-viz.md) | The terminal's drawing and its pages: treemap layout and render by cell count, the 400-cell cap, a watchlist of sparklines, what saving and sharing a page costs |
 
 ## Reproducing a measurement
 

@@ -1,9 +1,14 @@
-# The terminal's SVG primitives
+# The terminal's drawing and its pages
 
-What the drawing layer costs the browser. Two decisions rest on it: that
-a treemap is drawn as SVG rather than canvas, and that it is capped at
-400 cells (`docs/superpowers/specs/2026-09-08-web-terminal-faz2c-viz-design.md`,
-"Kararlar" 10). Neither was to be defended by argument.
+What the browser terminal's two phase-2 layers cost it: the drawing
+primitives, and the pages that hold them.
+
+Three decisions rest on these numbers. That a treemap is drawn as SVG
+rather than canvas and is capped at 400 cells
+(`2026-09-08-web-terminal-faz2c-viz-design.md`, "Kararlar" 10); and that
+a saved page is kept as one whole JSON document written on a debounce
+(`2026-09-08-web-terminal-faz2a-layout-design.md`, "Kalıcılık"). None of
+them was to be defended by argument.
 
 Measured with vitest 4.1's benchmark runner, Node 22.15, jsdom, on Apple
 silicon (macOS 26.5, arm64):
@@ -11,6 +16,7 @@ silicon (macOS 26.5, arm64):
 ```
 npm --prefix web exec -- vitest bench --run src/panels/viz/treemap.bench.ts
 npm --prefix web exec -- vitest bench --run src/panels/viz/sparkline.bench.ts
+npm --prefix web exec -- vitest bench --run src/workspace/workspace.bench.ts
 ```
 
 The render half goes through `renderToStaticMarkup`, not a jsdom mount.
@@ -92,3 +98,61 @@ A timing would have measured the harness.
 200 symbols x 90 sessions in one statement over the `price_history`
 primary key; the route's own caps are what bound it, and the query has
 no measurement of its own yet.
+
+## Saved pages — 2026-09-08
+
+The terminal's first piece of state outside the URL, and the question is
+whether it can be as simple as it looks: a whole page, `JSON.stringify`d,
+written on a debounce and read back in one go
+(`docs/superpowers/specs/2026-09-08-web-terminal-faz2a-layout-design.md`,
+"Kalıcılık"). A page of eight panels is the realistic ceiling — eight is
+more than the seven group letters can fill.
+
+Reading a page back (`JSON.parse` of the store plus `seedsFromDock`,
+which is what a visit to a saved page costs before anything is drawn):
+
+| Panels | mean | p75 | p99 | ops/s |
+|---|---|---|---|---|
+| 1 | 0.0032 ms | 0.0021 ms | 0.0162 ms | 314,000 |
+| 4 | 0.0073 ms | 0.0095 ms | 0.0414 ms | 136,000 |
+| 8 | 0.0115 ms | 0.0160 ms | 0.0576 ms | 87,000 |
+
+Writing one out, which is what the end of every drag costs
+(`JSON.stringify` plus `localStorage.setItem`):
+
+| Panels | mean | p75 | p99 | ops/s |
+|---|---|---|---|---|
+| 1 | 0.0022 ms | 0.0028 ms | 0.0046 ms | 463,000 |
+| 4 | 0.0030 ms | 0.0025 ms | 0.0172 ms | 329,000 |
+| 8 | 0.0063 ms | 0.0061 ms | 0.0385 ms | 158,000 |
+
+`SHARE`, which is the same document as an address (encode plus decode,
+base64 both ways):
+
+| Panels | mean | p75 | ops/s |
+|---|---|---|---|
+| 1 | 0.055 ms | 0.043 ms | 18,200 |
+| 4 | 0.119 ms | 0.102 ms | 8,400 |
+| 8 | 0.186 ms | 0.180 ms | 5,400 |
+
+**Result: persistence is free at this size, and the debounce is not there
+for the cost.** Writing an eight-panel page is 0.006 ms — 0.04 % of a
+16.7 ms frame — so even the unbounded version, a write per drag frame,
+would not have been visible. The 250 ms debounce is there because
+`localStorage` is synchronous and shared with everything else on the
+origin, not because the serialisation is expensive. Scaling is close to
+linear in all three (1 → 8 panels is 8x the panels for 3.6x, 2.9x and
+3.4x the time), so nothing waits above eight.
+
+**What the numbers do NOT cover.** `fromJSON` itself: dockview rebuilds a
+grid and mounts React trees, and timing that in jsdom would have measured
+jsdom rather than a browser. The property that actually matters with four
+panels open is a render count, not a duration — one symbol's tick must
+redraw the panels about that symbol and no others — so it is asserted
+instead, in `app/Workspace.test.tsx` ("a tick on a page of panels"): four
+panels, two on each of two symbols, one tick, two re-renders.
+
+**The link's ceiling is not a timing either.** `SHARE` refuses a page
+over 4,000 characters; that number comes from the ~8 KB a URL survives
+end to end through a reverse proxy's header buffer, with base64's third
+of inflation allowed for. An eight-panel page encodes to well under it.

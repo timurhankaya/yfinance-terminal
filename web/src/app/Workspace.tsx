@@ -11,7 +11,12 @@
 // none (`ui/pages.py`).
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { DockviewReact } from "dockview-react";
-import type { DockviewApi, DockviewReadyEvent, IDockviewPanelProps } from "dockview-react";
+import type {
+  DockviewApi,
+  DockviewReadyEvent,
+  IDockviewPanelProps,
+  SerializedDockview,
+} from "dockview-react";
 import { getPanel } from "../commands/registry";
 import { Layout } from "../commands/types";
 import type { Command, PanelArgs } from "../commands/types";
@@ -111,9 +116,21 @@ export interface WorkspaceProps {
   onActive?: (id: string | null) => void;
   /** What each letter is pointed at. */
   groups?: GroupSymbols;
+  /** A layout to restore instead of seeding one from `panels`. Read once,
+   *  on the first render: after that dockview owns the arrangement. */
+  initial?: SerializedDockview;
+  /** The arrangement changed -- a drag, a split, a close. Fired with
+   *  dockview's own document, which is the only thing that knows where
+   *  the panels are. Absent on a page that IS an address: there is
+   *  nothing to save, because the address already says it. */
+  onLayout?: (dock: SerializedDockview) => void;
+  /** `initial` would not load. The page it came from is dropped by the
+   *  caller; the layout falls back to seeding from `panels`. */
+  onLayoutError?: () => void;
 }
 
-export function Workspace({ panels, onRun, onActive, groups = {} }: WorkspaceProps) {
+export function Workspace(props: WorkspaceProps) {
+  const { panels, onRun, onActive, groups = {}, initial, onLayout, onLayoutError } = props;
   const apiRef = useRef<DockviewApi | null>(null);
   const seedRef = useRef(panels);
   seedRef.current = panels;
@@ -123,10 +140,33 @@ export function Workspace({ panels, onRun, onActive, groups = {} }: WorkspacePro
   activeRef.current = onActive;
   const groupsRef = useRef(groups);
   groupsRef.current = groups;
+  // Refs, not dependencies: `onReady` runs once, and rebuilding the dock
+  // because a callback changed identity would throw away the layout.
+  const initialRef = useRef(initial);
+  initialRef.current = initial;
+  const layoutRef = useRef(onLayout);
+  layoutRef.current = onLayout;
+  const layoutErrorRef = useRef(onLayoutError);
+  layoutErrorRef.current = onLayoutError;
 
   const onReady = useCallback((event: DockviewReadyEvent) => {
     apiRef.current = event.api;
     event.api.onDidActivePanelChange((change) => activeRef.current?.(change.panel?.id ?? null));
+    // A saved layout is restored whole -- sizes, splits and the active
+    // panel -- because those are exactly what an address could not carry.
+    // Only dockview can say whether a stored document loads, so this is
+    // where a page-level failure is caught (spec, "Kararlar" 9).
+    const stored = initialRef.current;
+    if (stored !== undefined) {
+      try {
+        event.api.fromJSON(stored);
+        event.api.onDidLayoutChange(() => layoutRef.current?.(event.api.toJSON()));
+        return;
+      } catch {
+        event.api.clear();
+        layoutErrorRef.current?.();
+      }
+    }
     let previous: string | undefined;
     for (const seed of seedRef.current) {
       event.api.addPanel<PanelParams>({
@@ -138,6 +178,9 @@ export function Workspace({ panels, onRun, onActive, groups = {} }: WorkspacePro
       });
       previous = seed.id;
     }
+    // Subscribed after the seeding, so the page is not written back
+    // once per panel while it is being built.
+    event.api.onDidLayoutChange(() => layoutRef.current?.(event.api.toJSON()));
   }, []);
 
   // Content changes reach dockview through each panel's own parameters,

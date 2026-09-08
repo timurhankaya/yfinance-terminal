@@ -33,3 +33,6 @@ web/playwright-report/
 # by the SDD tooling. Per run, not per project -- the decisions that
 # survive a run are in docs/superpowers/, which IS committed.
 .superpowers/
+
+# Vitest caches here when a bench is run from the repo root.
+node_modules/

@@ -15,6 +15,7 @@ import { HEAT_PANEL } from "./HEAT";
 import { HELP_PANEL } from "./HELP";
 import { HOME_PANEL } from "./HOME";
 import { N_PANEL } from "./N";
+import { PG_PANEL } from "../workspace/PG";
 import { PX_PANEL } from "./PX";
 import { QR_PANEL } from "./QR";
 import { WLA_PANEL } from "./WLA";
@@ -35,6 +36,7 @@ export function registerAll(): void {
   registerPanel(HELP_PANEL);
   registerPanel(HOME_PANEL);
   registerPanel(N_PANEL);
+  registerPanel(PG_PANEL);
   registerPanel(PX_PANEL);
   registerPanel(QR_PANEL);
   registerPanel(WLA_PANEL);

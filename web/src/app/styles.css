@@ -133,6 +133,10 @@ dl.des dd { margin: 0; word-break: break-word; }
    column does not resize as symbols come and go. */
 .spark { width: 72px; height: 18px; }
 .grid td.spark-cell { width: 88px; padding-top: 2px; padding-bottom: 2px; }
+/* The link SHARE writes: long, selectable, and never wider than the
+   window. */
+.share { margin: 4px 0 0; padding: 4px 0; color: var(--muted); font-size: 11px; word-break: break-all; user-select: all; }
+.pages .list-row { display: flex; gap: 8px; align-items: baseline; }
 @media (prefers-reduced-motion: reduce) { .strip-price, .tape-line { animation: none !important; } }
 
 /* The dock, in the terminal's colours. dockview ships its palette as

@@ -11,7 +11,7 @@ import {
   useLive,
 } from "./store";
 import type { SocketLike } from "./socket";
-import { MarketHours, Op } from "./types";
+import { MarketHours, Op, WsErrorCode } from "./types";
 import type { Tick } from "./types";
 
 class FakeSocket implements SocketLike {
@@ -221,5 +221,53 @@ describe("isRegularSession", () => {
     expect(isRegularSession(tick({ mh: MarketHours.Regular }))).toBe(true);
     expect(isRegularSession(tick({ mh: MarketHours.PreMarket }))).toBe(false);
     expect(isRegularSession(tick({ mh: MarketHours.PostMarket }))).toBe(false);
+  });
+});
+
+
+describe("the subscription budget", () => {
+  it("records a refusal instead of swallowing it", async () => {
+    // The server refuses a `sub` frame WHOLE when it would cross the
+    // connection's ceiling, so every symbol in it stays unsubscribed.
+    // Ignored, those panels would sit showing no price, which is
+    // indistinguishable from a quiet market.
+    retain("AAPL");
+    await Promise.resolve();
+    expect(useLive.getState().budgetFull).toBe(false);
+    handleFrame({ op: Op.Error, code: WsErrorCode.TooMany });
+    expect(useLive.getState().budgetFull).toBe(true);
+  });
+
+  it("still says nothing about one bad token", () => {
+    handleFrame({ op: Op.Error, code: WsErrorCode.BadSymbol });
+    expect(useLive.getState().budgetFull).toBe(false);
+  });
+
+  it("asks again when a panel closes, because that is what made room", async () => {
+    retain("AAPL");
+    retain("MSFT");
+    await Promise.resolve();
+    handleFrame({ op: Op.Error, code: WsErrorCode.TooMany });
+
+    release("MSFT");
+
+    expect(useLive.getState().budgetFull).toBe(false);
+    // The whole set, not the one symbol: after a refused frame the
+    // client's idea of what is subscribed is ahead of the server's, and
+    // `subscribe` deliberately skips what it has already asked for.
+    expect(sent()).toEqual([
+      { op: Op.Sub, symbols: ["AAPL", "MSFT"] },
+      { op: Op.Unsub, symbols: ["MSFT"] },
+      { op: Op.Sub, symbols: ["AAPL"] },
+    ]);
+  });
+
+  it("does not ask again while a symbol still has panels on it", async () => {
+    retain("AAPL");
+    retain("AAPL");
+    await Promise.resolve();
+    handleFrame({ op: Op.Error, code: WsErrorCode.TooMany });
+    release("AAPL");
+    expect(useLive.getState().budgetFull).toBe(true);
   });
 });
