@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import type { RefObject } from "react";
 import { useNavigate } from "react-router";
 import { PAGE_KEYS } from "../workspace/store";
+import { Direction } from "../workspace/neighbour";
 
 export interface GlobalKeysArgs {
   inputRef: RefObject<HTMLInputElement | null>;
@@ -9,7 +10,19 @@ export interface GlobalKeysArgs {
   openHelp: () => void;
   /** F1-F4 and F7-F10: the saved page in that position. */
   onPageKey?: (key: string) => void;
+  /** Ctrl+Shift+arrow: hand the keyboard to the panel that way. */
+  onMoveFocus?: (direction: Direction) => void;
 }
+
+//: Ctrl+Shift rather than Alt: Alt+left and Alt+right are back and
+//: forward on Windows and Linux, and this terminal already spends Esc
+//: and Shift+Esc on those.
+const ARROWS: Record<string, Direction> = {
+  ArrowLeft: Direction.Left,
+  ArrowRight: Direction.Right,
+  ArrowUp: Direction.Up,
+  ArrowDown: Direction.Down,
+};
 
 function isTextInput(el: Element | null): boolean {
   return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
@@ -23,13 +36,29 @@ function isTextInput(el: Element | null): boolean {
  * turns Escape into "go back" when focus is elsewhere. Shift+Esc always
  * goes forward. The remaining shortcuts (Ctrl/Meta+K, "/", "?") are inert
  * while any INPUT/TEXTAREA is focused, so they never interrupt typing. */
-export function useGlobalKeys({ inputRef, paletteOpen, openHelp, onPageKey }: GlobalKeysArgs): void {
+export function useGlobalKeys({
+  inputRef,
+  paletteOpen,
+  openHelp,
+  onPageKey,
+  onMoveFocus,
+}: GlobalKeysArgs): void {
   const navigate = useNavigate();
 
   useEffect(() => {
     function handler(event: KeyboardEvent) {
       if (paletteOpen) return;
       const onCommandBox = document.activeElement === inputRef.current;
+
+      // Moving between panels works from the command box too: a reader
+      // who has just typed into it should not have to click a panel to
+      // point the keyboard somewhere else.
+      const arrow = (event.ctrlKey || event.metaKey) && event.shiftKey ? ARROWS[event.key] : undefined;
+      if (arrow !== undefined) {
+        event.preventDefault();
+        onMoveFocus?.(arrow);
+        return;
+      }
 
       if (event.key === "Escape") {
         // Shift+Esc is "forward" from anywhere, the command box included
@@ -76,5 +105,5 @@ export function useGlobalKeys({ inputRef, paletteOpen, openHelp, onPageKey }: Gl
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [inputRef, paletteOpen, openHelp, onPageKey, navigate]);
+  }, [inputRef, paletteOpen, openHelp, onPageKey, onMoveFocus, navigate]);
 }

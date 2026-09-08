@@ -54,6 +54,21 @@ const SHORTCUTS: ReadonlyArray<[keys: string, where: string, what: string]> = [
   ["Ctrl+K or ⌘+K", "anywhere", "Focus the command box."],
   ["/", "outside a text field", "Focus the command box."],
   ["Enter", "in the command box", "Run the command. The box then hands the keyboard to the panel."],
+  [
+    "Ctrl+Enter or ⌘+Enter",
+    "in the command box",
+    "Open the result in a second panel beside this one instead of in it.",
+  ],
+  [
+    "Ctrl+Shift+arrow or ⌘+Shift+arrow",
+    "anywhere",
+    "Hand the keyboard to the panel in that direction. Ctrl+Shift, not Alt: Alt+left and Alt+right are the browser's own back and forward.",
+  ],
+  [
+    "F1-F4, F7-F10",
+    "anywhere, the command box included",
+    "Open the saved page in that position, in the order PG lists. F5, F6, F11 and F12 belong to the browser and cannot be taken back.",
+  ],
   ["Esc", "in the command box", "Clear it and leave it, so the panel's keys work."],
   ["Esc", "outside a text field", "Go back one step (browser history: every command is a step)."],
   ["Shift+Esc", "outside a text field", "Go forward one step."],

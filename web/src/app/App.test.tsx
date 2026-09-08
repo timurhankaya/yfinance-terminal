@@ -426,7 +426,10 @@ describe("saved pages", () => {
     await user.click(box);
     await user.keyboard("PG SAVE ../etc{Enter}");
     expect(await screen.findByText(/A page name is letters, digits and dashes/)).toBeInTheDocument();
-    expect(readStore().order).toEqual([]);
+    // The working page writes itself after a quarter second, so "nothing
+    // was stored" is not the claim -- "that name was not" is.
+    expect(readStore().pages["../etc"]).toBeUndefined();
+    expect(readStore().order).not.toContain("../etc");
   });
 
   it("brings a saved page back, panels and all", async () => {

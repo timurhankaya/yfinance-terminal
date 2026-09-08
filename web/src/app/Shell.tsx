@@ -38,7 +38,9 @@ import {
   readStore,
   savePage,
 } from "../workspace/store";
-import type { SerializedDockview } from "dockview-react";
+import type { DockviewApi, SerializedDockview } from "dockview-react";
+import { Direction, pickNeighbour } from "../workspace/neighbour";
+import type { Box } from "../workspace/neighbour";
 import { useGlobalKeys } from "./keys";
 
 /** The symbol a market page inherits, carried in the history entry.
@@ -184,6 +186,9 @@ export function Shell() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState("");
   const [warning, setWarning] = useState<string | null>(null);
+  //: The dock itself, for the one question that is about pixels: which
+  //: panel is to the left of this one.
+  const apiRef = useRef<DockviewApi | null>(null);
   /** A page that arrived in a link and is waiting to be let in, because
    *  the working page already has something on it. */
   const [offer, setOffer] = useState<Page | null>(null);
@@ -400,6 +405,27 @@ export function Shell() {
     [focusedPanel],
   );
 
+  /** Hands the keyboard to the panel in that direction.
+   *
+   *  dockview has no directional navigation, so this is worked out from
+   *  where the panels are: each group's rectangle, and the arithmetic in
+   *  `pickNeighbour`. A group is one box however many tabs it holds --
+   *  the tabs are stacked in the same place, so "left" cannot mean one of
+   *  them. */
+  const onMoveFocus = useCallback((direction: Direction) => {
+    const api = apiRef.current;
+    if (api === null) return;
+    const boxes: Box[] = [];
+    for (const group of api.groups) {
+      const id = group.activePanel?.id;
+      if (id === undefined) continue;
+      const rect = group.element.getBoundingClientRect();
+      boxes.push({ id, left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+    }
+    const next = pickNeighbour(boxes, api.activePanel?.id ?? "", direction);
+    if (next !== null) api.getPanel(next)?.api.setActive();
+  }, []);
+
   /** `PG`, `PG SAVE <name>`, `PG <name>`.
    *
    *  Saving is the shell's job rather than the panel's: the thing being
@@ -425,7 +451,13 @@ export function Shell() {
           setWarning("There is no page to save yet: split this one with Ctrl+Enter first.");
           return;
         }
+        // Naming the working page MOVES it. Two things would otherwise
+        // leave `-` behind: the copy itself, and the write already
+        // scheduled under the old name, which lands a quarter second
+        // later and puts the working page back.
+        persist.cancel();
         savePage({ name, groups, dock });
+        if (pageName === PageName.Scratch) dropPage(PageName.Scratch);
         setWarning(null);
         setDraft("");
         // The name IS the address, so saving moves there: a page called
@@ -444,7 +476,7 @@ export function Shell() {
       setDraft("");
       void navigate(pagePath(name));
     },
-    [runHere, here.symbol, saved, groups, navigate],
+    [runHere, here.symbol, saved, groups, navigate, persist, pageName],
   );
 
   /** `SHARE`: the page as a link, written under the command box.
@@ -617,7 +649,7 @@ export function Shell() {
     [navigate],
   );
 
-  useGlobalKeys({ inputRef, paletteOpen: palette.open, openHelp, onPageKey });
+  useGlobalKeys({ inputRef, paletteOpen: palette.open, openHelp, onPageKey, onMoveFocus });
 
   const hasSymbol = here.symbol !== null;
   const panels = listPanels();
@@ -684,6 +716,7 @@ export function Shell() {
           initial={page.dock}
           onLayout={saved ? onLayout : undefined}
           onLayoutError={onLayoutError}
+          onApi={(api) => (apiRef.current = api)}
         />
       </main>
       <footer className="credits" aria-label="credits">

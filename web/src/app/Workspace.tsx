@@ -127,6 +127,10 @@ export interface WorkspaceProps {
   /** `initial` would not load. The page it came from is dropped by the
    *  caller; the layout falls back to seeding from `panels`. */
   onLayoutError?: () => void;
+  /** The dock, once. The shell needs it for the one thing it cannot ask
+   *  for declaratively: where the panels are on screen, which is what
+   *  "the panel to the left" means. */
+  onApi?: (api: DockviewApi) => void;
 }
 
 export function Workspace(props: WorkspaceProps) {
@@ -140,6 +144,9 @@ export function Workspace(props: WorkspaceProps) {
   activeRef.current = onActive;
   const groupsRef = useRef(groups);
   groupsRef.current = groups;
+  const apiOut = useRef(props.onApi);
+  apiOut.current = props.onApi;
+
   // Refs, not dependencies: `onReady` runs once, and rebuilding the dock
   // because a callback changed identity would throw away the layout.
   const initialRef = useRef(initial);
@@ -151,6 +158,7 @@ export function Workspace(props: WorkspaceProps) {
 
   const onReady = useCallback((event: DockviewReadyEvent) => {
     apiRef.current = event.api;
+    apiOut.current?.(event.api);
     event.api.onDidActivePanelChange((change) => activeRef.current?.(change.panel?.id ?? null));
     // A saved layout is restored whole -- sizes, splits and the active
     // panel -- because those are exactly what an address could not carry.
