@@ -73,6 +73,36 @@ describe("Bars", () => {
     }
   });
 
+  it("marks a category on the axis without giving it a value", () => {
+    // A split has no amount; drawn on the value scale it would claim one.
+    const { container } = render(
+      <Bars
+        label="dividends"
+        categories={["2024", "2025"]}
+        series={[{ key: "d", label: "Dividend", values: [1, 2] }]}
+        marks={[{ category: "2025", label: "4:1 split" }]}
+        format={money}
+      />,
+    );
+    const mark = container.querySelector("polygon");
+    expect(mark?.querySelector("title")?.textContent).toBe("4:1 split");
+    expect(mark?.getAttribute("fill")).toBe(FALLBACK.accent);
+    expect(screen.getByText(/1 mark on the axis: 4:1 split/)).toBeInTheDocument();
+  });
+
+  it("ignores a mark on a category that is not drawn", () => {
+    const { container } = render(
+      <Bars
+        label="dividends"
+        categories={["2024"]}
+        series={[{ key: "d", label: "Dividend", values: [1] }]}
+        marks={[{ category: "1998", label: "old split" }]}
+        format={money}
+      />,
+    );
+    expect(container.querySelector("polygon")).toBeNull();
+  });
+
   it("draws nothing without categories", () => {
     const { container } = render(
       <Bars label="empty" categories={[]} series={[]} format={money} />,

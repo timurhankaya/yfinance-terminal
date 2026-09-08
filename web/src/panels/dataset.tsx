@@ -7,6 +7,7 @@ import type { PanelArgs } from "../commands/types";
 import { EmptyCard, ErrorCard, LoadState, NextPageError, usePagedRows, usePanelData, type Column } from "./common";
 import { linksFor } from "./links";
 import { SparkCell, rowSymbols, sparkLabel, useSparklines } from "./spark";
+import { TabChartView, type TabChart } from "./tabcharts";
 import { DatasetTable } from "./table";
 
 /** How a dataset takes the strip's symbol.
@@ -94,8 +95,9 @@ export function DatasetView(props: {
   filters: PanelArgs;
   mode: SymbolMode;
   extra?: ExtraColumn[];
+  chart?: TabChart;
 }): ReactElement {
-  const { name, symbol, filters, mode, extra = NO_EXTRAS } = props;
+  const { name, symbol, filters, mode, extra = NO_EXTRAS, chart } = props;
   const filterKey = Object.entries(filters)
     .sort()
     .map(([k, v]) => `${k}=${v}`)
@@ -157,6 +159,9 @@ export function DatasetView(props: {
         {entry.filters.length > 0 && <> · filters: {entry.filters.map((f) => `${f}=`).join(" ")}</>}
         {state.data.symbol !== null && <> · {state.data.symbol}</>}
       </p>
+      {/* Above the table, never instead of it: the one thing a chart
+          cannot show is the exact figure. */}
+      {chart !== undefined && <TabChartView kind={chart} rows={rows} symbol={state.data.symbol ?? symbol} />}
       <DatasetTable
         key={entry.name}
         columns={entry.columns}

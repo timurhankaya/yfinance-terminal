@@ -4,6 +4,7 @@ import { useGo } from "../commands/go";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import { DataTable, EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData, type Column } from "./common";
 import { asNumber, formatBig } from "./format";
+import { Bars } from "./viz";
 
 /** The API's statement kind. "valuation" exists on the API too but is not
  *  a statement a terminal user reads as one; it stays reachable through
@@ -101,6 +102,56 @@ export function cell(value: unknown): string {
   return Math.abs(n) < 1000 ? n.toFixed(2) : formatBig(n);
 }
 
+
+//: The two lines every income statement has and every reader looks at
+//: first. Yahoo's own item keys, which is what the archive stores.
+export const REVENUE_ITEM = "TotalRevenue";
+export const INCOME_ITEM = "NetIncome";
+
+export interface IncomeChart {
+  categories: string[];
+  revenue: Array<number | null>;
+  income: Array<number | null>;
+  /** Net income as a percentage of revenue, on its own axis: a margin of
+   *  25 next to a revenue of 400 billion shares no scale with it. */
+  margin: Array<number | null>;
+}
+
+/** Revenue and net income per period, oldest first, or null when the
+ *  statement does not carry both.
+ *
+ *  Oldest first, unlike the table beside it: a table is read down from
+ *  the newest row, and a time axis is read left to right. Null when
+ *  either item is absent -- a balance sheet has no revenue, and half a
+ *  chart is worse than none.
+ */
+export function incomeChart(table: Pivot, freq: Freq): IncomeChart | null {
+  const revenueRow = table.rows.find((row) => row.item === REVENUE_ITEM);
+  const incomeRow = table.rows.find((row) => row.item === INCOME_ITEM);
+  if (revenueRow === undefined || incomeRow === undefined) return null;
+  const periods = [...table.periods].reverse();
+  const revenue = periods.map((period) => asNumber(revenueRow[period]));
+  const income = periods.map((period) => asNumber(incomeRow[period]));
+  if (revenue.every((value) => value === null)) return null;
+  return {
+    // A fiscal year is its year; a quarter needs the month to be told
+    // from the next one. A full ISO date would not fit on the axis.
+    categories: periods.map((period) =>
+      freq === Freq.Annual ? period.slice(0, 4) : period.slice(0, 7),
+    ),
+    revenue,
+    income,
+    margin: revenue.map((value, index) => {
+      const net = income[index];
+      // A margin off a zero or negative revenue is not a percentage of
+      // anything a reader can act on.
+      return value === null || value <= 0 || net === null || net === undefined
+        ? null
+        : (net / value) * 100;
+    }),
+  };
+}
+
 export function FA({ symbol, args }: PanelProps) {
   const go = useGo();
   const statement = statementOf(args.statement);
@@ -111,6 +162,12 @@ export function FA({ symbol, args }: PanelProps) {
     (rows) => rows.length === 0,
   );
   const table = useMemo(() => (state.kind === LoadState.Ready ? pivot(state.data) : null), [state]);
+  // Only the income statement has a revenue and a net income; the
+  // balance sheet and the cash flow get their table and nothing else.
+  const chart = useMemo(
+    () => (table !== null && statement === Statement.Income ? incomeChart(table, freq) : null),
+    [table, statement, freq],
+  );
 
   if (symbol === null) return null;
 
@@ -168,6 +225,20 @@ export function FA({ symbol, args }: PanelProps) {
             {symbol} · {STATEMENT_LABEL.get(statement)} · {FREQ_LABEL.get(freq)}
             {table.currency ? ` · ${table.currency}` : ""}
           </p>
+          {/* Above the table, never instead of it: the one thing a chart
+              cannot show is the exact figure (spec, "Kararlar" 3). */}
+          {chart !== null && (
+            <Bars
+              label={`${symbol} revenue and net income, ${FREQ_LABEL.get(freq)?.toLowerCase()}`}
+              categories={chart.categories}
+              series={[
+                { key: "revenue", label: "Revenue", values: chart.revenue },
+                { key: "income", label: "Net income", values: chart.income },
+              ]}
+              line={{ label: "Net margin %", values: chart.margin }}
+              format={cell}
+            />
+          )}
           <DataTable columns={columns} rows={table.rows} rowKey={(row) => row.item} />
         </>
       )}

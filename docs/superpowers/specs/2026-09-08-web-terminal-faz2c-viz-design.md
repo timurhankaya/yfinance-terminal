@@ -1,8 +1,8 @@
 # Web terminal faz 2c: görsel katman
 
-Status: partially implemented, 2026-09-08 (2c-1 primitives and the
-sparkline column; 2c-2 `HEAT` and `COMP`. 2c-3, the charts inside `FA`,
-`ANR`, `HDS` and `CA`, is still open -- see "Uygulama sırası")
+Status: implemented, 2026-09-08 (2c-1 primitives and the sparkline
+column, 2c-2 `HEAT` and `COMP`, 2c-3 the charts inside `FA`, `ANR`,
+`HDS` and `CA`. One source changed while building: see "Revizyonlar")
 Date: 2026-09-08
 Revised 2026-09-08 after three independent reviews (see "Revizyonlar").
 `2026-09-07-web-terminal-design.md`'nin çocuğu;
@@ -380,6 +380,31 @@ parser'ın "iki mnemonik" belirsizliğinin düzeltilmesi.
 2a-2'nin 2c-1'de tanımlanan grup paletini beklemesidir.
 
 ## Revizyonlar
+
+2026-09-08, uygulama sırasında:
+
+- **`HDS`'in insider akışı `insider_transactions`'tan değil
+  `insider_activity`'den geliyor** (`insider_purchases` dataset'i, HDS'in
+  `activity` sekmesi). `insider_transactions`'ta alış/satış ayrımı
+  taşıyan bir kolon yok — yön yalnızca serbest metin `text` alanının
+  içinde (`models/holders.py:151`); `insider_activity` ise Yahoo'nun
+  kendi toplamı ve `purchases_shares`, `sales_shares`, `net_shares`
+  kolonlarını doğrudan taşıyor. İngilizce düzyazıdan ayrıştırılan bir
+  net akış ölçüm değil tahmin olurdu.
+- **`Tab` alanı `chart` tek başına değil, `TabExtras` ile geldi**:
+  2c-1'in `extra`'sı ve 2c-2'nin `chart`'ı aynı şeyin iki örneği (bir
+  sekme veri çekemez; ikisini de görünüm satırları eline geçince kurar),
+  ve iki opsiyonel pozisyonel parametre yerine tek bir seçenek nesnesi
+  duruyor.
+- **`COMP` `lightweight-charts` üzerinden çizildi**, `viz/` üzerinden
+  değil: Karar 2 zaman serisini kütüphaneye bırakıyor, ve `Chart.tsx`
+  ikinci bir bileşen (`LineChart`) kazandı — terminal ikinci bir grafik
+  yığını değil.
+- **`chart-data.ts`'in `UP_COLOR`/`DOWN_COLOR` sabitleri silindi.**
+  Karar 4'ün yasakladığı ikinci renk tanımı buradaydı; `Chart.tsx`'in
+  kendi `theme()`'i de `viz/colors.ts` lehine kaldırıldı.
+- **`normalize100` önce çarpıp sonra bölüyor**: `(55/50)*100`
+  110.00000000000001 veriyor ve eksende görünen bir hataya dönüşüyordu.
 
 2026-09-08, üç bağımsız inceleme sonrası:
 

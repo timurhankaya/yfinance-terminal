@@ -10,7 +10,7 @@
 // that touches it; these cover what it does not -- a treemap, categorical
 // bars, a range with a mark, a scatter, and a line inside a table cell.
 export { Bars, Swatch } from "./Bars";
-export type { BarSeries, BarsLine, BarsProps } from "./Bars";
+export type { BarMark, BarSeries, BarsLine, BarsProps } from "./Bars";
 export { Bullet } from "./Bullet";
 export type { BulletProps } from "./Bullet";
 export { Scatter } from "./Scatter";
