@@ -18,13 +18,13 @@ import type {
   IDockviewPanelProps,
   SerializedDockview,
 } from "dockview-react";
-import { getPanel } from "../commands/registry";
+import { getPanel, retiredNote } from "../commands/registry";
 import { Layout } from "../commands/types";
 import type { Command, PanelArgs } from "../commands/types";
 import { FrameProvider } from "../workspace/frame";
 import { groupLabel, symbolFor } from "../workspace/groups";
 import type { Group, GroupSymbols } from "../workspace/groups";
-import { Strip } from "./Strip";
+import { SymbolBand } from "./SymbolBand";
 
 /** One panel's content: the command it is showing, and the letter whose
  *  symbol it follows -- null when it is about its own. */
@@ -63,16 +63,37 @@ function Body({ code, symbol, args, group }: PanelParams) {
   const groups = useContext(GroupContext);
   const spec = getPanel(code);
   const shown = symbolFor(groups, group, symbol);
-  if (spec === undefined) return <p className="muted">Unknown function {code}.</p>;
+  if (spec === undefined) {
+    // A saved page or a shared link can carry a code this build no
+    // longer has; say where its work went rather than only that it is
+    // gone.
+    const moved = retiredNote(code);
+    return (
+      <p className="muted">
+        {code} is no longer a function{moved === undefined ? "." : `. Use ${moved}.`}
+      </p>
+    );
+  }
   if (spec.needsSymbol && shown === null) return <p className="muted">Type a symbol to begin.</p>;
   const Component = spec.component;
   return (
     <>
-      {/* The strip belongs to the panel, not to the page: two `headed`
+      {/* The band belongs to the panel, not to the page: two symbol
           panels in two groups are two symbols, and one band above the
-          dock could only have told the truth about one of them. */}
-      {spec.layout === Layout.Headed && shown !== null && <Strip symbol={shown} live />}
-      <Component symbol={shown} args={args} />
+          dock could only have told the truth about one of them.
+          `needsSymbol` decides whether there is a band; `Layout.Headed`
+          decides whether the price inside it is live. */}
+      {spec.needsSymbol && shown !== null && (
+        <SymbolBand symbol={shown} code={code} live={spec.layout === Layout.Headed} />
+      )}
+      {/* The padding is the BODY's, not the panel's. It used to be on
+          `.dock-panel`, and the band undid it with a negative margin to
+          reach the panel's edge -- which `position: sticky` then cancelled,
+          because sticky refuses to place an element above its scrollport's
+          top and left a ten-pixel gap over the band on every panel. */}
+      <div className="panel-body">
+        <Component symbol={shown} args={args} />
+      </div>
     </>
   );
 }

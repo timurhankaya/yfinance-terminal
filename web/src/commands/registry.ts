@@ -40,6 +40,25 @@ export function isMnemonic(token: string): boolean {
   return panels.has(code) || actions.has(code);
 }
 
+/** Codes that were retired, and where their work went.
+ *
+ *  Not an alias and deliberately not one: running `GIP` again would be a
+ *  second way to reach `GP 5m`, which is the thing the merge removed. A
+ *  saved page or a pasted link still carries the old code, though, and
+ *  "Unknown function GIP" tells its reader nothing. This turns the dead
+ *  end into a direction. */
+export const RETIRED: Readonly<Record<string, string>> = {
+  GIP: "GP 5m — one chart function now takes any interval",
+  SCR: "EQS for screens; DS screens / screen_runs / screen_members / screen_quotes for the raw tables",
+  SRCH: "DS search_quotes / search_lists / lookup_results for the archived results",
+};
+
+/** Where a retired code's work went, or undefined for a code that never
+ *  existed. */
+export function retiredNote(code: string): string | undefined {
+  return RETIRED[code.toUpperCase()];
+}
+
 /** Tests register their own minimal panels. */
 export function clearRegistry(): void {
   panels.clear();

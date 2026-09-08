@@ -1,68 +1,52 @@
-// GIP: the intraday chart. Five sessions of candles at the interval you
-// ask for, the last of them moving with the socket, and a shaded band
+// The intraday chart's body: five sessions of candles at the interval
+// asked for, the last of them moving with the socket, and a shaded band
 // wherever the archive knows it is missing bars.
 //
-// The band is the reason this panel needs a route of its own. An hour
-// with no candles means one of two very different things -- the market
-// was closed, or a fetch was missed -- and only `bar_gaps` can tell them
-// apart. Without it the chart quietly draws a continuous line across a
-// hole and the reader has no way to know.
+// The band is why this stayed its own pipeline. An hour with no candles
+// means one of two very different things -- the market was closed, or a
+// fetch was missed -- and only `bar_gaps` can tell them apart. Without
+// it the chart quietly draws a continuous line across a hole and the
+// reader has no way to know.
+//
+// A body, not a panel: `GP` owns the code, the arguments and the
+// controls. See `chart-daily.tsx` for why the two bodies are two files.
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactElement } from "react";
 import {
   INTERVALS,
   Interval,
   daysAgo,
   getBarsWindow,
   getGaps,
-  isInterval,
   type GapRow,
   type Row,
 } from "../api/client";
 import { useLinkState } from "../live/hooks";
 import { LinkState } from "../live/types";
-import type { PanelArgs, PanelProps, PanelSpec } from "../commands/types";
-import { Layout } from "../commands/types";
 import { Chart } from "./Chart";
 import { BucketMode, gapBands, toCandles, toVolume } from "./chart-data";
 import { useLiveSeries } from "./chart-live";
 import { EmptyCard, ErrorCard, LoadState, MissingCard, useKeptData, usePanelData } from "./common";
-import { Choice, Controls, useArgs } from "./controls";
 
 //: Shared empties, so "no rows yet" keeps its identity across renders.
 const NO_ROWS: Row[] = [];
 const NO_GAPS: GapRow[] = [];
 
-//: The subset of the interval vocabulary the intraday route serves.
+/** The subset of the interval vocabulary the intraday route serves. */
 export const INTRADAY_INTERVALS: Interval[] = [Interval.M1, Interval.M5, Interval.M15, Interval.M60];
-export const GIP_ARGS = `GIP [${INTRADAY_INTERVALS.join("|")}]`;
-export const GIP_USAGE = `Usage: ${GIP_ARGS}`;
-const DEFAULT_INTERVAL = Interval.M5;
-
-function intradayOr(value: string | undefined, fallback: Interval): Interval {
-  if (value === undefined || !isInterval(value)) return fallback;
-  return INTRADAY_INTERVALS.includes(value) ? value : fallback;
-}
 
 //: Five trading sessions, asked for as nine calendar days: a week has
 //: two weekend days in it and a holiday costs one more. Asking by
 //: sessions is not possible -- that is the exchange's calendar, which
 //: this page does not have.
-const WINDOW_DAYS = 9;
-
-function parseArgs(tokens: string[]): PanelArgs {
-  const asked = tokens[0] ?? DEFAULT_INTERVAL;
-  if (!isInterval(asked) || !INTRADAY_INTERVALS.includes(asked)) throw new Error(GIP_USAGE);
-  return { interval: asked };
-}
+export const WINDOW_DAYS = 9;
 
 interface Intraday {
   bars: Row[];
   gaps: GapRow[];
 }
 
-export function GIP({ symbol, args }: PanelProps) {
-  const interval = intradayOr(args.interval, DEFAULT_INTERVAL);
-  const set = useArgs("GIP", symbol, args);
+export function IntradayChart({ symbol, interval }: { symbol: string; interval: Interval }): ReactElement {
   const link = useLinkState();
   // Bumped to refetch: when the live bar rolls into a bucket the archive
   // has not written yet, and when the socket comes back after a gap in
@@ -70,9 +54,8 @@ export function GIP({ symbol, args }: PanelProps) {
   const [reload, setReload] = useState(0);
 
   const { state, retry } = usePanelData<Intraday>(
-    `${symbol ?? ""}|${interval}|${reload}`,
+    `${symbol}|${interval}|${reload}`,
     async () => {
-      if (symbol === null) throw new Error("no symbol");
       const from = daysAgo(WINDOW_DAYS);
       // `session=regular` matches what the live bar is built from: a
       // series with extended-hours bars in it cannot be extended by
@@ -91,7 +74,7 @@ export function GIP({ symbol, args }: PanelProps) {
   // unmount throws away the reader's pan and zoom -- every five minutes
   // on a 5m chart. The reload is not part of this key, so only a new
   // symbol or interval clears what is on screen.
-  const data = useKeptData(`${symbol ?? ""}|${interval}`, state);
+  const data = useKeptData(`${symbol}|${interval}`, state);
 
   // Memoised, not a fresh `[]` per render: `base` is a dependency of the
   // live series, and a new identity every render would reset the running
@@ -127,56 +110,20 @@ export function GIP({ symbol, args }: PanelProps) {
     }
   }, [link]);
 
-  if (symbol === null) return null;
-  // The controls are the panel's, not its ready state's: an interval
-  // with no bars is exactly when a reader needs to pick another one.
-  const controls = (
-    <Controls>
-      <Choice
-          label="Interval"
-          value={interval}
-          options={INTRADAY_INTERVALS}
-          onPick={(next) => set({ interval: next })}
-        />
-    </Controls>
-  );
-
-  if (state.kind === LoadState.Missing)
-    return (
-      <section>
-        {controls}
-        <MissingCard symbol={symbol} />
-      </section>
-    );
-  if (state.kind === LoadState.Error)
-    return (
-      <section>
-        {controls}
-        <ErrorCard message={state.message} onRetry={retry} />
-      </section>
-    );
-  if (state.kind === LoadState.Empty)
-    return (
-      <section>
-        {controls}
-        <EmptyCard what={`${interval} bars`} />
-      </section>
-    );
+  if (state.kind === LoadState.Missing) return <MissingCard symbol={symbol} />;
+  if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
+  if (state.kind === LoadState.Empty) return <EmptyCard what={`${interval} bars`} />;
   // Only the FIRST load has nothing to show; a refresh renders the
   // payload it is refreshing.
-  if (data === null) {
-    return <p className="muted">Loading {symbol} {interval} bars…</p>;
-  }
+  if (data === null) return <p className="muted">Loading {symbol} {interval} bars…</p>;
 
   return (
-    <section>
-      {controls}
+    <>
       <p className="chart-note">
         <span>
           {symbol} · {interval} · last {WINDOW_DAYS} days · regular session · {candles.length} bars
           · UTC
         </span>
-        <span className="muted">{GIP_ARGS}</span>
       </p>
       <Chart
         candles={candles}
@@ -184,6 +131,7 @@ export function GIP({ symbol, args }: PanelProps) {
         markers={[]}
         whitespace={bands.whitespace}
         band={bands.band}
+        fitKey={`${symbol}|${interval}`}
         timeVisible
         label={`${symbol} ${interval} candles`}
       />
@@ -205,18 +153,6 @@ export function GIP({ symbol, args }: PanelProps) {
           <span className="muted">no open gaps in this window</span>
         )}
       </p>
-    </section>
+    </>
   );
 }
-
-export const GIP_PANEL: PanelSpec = {
-  code: "GIP",
-  title: "Intraday candles with the archive's gaps shaded",
-  usage: GIP_ARGS,
-  needsSymbol: true,
-  layout: Layout.Headed,
-  parseArgs,
-  // Args can arrive from a hand-edited URL, not only from parseArgs.
-  normalizeArgs: (args) => ({ ...args, interval: intradayOr(args.interval, DEFAULT_INTERVAL) }),
-  component: GIP,
-};

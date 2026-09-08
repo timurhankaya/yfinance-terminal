@@ -16,6 +16,10 @@ export const ACTION_COLUMNS: CatalogColumn[] = [
   { name: "action_value", type: WireType.Decimal, nullable: false },
 ];
 
+//: The symbol is on the band above every row of this table; the grid
+//: says what the action was.
+const CA_GRID = ["action_date", "action_type", "action_value"];
+
 
 //: The action types the archive writes. Only two of them belong on this
 //: chart: a dividend has an amount to stack up, a split has a date and a
@@ -96,7 +100,7 @@ export function CA({ symbol }: PanelProps) {
           format={(value) => value.toFixed(2)}
         />
       )}
-      <DatasetTable columns={ACTION_COLUMNS} rows={state.data.rows} hide={["symbol"]} reverse truncated={state.data.truncated} />
+      <DatasetTable columns={ACTION_COLUMNS} rows={state.data.rows} grid={CA_GRID} reverse truncated={state.data.truncated} />
     </section>
   );
 }

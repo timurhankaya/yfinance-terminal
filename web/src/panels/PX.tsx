@@ -1,4 +1,4 @@
-// PX: price bars as a table, newest first. Charts (GP/GIP) are 1d's; this
+// PX: price bars as a table, newest first. `GP` draws them; this
 // is the archive's bars, every column, readable now.
 import {
   BAR_INTERVALS,
@@ -52,6 +52,12 @@ export const BAR_COLUMNS: CatalogColumn[] = [
   { name: "is_extended", type: WireType.Boolean, nullable: true },
 ];
 
+//: OHLCV and when. `symbol` is on the band, and `bar_interval`,
+//: `local_date` and `is_extended` are the same value down every row of
+//: one request -- they are facts about the query, and they are in the
+//: row detail where a fact about the query belongs.
+const PX_GRID = ["ts_utc", "session_date", "open", "high", "low", "close", "adj_close", "volume"];
+
 export function PX({ symbol, args }: PanelProps) {
   const interval = intervalOr(args.interval, DEFAULT_INTERVAL);
   const rows = Number(args.rows ?? DEFAULT_ROWS);
@@ -95,7 +101,7 @@ export function PX({ symbol, args }: PanelProps) {
         <p className="detail-meta">
           The newest {rows} {interval} bars, newest first. {PX_ARGS}
         </p>
-        <DatasetTable columns={BAR_COLUMNS} rows={state.data} hide={["symbol"]} reverse />
+        <DatasetTable columns={BAR_COLUMNS} rows={state.data} grid={PX_GRID} reverse />
       </>
     );
   return (

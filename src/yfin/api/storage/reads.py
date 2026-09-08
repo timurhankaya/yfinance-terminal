@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Row, Select, and_, func, or_, select, text
+from sqlalchemy import Row, Select, and_, case, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from yfin.api.storage import limits
@@ -100,6 +100,67 @@ def list_symbols(
     rows = session.execute(statement.order_by(Symbol.symbol).limit(limit + 1)).all()
     visible, next_key = _page(rows, limit, lambda row: (row.symbol,))
     return Page(rows=[dict(row._mapping) for row in visible], next_key=next_key)
+
+
+def search_symbols(session: Session, *, query: str, limit: int) -> list[dict[str, Any]]:
+    """Symbols whose CODE starts with the query or whose NAME contains it.
+
+    `/v1/symbols?q=` matches the symbol column only, and says so in its
+    contract -- which is right for an API a client pages through, and
+    useless to a person who knows a company by its name. Typing AKBANK
+    there returns nothing while `AKBNK.IS`, "Akbank T.A.S.", sits in the
+    table; typing APPLE returns a joke coin whose ticker happens to start
+    that way. So the terminal has its own read, and the published
+    contract does not move.
+
+    Ordered by how well the row answers what was typed: the exact ticker,
+    then names that START with it, then tickers that start with it, then
+    names that merely contain it. Inside each band, by symbol, so the
+    order is stable.
+
+    Names before tickers in the middle two bands, and that ordering was
+    measured rather than assumed: on APPLE a ticker-first rank put
+    `APPLE31391-USD` ("dog with apple in mouth USD") above Apple Inc.
+    An exact ticker still wins outright, so AAPL is unaffected.
+
+    The name half is a leading-wildcard LIKE and therefore a scan. That
+    is affordable because this table is the UNIVERSE -- thousands of
+    rows, not the archive's millions -- and because `limit` is small. A
+    universe an order of magnitude larger wants a trigram index on the
+    two name columns before this route does.
+    """
+    upper = query.upper()
+    name_text = func.upper(func.coalesce(Symbol.long_name, Symbol.short_name, ""))
+    like_name = "%" + limits.escape_prefix(upper) + "%"
+    prefix = limits.escape_prefix(upper) + "%"
+    starts = Symbol.symbol.like(prefix, escape="\\")
+    # `upper(...)` rather than ILIKE: the same expression on both name
+    # columns, and no dependence on the database's collation.
+    named = name_text.like(like_name, escape="\\")
+    name_starts = name_text.like(prefix, escape="\\")
+    #: 0 for a bare ticker, 1 for one carrying an exchange suffix.
+    suffixed = case((Symbol.symbol.like("%.%"), 1), else_=0)
+    rank = case(
+        (Symbol.symbol == upper, 0),
+        (name_starts, 1),
+        (starts, 2),
+        else_=3,
+    )
+    rows = session.execute(
+        select(*SYMBOL_COLUMNS)
+        .where(Symbol.is_active.is_(True))
+        .where(or_(starts, named))
+        # Then the PRIMARY listing, then the tightest name, then the
+        # symbol. Both middle terms were measured against the archive:
+        # ordering a band by symbol alone put "Appletree Subordinatd
+        # Debt A" above Apple Inc. on APPLE, and ordering it by name
+        # length alone put `4AAPL.TI` (name: "APPLE") above `AAPL`.
+        # A suffix is the exchange's -- `AAPL` is the listing a reader
+        # typing APPLE means, `AAPL.MX` is the same company in Mexico.
+        .order_by(rank, suffixed, func.length(name_text), Symbol.symbol)
+        .limit(limit)
+    ).all()
+    return [dict(row._mapping) for row in rows]
 
 
 def get_symbol(session: Session, symbol: str) -> dict[str, Any] | None:

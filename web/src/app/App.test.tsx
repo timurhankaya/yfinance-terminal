@@ -145,8 +145,9 @@ describe("AppRoutes", () => {
     expect(box).toHaveFocus();
   });
 
-  it("offers every function in a bar; clicking one runs it on the current symbol", async () => {
+  it("splits the functions in two: the market under the command line, the symbol in its band", async () => {
     mockFetch((url) => {
+      if (url.startsWith("/ui/api/sparklines")) return json(200, { data: { points: 0, series: [], missing: [] } });
       if (url.startsWith("/ui/api/v1/symbols/")) {
         const symbol = url.split("/").pop()!;
         return json(200, symbolBody(symbol, `${symbol} Corp`));
@@ -155,15 +156,25 @@ describe("AppRoutes", () => {
     });
     mount("/ui/t/AAPL/DES");
     await screen.findByText("AAPL Corp");
+    // The bar under the command line is the market's now. A flat list of
+    // 22 codes told a reader nothing about which a symbol was for.
     const bar = screen.getByRole("navigation", { name: "functions" });
-    expect(bar).toHaveTextContent("DES");
-    expect(bar).toHaveTextContent("FAKEFA");
-    await userEvent.click(within(bar).getByRole("button", { name: "FAKEFA" }));
+    expect(bar).toHaveTextContent("HELP");
+    expect(bar).not.toHaveTextContent("FAKEFA");
+    // The symbol's own functions sit in the band the panel wears, beside
+    // the price they act on.
+    const band = screen.getByRole("navigation", { name: "AAPL functions" });
+    expect(band).toHaveTextContent("DES");
+    await userEvent.click(within(band).getByRole("button", { name: "FAKEFA" }));
     expect(await screen.findByText("fake FA panel")).toBeInTheDocument();
-    // HELP keeps the symbol, so the bar stays usable from the help page.
+    // FAKEFA is not `headed`, so it never had a strip -- and it still
+    // gets the band, which is the whole point of splitting the two.
+    const moved = screen.getByRole("navigation", { name: "AAPL functions" });
+    expect(within(moved).getByRole("button", { name: "DES" })).toBeEnabled();
+    // A market page is about no symbol, so it wears no band.
     await userEvent.click(within(bar).getByRole("button", { name: "HELP" }));
     expect(await screen.findByRole("heading", { name: "How to use the terminal" })).toBeInTheDocument();
-    expect(within(bar).getByRole("button", { name: "DES" })).toBeEnabled();
+    expect(screen.queryByRole("navigation", { name: "AAPL functions" })).not.toBeInTheDocument();
   });
 
   it("opens /ui on the home rather than an empty symbol page", async () => {
@@ -198,7 +209,9 @@ describe("AppRoutes", () => {
       if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
       if (url === "/ui/api/v1/symbols/NOPE") return new Response("{}", { status: 404, headers: { "content-type": "application/problem+json" } });
       if (url === "/ui/api/v1/symbols/NOPES") return json(200, symbolBody("NOPES", "Nopes Inc."));
-      if (url.startsWith("/ui/api/v1/symbols?q=NOPE")) return json(200, searchBody([{ symbol: "NOPES", long_name: "Nopes Inc.", short_name: null }]));
+      if (url.startsWith("/ui/api/search?q=NOPE")) return json(200, searchBody([{ symbol: "NOPES", long_name: "Nopes Inc.", short_name: null }]));
+      if (url.startsWith("/ui/api/sparklines")) return json(200, { data: { points: 0, series: [], missing: [] } });
+      if (url.startsWith("/ui/api/v1/symbols/NOPES/bars") || url.startsWith("/ui/api/v1/symbols/AAPL/bars")) return json(200, { data: [], next_cursor: null });
       throw new Error(`unexpected ${url}`);
     });
     mount("/ui/t/AAPL/DES");
@@ -209,7 +222,7 @@ describe("AppRoutes", () => {
     const palette = await screen.findByLabelText("palette");
     expect(palette).toBeInTheDocument();
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/ui/api/v1/symbols?q=NOPE&limit=20"),
+      expect.stringContaining("/ui/api/search?q=NOPE"),
       expect.anything(),
     ));
     const item = await screen.findByText(/NOPES/);

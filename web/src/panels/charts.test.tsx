@@ -1,4 +1,4 @@
-// GP, GIP and QR against a stubbed API.
+// GP and QR against a stubbed API.
 //
 // `lightweight-charts` is mocked: it draws to a canvas, and jsdom has no
 // 2D context, so the real one throws on construction. What is asserted
@@ -10,8 +10,8 @@ import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChartProps } from "./Chart";
-import { GIP, GIP_PANEL, GIP_USAGE } from "./GIP";
-import { GP, GP_PANEL, GP_USAGE } from "./GP";
+import { GP, GP_PANEL, GP_USAGE, isIntraday } from "./GP";
+import { BAR_INTERVALS } from "../api/client";
 import { QR, QR_PANEL, QR_USAGE, mergeTape, tapeClock } from "./QR";
 import { LinkState, MarketHours } from "../live/types";
 import type { Tick } from "../live/types";
@@ -93,12 +93,27 @@ function draw(element: ReactElement) {
 }
 
 describe("GP parseArgs", () => {
-  it("takes a year count inside the archive's daily range", () => {
-    expect(GP_PANEL.parseArgs([])).toEqual({ years: "2" });
-    expect(GP_PANEL.parseArgs(["5"])).toEqual({ years: "5" });
-    expect(() => GP_PANEL.parseArgs(["0"])).toThrow(GP_USAGE);
-    expect(() => GP_PANEL.parseArgs(["11"])).toThrow(GP_USAGE);
-    expect(() => GP_PANEL.parseArgs(["two"])).toThrow(GP_USAGE);
+  it("takes an interval and, above intraday, a year count", () => {
+    expect(GP_PANEL.parseArgs([])).toEqual({ interval: "1d", years: "2" });
+    expect(GP_PANEL.parseArgs(["1d", "5"])).toEqual({ interval: "1d", years: "5" });
+    expect(GP_PANEL.parseArgs(["1WK"])).toEqual({ interval: "1wk", years: "2" });
+    expect(GP_PANEL.parseArgs(["5m"])).toEqual({ interval: "5m", years: "2" });
+    expect(() => GP_PANEL.parseArgs(["1d", "0"])).toThrow(GP_USAGE);
+    expect(() => GP_PANEL.parseArgs(["1d", "11"])).toThrow(GP_USAGE);
+    expect(() => GP_PANEL.parseArgs(["nonsense"])).toThrow(GP_USAGE);
+    // A window on an intraday interval is refused rather than ignored:
+    // there is no such thing as three years of five-minute bars.
+    expect(() => GP_PANEL.parseArgs(["5m", "3"])).toThrow(/years applies to/);
+  });
+
+  it("splits the whole interval vocabulary between its two bodies", () => {
+    // The merge's one invariant: every interval the API serves is drawn
+    // by exactly one of the two, so no interval reaches a blank panel.
+    for (const interval of BAR_INTERVALS) {
+      expect(typeof isIntraday(interval), interval).toBe("boolean");
+      expect(GP_PANEL.parseArgs([interval]).interval).toBe(interval);
+    }
+    expect(BAR_INTERVALS.filter(isIntraday)).toEqual(["1m", "5m", "15m", "60m"]);
   });
 });
 
@@ -116,7 +131,7 @@ describe("GP", () => {
       return page([bar("2026-09-03T13:30:00Z"), bar("2026-09-04T13:30:00Z")]);
     });
 
-    draw(<GP symbol="AAPL" args={{ years: "2" }} />);
+    draw(<GP symbol="AAPL" args={{ interval: "1d", years: "2" }} />);
     await screen.findByTestId("chart");
 
     const props = lastChart();
@@ -136,7 +151,7 @@ describe("GP", () => {
     // asks for bars and actions at the same time.
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => page([]));
     draw(<GP symbol="ZZZZ" args={{}} />);
-    expect(await screen.findByText(/No daily bars/)).toBeInTheDocument();
+    expect(await screen.findByText(/No 1d bars/)).toBeInTheDocument();
   });
 
   it("falls back to the default when the URL carries nonsense", () => {
@@ -144,31 +159,17 @@ describe("GP", () => {
     // and `normalizeArgs` is where that is settled -- once, before the
     // component runs, so the panel body has one contract instead of
     // re-validating every arg it reads.
-    expect(GP_PANEL.normalizeArgs?.({ years: "900" })).toEqual({ years: "2" });
-    expect(GP_PANEL.normalizeArgs?.({ years: "zero" })).toEqual({ years: "2" });
-    expect(GP_PANEL.normalizeArgs?.({})).toEqual({ years: "2" });
-    expect(GP_PANEL.normalizeArgs?.({ years: "5" })).toEqual({ years: "5" });
+    expect(GP_PANEL.normalizeArgs?.({ years: "900" })).toEqual({ interval: "1d", years: "2" });
+    expect(GP_PANEL.normalizeArgs?.({ years: "zero" })).toEqual({ interval: "1d", years: "2" });
+    expect(GP_PANEL.normalizeArgs?.({})).toEqual({ interval: "1d", years: "2" });
+    expect(GP_PANEL.normalizeArgs?.({ interval: "5m" })).toEqual({ interval: "5m", years: "2" });
+    // A real interval the archive does not serve, and a word that is not
+    // one, both come back as the default rather than a blank chart.
+    expect(GP_PANEL.normalizeArgs?.({ interval: "nonsense" })).toEqual({ interval: "1d", years: "2" });
   });
 });
 
-describe("GIP parseArgs", () => {
-  it("takes an intraday interval and nothing else", () => {
-    expect(GIP_PANEL.parseArgs([])).toEqual({ interval: "5m" });
-    expect(GIP_PANEL.parseArgs(["1m"])).toEqual({ interval: "1m" });
-    expect(() => GIP_PANEL.parseArgs(["1d"])).toThrow(GIP_USAGE);
-    expect(() => GIP_PANEL.parseArgs(["15M"])).toThrow(GIP_USAGE);
-  });
-
-  it("brings a hand-edited URL back to an intraday interval", () => {
-    // `1d` is a real interval and still not one this panel serves.
-    expect(GIP_PANEL.normalizeArgs?.({ interval: "1d" })).toEqual({ interval: "5m" });
-    expect(GIP_PANEL.normalizeArgs?.({ interval: "nonsense" })).toEqual({ interval: "5m" });
-    expect(GIP_PANEL.normalizeArgs?.({})).toEqual({ interval: "5m" });
-    expect(GIP_PANEL.normalizeArgs?.({ interval: "1m" })).toEqual({ interval: "1m" });
-  });
-});
-
-describe("GIP", () => {
+describe("GP at an intraday interval", () => {
   it("asks for the regular session and shades the archive's gaps", async () => {
     const seen: string[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -188,7 +189,7 @@ describe("GIP", () => {
       return page([bar("2026-09-08T13:30:00Z"), bar("2026-09-08T13:55:00Z")]);
     });
 
-    draw(<GIP symbol="AAPL" args={{ interval: "5m" }} />);
+    draw(<GP symbol="AAPL" args={{ interval: "5m" }} />);
     await screen.findByTestId("chart");
 
     const props = lastChart();
@@ -211,7 +212,7 @@ describe("GIP", () => {
       barFetches += 1;
       return page([bar("2026-09-08T13:30:00Z")]);
     });
-    draw(<GIP symbol="AAPL" args={{ interval: "5m" }} />);
+    draw(<GP symbol="AAPL" args={{ interval: "5m" }} />);
     const node = await screen.findByTestId("chart");
     expect(barFetches).toBe(1);
 
@@ -231,7 +232,7 @@ describe("GIP", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
       String(input).includes("/gaps") ? page([]) : page([bar("2026-09-08T13:30:00Z")]),
     );
-    draw(<GIP symbol="AAPL" args={{}} />);
+    draw(<GP symbol="AAPL" args={{ interval: "5m" }} />);
     expect(await screen.findByText(/no open gaps/)).toBeInTheDocument();
   });
 });

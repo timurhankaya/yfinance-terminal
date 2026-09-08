@@ -11,12 +11,18 @@ import { LoadState, usePanelData } from "../common";
 import { Bars } from "../viz";
 import { Block, Failed, Waiting } from "./Block";
 
-/** The four calendars and the column each one dates its events by. */
+/** The four calendars and the column each one dates its events by.
+ *
+ *  The names are the CATALOGUE's, and all four were wrong -- written
+ *  `calendar_earnings` where the archive calls it `earnings_calendar`.
+ *  Every one 404'd, so this block had been quietly empty: a dataset the
+ *  catalogue does not have is a failed read, and four failed reads out
+ *  of four is an empty week rather than an error anybody saw. */
 const CALENDARS: ReadonlyArray<{ name: string; when: string; kind: string; who: string }> = [
-  { name: "calendar_earnings", when: "event_start_ts_utc", kind: "earnings", who: "symbol" },
-  { name: "calendar_economic", when: "event_time_utc", kind: "economic", who: "event_name" },
-  { name: "calendar_ipo", when: "ipo_date_utc", kind: "IPO", who: "symbol" },
-  { name: "calendar_splits", when: "payable_on_utc", kind: "split", who: "symbol" },
+  { name: "earnings_calendar", when: "event_start_ts_utc", kind: "earnings", who: "symbol" },
+  { name: "economic_calendar", when: "event_time_utc", kind: "economic", who: "event_name" },
+  { name: "ipo_calendar", when: "ipo_date_utc", kind: "IPO", who: "symbol" },
+  { name: "splits_calendar", when: "payable_on_utc", kind: "split", who: "symbol" },
 ];
 
 const AHEAD_DAYS = 10;

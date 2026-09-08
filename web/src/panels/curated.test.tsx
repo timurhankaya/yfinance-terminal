@@ -61,7 +61,10 @@ describe("tabbedPanel", () => {
 
   it("registers a code and a usage line for every curated family", () => {
     const codes = CURATED.map((p) => p.code);
-    expect(codes).toEqual(["HDS", "ERN", "FUND", "CAL", "MKT", "SCR", "SRCH", "DOM", "REF"]);
+    // SCR and SRCH were retired: EQS is the readable face of the same
+    // four screen tables, and every dataset either reached stays
+    // reachable by name through DS.
+    expect(codes).toEqual(["HDS", "ERN", "FUND", "CAL", "MKT", "DOM", "REF"]);
     for (const panel of CURATED) expect(panel.usage).toContain(panel.code);
   });
 

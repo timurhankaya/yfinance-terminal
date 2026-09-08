@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,19 +55,22 @@ describe("CommandPalette", () => {
     expect(screen.getByText(/GIP —/)).toBeInTheDocument();
   });
 
-  it("shows the prefix note", () => {
+  it("says what search matches and how to open a pick beside the panel", () => {
     mockFetch((url) => {
       throw new Error(`unexpected ${url}`);
     });
     render(<Harness onPick={() => {}} onClose={() => {}} />);
-    expect(screen.getByText("Symbol search matches the start of the ticker only, not company names.")).toBeInTheDocument();
+    expect(screen.getByText(/Search matches the ticker or the company name/)).toBeInTheDocument();
+    expect(screen.getByText("Ctrl+Enter")).toBeInTheDocument();
   });
 
-  it("searches symbols once the query reaches the minimum prefix, and picking one calls onPick", async () => {
+  it("searches by ticker or name once the query is long enough, and picking one calls onPick", async () => {
     mockFetch((url) => {
-      if (url.startsWith("/ui/api/v1/symbols?q=MS")) {
+      // The terminal's own read, not `/v1/symbols?q=`: that one matches
+      // the symbol column only and would never find "Microsoft".
+      if (url.startsWith("/ui/api/search?q=")) {
         return json(200, {
-          data: [{ symbol: "MSFT", long_name: "Microsoft", short_name: null, exchange: null, quote_type: null }],
+          data: [{ symbol: "MSFT", long_name: "Microsoft", short_name: null, exchange: "NMS", quote_type: null }],
           next_cursor: null,
         });
       }
@@ -75,14 +78,36 @@ describe("CommandPalette", () => {
     });
     const onPick = vi.fn();
     render(<Harness onPick={onPick} onClose={() => {}} />);
-    await userEvent.type(screen.getByLabelText("palette"), "MS");
+    await userEvent.type(screen.getByLabelText("palette"), "microsoft");
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/ui/api/v1/symbols?q=MS&limit=20"),
+      expect.stringContaining("/ui/api/search?q=microsoft"),
       expect.anything(),
     ));
-    const item = await screen.findByText("MSFT — Microsoft");
+    const item = await screen.findByText(/MSFT — Microsoft/);
     await userEvent.click(item);
-    expect(onPick).toHaveBeenCalledWith("MSFT");
+    expect(onPick).toHaveBeenCalledWith("MSFT", false);
+  });
+
+  it("opens a pick beside the panel when the modifier is held", async () => {
+    mockFetch((url) => {
+      if (url.startsWith("/ui/api/search?q=")) {
+        return json(200, {
+          data: [{ symbol: "MSFT", long_name: "Microsoft", short_name: null, exchange: "NMS", quote_type: null }],
+          next_cursor: null,
+        });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    const onPick = vi.fn();
+    render(<Harness onPick={onPick} onClose={() => {}} />);
+    await userEvent.type(screen.getByLabelText("palette"), "microsoft");
+    const item = await screen.findByText(/MSFT — Microsoft/);
+    // `fireEvent`, because the modifier IS the assertion: userEvent's
+    // held-key syntax does not put `ctrlKey` on the pointer event, and a
+    // test that silently sent a plain click would have passed against a
+    // component that ignored the modifier entirely.
+    fireEvent.click(item, { ctrlKey: true });
+    expect(onPick).toHaveBeenCalledWith("MSFT", true);
   });
 
   it("closes on Escape", async () => {

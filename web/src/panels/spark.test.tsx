@@ -3,7 +3,6 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { SCR_PANEL } from "./curated";
 import { EQS } from "./EQS";
 import { WLA } from "./WLA";
 import { SPARK_FAILED_LABEL, SPARK_LABEL, rowSymbols } from "./spark";
@@ -223,90 +222,5 @@ describe("EQS", () => {
     const sparkCalls = asked.filter((url) => url.includes("/sparklines"));
     expect(sparkCalls).toHaveLength(1);
     expect(sparkCalls[0]).toContain("symbols=AAA%2CBBB");
-  });
-});
-
-describe("SCR, through the generic dataset table", () => {
-  const catalog = {
-    data: [
-      {
-        name: "screen_members",
-        family: "discovery",
-        scope: "market",
-        kind: "roster",
-        table: "screen_members",
-        sort_key: ["rank_index"],
-        descending: false,
-        filters: ["screen_key"],
-        symbol_scoped: true,
-        description: "Screen members",
-        columns: [
-          { name: "symbol", type: "string", nullable: false },
-          { name: "rank_index", type: "integer", nullable: false },
-        ],
-      },
-      {
-        name: "screens",
-        family: "discovery",
-        scope: "market",
-        kind: "definition",
-        table: "screens",
-        sort_key: ["screen_key"],
-        descending: false,
-        filters: [],
-        symbol_scoped: false,
-        description: "Screen definitions",
-        columns: [{ name: "screen_key", type: "string", nullable: false }],
-      },
-    ],
-    next_cursor: null,
-  };
-
-  it("adds the column the tab declares, after the catalogue's own", async () => {
-    stub(
-      (url) =>
-        url.endsWith("/datasets")
-          ? json(catalog)
-          : json({ data: [{ symbol: "AAA", rank_index: 0 }], next_cursor: null }),
-      () => json(sparkSet(["AAA"])),
-    );
-    const Panel = SCR_PANEL.component;
-    render(
-      <MemoryRouter initialEntries={["/ui/m/SCR"]}>
-        <Routes>
-          <Route path="/ui/m/:code" element={<Panel symbol={null} args={{ tab: "members" }} />} />
-        </Routes>
-      </MemoryRouter>,
-    );
-    const headers = await screen.findAllByRole("columnheader");
-    // Links first (a wide grid scrolls sideways), the catalogue's own
-    // columns in the order it declares them, the extra one last.
-    expect(headers.map((h) => h.textContent)).toEqual([
-      "open",
-      "symbol",
-      "rank_index",
-      SPARK_LABEL,
-    ]);
-    expect(await screen.findByRole("img", { name: /AAA/ })).toBeInTheDocument();
-  });
-
-  it("asks for nothing on a tab that declares no column", async () => {
-    stub(
-      (url) =>
-        url.endsWith("/datasets")
-          ? json(catalog)
-          : json({ data: [{ screen_key: "day_gainers" }], next_cursor: null }),
-      () => json(sparkSet(["AAA"])),
-    );
-    const Panel = SCR_PANEL.component;
-    render(
-      <MemoryRouter initialEntries={["/ui/m/SCR"]}>
-        <Routes>
-          <Route path="/ui/m/:code" element={<Panel symbol={null} args={{ tab: "list" }} />} />
-        </Routes>
-      </MemoryRouter>,
-    );
-    await screen.findAllByRole("columnheader");
-    expect(asked.filter((url) => url.includes("/sparklines"))).toHaveLength(0);
   });
 });

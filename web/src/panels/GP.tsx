@@ -1,158 +1,99 @@
-// GP: the daily chart. Two years of candles, volume under them, and a
-// marker wherever the company paid or split.
+// GP: the chart. One code, every interval the archive keeps.
 //
-// Two years rather than "everything": that is the window a reader
-// actually looks at on a daily chart, and the archive reaches back
-// decades for symbols where it would otherwise be 12,000 candles of
-// which 11,500 are a grey smear.
-import { useMemo } from "react";
-import { INTERVALS, Interval, daysAgo, getActions, getBarsWindow, type Row } from "../api/client";
+// It was two panels. `GP` drew daily candles and `GIP` drew intraday
+// ones, and a reader wanting five-minute bars had to know that the
+// terminal called that a different function -- which is a fact about
+// how the code was arranged, not about charts. One mnemonic, and the
+// interval is an argument like every other argument.
+//
+// What did NOT get merged is the drawing. The two windows are two
+// pipelines: `price_history`/`periodic_bars` with corporate actions and
+// a session-bucketed live bar, against `price_bars` with `bar_gaps`, a
+// regular-session filter and an interval-bucketed one. Folding them
+// into one function with a flag would have added branches, not removed
+// them, so this file owns the code, the arguments and the controls, and
+// each body owns one way of drawing (`chart-daily.tsx`,
+// `chart-intraday.tsx`).
+import type { ReactElement } from "react";
+import { BAR_INTERVALS, Interval, isInterval } from "../api/client";
 import type { PanelArgs, PanelProps, PanelSpec } from "../commands/types";
 import { Layout } from "../commands/types";
-import { Chart } from "./Chart";
-import { BucketMode, toCandles, toMarkers, toVolume } from "./chart-data";
-import { useLiveSeries } from "./chart-live";
-import { EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData } from "./common";
-import { Controls, NumberArg, useArgs } from "./controls";
+import { DailyChart, SESSION_INTERVALS } from "./chart-daily";
+import { INTRADAY_INTERVALS, IntradayChart } from "./chart-intraday";
+import { Choice, Controls, NumberArg, useArgs } from "./controls";
 
-//: One shared empty array, so "no rows yet" keeps its identity across
-//: renders (see the memo below).
-const NO_ROWS: Row[] = [];
-
+const DEFAULT_INTERVAL = Interval.D1;
 const DEFAULT_YEARS = 2;
-//: The API's own ceiling for a daily range is ~10 years.
+//: The API's own ceiling for a session-interval range is ~10 years.
 const MAX_YEARS = 10;
 
-export const GP_ARGS = `GP [years 1-${MAX_YEARS}]`;
+export const GP_ARGS = `GP [${BAR_INTERVALS.join("|")}] [years 1-${MAX_YEARS}]`;
 export const GP_USAGE = `Usage: ${GP_ARGS}`;
 
-function inRange(years: number): boolean {
+/** Whether an interval is drawn by the intraday body. The two lists are
+ *  the whole vocabulary between them, which `charts.test.tsx` asserts. */
+export function isIntraday(interval: Interval): boolean {
+  return INTRADAY_INTERVALS.includes(interval);
+}
+
+function intervalOr(value: string | undefined, fallback: Interval): Interval {
+  return value !== undefined && isInterval(value) ? value : fallback;
+}
+
+function yearsInRange(years: number): boolean {
   return Number.isInteger(years) && years >= 1 && years <= MAX_YEARS;
 }
 
 function parseArgs(tokens: string[]): PanelArgs {
-  if (tokens.length === 0) return { years: String(DEFAULT_YEARS) };
-  const years = Number(tokens[0]);
-  if (!inRange(years)) throw new Error(GP_USAGE);
-  return { years: String(years) };
+  const [first, second, ...rest] = tokens;
+  if (rest.length > 0) throw new Error(GP_USAGE);
+  if (first === undefined) return { interval: DEFAULT_INTERVAL, years: String(DEFAULT_YEARS) };
+  const interval = first.toLowerCase();
+  if (!isInterval(interval)) throw new Error(GP_USAGE);
+  if (second === undefined) return { interval, years: String(DEFAULT_YEARS) };
+  const years = Number(second);
+  // Refused rather than ignored on an intraday interval: `GP 5m 3` reads
+  // as three years of five-minute bars, and the archive has no such
+  // thing. The window there is fixed at five sessions.
+  if (isIntraday(interval)) throw new Error(`${GP_USAGE} — years applies to ${SESSION_INTERVALS.join("/")} only`);
+  if (!yearsInRange(years)) throw new Error(GP_USAGE);
+  return { interval, years: String(years) };
 }
 
-interface Daily {
-  bars: Row[];
-  actions: Row[];
-}
-
-export function GP({ symbol, args }: PanelProps) {
+export function GP({ symbol, args }: PanelProps): ReactElement | null {
+  const interval = intervalOr(args.interval, DEFAULT_INTERVAL);
   const years = Number(args.years ?? DEFAULT_YEARS);
   const set = useArgs("GP", symbol, args);
-  const { state, retry } = usePanelData<Daily>(
-    `${symbol ?? ""}|${years}`,
-    async () => {
-      if (symbol === null) throw new Error("no symbol");
-      // One window, two reads: the markers have to line up with the
-      // candles, so they are asked for together and drawn together.
-      const from = daysAgo(Math.round(years * 365.25));
-      const [bars, actions] = await Promise.all([
-        getBarsWindow(symbol, Interval.D1, from),
-        getActions(symbol),
-      ]);
-      return { bars, actions: actions.rows };
-    },
-    (data) => data.bars.length === 0,
-  );
-
-  // Memoised, not a fresh `[]` per render: `base` is a dependency of the
-  // live series, and a new identity every render would reset the running
-  // candle before a single tick could be folded into it.
-  const bars = useMemo(() => (state.kind === LoadState.Ready ? state.data.bars : NO_ROWS), [state]);
-  const actions = useMemo(
-    () => (state.kind === LoadState.Ready ? state.data.actions : NO_ROWS),
-    [state],
-  );
-  const base = useMemo(() => toCandles(bars), [bars]);
-  const { candles } = useLiveSeries(
-    base,
-    symbol,
-    INTERVALS[Interval.D1].seconds,
-    // A daily bar's instant is the session open, not UTC midnight, so
-    // the live price extends today's bar and never opens tomorrow's.
-    BucketMode.Session,
-  );
-  const volume = useMemo(() => toVolume(base, bars), [base, bars]);
-  const markers = useMemo(() => toMarkers(actions, base), [actions, base]);
 
   if (symbol === null) return null;
+  const intraday = isIntraday(interval);
   // The controls are the panel's, not its ready state's: an interval
   // with no bars is exactly when a reader needs to pick another one.
-  const controls = (
-    <Controls>
-      <NumberArg
-          label="Window"
-          value={years}
-          min={1}
-          max={MAX_YEARS}
-          onSet={(next) => set({ years: String(next) })}
-          suffix={years === 1 ? "year" : "years"}
-        />
-    </Controls>
-  );
-
-  if (state.kind === LoadState.Loading)
-    return (
-      <section>
-        {controls}
-        <p className="muted">Loading {symbol} daily bars…</p>
-      </section>
-    );
-  if (state.kind === LoadState.Missing)
-    return (
-      <section>
-        {controls}
-        <MissingCard symbol={symbol} />
-      </section>
-    );
-  if (state.kind === LoadState.Error)
-    return (
-      <section>
-        {controls}
-        <ErrorCard message={state.message} onRetry={retry} />
-      </section>
-    );
-  if (state.kind === LoadState.Empty)
-    return (
-      <section>
-        {controls}
-        <EmptyCard what="daily bars" />
-      </section>
-    );
-
   return (
     <section>
-      {controls}
-      <p className="chart-note">
-        <span>
-          {symbol} · daily · {years} {years === 1 ? "year" : "years"} · {candles.length} bars · UTC
-        </span>
-        <span className="muted">{GP_ARGS}</span>
-      </p>
-      <Chart
-        candles={candles}
-        volume={volume}
-        markers={markers}
-        whitespace={[]}
-        band={[]}
-        timeVisible={false}
-        label={`${symbol} daily candles`}
-      />
-      {markers.length > 0 && (
-        <p className="chart-legend">
-          <span>● dividend</span>
-          <span>■ split</span>
-          <span>▲ capital gain</span>
-          <span className="muted">
-            {markers.length} corporate {markers.length === 1 ? "action" : "actions"} in this window
-          </span>
-        </p>
+      <Controls>
+        <Choice
+          label="Interval"
+          value={interval}
+          options={BAR_INTERVALS}
+          onPick={(next) => set({ interval: next })}
+        />
+        {!intraday && (
+          <NumberArg
+            label="Window"
+            value={yearsInRange(years) ? years : DEFAULT_YEARS}
+            min={1}
+            max={MAX_YEARS}
+            onSet={(next) => set({ years: String(next) })}
+            suffix={years === 1 ? "year" : "years"}
+          />
+        )}
+        <span className="usage">{GP_ARGS}</span>
+      </Controls>
+      {intraday ? (
+        <IntradayChart symbol={symbol} interval={interval} />
+      ) : (
+        <DailyChart symbol={symbol} interval={interval} years={yearsInRange(years) ? years : DEFAULT_YEARS} />
       )}
     </section>
   );
@@ -160,15 +101,16 @@ export function GP({ symbol, args }: PanelProps) {
 
 export const GP_PANEL: PanelSpec = {
   code: "GP",
-  title: "Daily candles, volume and corporate actions",
+  title: "Candles, at any interval: volume, corporate actions, and the archive's gaps",
   usage: GP_ARGS,
   needsSymbol: true,
   layout: Layout.Headed,
   parseArgs,
   // Args can arrive from a hand-edited URL, not only from parseArgs.
   normalizeArgs: (args) => {
+    const interval = intervalOr(args.interval, DEFAULT_INTERVAL);
     const years = Number(args.years ?? DEFAULT_YEARS);
-    return { ...args, years: String(inRange(years) ? years : DEFAULT_YEARS) };
+    return { ...args, interval, years: String(yearsInRange(years) ? years : DEFAULT_YEARS) };
   },
   component: GP,
 };

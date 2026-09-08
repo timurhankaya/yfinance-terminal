@@ -2,11 +2,12 @@
 // deployment runs; with one it shows what that screen matched, in the
 // screen's own order.
 //
-// `SCR` already reaches the same four tables through the generic dataset
-// surface, one flat tab each. That is the guarantee that nothing is
+// `DS` reaches the same four tables through the generic dataset
+// surface, one flat table each. That is the guarantee that nothing is
 // unreachable; this is the panel that makes them mean something
 // together -- a roster you can read down, with a price beside each row
-// and Enter opening the symbol.
+// and Enter opening the symbol. (`SCR` used to be a third way to the
+// same four tables and was retired for exactly that reason.)
 //
 // The rank order is the point. A screener's roster carries one thing
 // beyond a list of tickers, which is the order the screen put them in,

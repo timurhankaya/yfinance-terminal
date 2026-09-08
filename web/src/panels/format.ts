@@ -50,3 +50,14 @@ export function text(row: Row, key: string): string {
   const value = row[key];
   return value === null || value === undefined ? "—" : String(value);
 }
+
+//: Past this many characters a value is prose rather than a fact, and a
+//: field grid has to give it a row of its own -- squeezed into a 130
+//: pixel half-cell, a business summary is a column of two-word lines
+//: that pushes every field beside it down with it.
+export const PROSE_CHARS = 120;
+
+/** Whether a formatted value should take a whole row of a field grid. */
+export function isProse(shown: unknown): boolean {
+  return typeof shown === "string" && shown.length > PROSE_CHARS;
+}

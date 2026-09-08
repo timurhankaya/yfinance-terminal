@@ -14,9 +14,9 @@ import {
 } from "../api/client";
 import { Controls, NumberArg, TextArg } from "./controls";
 import type { PanelArgs } from "../commands/types";
-import { EmptyCard, ErrorCard, LoadState, NextPageError, usePagedRows, usePanelData, type Column } from "./common";
+import { EmptyCard, ErrorCard, LoadState, NextPageError, usePagedRows, usePanelData } from "./common";
+import { gridNames } from "./grid";
 import { linksFor } from "./links";
-import { SparkCell, rowSymbols, sparkLabel, useSparklines } from "./spark";
 import { TabChartView, type TabChart } from "./tabcharts";
 import { DatasetTable } from "./table";
 
@@ -29,20 +29,6 @@ export enum SymbolMode {
   Auto = "auto",
   None = "none",
 }
-
-/** A column a dataset view draws beside the catalogue's own.
- *
- *  Declared, not built: a `Tab` is configuration (`curated.tsx:1-3`) and
- *  cannot fetch, while a sparkline column needs the symbols of the rows
- *  that loaded. The view turns the declaration into a `Column<Row>` once
- *  it has them. */
-export enum ExtraColumn {
-  Sparkline = "sparkline",
-}
-
-//: Shared empty, so a view without extras does not hand the sparkline
-//: hook a new array on every render.
-const NO_EXTRAS: ExtraColumn[] = [];
 
 export interface DatasetPage {
   entry: CatalogEntry;
@@ -104,7 +90,6 @@ export function DatasetView(props: {
   symbol: string | null;
   filters: PanelArgs;
   mode: SymbolMode;
-  extra?: ExtraColumn[];
   chart?: TabChart;
   /** Rows per request. The panel keeps it in its own args, so a page of
    *  500 is part of the address like everything else. */
@@ -114,7 +99,7 @@ export function DatasetView(props: {
    *  args cannot offer to edit them. */
   onArgs?: (next: PanelArgs) => void;
 }): ReactElement {
-  const { name, symbol, filters, mode, extra = NO_EXTRAS, chart, pageSize = PAGE_SIZE, onArgs } = props;
+  const { name, symbol, filters, mode, chart, pageSize = PAGE_SIZE, onArgs } = props;
   const filterKey = Object.entries(filters)
     .sort()
     .map(([k, v]) => `${k}=${v}`)
@@ -137,31 +122,6 @@ export function DatasetView(props: {
     () => (first === null ? EMPTY_ROWS : [...first.rows, ...paged.rows]),
     [first, paged.rows],
   );
-  const wantsSpark = extra.includes(ExtraColumn.Sparkline);
-  const sparkSymbols = useMemo(
-    () => (wantsSpark ? rowSymbols(rows) : EMPTY_SYMBOLS),
-    [wantsSpark, rows],
-  );
-  const spark = useSparklines(sparkSymbols);
-  const extraColumns = useMemo<Column<Row>[]>(
-    () =>
-      wantsSpark
-        ? [
-            {
-              key: "__spark",
-              label: sparkLabel(spark),
-              format: (row) =>
-                typeof row.symbol === "string" ? (
-                  <SparkCell data={spark} symbol={row.symbol} />
-                ) : (
-                  "—"
-                ),
-            },
-          ]
-        : [],
-    [wantsSpark, spark],
-  );
-
   if (state.kind === LoadState.Loading) return <p className="muted">Loading {name}…</p>;
   if (state.kind === LoadState.Missing) return <p className="card card-error">No dataset named {name}.</p>;
   if (state.kind === LoadState.Error) {
@@ -207,11 +167,10 @@ export function DatasetView(props: {
         key={entry.name}
         columns={entry.columns}
         rows={rows}
-        hide={state.data.symbol !== null ? ["symbol"] : []}
+        grid={gridNames(entry.name, entry.columns, state.data.symbol !== null ? ["symbol"] : [])}
         links={linksFor(entry.name, entry.columns.map((c) => c.name))}
         onLoadMore={paged.cursor === null ? undefined : paged.loadMore}
         loadingMore={paged.loadingMore}
-        extra={extraColumns}
       />
       {paged.error !== null && <NextPageError message={paged.error} />}
     </section>
@@ -231,7 +190,6 @@ function isDateFilter(entry: CatalogEntry, filter: string): boolean {
 //: Shared empties, so a re-render with nothing loaded does not restart
 //: the sparkline query with a new array.
 const EMPTY_ROWS: Row[] = [];
-const EMPTY_SYMBOLS: string[] = [];
 
 function describeError(message: string, filters: PanelArgs): string {
   const keys = Object.keys(filters);

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WireType, type CatalogColumn } from "../api/client";
 import { DatasetTable, formatCell, formatDateTime, formatDecimal, formatInteger, rawDecimal } from "./table";
@@ -53,8 +53,20 @@ describe("cell formatting by wire type", () => {
 });
 
 describe("DatasetTable", () => {
-  it("hides raw_json and hidden columns from the grid but keeps them in the row detail", () => {
-    render(<DatasetTable columns={COLUMNS} rows={ROWS} hide={["symbol"]} />);
+  it("draws every column but raw_json when no grid is named, and never a column the catalogue lacks", () => {
+    const { rerender } = render(<DatasetTable columns={COLUMNS} rows={ROWS} />);
+    expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
+      "symbol", "as_of_date", "value", "count", "flag", "url",
+    ]);
+    // A grid naming a column the archive has since renamed leaves a gap,
+    // not an empty column with a heading.
+    rerender(<DatasetTable columns={COLUMNS} rows={ROWS} grid={["value", "gone_away", "raw_json", "symbol"]} />);
+    expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["value", "symbol"]);
+  });
+
+
+  it("draws the grid the caller asked for, in its order, and keeps every column in the row detail", () => {
+    render(<DatasetTable columns={COLUMNS} rows={ROWS} grid={["as_of_date", "value", "count", "flag", "url"]} />);
     const headers = screen.getAllByRole("columnheader").map((th) => th.textContent);
     expect(headers).toEqual(["as_of_date", "value", "count", "flag", "url"]);
     expect(screen.getByText(/2 rows/)).toBeTruthy();
@@ -106,6 +118,38 @@ describe("DatasetTable", () => {
   it("shows Loading while the next page is in flight", () => {
     render(<DatasetTable columns={COLUMNS} rows={ROWS} onLoadMore={() => undefined} loadingMore />);
     expect(screen.getByRole("button", { name: "Loading…" })).toBeDisabled();
+  });
+
+  it("scrolls the selection into view when the reader moves it, and never on mount", () => {
+    // Mounting used to scroll row 0 into view, which threw a reader past
+    // everything above a table that did not start at the top of its
+    // panel -- the officers table inside DES's Reference tab.
+    // Restored in the same test: a spy left on `Element.prototype`
+    // outlives this file's `cleanup` and would follow every other suite
+    // in the worker.
+    const scrolled = vi.spyOn(Element.prototype, "scrollIntoView");
+    try {
+      render(<DatasetTable columns={COLUMNS} rows={ROWS} />);
+      expect(scrolled).not.toHaveBeenCalled();
+      fireEvent.keyDown(screen.getByRole("table"), { key: "j" });
+      expect(scrolled).toHaveBeenCalled();
+    } finally {
+      scrolled.mockRestore();
+    }
+  });
+
+  it("gives a prose value its own row of the detail's field grid", () => {
+    // `formatCell` wraps text over forty characters in a span, so the
+    // rule reads the raw value: testing the formatted one silently
+    // classified every business summary as a short fact.
+    const long = "x".repeat(200);
+    render(<DatasetTable columns={[...COLUMNS, { name: "summary", type: WireType.String, nullable: true }]}
+      rows={[{ ...ROWS[0], summary: long }]} />);
+    fireEvent.click(screen.getAllByRole("row")[1]!);
+    const detail = screen.getByRole("region", { name: "row detail" });
+    const field = within(detail).getByText("summary").closest(".field");
+    expect(field?.className).toContain("field-prose");
+    expect(within(detail).getByText("symbol").closest(".field")?.className).not.toContain("field-prose");
   });
 
   it("says when the list was cut at the page cap", () => {

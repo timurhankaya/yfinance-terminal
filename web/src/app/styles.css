@@ -1,4 +1,20 @@
 :root { color-scheme: dark; --bg: #0b0e11; --fg: #d7dde3; --muted: #7f8a96; --line: #1f262e; --accent: #f2b544; }
+/* Surfaces, and the two type roles. The terminal was one plane and one
+   font: every panel painted straight onto `--bg` and every glyph was
+   monospace, so nothing on a symbol page could be said to sit ON
+   anything else. Two raised surfaces and a proportional face for prose
+   give a card an edge to have; NUMBERS stay monospace and tabular,
+   because a column of prices that does not line up is worse than a
+   column that is plain. `--surface` is the palette's own background, so
+   this is not a new colour -- it is the one already in the file, named. */
+:root {
+  --surface: #12171d;
+  --surface-2: #171e26;
+  --line-soft: #171d24;
+  --radius: 6px;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
 /* Emphasis, and the one colour the reader picks. Amber is what the
    terminal has always opened with; the other two are for people who read
    it beside something else all day. Each is checked against `--bg` for
@@ -21,7 +37,7 @@
   --group-e: #f0e442; --group-f: #0072b2; --group-g: #d55e00;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 ui-monospace, "SF Mono", Menlo, monospace; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 var(--font-mono); }
 .shell { display: flex; flex-direction: column; height: 100vh; }
 .command-bar { border-bottom: 1px solid var(--line); padding: 6px 10px; }
 .command-bar input { width: 100%; background: transparent; border: 0; color: var(--accent); font: inherit; outline: none; text-transform: uppercase; }
@@ -37,7 +53,22 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 ui-mon
 a { color: var(--accent); }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 40%); gap: 12px; height: 100%; }
 .split-list { overflow: auto; min-height: 0; }
-.split-detail { overflow: auto; min-height: 0; border-left: 1px solid var(--line); padding-left: 12px; }
+/* The detail stays put while the list scrolls past it. A row's fields
+   are what the reader is comparing the NEXT rows against, and a detail
+   that scrolled away with the row it came from could only be read by
+   scrolling back to where it started.
+   `top` clears the symbol band, which is sticky above it; the height is
+   what is left of the panel under that band. */
+.split-detail {
+  position: sticky;
+  top: var(--band-height);
+  align-self: start;
+  max-height: calc(100vh - var(--band-height) - 120px);
+  overflow: auto;
+  min-height: 0;
+  border-left: 1px solid var(--line);
+  padding-left: 12px;
+}
 .list-row { cursor: pointer; padding: 4px 8px; border-bottom: 1px solid var(--line); }
 .list-row:focus-visible, .list-row[aria-selected="true"] { outline: none; }
 .detail-meta { color: var(--muted); margin: 0 0 8px; }
@@ -49,8 +80,6 @@ a { color: var(--accent); }
 .credit-logo-wide { width: auto; height: 18px; }
 .help-fn { color: var(--accent); background: none; border: 0; font: inherit; cursor: pointer; padding: 0; }
 .help-fn:disabled { color: var(--muted); cursor: default; }
-dl.des { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
-dl.des dt { color: var(--muted); }
 .grid { width: 100%; border-collapse: collapse; }
 .grid th { text-align: left; color: var(--muted); font-weight: 400; border-bottom: 1px solid var(--line); padding: 4px 8px; }
 .grid td { padding: 4px 8px; border-bottom: 1px solid var(--line); }
@@ -82,13 +111,18 @@ dl.des dt { color: var(--muted); }
 .palette-note { margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 .scroll-x { overflow-x: auto; max-width: 100%; }
 .dataset .grid th, .dataset .grid td { white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
+/* As wide as its content, not as wide as the window. Six columns
+   stretched across a 1700-pixel panel put a quarter of a metre between a
+   holder's name and its percentage, and the eye loses the row on the way
+   across. The floor keeps a narrow panel's table from collapsing into
+   its ellipses. */
+.dataset .grid { width: auto; min-width: min(100%, 960px); }
 .json { margin: 0; white-space: pre-wrap; word-break: break-all; font: inherit; color: var(--muted); }
 .family { display: block; margin: 10px 0 2px; color: var(--accent); text-transform: uppercase; font-size: 11px; }
 .ds-name { font-weight: 600; }
 .summary { max-width: 90ch; white-space: pre-wrap; }
 .usage { color: var(--muted); }
 .panel h3 { margin: 14px 0 4px; font-size: 13px; color: var(--muted); }
-dl.des dd { margin: 0; word-break: break-word; }
 .credits-right { margin-left: auto; }
 .row-links a { margin-right: 8px; white-space: nowrap; }
 .guide { max-width: 110ch; }
@@ -130,7 +164,18 @@ dl.des dd { margin: 0; word-break: break-word; }
 /* The SVG primitives (web/src/panels/viz). Size, spacing and type are
    CSS's job; colour never is -- it goes on a fill/stroke attribute, since
    style-src 'self' blocks an inline style attribute outright. */
-.viz-figure { margin: 8px 0 12px; }
+/* A figure is as wide as its drawing was designed to be.
+   `Bars`, `Bullet` and `Scatter` draw into a 640-wide viewBox and the
+   SVG scales to its container, so in a full-width panel a bar chart
+   stretched to 1700 pixels and, keeping its ratio, stood 700 pixels
+   tall -- taller than the window, with the table it was drawn ABOVE
+   pushed off the bottom of it (spec, "Kararlar" 3: the chart comes on
+   top of the table, not instead of it). Capped a little above the
+   design width, so it is crisp rather than blown up. */
+.viz-figure { margin: 8px 0 12px; max-width: 880px; }
+/* The heatmap is the exception, and deliberately: a treemap's value IS
+   its area, and `HEAT` is a panel whose whole content is the one view. */
+.viz-figure:has(.viz-treemap) { max-width: none; }
 .viz { display: block; width: 100%; height: auto; }
 .viz-treemap { aspect-ratio: 16 / 9; }
 .viz-tick, .viz-cell-label { font-size: 11px; }
@@ -176,7 +221,10 @@ dl.des dd { margin: 0; word-break: break-word; }
   --dv-tab-border-radius: 0;
   height: 100%;
 }
-.dock-panel { height: 100%; overflow: auto; padding: 10px; }
+.dock-panel { height: 100%; overflow: auto; }
+/* The panel's padding, on the panel's BODY: the band above it is flush
+   to the edge and sticks there, which a negative margin could not do. */
+.panel-body { padding: 10px; }
 
 /* A panel's letter, as a line down its edge. Identity, not direction:
    the same seven colours the comparison chart draws its series with. */
@@ -244,3 +292,248 @@ dl.des dd { margin: 0; word-break: break-word; }
 .dock-add:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 /* The hint under the command box, while a page still has one panel. */
 .hint { margin: 2px 0 0; font-size: 11px; }
+
+/* --- the symbol band, and the symbol page it heads -------------------------
+   The band is a panel's own, so it bleeds to the panel's edge (the 10px
+   of `.dock-panel` padding, undone) and sticks to the top of that
+   panel's scroll -- a reader forty fields down a snapshot can still see
+   which symbol they are in and click their way out of it. */
+/* A FIXED height, and that is what makes the sticky detail pane below
+   it possible: `--band-height` is the offset that pane sticks at, and a
+   band that grew by a line would have hidden the pane's own heading
+   behind it. Nothing wraps inside it -- the price row and the function
+   row each scroll sideways instead -- so the number stays true at any
+   panel width. */
+:root { --band-height: 54px; }
+.band {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: var(--band-height);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+/* Only ever inside the band now, so this cannot reach another surface. */
+.band .strip { overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+/* Inside the band the strip is a row, not a bar: the band draws the one
+   rule under both of them. */
+.band .strip { border-bottom: 0; padding-bottom: 2px; }
+/* Scrolled, never wrapped. Fourteen codes are ~480px; a split panel is
+   often narrower than that, and three wrapped rows of tabs would push
+   the data off the first screen. `SymbolBand` scrolls the active one
+   into view. */
+.band-tabs { display: flex; gap: 1px; padding: 0 6px; overflow-x: auto; scrollbar-width: thin; }
+.band-tab {
+  flex: 0 0 auto;
+  padding: 4px 9px 5px;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font: 500 11px/1.4 var(--font-ui);
+  letter-spacing: .06em;
+  cursor: pointer;
+}
+.band-tab:hover { color: var(--fg); }
+.band-tab-on { color: var(--accent); border-bottom-color: var(--accent); }
+.band-tab:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+
+/* The head: the name, the facts about it, and the way out to Yahoo. */
+.des-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin: 0 0 12px; }
+.des-name { margin: 0; font: 600 17px/1.25 var(--font-ui); letter-spacing: -.01em; }
+.des-meta { display: flex; flex-wrap: wrap; gap: 5px; }
+.des-chip {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 11px/1.5 var(--font-ui);
+  white-space: nowrap;
+}
+.des-out { margin-left: auto; font: 11px/1.5 var(--font-ui); white-space: nowrap; }
+
+/* Six numbers, on cards, above everything else on the page. */
+/* 150, not 132: at a split-pane width the smaller minimum fitted five
+   cards and left the sixth alone on a row of its own. */
+.stats { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); margin: 0 0 12px; }
+.stat { padding: 7px 10px 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; }
+.stat-label {
+  display: block;
+  color: var(--muted);
+  font: 10px/1.4 var(--font-ui);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stat-value { display: block; margin-top: 3px; font: 15px/1.25 var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* The pictures, each in its own card so a symbol missing one leaves a
+   gap the grid closes rather than a hole. */
+/* Columns, not a grid, and two of them at most.
+   Two, because the primitives draw into a 640-wide viewBox: a card
+   narrower than that scales their tick text down with everything else,
+   and at four across a 1440 window the axis labels came out under seven
+   pixels.
+   Columns rather than grid rows, because the four cards have nothing
+   like the same height -- a bullet is 56 pixels tall and a bar chart is
+   260. On a row-aligned grid the short card beside the tall one was four
+   fifths empty; flowing them down a balanced column packs the three
+   short ones beside the tall one instead. */
+.des-viz { columns: 2 460px; column-gap: 10px; margin: 0 0 12px; }
+.des-viz .viz-card { break-inside: avoid; margin: 0 0 10px; }
+/* A bar chart is 640x260, so at a full column it wants 280 pixels of
+   height and becomes the loudest thing on an overview. Capped, and
+   letterboxed by the SVG's own preserveAspectRatio rather than
+   squashed. */
+.viz-card .viz { max-height: 220px; }
+.viz-card { padding: 8px 10px 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; }
+.viz-card-head h4, .des-about h4, .fieldset h4 {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font: 10px/1.4 var(--font-ui);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+.viz-card .viz-figure { margin: 0; }
+/* The header sparkline is not a table cell: it gets a box of its own
+   rather than the 72x18 one `.spark` is fixed at for a grid. */
+.des-trend .spark { width: 100%; height: 72px; max-height: none; }
+.des-trend-note { margin: 2px 0 0; font: 12px/1.4 var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* The card is as wide as the prose it holds. At the full width of a
+   window it was a half-empty box with a paragraph in the left of it. */
+.des-about { max-width: 96ch; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin: 0 0 14px; }
+/* Capped, not cut: Apple's summary is fourteen hundred characters and
+   at a readable measure that is seventeen lines -- a whole screen of
+   prose above the fields, on the panel whose job is the fields. Six
+   lines and a scroll keeps every word and gives the page back. */
+.des-about p {
+  margin: 0;
+  max-width: 90ch;
+  max-height: 9.6em;
+  overflow-y: auto;
+  color: var(--fg);
+  font: 12.5px/1.6 var(--font-ui);
+  white-space: pre-wrap;
+}
+
+/* The four tabs of the snapshot, and the fields under them. */
+.subtabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin: 0 0 12px; }
+.subtab {
+  padding: 6px 12px;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font: 12px/1.4 var(--font-ui);
+  cursor: pointer;
+}
+.subtab:hover { color: var(--fg); }
+.subtab-on { color: var(--fg); border-bottom-color: var(--accent); }
+.subtab:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+.subtab-count { margin-left: 6px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.fieldset { margin: 0 0 16px; }
+/* Fills across before it fills down: a section of thirty fields is three
+   columns of ten rather than one column of thirty. */
+.fields { display: grid; gap: 0 18px; grid-template-columns: repeat(auto-fill, minmax(min(285px, 100%), 1fr)); margin: 0; }
+.field {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 3px 2px;
+  border-bottom: 1px solid var(--line-soft);
+  min-width: 0;
+}
+/* The LABEL gives way, not the value. Both were allowed to shrink and
+   the value lost: `America/New_York` broke after "New_Yor" and a
+   timestamp wrapped onto two lines, in a column where the label beside
+   it had a tooltip carrying its full text and the value had nothing.
+   So the key takes the slack (it ellipsises, and its `title` is the raw
+   key), and the value wraps only once the key is down to three
+   characters. */
+.field-key {
+  flex: 1 1 auto;
+  min-width: 3em;
+  color: var(--muted);
+  font: 11.5px/1.6 var(--font-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.field-val {
+  flex: 0 1 auto;
+  margin: 0;
+  font: 12px/1.6 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+.des-foot { margin: 4px 0 0; font-size: 11px; }
+/* The card's title line: the heading on the left, its own controls on
+   the right. The range picker costs no vertical space this way, which is
+   the whole reason the trend card can carry one. */
+.viz-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.range { display: inline-flex; gap: 2px; }
+.range .chip { padding: 1px 6px; font-size: 10px; letter-spacing: .04em; border-radius: 3px; }
+
+/* --- the row detail: a view of a row, not a footnote to it ----------------
+   A wide dataset now draws six or seven of its columns in the grid
+   (`panels/grid.ts`), so this is where the other ninety-nine are read.
+   Same field grid as DES's snapshot tabs -- one pattern for "many small
+   facts about one thing", and in a 400-pixel pane it falls to a single
+   clean column on its own. */
+.detail { padding: 0; border: 0; }
+.detail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 2px 0 6px;
+  margin: 0 0 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.detail-head h4 {
+  margin: 0;
+  font: 600 13px/1.4 var(--font-ui);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-close {
+  margin-left: auto;
+  padding: 2px 8px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  font: 11px/1.5 var(--font-ui);
+  cursor: pointer;
+}
+.detail-close:hover { color: var(--fg); border-color: var(--muted); }
+.detail-close:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.detail .fieldset { margin: 12px 0 0; }
+.detail .json { max-height: 40vh; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; }
+/* Prose in a field grid takes the whole row: the label above it and the
+   text left-aligned in a proportional face, rather than a hundred words
+   folded into a 130-pixel half-cell. */
+.field-prose { grid-column: 1 / -1; display: block; }
+.field-prose .field-key { display: block; }
+.field-prose .field-val {
+  display: block;
+  margin-top: 2px;
+  max-width: 96ch;
+  text-align: left;
+  font: 12.5px/1.6 var(--font-ui);
+  white-space: pre-wrap;
+}
+/* Which exchange a search hit is on. Apple is a dozen rows -- AAPL,
+   AAPL.MX, AAPL.BA -- and without this they are a dozen identical
+   lines. */
+.palette-where { color: var(--muted); }

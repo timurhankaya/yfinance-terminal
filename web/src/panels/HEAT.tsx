@@ -117,7 +117,37 @@ function parseArgs(tokens: string[]): PanelArgs {
   return args;
 }
 
-/** The newest metrics row per domain, joined to the sector taxonomy.
+/** Yahoo's eleven sectors, and what to call each one.
+ *
+ *  Written down rather than read, and that is forced. `domain_metrics`
+ *  carries all 156 domains -- the eleven sectors AND every industry
+ *  under them -- with no column saying which is which, so the panel used
+ *  to join it to `domains` filtered to `domain_type=sector` for both the
+ *  filter and the display names. But `domains` is SYMBOL-SCOPED: the API
+ *  refuses an unfiltered scan of it with a 422, and it had been refusing
+ *  this one, so the sector map did not draw at all -- every load ended
+ *  on "This dataset is symbol-scoped".
+ *
+ *  There is no route that lists the sectors, and there are eleven of
+ *  them, fixed by Yahoo's own taxonomy and already named in this panel's
+ *  own description. A key the archive stops publishing simply leaves a
+ *  cell out; a twelfth sector would need a line here, and the map would
+ *  say so by being one cell short. */
+export const SECTORS: ReadonlyArray<[key: string, label: string]> = [
+  ["basic-materials", "Basic Materials"],
+  ["communication-services", "Communication Services"],
+  ["consumer-cyclical", "Consumer Cyclical"],
+  ["consumer-defensive", "Consumer Defensive"],
+  ["energy", "Energy"],
+  ["financial-services", "Financial Services"],
+  ["healthcare", "Healthcare"],
+  ["industrials", "Industrials"],
+  ["real-estate", "Real Estate"],
+  ["technology", "Technology"],
+  ["utilities", "Utilities"],
+];
+
+/** The newest metrics row per sector.
  *
  *  `domain_metrics` is as-of and sorted newest first, so the first row
  *  seen for a key is that domain's latest -- which is right even when
@@ -125,15 +155,8 @@ function parseArgs(tokens: string[]): PanelArgs {
 export async function loadSectors(period: HeatPeriod): Promise<TreemapItem[]> {
   const column = SECTOR_COLUMN[period];
   if (column === undefined) throw new Error(`${period} is not a sector window`);
-  const [taxonomy, metrics] = await Promise.all([
-    getDatasetPage("domains", { domain_type: "sector" }, null, PAGE_LIMIT),
-    getDatasetPage("domain_metrics", {}, null, PAGE_LIMIT),
-  ]);
-  const names = new Map<string, string>();
-  for (const row of taxonomy.rows) {
-    const key = row.domain_key;
-    if (typeof key === "string") names.set(key, typeof row.name === "string" ? row.name : key);
-  }
+  const metrics = await getDatasetPage("domain_metrics", {}, null, PAGE_LIMIT);
+  const names = new Map<string, string>(SECTORS);
   const newest = new Map<string, Row>();
   for (const row of metrics.rows) {
     const key = row.domain_key;

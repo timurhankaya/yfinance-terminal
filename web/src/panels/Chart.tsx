@@ -3,7 +3,7 @@
 // Everything decided rather than drawn is in `chart-data.ts`; this holds
 // the imperative half -- a chart instance, its series, and the effects
 // that keep them in step with props. Two panels use it (`GP` daily,
-// `GIP` intraday) and neither knows the library exists.
+// intraday) and neither knows the library exists.
 //
 // Two panes, not two price scales: volume on the same scale as price
 // flattens a $200 candle against 40 million shares. The gap band is the
@@ -52,6 +52,13 @@ export interface ChartProps {
   band: Whitespace[];
   /** Intraday charts show the clock on the axis; a daily one shows dates. */
   timeVisible: boolean;
+  /** What series this IS -- the symbol, the interval, the window. The
+   *  time scale is fitted to the data once per identity and never again,
+   *  which is the whole point of taking a key rather than fitting on
+   *  every update: a live tick must not throw away the reader's pan and
+   *  zoom, and a fresh series must not open at the library's default bar
+   *  spacing with two dozen candles crushed against the right edge. */
+  fitKey?: string;
   label: string;
 }
 
@@ -67,7 +74,7 @@ function stamp<T extends { time: number }>(rows: T[]): Array<T & { time: UTCTime
 
 export function Chart(props: ChartProps): ReactElement {
   const theme = useVizTheme();
-  const { candles, volume, markers, whitespace, band, timeVisible, label } = props;
+  const { candles, volume, markers, whitespace, band, timeVisible, fitKey, label } = props;
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const priceSeries = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -152,6 +159,16 @@ export function Chart(props: ChartProps): ReactElement {
   useEffect(() => {
     volumeSeries.current?.setData(stamp(volume));
   }, [volume]);
+
+  // After the data effects above, so the scale is fitted to a series the
+  // chart already has. Guarded on having any: fitting an empty series is
+  // a no-op, and the first render of every panel is empty.
+  const fitted = useRef<string | null>(null);
+  useEffect(() => {
+    if (candles.length === 0 || fitted.current === fitKey) return;
+    fitted.current = fitKey ?? null;
+    chart.current?.timeScale().fitContent();
+  }, [candles, fitKey]);
 
   useEffect(() => {
     // Value 1 on a scale pinned to [0, 1] is a full-height column.

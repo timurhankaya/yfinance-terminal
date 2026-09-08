@@ -134,9 +134,17 @@ const ROSTER = {
   as_of: null,
 };
 
+//: Every URL the panel asked for, so a test can assert what it did NOT.
+const asked: string[] = [];
+
 function stubSectors() {
+  asked.length = 0;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
+    asked.push(url);
+    // Answered, and the panel must still not ask: `domains` is
+    // symbol-scoped, so the real API refuses this with a 422 and the
+    // sector map drew nothing at all until it stopped asking.
     if (url.includes("/datasets/domains")) return json(SECTORS);
     if (url.includes("/datasets/domain_metrics")) return json(METRICS);
     return json({ data: [], next_cursor: null });
@@ -227,6 +235,10 @@ describe("the sector map", () => {
       /20\.00T · \+1\.5%/,
     );
     expect(screen.getByText(/2 boxes · today · sectors/)).toBeInTheDocument();
+    // The taxonomy read is gone: `domains` is symbol-scoped and the API
+    // refuses an unfiltered scan of it, which is what had been breaking
+    // this panel outright. The sector list is a constant now.
+    expect(asked.filter((url) => url.includes("/datasets/domains"))).toEqual([]);
   });
 
   it("colours by the window the args name", async () => {

@@ -42,7 +42,8 @@ from sqlalchemy.orm import Session
 from yfin.api.core.errors import TYPE_INVALID_PARAMETER, TYPE_NOT_FOUND, ApiProblem
 from yfin.api.routers.v1.paging import to_number
 from yfin.api.schemas.common import Collection, Resource
-from yfin.api.storage import limits
+from yfin.api.schemas.market import SymbolSummary
+from yfin.api.storage import limits, reads
 from yfin.api.storage.session import session_scope
 from yfin.core.normalize import normalize_symbol
 from yfin.models import ReadableInterval
@@ -345,6 +346,45 @@ def sparklines(
     # None: when a bar was last verified against the source is a per-row
     # question, and the envelope answers a per-response one.
     return Resource[SparklineSet](data=read_sparklines(session, wanted, size), as_of=None)
+
+
+# --- symbol search ----------------------------------------------------------
+
+#: A picker's worth. More than this and the reader is reading a table,
+#: which is what `DS` and `EQS` are for.
+SEARCH_LIMIT = 20
+SEARCH_MIN_LENGTH = 2
+
+
+@router.get("/search", response_model=Collection[SymbolSummary])
+def search(
+    session: SessionDep,
+    q: Annotated[str, Query()],
+) -> Collection[SymbolSummary]:
+    """Symbols by code OR by name, for the terminal's picker.
+
+    `/v1/symbols?q=` matches the symbol column and says so in its
+    published contract. That is right for an API and wrong for a person:
+    a reader who knows "Akbank" does not know that Yahoo files it under
+    `AKBNK.IS`, and one who types APPLE gets a joke coin whose ticker
+    starts that way rather than Apple Inc. This is the terminal's own
+    read, like `sparklines` and `news`, and `/v1` does not move.
+    """
+    query = q.strip()
+    if len(query) < SEARCH_MIN_LENGTH:
+        raise ApiProblem(
+            422,
+            TYPE_INVALID_PARAMETER,
+            "Query too short",
+            detail=f"q must be at least {SEARCH_MIN_LENGTH} characters",
+        )
+    limits.apply_statement_timeout(session)
+    rows = reads.search_symbols(session, query=query, limit=SEARCH_LIMIT)
+    return Collection[SymbolSummary](
+        data=[SymbolSummary.model_validate(row) for row in rows],
+        next_cursor=None,
+        as_of=None,
+    )
 
 
 # --- bar gaps ---------------------------------------------------------------

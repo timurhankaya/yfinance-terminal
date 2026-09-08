@@ -663,7 +663,7 @@ export function Shell() {
     inputRef.current?.focus();
   }, []);
 
-  function onPick(text: string) {
+  function onPick(text: string, split = false) {
     const pending = pendingRef.current;
     pendingRef.current = null;
     setPalette({ open: false, query: "" });
@@ -672,10 +672,10 @@ export function Shell() {
       // no need to re-validate them the way a typed symbol is.
       setWarning(null);
       setDraft("");
-      runHere({ symbol: text.toUpperCase(), code: pending.code, args: pending.args });
+      runHere({ symbol: text.toUpperCase(), code: pending.code, args: pending.args }, split);
       return;
     }
-    void submit(text);
+    void submit(text, split);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -715,10 +715,7 @@ export function Shell() {
 
   useGlobalKeys({ inputRef, paletteOpen: palette.open, openHelp, onPageKey, onMoveFocus });
 
-  const hasSymbol = here.symbol !== null;
-  const panels = listPanels();
-  const market_panels = panels.filter((panel) => !panel.needsSymbol);
-  const symbol_panels = panels.filter((panel) => panel.needsSymbol);
+  const market_panels = listPanels().filter((panel) => !panel.needsSymbol);
 
   return (
     <div className="shell">
@@ -768,27 +765,16 @@ export function Shell() {
           <p className="share">{shareLink}</p>
         )}
       </header>
-      {/* Two groups, because they are two kinds of page and the URL now
-          says so: a market page has no symbol in its address, a symbol
-          page does. A flat list of 22 codes gave a reader no way to tell
-          which of them a symbol was even relevant to. */}
+      {/* The market pages, and only those. The symbol functions moved
+          into the band each symbol panel wears (`SymbolBand.tsx`): they
+          belong beside the price they act on, and here they could only
+          ever have named one of the symbols a split page is showing.
+          A flat list of 22 codes gave a reader no way to tell which of
+          them a symbol was even relevant to. */}
       <nav className="fnbar" aria-label="functions">
         <span className="fn-group">Market</span>
         {market_panels.map((panel) => (
           <FnButton key={panel.code} panel={panel} current={here.code} go={runHere} symbol={command.symbol} runnable />
-        ))}
-        <span className="fn-group">
-          {here.symbol === null ? "This symbol" : here.symbol}
-        </span>
-        {symbol_panels.map((panel) => (
-          <FnButton
-            key={panel.code}
-            panel={panel}
-            current={here.code}
-            go={runHere}
-            symbol={here.symbol}
-            runnable={hasSymbol}
-          />
         ))}
       </nav>
       <main className="panel">

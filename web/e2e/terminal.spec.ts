@@ -30,12 +30,15 @@ test("a typed command draws intraday candles", async ({ page }) => {
   const box = page.getByLabel("command");
   await expect(box).toBeFocused();
 
-  await box.fill(`${SYMBOL} GIP 5m`);
+  // `GP 5m`, not `GIP 5m`: one chart function takes every interval now.
+  await box.fill(`${SYMBOL} GP 5m`);
   await box.press("Enter");
 
   // The URL is the state: every command is a history entry, so this is
   // also what makes Esc go back to where it was.
-  await expect(page).toHaveURL(new RegExp(`/ui/t/${SYMBOL}/GIP\\?interval=5m$`));
+  await expect(page).toHaveURL(
+    new RegExp(`/ui/t/${SYMBOL}/GP\\?interval=5m&years=2$`),
+  );
 
   const chart = page.getByRole("img", { name: `${SYMBOL} 5m candles` });
   await expect(chart).toBeVisible();

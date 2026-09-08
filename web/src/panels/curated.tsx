@@ -4,7 +4,7 @@
 // even before that).
 import { usePanelRun } from "../workspace/frame";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
-import { DatasetView, ExtraColumn, SymbolMode, filtersOf, parseFilters } from "./dataset";
+import { DatasetView, SymbolMode, filtersOf, parseFilters } from "./dataset";
 import { useArgs } from "./controls";
 import { PAGE_SIZE } from "../api/client";
 
@@ -35,11 +35,9 @@ const MODE_OF: Record<TabSymbol, SymbolMode> = {
   [TabSymbol.None]: SymbolMode.None,
 };
 
-/** What a tab wants beyond its table. Both are DECLARATIONS: a tab
- *  cannot fetch, and both a sparkline column and a chart are built by
- *  the view once it has the rows. */
+/** What a tab wants beyond its table. A DECLARATION: a tab cannot
+ *  fetch, and the chart is built by the view once it has the rows. */
 export interface TabExtras {
-  extra?: ExtraColumn[];
   chart?: TabChart;
 }
 
@@ -113,7 +111,6 @@ export function tabbedPanel(spec: TabbedPanelSpec): PanelSpec {
             symbol={symbol}
             filters={filters}
             mode={MODE_OF[current.symbol]}
-            extra={current.extra}
             chart={current.chart}
             pageSize={Number(args.rows ?? PAGE_SIZE)}
             onArgs={(next) => set(next)}
@@ -205,31 +202,6 @@ export const MKT_PANEL = tabbedPanel({
   ],
 });
 
-export const SCR_PANEL = tabbedPanel({
-  code: "SCR",
-  title: "Screens: definitions, runs, members, quote snapshots",
-  tabs: [
-    mkt("list", "Screens", "screens"),
-    mkt("runs", "Runs", "screen_runs"),
-    // The one curated tab that is a roster of symbols, which is what a
-    // sparkline column is for.
-    opt("members", "Members", "screen_members", { extra: [ExtraColumn.Sparkline] }),
-    sym("quotes", "Quote snapshot", "screen_quotes"),
-  ],
-});
-
-export const SRCH_PANEL = tabbedPanel({
-  code: "SRCH",
-  title: "Search and lookup results (filter with query_term=)",
-  tabs: [
-    opt("quotes", "Search quotes", "search_quotes"),
-    mkt("lists", "Search lists", "search_lists"),
-    mkt("reports", "Report hits", "search_report_hits"),
-    opt("lookup", "Lookup results", "lookup_results"),
-    mkt("totals", "Lookup totals", "lookup_totals"),
-  ],
-});
-
 export const DOM_PANEL = tabbedPanel({
   code: "DOM",
   title: "Sectors and industries: taxonomy, metrics, top companies/funds/movers, research",
@@ -264,8 +236,6 @@ export const CURATED: PanelSpec[] = [
   FUND_PANEL,
   CAL_PANEL,
   MKT_PANEL,
-  SCR_PANEL,
-  SRCH_PANEL,
   DOM_PANEL,
   REF_PANEL,
 ];

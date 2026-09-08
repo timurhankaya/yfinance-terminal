@@ -100,10 +100,19 @@ interface Page<T> {
 
 export const SEARCH_MIN_PREFIX = 2;
 
+/** Symbols by ticker OR by company name.
+ *
+ *  `/ui/api/search`, not `/v1/symbols?q=`: the published route matches
+ *  the symbol column and says so in its contract, which leaves a reader
+ *  who knows "Akbank" but not `AKBNK.IS` with nothing. This is one of
+ *  the terminal's own reads, like `news` and `sparklines`.
+ *
+ *  Not upper-cased on the way out: the route folds case itself, and the
+ *  name half of the match is not a ticker. */
 export async function searchSymbols(prefix: string): Promise<SymbolSummary[]> {
-  const q = prefix.trim().toUpperCase();
+  const q = prefix.trim();
   if (q.length < SEARCH_MIN_PREFIX) return [];
-  const page = await apiFetch<Page<SymbolSummary>>(`${DATA_BASE}/symbols?q=${encodeURIComponent(q)}&limit=20`);
+  const page = await apiFetch<Page<SymbolSummary>>(`/ui/api/search?q=${encodeURIComponent(q)}`);
   return page.data;
 }
 

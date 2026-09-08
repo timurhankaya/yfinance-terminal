@@ -9,7 +9,6 @@ import { DES_PANEL } from "./DES";
 import { DS_PANEL } from "./DS";
 import { EQS_PANEL } from "./EQS";
 import { FA_PANEL } from "./FA";
-import { GIP_PANEL } from "./GIP";
 import { GP_PANEL } from "./GP";
 import { HEAT_PANEL } from "./HEAT";
 import { HELP_PANEL } from "./HELP";
@@ -30,7 +29,6 @@ export function registerAll(): void {
   registerPanel(DS_PANEL);
   registerPanel(EQS_PANEL);
   registerPanel(FA_PANEL);
-  registerPanel(GIP_PANEL);
   registerPanel(GP_PANEL);
   registerPanel(HEAT_PANEL);
   registerPanel(HELP_PANEL);

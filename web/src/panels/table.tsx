@@ -8,7 +8,7 @@ import type { ReactElement, ReactNode } from "react";
 import { WireType, type CatalogColumn, type Row } from "../api/client";
 import { DataTable, useListKeys, useSortedRows, type Column } from "./common";
 import { Controls, RowFilter } from "./controls";
-import { LOCALE, asNumber, formatBig, isHttpUrl } from "./format";
+import { LOCALE, asNumber, formatBig, isHttpUrl, isProse } from "./format";
 import type { LinkRule } from "./links";
 
 //: Shown only in the row detail: as a grid column it would be a page wide.
@@ -106,72 +106,105 @@ function Links({ row, rules }: { row: Row; rules: LinkRule[] }): ReactElement | 
   );
 }
 
-/** Every field of one row, raw_json pretty-printed, plus the links the
- *  row implies. */
+/** Every field of one row: the ones the grid drew and, more to the
+ *  point, the ones it did not.
+ *
+ *  This is where a wide dataset actually lives now. `screen_quotes` puts
+ *  seven of its hundred and six columns in the grid, so the other
+ *  ninety-nine are read HERE -- which makes the detail a view of a row
+ *  rather than a footnote to it. Same field grid as DES's snapshot
+ *  tabs: one pattern for "many small facts about one thing", not two.
+ *
+ *  Blobs are pulled out of the grid and given the full width below it: a
+ *  pretty-printed JSON document in a 240-pixel cell is a column of
+ *  single characters. */
 export function RowDetail(props: {
   row: Row;
   columns: CatalogColumn[];
   links?: LinkRule[];
+  /** What this row is, for the heading -- the first grid column's value,
+   *  which is the one the reader clicked on. */
+  title?: string;
   onClose: () => void;
 }): ReactElement {
-  const { row, columns, links = [], onClose } = props;
+  const { row, columns, links = [], title, onClose } = props;
   const known = new Set(columns.map((c) => c.name));
   // Fields the catalogue did not list still show: a row is the truth,
   // the catalogue is a description of it.
   const extra = Object.keys(row).filter((k) => !known.has(k));
+  const all: Array<[name: string, type: WireType]> = [
+    ...columns.map((column): [string, WireType] => [column.name, column.type]),
+    ...extra.map((name): [string, WireType] => [name, WireType.String]),
+  ];
+  const filled = (name: string) => row[name] !== null && row[name] !== undefined;
+  const blobs = all.filter(([name]) => DETAIL_ONLY.has(name) && filled(name));
+  const plain = all.filter(([name]) => !DETAIL_ONLY.has(name));
+
   return (
     <div className="detail" role="region" aria-label="row detail">
-      <button type="button" className="fn" onClick={onClose}>
-        Close
-      </button>
-      <dl className="des">
-        {links.length > 0 && (
-          <>
-            <dt>open</dt>
-            <dd>
-              <Links row={row} rules={links} />
-            </dd>
-          </>
-        )}
-        {columns.map((column) => (
-          <Field key={column.name} name={column.name} type={column.type} value={row[column.name]} />
-        ))}
-        {extra.map((name) => (
-          <Field key={name} name={name} type={WireType.String} value={row[name]} />
+      <div className="detail-head">
+        <h4>{title === undefined || title === "" ? "Row" : title}</h4>
+        {links.length > 0 && <Links row={row} rules={links} />}
+        <button type="button" className="detail-close" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      <dl className="fields">
+        {plain.map(([name, type]) => (
+          <Field key={name} name={name} type={type} value={row[name]} />
         ))}
       </dl>
+      {blobs.map(([name]) => (
+        <section className="fieldset" key={name}>
+          <h4>{name}</h4>
+          <pre className="json">{prettyJson(row[name])}</pre>
+        </section>
+      ))}
     </div>
   );
 }
 
 function Field({ name, type, value }: { name: string; type: WireType; value: unknown }): ReactElement {
-  if (DETAIL_ONLY.has(name) && value !== null && value !== undefined) {
-    return (
-      <>
-        <dt>{name}</dt>
-        <dd>
-          <pre className="json">{prettyJson(value)}</pre>
-        </dd>
-      </>
-    );
-  }
+  // Full precision here, the grid's rounding there: the detail is where
+  // a reader comes to check a number, and 0.66435 is not 0.6644.
   const shown = type === WireType.Decimal && value !== null && value !== undefined
     ? rawDecimal(value)
     : formatCell(value, type, name);
   return (
-    <>
-      <dt>{name}</dt>
-      <dd>{shown}</dd>
-    </>
+    // From the RAW value, not the formatted one: `formatCell` wraps text
+    // over forty characters in a `<span title>` for the grid's ellipsis,
+    // so what comes back for a business summary is an element and every
+    // length test on it was false.
+    <div className={isProse(value) ? "field field-prose" : "field"}>
+      <dt className="field-key" title={name}>{name}</dt>
+      {/* The tooltip only where the cell is text: `formatCell` returns
+          a link element for a URL, and a title of "[object Object]"
+          would be worse than none. */}
+      <dd className="field-val" title={typeof shown === "string" ? shown : undefined}>{shown}</dd>
+    </div>
   );
+}
+
+/** What the detail pane calls the row: its first grid column, as text. */
+function detailTitle(row: Row, shown: CatalogColumn[]): string | undefined {
+  const first = shown[0];
+  if (first === undefined) return undefined;
+  const value = formatCell(row[first.name], first.type, first.name);
+  return typeof value === "string" && value !== "—" ? value : undefined;
 }
 
 export interface DatasetTableProps {
   columns: CatalogColumn[];
   rows: Row[];
-  /** Columns to leave out of the grid (a symbol column that repeats the
-   *  strip, say). They stay in the row detail. */
-  hide?: string[];
+  /** The columns the GRID draws, by name and in order. Absent means
+   *  every column the catalogue lists; either way the row detail shows
+   *  all of them.
+   *
+   *  One input, not two: the rule for which columns a dataset shows
+   *  lives in `grid.ts` and the answer arrives here already worked out.
+   *  A table that both took an allow-list and applied a rule of its own
+   *  would be two places to look when a column went missing. */
+  grid?: string[];
   /** Newest first: the API sends most datasets newest first already, but
    *  bars and actions come oldest first. */
   reverse?: boolean;
@@ -208,7 +241,7 @@ function narrow(rows: Row[], query: string): Row[] {
 
 /** A dataset as a grid with j/k/Enter and click opening the row detail. */
 export function DatasetTable(props: DatasetTableProps): ReactElement {
-  const { columns, rows: given, hide = [], reverse = false, truncated = false, links = [], onLoadMore, loadingMore = false, extra = [] } = props;
+  const { columns, rows: given, grid, reverse = false, truncated = false, links = [], onLoadMore, loadingMore = false, extra = [] } = props;
   const ordered = reverse ? [...given].reverse() : given;
   const [query, setQuery] = useState("");
   // Narrowing before ordering, and both before j/k and the row detail
@@ -220,8 +253,19 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
   const toggle = (index: number) => setOpen((current) => (current === index ? null : index));
   const [selected, setSelected] = useListKeys(rows.length, toggle);
   const tableRef = useRef<HTMLDivElement>(null);
+  //: Mount is not a move. The effect below follows j/k, and on the first
+  //: run there has been no j/k -- it simply scrolled row 0 into view. For
+  //: a table at the top of its panel that was a no-op, so it went
+  //: unnoticed until one was put lower down (the officers table inside
+  //: DES's Reference tab), where opening the panel threw the reader past
+  //: everything above it.
+  const moved = useRef(false);
 
   useEffect(() => {
+    if (!moved.current) {
+      moved.current = true;
+      return;
+    }
     const body = tableRef.current?.querySelector("tbody");
     const el = body?.children[selected];
     if (el instanceof HTMLElement && typeof el.scrollIntoView === "function") {
@@ -229,8 +273,14 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
     }
   }, [selected]);
 
-  const hidden = new Set([...hide, ...DETAIL_ONLY]);
-  const shown = columns.filter((c) => !hidden.has(c.name));
+  const byName = new Map(columns.map((column) => [column.name, column]));
+  const shown = grid === undefined
+    ? columns.filter((column) => !DETAIL_ONLY.has(column.name))
+    // In the caller's order, and only the columns the catalogue has.
+    : grid.flatMap((name) => {
+        const column = byName.get(name);
+        return column === undefined || DETAIL_ONLY.has(name) ? [] : [column];
+      });
   const gridColumns: Column<Row>[] = shown.map((c) => ({
     key: c.name,
     label: c.name,
@@ -295,7 +345,16 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
       </div>
       {detail && (
         <div className="split-detail">
-          <RowDetail row={detail} columns={columns} links={links} onClose={() => setOpen(null)} />
+          <RowDetail
+            row={detail}
+            columns={columns}
+            links={links}
+            // The first grid column of the row the reader clicked: the
+            // holder's name, the date, the contract. A heading of "Row
+            // detail" says nothing they did not already know.
+            title={detailTitle(detail, shown)}
+            onClose={() => setOpen(null)}
+          />
         </div>
       )}
     </div>
