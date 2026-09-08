@@ -83,6 +83,13 @@ describe("normalize100", () => {
     expect(normalize100([50, 75, 100])).toEqual([100, 150, 200]);
   });
 
+  it("multiplies before it divides, so round ratios stay round", () => {
+    // `(55 / 50) * 100` is 110.00000000000001; an axis labelled that is
+    // a bug on screen and a test that has to say `toBeCloseTo` is a
+    // symptom of it.
+    expect(normalize100([50, 55, 45])).toEqual([100, 110, 90]);
+  });
+
   it("refuses an empty series rather than returning one", () => {
     // The panel is expected to have dropped a symbol with no bars before
     // it gets here; a silent [] would draw a series that is not there.

@@ -87,8 +87,6 @@ dl.des dd { margin: 0; word-break: break-word; }
 .load-more { margin: 8px 0; list-style: none; }
 .dataset.split { align-items: start; height: auto; }
 .strip-price { font-weight: 600; }
-.strip-change.up { color: var(--up); }
-.strip-change.down { color: var(--down); }
 .strip-link { color: #ff6b6b; }
 .chart { height: 62vh; min-height: 320px; width: 100%; }
 .chart-note { display: flex; gap: 12px; align-items: baseline; margin: 0 0 6px; color: var(--muted); }
@@ -100,8 +98,11 @@ dl.des dd { margin: 0; word-break: break-word; }
 .tape-head .num { text-align: right; }
 .tape-line { display: grid; grid-template-columns: 96px 1fr 1fr 1fr; gap: 8px; }
 .tape-line .num { text-align: right; font-variant-numeric: tabular-nums; }
-.grid td.up, .strip-change.up { color: var(--up); }
-.grid td.down, .strip-change.down { color: var(--down); }
+/* Direction, wherever it appears: a grid cell, the strip, a legend.
+   Four compound selectors said the same thing in two places and left
+   a plain span uncoloured. */
+.up { color: var(--up); }
+.down { color: var(--down); }
 .fn-group { padding: 3px 8px 3px 2px; color: var(--muted); font-size: 11px; text-transform: uppercase; align-self: center; }
 .fn-group:not(:first-child) { border-left: 1px solid var(--line); margin-left: 8px; padding-left: 10px; }
 .home { max-width: 110ch; }

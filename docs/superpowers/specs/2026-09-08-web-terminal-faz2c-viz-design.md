@@ -1,6 +1,8 @@
 # Web terminal faz 2c: görsel katman
 
-Status: approved, not yet implemented
+Status: partially implemented, 2026-09-08 (2c-1 primitives and the
+sparkline column; 2c-2 `HEAT` and `COMP`. 2c-3, the charts inside `FA`,
+`ANR`, `HDS` and `CA`, is still open -- see "Uygulama sırası")
 Date: 2026-09-08
 Revised 2026-09-08 after three independent reviews (see "Revizyonlar").
 `2026-09-07-web-terminal-design.md`'nin çocuğu;

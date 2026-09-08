@@ -11,8 +11,8 @@ import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
 const GROUPS: ReadonlyArray<[title: string, codes: string[]]> = [
   ["About one symbol (these live under /ui/t/SYMBOL/)", ["DES", "FA", "ANR", "N", "CF", "CA", "PX", "HDS", "ERN", "FUND", "REF"]],
   ["Charts and the tape", ["GP", "GIP", "QR"]],
-  ["Several symbols at once", ["WLA"]],
-  ["Market-wide (no symbol; these live under /ui/m/)", ["HOME", "EQS", "CAL", "MKT", "SCR", "SRCH", "DOM"]],
+  ["Several symbols at once", ["WLA", "COMP"]],
+  ["Market-wide (no symbol; these live under /ui/m/)", ["HOME", "EQS", "HEAT", "CAL", "MKT", "SCR", "SRCH", "DOM"]],
   ["Everything in the archive", ["DS"]],
   ["This page", ["HELP"]],
 ];
@@ -30,6 +30,11 @@ const EXAMPLES: ReadonlyArray<[command: string, what: string]> = [
   ["QR", "Time and sales: the last few hundred ticks, then live as they arrive."],
   ["CAL economic region=US", "A market-wide panel with a tab and a filter."],
   ["WLA AAPL MSFT NVDA", "A live watchlist. The list is the URL, so it is shareable."],
+  ["COMP AAPL MSFT NVDA", "The same symbols compared: daily closes indexed to 100, one year."],
+  ["COMP AAPL MSFT 3y", "The same comparison over three years; up to seven symbols."],
+  ["HEAT", "The eleven sectors as a heat map: area is market cap, colour is today's move."],
+  ["HEAT 1y", "The same map coloured by the last year instead."],
+  ["HEAT day_gainers", "A screen's members as a heat map; Enter opens a symbol."],
   ["EQS", "Every screen this deployment runs; Enter opens one."],
   ["EQS day_gainers", "What that screen matched today, in its own order; Enter opens a symbol."],
   ["EQS day_gainers runs", "That screen's history: how big the roster was each day, and why."],

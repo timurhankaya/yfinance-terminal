@@ -75,5 +75,8 @@ export function normalize100(values: readonly number[]): number[] {
   const first = values[0];
   if (first === undefined) throw new Error("normalize100: the series is empty");
   if (first === 0) throw new Error("normalize100: the series starts at zero");
-  return values.map((value) => (value / first) * 100);
+  // `value * 100 / first`, not `(value / first) * 100`: the ratio is
+  // where the precision goes. 55/50 is 1.1000000000000001 in binary and
+  // times 100 that is 110.00000000000001, whereas 5500/50 is 110.
+  return values.map((value) => (value * 100) / first);
 }
