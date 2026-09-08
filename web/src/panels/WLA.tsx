@@ -17,7 +17,7 @@
 // watchlist size") and `web/src/live/hooks.test.tsx`.
 import type { ReactElement } from "react";
 import { SYMBOL_RE } from "../commands/parser";
-import { useGo } from "../commands/go";
+import { usePanelRun } from "../workspace/frame";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import { useLinkState, useLiveEnabled, useQuote } from "../live/hooks";
 import { LinkState, MarketHours } from "../live/types";
@@ -104,7 +104,7 @@ function Row({ symbol, selected }: { symbol: string; selected: boolean }): React
 }
 
 export function WLA({ symbol, args }: PanelProps) {
-  const go = useGo();
+  const go = usePanelRun();
   const symbols = parseSymbols(args.symbols);
   // `WLA` with a symbol on the strip and no list of its own watches that
   // one: the shortest way in, and it keeps the command meaningful from

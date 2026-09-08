@@ -65,6 +65,8 @@ def install_pages(app: FastAPI, dist_dir: Path) -> None:
     # promises.
     pages.add_api_route("/ui/t/{path:path}", spa, methods=["GET"])
     pages.add_api_route("/ui/m/{path:path}", spa, methods=["GET"])
+    # And a third: a saved page's address names the page, not a command.
+    pages.add_api_route("/ui/w/{path:path}", spa, methods=["GET"])
 
     app.include_router(pages)
     app.mount("/ui/assets", StaticFiles(directory=dist_dir / "assets"), name="ui-assets")

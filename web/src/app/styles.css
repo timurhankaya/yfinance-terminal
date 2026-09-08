@@ -102,3 +102,31 @@ dl.des dd { margin: 0; word-break: break-word; }
 @keyframes tape-in { from { background: rgba(242, 181, 68, .3); } to { background: transparent; } }
 .tape-line.tape-new { animation: tape-in 1.2s ease-out; }
 @media (prefers-reduced-motion: reduce) { .strip-price, .tape-line { animation: none !important; } }
+
+/* The dock, in the terminal's colours. dockview ships its palette as
+   theme classes; this is ours, and it reads the same tokens every other
+   surface does rather than a second set of hex values. */
+.dock {
+  --dv-group-view-background-color: var(--bg);
+  --dv-tabs-and-actions-container-background-color: var(--bg);
+  --dv-tabs-and-actions-container-height: 24px;
+  --dv-tabs-and-actions-container-font-size: 12px;
+  --dv-activegroup-visiblepanel-tab-background-color: var(--bg);
+  --dv-activegroup-visiblepanel-tab-color: var(--accent);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg);
+  --dv-activegroup-hiddenpanel-tab-color: var(--muted);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--muted);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--muted);
+  --dv-tab-divider-color: var(--line);
+  --dv-separator-border: var(--line);
+  --dv-paneview-active-outline-color: var(--accent);
+  --dv-active-sash-color: var(--accent);
+  --dv-drag-over-background-color: var(--line);
+  --dv-drag-over-border-color: var(--accent);
+  --dv-border-radius: 0;
+  --dv-tab-border-radius: 0;
+  height: 100%;
+}
+.dock-panel { height: 100%; overflow: auto; padding: 10px; }

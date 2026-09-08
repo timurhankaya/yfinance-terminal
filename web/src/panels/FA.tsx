@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { getFinancials, type FinancialFact } from "../api/client";
-import { useGo } from "../commands/go";
+import { usePanelRun } from "../workspace/frame";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import { DataTable, EmptyCard, ErrorCard, LoadState, MissingCard, usePanelData, type Column } from "./common";
 import { asNumber, formatBig } from "./format";
@@ -102,7 +102,7 @@ export function cell(value: unknown): string {
 }
 
 export function FA({ symbol, args }: PanelProps) {
-  const go = useGo();
+  const go = usePanelRun();
   const statement = statementOf(args.statement);
   const freq = freqOf(args.freq);
   const { state, retry } = usePanelData<FinancialFact[]>(

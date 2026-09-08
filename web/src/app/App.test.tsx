@@ -282,6 +282,34 @@ describe("AppRoutes", () => {
     expect(await screen.findByText("How to use the terminal")).toBeInTheDocument();
   });
 
+  it("runs a command in the focused panel of a saved page, and Ctrl+Enter opens another", async () => {
+    // A saved page is not an address, so a command lands in a panel
+    // rather than in the URL -- and with the modifier, beside it.
+    mockFetch(() => json(404, { detail: "not here" }));
+    for (const code of ["AAA", "BBB"]) {
+      registerPanel({
+        code,
+        title: code,
+        needsSymbol: false,
+        layout: Layout.Single,
+        parseArgs: () => ({}),
+        component: () => <p>panel {code}</p>,
+      });
+    }
+    const user = userEvent.setup();
+    mount("/ui/w/-");
+    const box = await screen.findByLabelText("command");
+
+    await user.click(box);
+    await user.keyboard("AAA{Enter}");
+    expect(await screen.findByText("panel AAA")).toBeInTheDocument();
+
+    await user.click(box);
+    await user.keyboard("BBB{Control>}{Enter}{/Control}");
+    expect(await screen.findByText("panel BBB")).toBeInTheDocument();
+    expect(screen.getByText("panel AAA")).toBeInTheDocument();
+  });
+
   it("focuses the command box on '/' when it is not already focused", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));

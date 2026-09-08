@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { ApiError } from "../api/client";
+import { usePanelFocus } from "../workspace/frame";
 
 /** Where a panel's one load has got to. */
 export enum LoadState {
@@ -233,12 +234,20 @@ export function DataTable<Row extends Record<string, unknown>>(props: {
 //: the tab still has focus.
 const INTERACTIVE = "input, textarea, select, button, a, [contenteditable], [role=tab]";
 
-/** j/k/Enter over `count` rows while nothing interactive is focused. */
+/** j/k/Enter over `count` rows while nothing interactive is focused, and
+ *  only in the panel the keyboard is talking to.
+ *
+ *  The listener is on `window` because the rows themselves are not
+ *  focusable -- so with two lists open on one page, both would move on a
+ *  single `j`. The frame settles which of them meant it. */
 export function useListKeys(
   count: number,
   onEnter: (index: number) => void,
 ): [selected: number, setSelected: (index: number) => void] {
   const [selected, setSelected] = useState(0);
+  const focused = usePanelFocus();
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
   const onEnterRef = useRef(onEnter);
   onEnterRef.current = onEnter;
   const selectedRef = useRef(selected);
@@ -250,6 +259,7 @@ export function useListKeys(
 
   useEffect(() => {
     function handler(event: KeyboardEvent) {
+      if (!focusedRef.current) return;
       const el = document.activeElement;
       if (el !== null && el !== document.body && el.closest(INTERACTIVE) !== null) return;
       if (event.key === "j") setSelected((s) => Math.min(count - 1, s + 1));

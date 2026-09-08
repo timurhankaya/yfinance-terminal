@@ -16,7 +16,7 @@ import { useMemo, useState } from "react";
 import type { ReactElement } from "react";
 import { SCREEN_PAGE, getScreen, getScreens } from "../api/client";
 import type { ScreenDetail, ScreenRow, ScreenSummary } from "../api/client";
-import { useGo } from "../commands/go";
+import { usePanelRun } from "../workspace/frame";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import {
   DataTable,
@@ -77,7 +77,7 @@ export function countLabel(screen: ScreenSummary): string {
 }
 
 function Screens({ symbol }: { symbol: string | null }) {
-  const go = useGo();
+  const go = usePanelRun();
   const { state, retry } = usePanelData<ScreenSummary[]>(
     "screens",
     getScreens,
@@ -156,7 +156,7 @@ function ScreenHead(props: {
   screen: ScreenSummary | null;
   symbol: string | null;
 }): ReactElement {
-  const go = useGo();
+  const go = usePanelRun();
   const { name, tab, screen, symbol } = props;
   return (
     <>
@@ -213,7 +213,7 @@ function Runs({ name, symbol }: { name: string; symbol: string | null }): ReactE
 }
 
 function Roster({ name, symbol }: { name: string; symbol: string | null }) {
-  const go = useGo();
+  const go = usePanelRun();
   const [offset, setOffset] = useState(0);
   const { state, retry } = usePanelData<ScreenDetail>(
     `${name}|${offset}`,

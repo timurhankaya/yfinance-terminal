@@ -18,6 +18,9 @@ export function AppRoutes() {
       <Route path="/ui" element={<Shell />} />
       <Route path="/ui/m/:code" element={<Shell />} />
       <Route path="/ui/t/:symbol/:code" element={<Shell />} />
+      {/* A saved page is neither: its address names the page, and what
+          it holds is the layout, not one command. */}
+      <Route path="/ui/w/:name" element={<Shell />} />
       <Route path="*" element={<Navigate to={HOME_PATH} replace />} />
     </Routes>
   );

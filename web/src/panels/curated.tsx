@@ -2,7 +2,7 @@
 // all rendered through DatasetView. Each is configuration, not code, so
 // adding a dataset to the terminal is one line here (and DS reaches it
 // even before that).
-import { useGo } from "../commands/go";
+import { usePanelRun } from "../workspace/frame";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import { DatasetView, SymbolMode, filtersOf, parseFilters } from "./dataset";
 
@@ -60,7 +60,7 @@ export function tabbedPanel(spec: TabbedPanelSpec): PanelSpec {
   }
 
   function Component({ symbol, args }: PanelProps) {
-    const go = useGo();
+    const go = usePanelRun();
     const current = spec.tabs.find((t) => t.key === args.tab) ?? first;
     const filters = filtersOf(args, ["tab"]);
     const needs = current.symbol === TabSymbol.Required && symbol === null;

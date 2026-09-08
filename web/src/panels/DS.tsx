@@ -4,7 +4,7 @@
 // from the terminal, whether or not a curated panel covers it.
 import { useMemo } from "react";
 import { getCatalog, type CatalogEntry } from "../api/client";
-import { useGo } from "../commands/go";
+import { usePanelRun } from "../workspace/frame";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
 import { ErrorCard, LoadState, useListKeys, usePanelData } from "./common";
 import { DatasetView, SymbolMode, filtersOf, parseFilters } from "./dataset";
@@ -19,7 +19,7 @@ function parseArgs(tokens: string[]): PanelArgs {
 }
 
 function Catalog({ symbol }: { symbol: string | null }) {
-  const go = useGo();
+  const go = usePanelRun();
   const { state, retry } = usePanelData<CatalogEntry[]>("catalog", getCatalog, (entries) => entries.length === 0);
   const entries = useMemo(() => {
     if (state.kind !== LoadState.Ready) return [];

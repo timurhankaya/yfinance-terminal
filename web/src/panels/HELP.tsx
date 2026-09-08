@@ -2,7 +2,7 @@
 // follow top to bottom: what to type, every function with its usage,
 // every shortcut, and how tables and links behave. The function list is
 // read from the registry so it can never drift from what is installed.
-import { useGo } from "../commands/go";
+import { usePanelRun } from "../workspace/frame";
 import { listPanels } from "../commands/registry";
 import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
 
@@ -53,7 +53,7 @@ const SHORTCUTS: ReadonlyArray<[keys: string, where: string, what: string]> = [
 ];
 
 function FunctionRow({ panel, symbol }: { panel: PanelSpec; symbol: string | null }) {
-  const go = useGo();
+  const go = usePanelRun();
   const runnable = !panel.needsSymbol || symbol !== null;
   return (
     <li className="list-row">

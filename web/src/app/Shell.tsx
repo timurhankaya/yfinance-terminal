@@ -16,6 +16,8 @@ import type { Command, PanelArgs, PanelSpec } from "../commands/types";
 import { useGo } from "../commands/go";
 import { CommandPalette } from "./CommandPalette";
 import { Strip } from "./Strip";
+import { Workspace } from "./Workspace";
+import type { PanelSeed } from "./Workspace";
 import { useGlobalKeys } from "./keys";
 
 /** The symbol a market page inherits, carried in the history entry.
@@ -56,9 +58,19 @@ export function Shell() {
   // `symbol` is absent on the market routes (`/ui/m/:code`, `/ui`);
   // present on `/ui/t/:symbol/:code`. Which of the two we are on is
   // therefore readable from the params alone.
-  const { symbol: rawSymbol, code: rawCode } = useParams();
+  const { symbol: rawSymbol, code: rawCode, name: pageName } = useParams();
   const { search, state } = useLocation();
   const go = useGo();
+  // A saved page is the one kind of page whose panels are not in its
+  // address. Until 2a-3 gives it a store they live here, so a reload
+  // starts it over -- which is the honest state of a page that has not
+  // been given anywhere to be saved yet.
+  const saved = pageName !== undefined;
+  const [pagePanels, setPagePanels] = useState<PanelSeed[]>(() => [
+    { id: "p1", code: HOME_CODE, symbol: null, args: {} },
+  ]);
+  const [activeId, setActiveId] = useState<string | null>("p1");
+  const nextId = useRef(2);
   const market = rawSymbol === undefined;
   const code = rawCode ?? (market ? HOME_CODE : DEFAULT_CODE);
   const context = (state as HistoryContext | null)?.symbol ?? null;
@@ -76,23 +88,71 @@ export function Shell() {
       ? withContext
       : { ...withContext, args: normalize(withContext.args) };
   }, [rawSymbol, code, search, market, context]);
-  const spec = getPanel(command.code);
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState("");
   const [warning, setWarning] = useState<string | null>(null);
   const [palette, setPalette] = useState<{ open: boolean; query: string }>({ open: false, query: "" });
   const pendingRef = useRef<{ code: string; args: PanelArgs } | null>(null);
 
+  /** Runs a command from the shell's own controls -- the command box, the
+   *  function bar, `?`. On a page that *is* an address that means going
+   *  there; on a saved page it means running in the panel the keyboard is
+   *  talking to, or opening a new one beside it. */
+  const runHere = useCallback(
+    (next: Command, split = false) => {
+      if (!saved) {
+        go(next);
+        return;
+      }
+      if (split) {
+        const id = `p${nextId.current++}`;
+        setPagePanels((current) => [...current, { id, ...next }]);
+        return;
+      }
+      setPagePanels((current) =>
+        current.map((panel) => (panel.id === activeId ? { id: panel.id, ...next } : panel)),
+      );
+    },
+    [saved, go, activeId],
+  );
+
+  /** A panel ran a command: it replaces itself, wherever it is. */
+  const onRun = useCallback(
+    (id: string, next: Command) => {
+      if (!saved) {
+        go(next);
+        return;
+      }
+      setPagePanels((current) => current.map((panel) => (panel.id === id ? { id, ...next } : panel)));
+    },
+    [saved, go],
+  );
+
+  const urlPanels = useMemo<PanelSeed[]>(
+    () => [{ id: "main", code: command.code, symbol: command.symbol, args: command.args }],
+    [command],
+  );
+  const dockPanels = saved ? pagePanels : urlPanels;
+
+  /** What the shell's own controls are about.
+   *
+   *  On a page that is an address, that is the address. On a saved page
+   *  it is whichever panel has the keyboard: typing `GIP` there means
+   *  "this panel, intraday", and the strip and the function bar are about
+   *  the same panel the command box is. */
+  const here: Command =
+    (saved ? pagePanels.find((panel) => panel.id === activeId) : undefined) ?? command;
+
   const submit = useCallback(
-    async (text: string) => {
-      const result = parse(text, { symbol: command.symbol, code: command.code });
+    async (text: string, split = false) => {
+      const result = parse(text, { symbol: here.symbol, code: here.code });
       if (result.kind === ParseKind.Empty) return;
       if (result.kind === ParseKind.Error) {
         setWarning(result.message);
         return;
       }
       const next = result.command;
-      if (next.symbol && next.symbol !== command.symbol) {
+      if (next.symbol && next.symbol !== here.symbol) {
         try {
           await getSymbol(next.symbol);
         } catch (err) {
@@ -111,9 +171,9 @@ export function Shell() {
       // Hand the keyboard to the panel: while the box keeps focus, j/k/Enter
       // would be typed into it instead of moving a list selection.
       inputRef.current?.blur();
-      go(next);
+      runHere(next, split);
     },
-    [command, go],
+    [here, runHere],
   );
 
   // Focus the box once, on mount: the shell owns the keyboard from the
@@ -132,7 +192,7 @@ export function Shell() {
       // no need to re-validate them the way a typed symbol is.
       setWarning(null);
       setDraft("");
-      go({ symbol: text.toUpperCase(), code: pending.code, args: pending.args });
+      runHere({ symbol: text.toUpperCase(), code: pending.code, args: pending.args });
       return;
     }
     void submit(text);
@@ -140,7 +200,9 @@ export function Shell() {
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Enter") {
-      void submit(draft);
+      // Ctrl/Meta+Enter opens the result beside the panel instead of in
+      // it; on a page that is an address there is nowhere to put it.
+      void submit(draft, event.ctrlKey || event.metaKey);
       return;
     }
     if (event.key === "Escape" && !event.shiftKey) {
@@ -154,25 +216,16 @@ export function Shell() {
   }
 
   const openHelp = useCallback(() => {
-    go({ symbol: command.symbol, code: "HELP", args: {} });
-  }, [go, command.symbol]);
+    runHere({ symbol: here.symbol, code: "HELP", args: {} });
+  }, [runHere, here.symbol]);
 
   useGlobalKeys({ inputRef, paletteOpen: palette.open, openHelp });
 
-  const hasSymbol = command.symbol !== null;
+  const spec = getPanel(here.code);
+  const hasSymbol = here.symbol !== null;
   const panels = listPanels();
   const market_panels = panels.filter((panel) => !panel.needsSymbol);
   const symbol_panels = panels.filter((panel) => panel.needsSymbol);
-
-  let body;
-  if (!spec) {
-    body = <p className="muted">Unknown function {command.code}.</p>;
-  } else if (spec.needsSymbol && !hasSymbol) {
-    body = <p className="muted">Type a symbol to begin.</p>;
-  } else {
-    const Component = spec.component;
-    body = <Component symbol={command.symbol} args={command.args} />;
-  }
 
   return (
     <div className="shell">
@@ -194,30 +247,32 @@ export function Shell() {
       <nav className="fnbar" aria-label="functions">
         <span className="fn-group">Market</span>
         {market_panels.map((panel) => (
-          <FnButton key={panel.code} panel={panel} current={command.code} go={go} symbol={command.symbol} runnable />
+          <FnButton key={panel.code} panel={panel} current={here.code} go={runHere} symbol={command.symbol} runnable />
         ))}
         <span className="fn-group">
-          {command.symbol === null ? "This symbol" : command.symbol}
+          {here.symbol === null ? "This symbol" : here.symbol}
         </span>
         {symbol_panels.map((panel) => (
           <FnButton
             key={panel.code}
             panel={panel}
-            current={command.code}
-            go={go}
-            symbol={command.symbol}
+            current={here.code}
+            go={runHere}
+            symbol={here.symbol}
             runnable={hasSymbol}
           />
         ))}
       </nav>
-      {hasSymbol && command.symbol !== null && (
+      {hasSymbol && here.symbol !== null && (
         // `headed` is what turns the strip live. A `single` panel gets
         // the symbol and nothing else, so opening a statement or a
         // filing list does not hold a subscription for a price nobody is
         // looking at.
-        <Strip symbol={command.symbol} live={spec?.layout === Layout.Headed} />
+        <Strip symbol={here.symbol} live={spec?.layout === Layout.Headed} />
       )}
-      <main className="panel">{body}</main>
+      <main className="panel">
+        <Workspace panels={dockPanels} onRun={onRun} onActive={setActiveId} />
+      </main>
       <footer className="credits" aria-label="credits">
         <span>Data</span>
         <a href="https://finance.yahoo.com/" target="_blank" rel="noopener noreferrer">

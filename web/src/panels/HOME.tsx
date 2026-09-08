@@ -13,7 +13,7 @@
 import { useMemo } from "react";
 import type { ReactElement } from "react";
 import { getDatasetPage, getScreens, type Row, type ScreenSummary } from "../api/client";
-import { useGo } from "../commands/go";
+import { usePanelRun } from "../workspace/frame";
 import { Layout, type PanelProps, type PanelSpec } from "../commands/types";
 import { LoadState, usePanelData } from "./common";
 import { countLabel, runLabel } from "./EQS";
@@ -43,7 +43,7 @@ function Card(props: { title: string; go: () => void; children: ReactElement }):
 }
 
 export function HOME({ symbol }: PanelProps) {
-  const go = useGo();
+  const go = usePanelRun();
   const { state, retry } = usePanelData<Overview>("home", async () => {
     // Both reads are market-wide and neither is large. They are asked
     // for together so the page paints once rather than twice.
