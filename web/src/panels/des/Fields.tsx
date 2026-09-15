@@ -6,6 +6,7 @@
 // shape -- one column of a hundred and fifty rows became a tab of a few
 // multi-column blocks, so a field is found by looking rather than by
 // scrolling.
+import { FIELD_HELP } from "../../app/tab-help";
 import { Fragment } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { WireType, getDataset, type CatalogColumn, type Row } from "../../api/client";
@@ -103,6 +104,7 @@ export function Fields(props: FieldsProps): ReactElement {
             key={tab.key}
             type="button"
             role="tab"
+            data-tooltip={FIELD_HELP[tab.key]}
             aria-selected={tab.key === active}
             className={tab.key === active ? "subtab subtab-on" : "subtab"}
             onClick={() => onPick(tab.key)}

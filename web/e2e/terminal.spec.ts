@@ -17,6 +17,12 @@ import { expect, test } from "@playwright/test";
 
 const SYMBOL = process.env.E2E_SYMBOL ?? "AAPL";
 
+// An archived fixture may have no bars in the real current nine-day window.
+// Pin only the browser clock, explicitly, without changing the API or data.
+test.beforeEach(async ({ page }) => {
+  if (process.env.E2E_NOW) await page.clock.setFixedTime(new Date(process.env.E2E_NOW));
+});
+
 test("a typed command draws intraday candles", async ({ page }) => {
   const errors: string[] = [];
   // A CSP violation is reported here and nowhere else: the page still
@@ -26,7 +32,7 @@ test("a typed command draws intraday candles", async ({ page }) => {
   });
 
   // `/ui` is the home now; the command box is focused there too.
-  await page.goto("/ui");
+  await page.goto("/ui/");
   const box = page.getByLabel("command");
   await expect(box).toBeFocused();
 
@@ -62,7 +68,7 @@ test("a typed command draws intraday candles", async ({ page }) => {
 
 test("the daily chart marks corporate actions", async ({ page }) => {
   await page.goto(`/ui/t/${SYMBOL}/GP`);
-  const chart = page.getByRole("img", { name: `${SYMBOL} daily candles` });
+  const chart = page.getByRole("img", { name: `${SYMBOL} 1d candles` });
   await expect(chart).toBeVisible();
-  await expect(page.getByText(/daily · 2 years/)).toBeVisible();
+  await expect(page.getByText(/1d · 2 years/)).toBeVisible();
 });

@@ -28,11 +28,15 @@ import {
   useListKeys,
   useSortedRows,
   usePanelData,
+  usePagedRows,
+  NextPageError,
   type Column,
 } from "./common";
+import { Controls, NumberArg, RowFilter, useArgs } from "./controls";
 import { DatasetView, SymbolMode } from "./dataset";
 import { SparkCell, sparkLabel, useSparklines } from "./spark";
 import { formatDateTime, formatDecimal, formatInteger } from "./table";
+import { asNumber, formatBig } from "./format";
 
 /** A screen's sub-pages. `Members` is the roster; `Runs` is the same
  *  screen's history, which is the only place the roster's size over time
@@ -86,7 +90,9 @@ function Screens({ symbol }: { symbol: string | null }) {
     getScreens,
     (rows) => rows.length === 0,
   );
-  const screens = state.kind === LoadState.Ready ? state.data : EMPTY_SCREENS;
+  const [query, setQuery] = useState("");
+  const allScreens = state.kind === LoadState.Ready ? state.data : EMPTY_SCREENS;
+  const screens = allScreens.filter((screen) => [screen.screen_key, screen.title, screen.description, screen.quote_type].join(" ").toLowerCase().includes(query.trim().toLowerCase()));
   const open = (index: number) => {
     const screen = screens[index];
     if (screen) {
@@ -111,28 +117,34 @@ function Screens({ symbol }: { symbol: string | null }) {
 
   return (
     <section>
-      <p className="detail-meta">
-        {screens.length} screens. Enter or click opens one.
-      </p>
-      <ul className="list" role="listbox" aria-label="screens">
+      <header className="browse-heading">
+        <div><h2>Equity screener</h2><p className="muted">Find an opportunity. Explore the symbols that match.</p></div>
+        <span className="browse-badge">{allScreens.length} screens</span>
+      </header>
+      <label className="browse-search">Find a screen<input type="search" placeholder="Search gainers, value, growth…" value={query} onChange={(event) => { setQuery(event.target.value); setSelected(0); }} /></label>
+      <p className="detail-meta" role="status">{screens.length} screens. Enter or click opens one.</p>
+      {screens.length === 0 && <p className="card card-empty">No screens match “{query}”. <button type="button" onClick={() => setQuery("")}>Clear search</button></p>}
+      <ul className="list browse-grid" role="listbox" aria-label="screens">
         {screens.map((screen, index) => (
           <li
             key={screen.screen_key}
             role="option"
             tabIndex={-1}
-            className={index === selected ? "list-row row-selected" : "list-row"}
+            className={index === selected ? "list-row browse-card row-selected" : "list-row browse-card"}
             aria-selected={index === selected}
             onClick={() => {
               setSelected(index);
               open(index);
             }}
           >
+            <span className="browse-title">{screen.title ?? screen.screen_key}</span>
             <span className="ds-name">{screen.screen_key}</span>{" "}
             <span className="muted">
               {screen.quote_type.toLowerCase()} · {screen.kind} · {countLabel(screen)} ·{" "}
               {runLabel(screen)}
             </span>{" "}
-            <span>{screen.description ?? screen.title}</span>
+            <span className="browse-description">{screen.description}</span>
+            <button type="button" className="browse-open" aria-label={`View matches for ${screen.title ?? screen.screen_key}`} onClick={(event) => { event.stopPropagation(); open(index); }}>View matches →</button>
           </li>
         ))}
       </ul>
@@ -163,23 +175,27 @@ function ScreenHead(props: {
   const { name, tab, screen, symbol } = props;
   return (
     <>
+      <div className="browse-actions">
+        <button type="button" onClick={() => go({ symbol, code: "EQS", args: {} })}>← All screens</button>
+        <button type="button" onClick={() => go({ symbol, code: "HEAT", args: { screen: name } })}>View heat map →</button>
+      </div>
+      <h2 className="screen-title">{screen?.title ?? name}</h2>
       <p className="detail-meta">
-        <span className="ds-name">{screen?.title ?? name}</span>
         {screen !== null && (
           <>
-            {" "}
-            · {countLabel(screen)} · {runLabel(screen)} · sorted by {screen.sort_field}{" "}
+            {countLabel(screen)} · {runLabel(screen)} · sorted by {screen.sort_field}{" "}
             {screen.sort_asc ? "ascending" : "descending"}
-            {screen.description !== null && <> — {screen.description}</>}
           </>
         )}
       </p>
+      {screen?.description && <p className="muted">{screen.description}</p>}
       <div className="tabs" role="tablist" aria-label="screen">
         {TABS.map(([key, label]) => (
           <button
             key={key}
             type="button"
             role="tab"
+            data-tooltip={key === ScreenTab.Members ? "Members · Symbols matching this screen, in its configured order." : "Runs · Previous screening runs, match counts and recorded criteria."}
             aria-selected={key === tab}
             className={key === tab ? "tab tab-active" : "tab"}
             onClick={() =>
@@ -215,15 +231,24 @@ function Runs({ name, symbol }: { name: string; symbol: string | null }): ReactE
   );
 }
 
-function Roster({ name, symbol }: { name: string; symbol: string | null }) {
+function Roster({ name, symbol, args }: { name: string; symbol: string | null; args: PanelArgs }) {
   const go = usePanelRun();
-  const [offset, setOffset] = useState(0);
-  const { state, retry } = usePanelData<ScreenDetail>(
-    `${name}|${offset}`,
-    () => getScreen(name, offset),
-  );
+  const pageSize = Number(args.rows ?? SCREEN_PAGE);
+  const set = useArgs("EQS", symbol, args);
+  const [query, setQuery] = useState("");
+  const key = `${name}|${pageSize}`;
+  const { state, retry } = usePanelData<ScreenDetail>(key, () => getScreen(name, 0, pageSize));
   const detail = state.kind === LoadState.Ready ? state.data : null;
-  const { rows, sort, toggle: sortBy } = useSortedRows(detail?.rows ?? EMPTY_ROWS);
+  const paged = usePagedRows<ScreenRow>(key, detail?.truncated ? String(detail.offset + pageSize) : null, async (cursor) => {
+    const page = await getScreen(name, Number(cursor), pageSize);
+    return { rows: page.rows, next_cursor: page.truncated ? String(page.offset + pageSize) : null };
+  });
+  const loaded = useMemo(() => detail ? [...detail.rows, ...paged.rows] : EMPTY_ROWS, [detail, paged.rows]);
+  const filtered = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return term ? loaded.filter((row) => [row.symbol, row.short_name, row.exchange].some((value) => value?.toLowerCase().includes(term))) : loaded;
+  }, [loaded, query]);
+  const { rows, sort, toggle: sortBy } = useSortedRows(filtered);
 
   const open = (index: number) => {
     const row = rows[index];
@@ -232,9 +257,7 @@ function Roster({ name, symbol }: { name: string; symbol: string | null }) {
     if (row) go({ symbol: row.symbol, code: "DES", args: {} });
   };
   const [selected, setSelected] = useListKeys(rows.length, open);
-  // One request for the page of the roster on screen. A roster can hold
-  // a thousand members; only the 250 of this page are asked for, and the
-  // hook cuts at the route's cap above that.
+  // The sparkline hook applies its own request cap as the roster grows.
   const spark = useSparklines(rows.map((row) => row.symbol));
 
   const columns = useMemo<Column<ScreenRow>[]>(
@@ -253,7 +276,7 @@ function Roster({ name, symbol }: { name: string; symbol: string | null }) {
         key: "change_percent",
         label: "%",
         align: "right",
-        format: (r) => percent(r.change_percent),
+        format: (r) => <span className={Number(r.change_percent) > 0 ? "up" : Number(r.change_percent) < 0 ? "down" : "muted"}>{Number(r.change_percent) > 0 ? "+" : ""}{percent(r.change_percent)}</span>,
       },
       {
         key: "volume",
@@ -265,7 +288,7 @@ function Roster({ name, symbol }: { name: string; symbol: string | null }) {
         key: "market_cap",
         label: "Market cap",
         align: "right",
-        format: (r) => formatDecimal(r.market_cap),
+        format: (r) => { const value = asNumber(r.market_cap); return value === null ? "—" : formatBig(value); },
       },
       {
         key: "trailing_pe",
@@ -297,13 +320,13 @@ function Roster({ name, symbol }: { name: string; symbol: string | null }) {
   if (state.kind === LoadState.Error) return <ErrorCard message={state.message} onRetry={retry} />;
   if (detail === null) return null;
 
-  const first = detail.offset + 1;
-  const last = detail.offset + rows.length;
   return (
     <section>
       <ScreenHead name={name} tab={ScreenTab.Members} screen={detail.screen} symbol={symbol} />
+      <Controls><RowFilter value={query} onChange={setQuery} count={rows.length} total={loaded.length} /></Controls>
+      {rows.length > 0 && <p className="detail-meta">{rows.length} symbols on this page · Select a column to sort · Click a row to explore a symbol</p>}
       {rows.length === 0 ? (
-        <EmptyCard what={`rows for ${name}`} />
+        <p className="table-empty" role="status">{query ? "No loaded symbols match this filter. Clear it or load more records." : "No symbols in this screen."}</p>
       ) : (
         <div className="scroll-x">
           <DataTable
@@ -320,28 +343,14 @@ function Roster({ name, symbol }: { name: string; symbol: string | null }) {
           />
         </div>
       )}
-      {(detail.offset > 0 || detail.truncated) && (
-        <p className="load-more">
-          <button
-            type="button"
-            disabled={detail.offset === 0}
-            onClick={() => setOffset(Math.max(0, detail.offset - SCREEN_PAGE))}
-          >
-            Previous
-          </button>{" "}
-          <button
-            type="button"
-            disabled={!detail.truncated}
-            onClick={() => setOffset(detail.offset + SCREEN_PAGE)}
-          >
-            Next
-          </button>{" "}
-          <span className="muted">
-            {first}–{last}
-            {detail.screen.row_count === null ? "" : ` of ${formatInteger(detail.screen.row_count)}`}
-          </span>
-        </p>
-      )}
+      <div className="table-footer" aria-label="Table pagination">
+        <span className="table-total" role="status">{formatInteger(loaded.length)} {loaded.length === 1 ? "row" : "rows"} loaded{paged.cursor !== null ? " · More available" : " · All loaded"}</span>
+        <div className="table-page-actions">
+          <NumberArg label="Rows per load" value={pageSize} min={1} max={SCREEN_PAGE} onSet={(rows) => set({ rows: String(rows) })} />
+          {paged.cursor !== null && <button type="button" className="fn load-more-button" disabled={paged.loadingMore} onClick={paged.loadMore}>{paged.loadingMore ? "Loading…" : "Load more"}</button>}
+        </div>
+      </div>
+      {paged.error !== null && <NextPageError message={paged.error} />}
       <p className="chart-legend">
         <span className="muted">
           Enter opens the selected symbol. Every column of the quote snapshot is in{" "}
@@ -371,7 +380,7 @@ export function EQS({ symbol, args }: PanelProps) {
       </section>
     );
   }
-  return <Roster name={name} symbol={symbol} />;
+  return <Roster key={name} name={name} symbol={symbol} args={args} />;
 }
 
 export const EQS_PANEL: PanelSpec = {
@@ -381,5 +390,10 @@ export const EQS_PANEL: PanelSpec = {
   needsSymbol: false,
   layout: Layout.Single,
   parseArgs,
+  normalizeArgs: (args) => {
+    if (args.rows === undefined) return args;
+    const rows = Number(args.rows);
+    return { ...args, rows: String(Number.isInteger(rows) && rows >= 1 && rows <= SCREEN_PAGE ? rows : SCREEN_PAGE) };
+  },
   component: EQS,
 };

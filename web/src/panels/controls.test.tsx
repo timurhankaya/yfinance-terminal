@@ -92,3 +92,27 @@ describe("a control and the command line", () => {
     expect(screen.getByTestId("location").textContent).toBe("/ui/t/AAPL/PX?interval=5m&rows=250");
   });
 });
+
+it("gives controls unique labels across multiple panels", () => {
+  render(<><NumberArg label="Rows" value={20} min={1} max={100} onSet={() => {}} /><NumberArg label="Rows" value={50} min={1} max={100} onSet={() => {}} /><RowFilter value="" count={1} total={1} onChange={() => {}} /><RowFilter value="" count={2} total={2} onChange={() => {}} /></>);
+  const inputs = [...document.querySelectorAll("input")];
+  expect(new Set(inputs.map((input) => input.id)).size).toBe(4);
+  for (const input of inputs) expect(input.labels).toHaveLength(1);
+});
+
+it("applies server filters together and clears them explicitly", async () => {
+  const { DatasetFilters } = await import("./controls");
+  const apply = vi.fn();
+  render(<DatasetFilters fields={[{ name: "region", type: "text" }, { name: "as_of_date", type: "date" }]} values={{ region: "US" }} onApply={apply} />);
+  const user = userEvent.setup();
+  expect(document.querySelector(".dataset-filters")).not.toHaveAttribute("open");
+  await user.click(screen.getByText("Dataset filters"));
+  await user.clear(screen.getByRole("textbox", { name: "region" }));
+  await user.type(screen.getByRole("textbox", { name: "region" }), "GB");
+  await user.tab();
+  expect(apply).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Apply filters" }));
+  expect(apply).toHaveBeenLastCalledWith({ region: "GB", as_of_date: "" });
+  await user.click(screen.getByRole("button", { name: "Clear filters" }));
+  expect(apply).toHaveBeenLastCalledWith({ region: "", as_of_date: "" });
+});

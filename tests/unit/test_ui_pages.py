@@ -4,6 +4,7 @@ API path."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -29,7 +30,9 @@ def settings(*, ui_enabled: bool = True) -> ApiSettings:
 def build_dist(tmp_path: Path) -> Path:
     dist = tmp_path / "dist"
     (dist / "assets").mkdir(parents=True)
-    (dist / "index.html").write_text("<!doctype html><title>yfin</title><div id=root></div>")
+    (dist / "index.html").write_text(
+        "<!doctype html><head><title>yfin</title></head><div id=root></div>"
+    )
     (dist / "assets" / "app.js").write_text("console.log('hi')")
     return dist
 
@@ -81,6 +84,21 @@ def test_assets_are_served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     response = make_client(build_dist(tmp_path), monkeypatch).get("/ui/assets/app.js")
     assert response.status_code == 200
     assert "console.log" in response.text
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_dockview_flag_is_embedded_in_every_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, enabled: bool
+) -> None:
+    from yfin.api.app import create_app
+
+    monkeypatch.setattr(pages, "default_dist_dir", lambda: build_dist(tmp_path))
+    cfg = settings().model_copy(update={"dockview_enabled": enabled})
+    client = TestClient(create_app(cfg))
+    for path in ("/ui", "/ui/m/WLA", "/ui/w/trading"):
+        response = client.get(path)
+        assert f'name="yfin-dockview-enabled" content="{str(enabled).lower()}"' in response.text
+        assert response.headers["Cache-Control"] == "no-store"
 
 
 def test_a_missing_asset_is_404_not_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -142,7 +160,8 @@ def test_with_the_ui_off_yfin_ui_is_never_imported() -> None:
         "create_app(ApiSettings(_env_file=None, jwt_signing_key='k' * 32)); "
         "assert 'yfin.ui' not in sys.modules, 'yfin.ui was imported with the UI off'"
     )
-    subprocess.run([sys.executable, "-c", code], check=True)
+    env = {**os.environ, "YFAPI_UI_ENABLED": "false"}
+    subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
 
 def test_create_app_installs_the_ui_when_enabled(

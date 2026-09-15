@@ -81,12 +81,13 @@ function MoversBody({ onOpen }: { onOpen: (symbol: string) => void }) {
                 <li
                   key={row.symbol}
                   className="list-row"
-                  onClick={() => onOpen(row.symbol)}
                 >
-                  <span className="ds-name">{row.symbol}</span>{" "}
-                  <span className="num">{formatPrice(row.price)}</span>{" "}
-                  <Move percent={asNumber(row.change_percent)} />{" "}
-                  <SparkCell data={spark} symbol={row.symbol} />
+                  <button type="button" className="mover-row" onClick={() => onOpen(row.symbol)} aria-label={`Open ${row.symbol}`}>
+                    <span className="ds-name">{row.symbol}</span>{" "}
+                    <span className="num">{formatPrice(row.price)}</span>{" "}
+                    <span className="num"><Move percent={asNumber(row.change_percent)} /></span>{" "}
+                    <span className="mover-trend"><SparkCell data={spark} symbol={row.symbol} /></span>
+                  </button>
                 </li>
               ))}
             </ul>

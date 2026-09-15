@@ -4,18 +4,18 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { ApiError, getSymbol } from "../api/client";
 import {
   DEFAULT_CODE,
+  commandToPath,
   HOME_CODE,
   parse,
   ParseKind,
   pathToCommand,
   symbolCommand,
-  SYMBOL_RE,
 } from "../commands/parser";
-import { getPanel, isMnemonic, listPanels } from "../commands/registry";
+import { getPanel, listPanels } from "../commands/registry";
 import type { Command, PanelArgs, PanelSpec } from "../commands/types";
 import { useGo } from "../commands/go";
 import { CommandPalette } from "./CommandPalette";
-import { Workspace } from "./Workspace";
+import { SinglePanel, Workspace } from "./Workspace";
 import type { PanelSeed } from "./Workspace";
 import {
   GROUP_DETACH,
@@ -44,6 +44,9 @@ import type { Box } from "../workspace/neighbour";
 import { useGlobalKeys } from "./keys";
 import { ACCENTS, applyAccent, readAccent } from "./accent";
 import type { Accent } from "./accent";
+import { TooltipLayer } from "./TooltipLayer";
+import { functionHelp } from "./tab-help";
+import { dockviewEnabled } from "./config";
 
 /** The symbol a market page inherits, carried in the history entry.
  *
@@ -76,7 +79,7 @@ function FnButton(props: {
       className={panel.code === current ? "fn fn-active" : "fn"}
       aria-current={panel.code === current ? "page" : undefined}
       disabled={!runnable}
-      title={panel.title}
+      data-tooltip={functionHelp(panel)}
       onClick={() => go({ symbol, code: panel.code, args: {} })}
     >
       {panel.code}
@@ -155,11 +158,12 @@ function panelId(code: string, counter: { current: number }): string {
 export const SHARE_PARAM = "l";
 
 export function Shell() {
+  const docking = dockviewEnabled();
   // `symbol` is absent on the market routes (`/ui/m/:code`, `/ui`);
   // present on `/ui/t/:symbol/:code`. Which of the two we are on is
   // therefore readable from the params alone.
   const { symbol: rawSymbol, code: rawCode, name: pageName } = useParams();
-  const { search, state } = useLocation();
+  const { pathname, search, state } = useLocation();
   const navigate = useNavigate();
   const go = useGo();
   // A saved page is the one kind of page whose panels are not in its
@@ -190,12 +194,25 @@ export function Shell() {
       ? withContext
       : { ...withContext, args: normalize(withContext.args) };
   }, [rawSymbol, code, search, market, context]);
+  // Normalise deep links without adding a history entry. Only arguments
+  // present in the URL are retained, so default tabs need no query string.
+  useEffect(() => {
+    if (saved || !getPanel(command.code)) return;
+    const args = Object.fromEntries([...new URLSearchParams(search)].flatMap(([key, value]) => {
+      const normalized = command.args[key];
+      return value !== "" && normalized !== undefined ? [[key, normalized]] : [];
+    }));
+    const canonical = commandToPath({ ...command, args });
+    if (canonical !== `${pathname}${search}`) void navigate(canonical, { replace: true, state: { symbol: command.symbol } });
+  }, [saved, command, pathname, search, navigate]);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState("");
   const [warning, setWarning] = useState<string | null>(null);
   //: The dock itself, for the one question that is about pixels: which
   //: panel is to the left of this one.
   const apiRef = useRef<DockviewApi | null>(null);
+  useEffect(() => { if (!saved) apiRef.current = null; }, [saved]);
   const [accent, setAccent] = useState<Accent>(() => readAccent());
 
   // The document carries the choice; the dock is rebuilt so that what is
@@ -219,6 +236,7 @@ export function Shell() {
    *  talking to, or opening a new one beside it. */
   const runHere = useCallback(
     (next: Command, split = false) => {
+      split = split && dockviewEnabled();
       if (!saved) {
         if (!split) {
           go(next);
@@ -229,10 +247,8 @@ export function Shell() {
         // panels ride in the history entry; the working page picks them
         // up from there.
         //
-        // `replace`, because splitting is an edit rather than a step
-        // (Karar 6): Esc goes back to wherever the reader was BEFORE this
-        // page, not to the unsplit version of it, which they left on
-        // purpose.
+        // Opening a workspace is a navigation step: Back returns to the
+        // single page that the reader explicitly split with +.
         //
         // Whatever the working page held is replaced, and no confirmation
         // is asked. `-` is the page with no name; naming one with
@@ -240,7 +256,6 @@ export function Shell() {
         // would tax the common gesture to protect the page the terminal
         // calls scratch.
         void navigate(pagePath(PageName.Scratch), {
-          replace: true,
           state: {
             panels: [
               // `command`, not `here`: on a page that is an address the
@@ -391,15 +406,10 @@ export function Shell() {
     setWarning(`${name} could not be restored and has been forgotten.`);
   }, [pageName]);
 
-  const urlPanels = useMemo<PanelSeed[]>(
-    () => [{ id: "main", code: command.code, symbol: command.symbol, args: command.args, group: null }],
-    [command],
-  );
-  const dockPanels = saved ? pagePanels : urlPanels;
   //: One panel on screen: the reader has not met the dock yet, so the
   //: command box says how. `activeId` is dockview's, so this follows the
   //: page as it is, not as it was seeded.
-  const alone = page.panels.length <= 1;
+  const alone = !saved || page.panels.length <= 1;
 
   /** What the shell's own controls are about.
    *
@@ -435,7 +445,7 @@ export function Shell() {
         return;
       }
       if (focusedPanel === undefined) {
-        setWarning("GRP works on a page: press Ctrl+Enter to open a second panel first");
+        setWarning("GRP works on a page: press + to open a workspace first");
         return;
       }
       const spec = getPanel(focusedPanel.code);
@@ -512,7 +522,7 @@ export function Shell() {
         }
         const dock = dockRef.current;
         if (!saved || dock === null) {
-          setWarning("There is no page to save yet: split this one with Ctrl+Enter first.");
+          setWarning("There is no page to save yet: press + to open a workspace first.");
           return;
         }
         // Naming the working page MOVES it. Two things would otherwise
@@ -588,6 +598,7 @@ export function Shell() {
 
   const submit = useCallback(
     async (text: string, split = false) => {
+      split = split && saved;
       const result = parse(text, { symbol: here.symbol, code: here.code });
       if (result.kind === ParseKind.Empty) {
         // Enter on an empty box does nothing -- except answer the one
@@ -607,6 +618,10 @@ export function Shell() {
         return;
       }
       if (result.kind === ParseKind.Action) {
+        if (!dockviewEnabled()) {
+          setWarning("Workspaces are disabled for this terminal.");
+          return;
+        }
         if (result.code === GRP_CODE) runGroup(result.tokens);
         else if (result.code === PG_CODE) runPage(result.tokens);
         else if (result.code === SHARE_CODE) runShare();
@@ -653,7 +668,7 @@ export function Shell() {
       inputRef.current?.blur();
       runHere(next, split);
     },
-    [here, runHere, runGroup, runPage, runShare, known, focusedPanel, offer, navigate],
+    [here, runHere, runGroup, runPage, runShare, known, focusedPanel, offer, navigate, saved],
   );
 
   // Focus the box once, on mount: the shell owns the keyboard from the
@@ -663,16 +678,25 @@ export function Shell() {
     inputRef.current?.focus();
   }, []);
 
-  function onPick(text: string, split = false) {
+  function onPick(text: string, split = false, kind: "symbol" | "function" = "function") {
+    split = split && saved;
     const pending = pendingRef.current;
     pendingRef.current = null;
     setPalette({ open: false, query: "" });
-    if (pending && SYMBOL_RE.test(text.toUpperCase()) && !isMnemonic(text)) {
-      // The palette's symbol results came straight from the API, so there is
-      // no need to re-validate them the way a typed symbol is.
+    if (kind === "symbol") {
+      // Search results are already resolved identities. A ticker such as PG
+      // or CF must never be reinterpreted as a terminal function.
+      const symbol = text.toUpperCase();
       setWarning(null);
       setDraft("");
-      runHere({ symbol: text.toUpperCase(), code: pending.code, args: pending.args }, split);
+      const group = focusedPanel?.group ?? null;
+      if (!pending && group !== null && !split) {
+        setPage((current) => ({ ...current, groups: { ...current.groups, [group]: symbol } }));
+        return;
+      }
+      const fallback = symbolCommand(symbol, here.code);
+      if (pending) runHere({ symbol, code: pending.code, args: pending.args }, split);
+      else if (fallback.kind === ParseKind.Command) runHere(fallback.command, split);
       return;
     }
     void submit(text, split);
@@ -702,6 +726,7 @@ export function Shell() {
   /** F1-F4, F7-F10: the saved page in that position. */
   const onPageKey = useCallback(
     (key: string) => {
+      if (!dockviewEnabled()) return;
       const name = pageKeyName(readStore(), key);
       if (name === null) {
         setWarning(`${key} has no page yet. Arrange one and type PG ${PG_SAVE} <name>.`);
@@ -715,12 +740,14 @@ export function Shell() {
 
   useGlobalKeys({ inputRef, paletteOpen: palette.open, openHelp, onPageKey, onMoveFocus });
 
-  const market_panels = listPanels().filter((panel) => !panel.needsSymbol);
+  const market_panels = listPanels().filter((panel) => !panel.needsSymbol && panel.code !== PG_CODE);
 
   return (
     <div className="shell">
       <header className="command-bar">
         <div className="command-row">
+          <span className="terminal-brand">YFIN<span>TERMINAL</span></span>
+          <span className="command-prompt" aria-hidden="true">›</span>
           <input
             ref={inputRef}
             aria-label="command"
@@ -729,7 +756,12 @@ export function Shell() {
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKeyDown}
           />
+          <button type="button" className="search-trigger" aria-label="Search symbols and functions" data-tooltip="Search · Find a ticker, company name or terminal function." onClick={() => { pendingRef.current = null; setPalette({ open: true, query: draft.trim() }); }}>
+            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" strokeWidth="1.6" /><path d="m12 12 5 5" stroke="currentColor" strokeWidth="1.6" /></svg>
+            Search
+          </button>
           <div className="accent" role="group" aria-label="accent colour">
+            <span className="accent-label">Theme</span>
             {ACCENTS.map((choice) => (
               <button
                 key={choice}
@@ -737,19 +769,20 @@ export function Shell() {
                 className={`accent-swatch accent-${choice}`}
                 aria-label={choice}
                 aria-pressed={choice === accent}
-                title={`Accent: ${choice}`}
+                data-tooltip={`Theme · ${choice === "amber" ? "Yellow / amber" : choice === "violet" ? "Purple / violet" : "Blue"} accent. Saved automatically.`}
                 onClick={() => setAccent(choice)}
-              />
+              >
+                <span aria-hidden="true">{choice === "amber" ? "Yellow" : choice === "violet" ? "Purple" : "Blue"}</span>
+              </button>
             ))}
           </div>
         </div>
         {warning && <p className="warn">{warning}</p>}
-        {alone && (
+        {alone && docking && (
           // Said once, where the reader is typing, and only while there
           // is one panel: after that the page has shown them.
           <p className="muted hint">
-            <code className="usage">Ctrl+Enter</code> opens a second panel beside this one ·{" "}
-            <code className="usage">PG SAVE</code> keeps the layout under a name
+            <code className="usage">{saved ? "Ctrl+Enter" : "+"}</code> opens a second panel beside this one
           </p>
         )}
         {offer !== null && (
@@ -778,11 +811,11 @@ export function Shell() {
         ))}
       </nav>
       <main className="panel">
-        <Workspace
+        {saved ? <Workspace
           // A different page is a different dock: dockview reads a layout
           // once, on the way up, so restoring one means building it.
           key={page.epoch}
-          panels={dockPanels}
+          panels={pagePanels}
           onRun={onRun}
           onActive={setActiveId}
           groups={groups}
@@ -791,7 +824,7 @@ export function Shell() {
           onLayoutError={onLayoutError}
           onApi={(api) => (apiRef.current = api)}
           onSplit={(command) => runHere(command, true)}
-        />
+        /> : <SinglePanel command={command} onRun={go} onSplit={docking ? (command) => runHere(command, true) : undefined} />}
       </main>
       <footer className="credits" aria-label="credits">
         <span>Data</span>
@@ -808,7 +841,13 @@ export function Shell() {
           />
           yfinance
         </a>
-        <span className="muted">Not affiliated with, endorsed by or connected to Yahoo.</span>
+        <span className="muted">
+          Not affiliated with, endorsed by or connected to Yahoo. Data is subject to{" "}
+          <a href="https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html" target="_blank" rel="noopener noreferrer">
+            Yahoo&apos;s terms
+          </a>
+          ; this software does not license it.
+        </span>
         <span className="credits-right">
           Powered by{" "}
           <a href="https://monafy.com/" target="_blank" rel="noopener noreferrer">
@@ -816,12 +855,16 @@ export function Shell() {
           </a>{" "}
           ·{" "}
           <a href="https://github.com/kayacekovic" target="_blank" rel="noopener noreferrer">
-            <img className="credit-logo" src="https://github.com/favicon.ico" alt="" />
+            <svg className="credit-logo credit-github" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M12 .75a11.25 11.25 0 0 0-3.558 21.923c.563.104.768-.244.768-.542 0-.267-.01-.975-.015-1.913-3.13.68-3.79-1.508-3.79-1.508-.512-1.3-1.25-1.646-1.25-1.646-1.023-.7.078-.686.078-.686 1.13.08 1.725 1.16 1.725 1.16 1.006 1.723 2.64 1.225 3.283.937.102-.73.394-1.226.716-1.508-2.498-.284-5.124-1.249-5.124-5.56 0-1.23.44-2.233 1.16-3.02-.117-.285-.503-1.43.11-2.98 0 0 .945-.303 3.094 1.154A10.78 10.78 0 0 1 12 6.18c.955.005 1.916.129 2.813.379 2.148-1.457 3.09-1.154 3.09-1.154.616 1.55.23 2.695.113 2.98.722.787 1.158 1.79 1.158 3.02 0 4.322-2.63 5.272-5.136 5.55.404.35.766 1.042.766 2.1 0 1.517-.014 2.74-.014 3.113 0 .3.203.65.774.54A11.252 11.252 0 0 0 12 .75Z" />
+            </svg>
             Timurhan Kaya
           </a>
         </span>
       </footer>
+      <TooltipLayer />
       <CommandPalette
+        canSplit={saved}
         open={palette.open}
         query={palette.query}
         onQuery={(query) => setPalette((p) => ({ ...p, query }))}

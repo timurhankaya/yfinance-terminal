@@ -3,9 +3,11 @@
 A production-grade ingestion pipeline that pulls the full Yahoo Finance
 surface into PostgreSQL 18 + TimescaleDB, and keeps it correct.
 
-Open source under **AGPL-3.0**. A hosted version with the same schema is
-available if you would rather not run it yourself — see
-[Hosted service](#hosted-service).
+Open source under **AGPL-3.0-or-later**. The licence covers the
+software, not Yahoo Finance data — see
+[Data source and terms](#data-source-and-terms). Self-hosting is the
+supported way to run it; [hosted operation](#hosted-operation) means
+someone running *your* instance, not a shared Yahoo feed.
 
 ---
 
@@ -165,6 +167,19 @@ YFAPI_UI_ENABLED=true uvicorn yfin.api.app:app --port 8000
 open http://localhost:8000/ui
 ```
 
+Dockview workspaces are enabled by default. Set
+`YFAPI_DOCKVIEW_ENABLED=false` in `.env` for a single-panel terminal.
+Apply changes with `docker compose up -d --no-deps --force-recreate api`
+(or restart a locally running API). This is a runtime setting; no frontend
+rebuild is needed after the initial deployment. Disabled workspaces redirect
+to `/ui`; existing saved layouts remain in browser storage. The Pages manager
+is hidden from navigation, search and help.
+
+Open Watchlist (`WLA`) to add symbols using the input and remove them with
+the row buttons. The list is kept in its shareable URL, so bookmark it to
+return later. A streamed quote takes priority; otherwise the last archived
+daily close and its daily change are shown with an `archived close` label.
+
 The terminal is public: there is no login and no identity of any kind.
 The page reads the archive through its own mirror of the `/v1` routers
 at `/ui/api/v1` (no Bearer token, no plan metering, a per-address brake
@@ -172,8 +187,9 @@ of `YFAPI_UI_REQUESTS_PER_MINUTE` requests instead). `/v1` itself and
 its `openapi.json` do not change. Behind a reverse proxy set
 `YFAPI_TRUSTED_PROXIES`, or every browser in the world shares one brake
 bucket -- that brake is the only thing in front of the terminal, so it
-is what makes the setting matter. The footer credits Yahoo Finance,
-where the data comes from, and the `yfinance` package that fetches it.
+is what makes the setting matter. The footer credits Yahoo Finance and
+`yfinance`, states that the project is not affiliated with Yahoo, and
+links Yahoo's terms: the software does not licence the data.
 
 Use `npm ci` in `web/`; plain `npm install` crashes on the npm that
 ships with Node 22 (an npm 10.9 resolver bug) -- the committed
@@ -406,18 +422,42 @@ API contract cannot drift silently.
 
 ---
 
-## Hosted service
+## Data source and terms
 
-The pipeline is free to self-host and always will be. If you want the
-data without operating it, a hosted service offers the same schema with
-managed ingestion, backfilled history and API access on paid plans.
+Neither this project nor [yfinance](https://github.com/ranaroussi/yfinance)
+is affiliated with, endorsed by, or connected to Yahoo. Attribution in
+the terminal footer is a source credit, not a licence.
 
-Self-hosting is not a degraded tier: it is the same code, the same
-schema, and the same migrations. The hosted product sells operation, not
-capability — running this well means a database you maintain and enough
+The **software** is open source under AGPL-3.0-or-later. Yahoo Finance
+**data** is not. It remains subject to
+[Yahoo's Terms of Service](https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html)
+and to the licences of the exchanges and vendors Yahoo displays (LSEG,
+OTC Markets, and others). Yahoo prohibits automated collection without
+express prior permission and prohibits redistribution of that
+information.
+
+- **You may** publish, fork and host the source code, and run the
+  software on your own machine against your own access.
+- **You may not** treat a public website or API that serves
+  Yahoo-derived quotes, fundamentals or news as licensed by this
+  repository. A disclaimer does not grant redistribution rights.
+- Compliance with Yahoo's terms and with exchange or vendor licences is
+  the operator's responsibility.
+
+---
+
+## Hosted operation
+
+The pipeline is free to self-host and always will be. Self-hosting is
+not a degraded tier: it is the same code, the same schema, and the same
+migrations. Running it well means a database you maintain and enough
 proxies that a full pass finishes inside its own cadence. The scheduler
 ships here; the IPs do not, and on one address a 5,888-symbol universe
 takes 33 hours per pass against a nightly window of 24.
+
+A hosted offering, if any, is managed operation of **your** instance
+against **your** access — not a shared Yahoo-derived data feed. This
+repository does not sell or relicence Yahoo's data.
 
 ---
 
@@ -427,28 +467,27 @@ takes 33 hours per pass against a nightly window of 24.
   (Apache-2.0) — the client library every Yahoo request in this project
   goes through. Documentation:
   <https://ranaroussi.github.io/yfinance/>.
-- Yahoo Finance data is subject to Yahoo’s own terms of use. Neither
-  yfin nor yfinance is affiliated with, endorsed by, or in any way
-  officially connected to Yahoo.
 
 ---
 
 ## Licence
 
-**GNU Affero General Public License v3.0** — see [`LICENSE`](LICENSE).
+**GNU Affero General Public License v3.0 or later** — see
+[`LICENSE`](LICENSE).
 
-AGPL was chosen deliberately for a project that also funds a hosted
-service. In practice:
+AGPL was chosen because the terminal and API are used over a network.
+In practice:
 
-- **Self-hosting, internally**: use it however you like. Running it for
-  your own analysis, inside your company, triggers nothing.
+- **Self-hosting, internally**: use the software however you like.
+  Running it for your own analysis, inside your company, triggers
+  nothing under AGPL.
 - **Modifying it**: your changes are AGPL too, and you must offer the
   source to anyone you distribute the software to.
 - **Offering it as a network service**: section 13 applies. If you run a
   modified version and let others interact with it over a network, you
-  must offer those users its source. This is the clause that keeps a
-  competing hosted service from building on this work while keeping its
-  improvements private.
+  must offer those users its source. That clause is about the software,
+  not about Yahoo's data: AGPL does not authorise redistribution of
+  the upstream feed.
 
 Contributions are accepted under the same licence. If AGPL does not work
 for your use case, ask about a commercial licence.

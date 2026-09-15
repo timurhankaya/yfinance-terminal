@@ -58,7 +58,7 @@ const SHORTCUTS: ReadonlyArray<[keys: string, where: string, what: string]> = [
   [
     "Ctrl+Enter or ⌘+Enter",
     "in the command box",
-    "Open the result in a second panel beside this one instead of in it.",
+    "After opening a workspace with +, open the result beside the focused panel. On a single page, navigate normally.",
   ],
   [
     "Ctrl+Shift+arrow or ⌘+Shift+arrow",
@@ -104,7 +104,7 @@ function FunctionRow({ panel, symbol }: { panel: PanelSpec; symbol: string | nul
 }
 
 export function HELP({ symbol }: PanelProps) {
-  const panels = listPanels();
+  const panels = listPanels().filter((panel) => panel.code !== "PG");
   const named = new Set(GROUPS.flatMap(([, codes]) => codes));
   const groups: Array<[string, PanelSpec[]]> = [];
   for (const [title, codes] of GROUPS) {
@@ -120,8 +120,8 @@ export function HELP({ symbol }: PanelProps) {
       <p>
         One box, one line: <code>SYMBOL FUNCTION ARGUMENTS</code>. Any part can be left out. A bare symbol
         keeps the current function; a bare function keeps the current symbol (shown on the strip under the
-        function bar). Press Enter to run. Everything the terminal shows is the archive's copy of Yahoo
-        Finance data, read through this deployment's own API.
+        function bar). Press Enter to run. Everything the terminal shows is this instance's archive of
+        Yahoo Finance data, subject to Yahoo's own terms. The project is not affiliated with Yahoo.
         {symbol ? (
           <>
             {" "}
@@ -133,24 +133,26 @@ export function HELP({ symbol }: PanelProps) {
       </p>
 
       <h3>Examples</h3>
-      <table className="grid">
-        <thead>
-          <tr>
-            <th>Type</th>
-            <th>What happens</th>
-          </tr>
-        </thead>
-        <tbody>
-          {EXAMPLES.map(([command, what]) => (
-            <tr key={command}>
-              <td>
-                <code>{command}</code>
-              </td>
-              <td>{what}</td>
+      <div className="table-scroll">
+        <table className="grid">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>What happens</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {EXAMPLES.filter(([command]) => !command.startsWith("PG")).map(([command, what]) => (
+              <tr key={command}>
+                <td>
+                  <code>{command}</code>
+                </td>
+                <td>{what}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <h3>Functions</h3>
       <p>
@@ -178,7 +180,7 @@ export function HELP({ symbol }: PanelProps) {
         a screener, a heat map and a comparison carry their own list of them.
       </p>
       <ul className="list">
-        {listActions().map((action) => (
+        {listActions().filter((action) => action.code !== "PG").map((action) => (
           <li key={action.code} className="list-row">
             <span className="ds-name">{action.code}</span> {action.title}
             {action.usage && (
@@ -192,26 +194,28 @@ export function HELP({ symbol }: PanelProps) {
       </ul>
 
       <h3>Keyboard</h3>
-      <table className="grid">
-        <thead>
-          <tr>
-            <th>Keys</th>
-            <th>Where</th>
-            <th>What</th>
-          </tr>
-        </thead>
-        <tbody>
-          {SHORTCUTS.map(([keys, where, what]) => (
-            <tr key={`${keys}|${where}`}>
-              <td>
-                <code>{keys}</code>
-              </td>
-              <td className="muted">{where}</td>
-              <td>{what}</td>
+      <div className="table-scroll">
+        <table className="grid">
+          <thead>
+            <tr>
+              <th>Keys</th>
+              <th>Where</th>
+              <th>What</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {SHORTCUTS.filter(([keys]) => !keys.startsWith("F1-F4")).map(([keys, where, what]) => (
+              <tr key={`${keys}|${where}`}>
+                <td>
+                  <code>{keys}</code>
+                </td>
+                <td className="muted">{where}</td>
+                <td>{what}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <h3>Tables, details and links</h3>
       <ul className="list">

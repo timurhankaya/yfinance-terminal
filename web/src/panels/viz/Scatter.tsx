@@ -4,6 +4,7 @@
 // An optional reference line is what turns a cloud into a statement --
 // "above this line the market pays more for the same growth".
 import type { ReactElement } from "react";
+import { useChartSize } from "./useChartSize";
 
 import { useVizTheme } from "./useVizTheme";
 import { extent, linearScale, niceTicks } from "./scale";
@@ -37,17 +38,14 @@ export interface ScatterProps {
   format: (value: number) => string;
 }
 
-const WIDTH = 640;
-const HEIGHT = 320;
 const MARGIN = { top: 10, right: 12, bottom: 30, left: 56 };
-const PLOT = {
-  width: WIDTH - MARGIN.left - MARGIN.right,
-  height: HEIGHT - MARGIN.top - MARGIN.bottom,
-};
+
 
 export function Scatter(props: ScatterProps): ReactElement | null {
   const { points, label, xLabel, yLabel, reference, format } = props;
   const theme = useVizTheme();
+  const { ref, width: WIDTH, height: HEIGHT } = useChartSize(320);
+  const PLOT = { width: WIDTH - MARGIN.left - MARGIN.right, height: HEIGHT - MARGIN.top - MARGIN.bottom };
   const usable = points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
   const xSpan = extent(usable.map((p) => p.x));
   const ySpan = extent(usable.map((p) => p.y));
@@ -57,8 +55,8 @@ export function Scatter(props: ScatterProps): ReactElement | null {
   const y = linearScale(ySpan, { min: MARGIN.top + PLOT.height, max: MARGIN.top });
 
   return (
-    <figure className="viz-figure">
-      <svg className="viz" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={label}>
+    <figure className="viz-figure" ref={ref}>
+      <svg className="viz" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} width={WIDTH} height={HEIGHT} role="img" aria-label={label}>
         {niceTicks(ySpan.min, ySpan.max, 4).map((tick) => (
           <g key={`y${tick}`}>
             <line

@@ -59,4 +59,4 @@ def install(app: FastAPI, settings: ApiSettings, dist_dir: Path | None = None) -
         # routes work, the page does not, and the log says why.
         log.warning("ui_build_missing", dist=str(dist))
         return
-    pages.install_pages(app, dist)
+    pages.install_pages(app, dist, dockview_enabled=settings.dockview_enabled)

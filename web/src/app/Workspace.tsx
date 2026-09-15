@@ -10,12 +10,13 @@
 // in a second window and want a nonce for it, and `/ui`'s CSP issues
 // none (`ui/pages.py`).
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { DockviewReact } from "dockview-react";
+import { DockviewDefaultTab, DockviewReact } from "dockview-react";
 import type {
   DockviewApi,
   DockviewReadyEvent,
   IDockviewHeaderActionsProps,
   IDockviewPanelProps,
+  IDockviewPanelHeaderProps,
   SerializedDockview,
 } from "dockview-react";
 import { getPanel, retiredNote } from "../commands/registry";
@@ -25,6 +26,7 @@ import { FrameProvider } from "../workspace/frame";
 import { groupLabel, symbolFor } from "../workspace/groups";
 import type { Group, GroupSymbols } from "../workspace/groups";
 import { SymbolBand } from "./SymbolBand";
+import { functionHelp } from "./tab-help";
 
 /** One panel's content: the command it is showing, and the letter whose
  *  symbol it follows -- null when it is about its own. */
@@ -98,6 +100,27 @@ function Body({ code, symbol, args, group }: PanelParams) {
   );
 }
 
+/** An address is a normal page. Dockview is mounted only for a workspace. */
+export function SinglePanel({ command, onRun, onSplit }: {
+  command: Command;
+  onRun: (command: Command) => void;
+  onSplit?: (command: Command) => void;
+}) {
+  const host = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (host.current) host.current.scrollTop = 0; }, [command.code, command.symbol, command.args.tab]);
+  return (
+    <div className="dock-panel single-panel" ref={host}>
+      <div className="single-toolbar">
+        <span>{command.symbol ? `${command.symbol} / ` : ""}{command.code}</span>
+        {onSplit && <button type="button" className="single-add" aria-label="Open a second panel" data-tooltip="Open workspace · Add a second panel beside this page." onClick={() => onSplit(command)}>+</button>}
+      </div>
+      <FrameProvider value={{ run: onRun, focused: true }}>
+        <Body {...command} group={null} />
+      </FrameProvider>
+    </div>
+  );
+}
+
 /** The single component dockview renders: a frame around a `PanelSpec`. */
 function DockPanel(props: IDockviewPanelProps<PanelParams>) {
   const runInPanel = useContext(RunContext);
@@ -122,6 +145,11 @@ function DockPanel(props: IDockviewPanelProps<PanelParams>) {
 }
 
 const components = { [COMPONENT]: DockPanel };
+
+function PanelTab(props: IDockviewPanelHeaderProps<PanelParams>) {
+  const panel = getPanel(props.params.code);
+  return <DockviewDefaultTab {...props} title={undefined} data-tooltip={panel ? functionHelp(panel) : props.params.code} />;
+}
 
 /** The one thing on screen that says a page can hold more than one panel.
  *
@@ -289,6 +317,7 @@ export function Workspace(props: WorkspaceProps) {
         <DockviewReact
           className="dock"
           components={components}
+          defaultTabComponent={PanelTab}
           onReady={onReady}
           rightHeaderActionsComponent={AddPanel}
           disableFloatingGroups

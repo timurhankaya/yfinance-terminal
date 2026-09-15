@@ -9,7 +9,7 @@
 // That is why they are not "filters" or "settings": `PX 5m 500` and
 // clicking 5m then typing 500 are the same command, and HELP still
 // documents one syntax.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import type { PanelArgs } from "../commands/types";
 import { usePanelRun } from "../workspace/frame";
@@ -21,7 +21,7 @@ export function useArgs(
   args: PanelArgs,
 ): (next: PanelArgs) => void {
   const run = usePanelRun();
-  return (next: PanelArgs) => run({ symbol, code, args: { ...args, ...next } });
+  return (next: PanelArgs) => run({ symbol, code, args: Object.fromEntries(Object.entries({ ...args, ...next }).filter(([, value]) => value !== "")) });
 }
 
 /** A row of controls above a panel's body. */
@@ -79,6 +79,7 @@ export function NumberArg(props: {
   suffix?: string;
 }): ReactElement {
   const { label, value, min, max, onSet, suffix } = props;
+  const id = useId();
   const [draft, setDraft] = useState(String(value));
   //: Enter commits and then leaves the field, and leaving commits too --
   //: so what was just sent is remembered, or a single Enter would ask
@@ -101,12 +102,12 @@ export function NumberArg(props: {
   };
 
   return (
-    <span className="control">
-      <label className="control-label" htmlFor={`arg-${label}`}>
+    <span className="control control-field control-number-field">
+      <label className="control-label" htmlFor={id}>
         {label}
       </label>
       <input
-        id={`arg-${label}`}
+        id={id}
         className="control-number"
         type="number"
         inputMode="numeric"
@@ -119,6 +120,7 @@ export function NumberArg(props: {
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
+            event.stopPropagation();
             commit();
             event.currentTarget.blur();
           }
@@ -142,6 +144,7 @@ export function TextArg(props: {
   type?: "text" | "date";
 }): ReactElement {
   const { label, value, onSet, placeholder, type = "text" } = props;
+  const id = useId();
   const [draft, setDraft] = useState(value);
   const sent = useRef(value);
   useEffect(() => {
@@ -159,12 +162,12 @@ export function TextArg(props: {
   };
 
   return (
-    <span className="control">
-      <label className="control-label" htmlFor={`arg-${label}`}>
+    <span className="control control-field">
+      <label className="control-label" htmlFor={id}>
         {label}
       </label>
       <input
-        id={`arg-${label}`}
+        id={id}
         className={type === "date" ? "control-date" : "control-text"}
         type={type}
         value={draft}
@@ -175,6 +178,7 @@ export function TextArg(props: {
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
+            event.stopPropagation();
             commit();
             event.currentTarget.blur();
           }
@@ -195,25 +199,62 @@ export function RowFilter(props: {
   total: number;
 }): ReactElement {
   const { value, onChange, count, total } = props;
+  const id = useId();
   return (
-    <span className="control">
-      <label className="control-label" htmlFor="row-filter">
-        Filter loaded
+    <span className="control control-field">
+      <label className="control-label" htmlFor={id}>
+        Filter loaded rows
       </label>
       <input
-        id="row-filter"
+        id={id}
         className="control-text"
         type="search"
         value={value}
-        placeholder="text in any column"
+        placeholder="Search within loaded rows…"
         aria-label="filter the rows already loaded"
         onChange={(event) => onChange(event.target.value)}
       />
-      {value !== "" && (
-        <span className="control-label">
-          {count} of {total}
-        </span>
-      )}
+      {value !== "" && <button type="button" className="chip filter-clear" onClick={() => onChange("")} aria-label="Clear row filter">Clear</button>}
+      <span className="control-label filter-count" role="status">{value !== "" ? `${count} of ${total}` : `${total} loaded`}</span>
     </span>
+  );
+}
+
+/** Server filters are applied as one query; typing never unmounts the form. */
+export function DatasetFilters({ fields, values, onApply }: {
+  fields: { name: string; type: "text" | "date" }[];
+  values: PanelArgs;
+  onApply: (values: PanelArgs) => void;
+}): ReactElement | null {
+  const id = useId();
+  const [draft, setDraft] = useState(values);
+  if (fields.length === 0) return null;
+  const active = fields.filter(({ name }) => values[name]?.trim()).length;
+  return (
+    <details className="dataset-filters">
+      <summary>Dataset filters <span className="filter-badge">{active > 0 ? `${active} active` : "All records"}</span></summary>
+      <form aria-label="Dataset filters" onSubmit={(event) => {
+        event.preventDefault();
+        onApply(Object.fromEntries(fields.map(({ name }) => [name, (draft[name] ?? "").trim()])));
+      }}>
+        <div className="filter-fields">
+          {fields.map(({ name, type }) => (
+            <label className="control control-field" key={name} htmlFor={`${id}-${name}`}>
+              <span className="control-label">{name.replaceAll("_", " ")}</span>
+              <input id={`${id}-${name}`} className={type === "date" ? "control-date" : "control-text"} type={type} aria-label={name} value={draft[name] ?? ""} placeholder="Any" onChange={(event) => setDraft({ ...draft, [name]: event.target.value })} />
+            </label>
+          ))}
+        </div>
+        <div className="filter-actions">
+          <span className="muted">Filters apply to all records.</span>
+          <button type="button" className="chip" onClick={() => {
+            const cleared = Object.fromEntries([...new Set([...Object.keys(values), ...fields.map(({ name }) => name)])].map((name) => [name, ""]));
+            setDraft(cleared);
+            onApply(cleared);
+          }}>Clear filters</button>
+          <button type="submit" className="chip chip-on">Apply filters</button>
+        </div>
+      </form>
+    </details>
   );
 }

@@ -36,7 +36,8 @@ function Chip({ children }: { children: ReactNode }): ReactElement | null {
   return <span className="des-chip">{children}</span>;
 }
 
-function Card({ title, actions, children }: {
+function Card({ title, actions, children, className = "" }: {
+  className?: string;
   title: string;
   /** The card's own controls, on the title's line. A range picker under
    *  the chart would push the chart down; beside the title it costs no
@@ -45,7 +46,7 @@ function Card({ title, actions, children }: {
   children: ReactNode;
 }): ReactElement {
   return (
-    <div className="viz-card">
+    <div className={`viz-card ${className}`}>
       <div className="viz-card-head">
         <h4>{title}</h4>
         {actions}
@@ -96,6 +97,7 @@ function TrendCard({ symbol, range, onRange }: {
           type="button"
           className={option === range ? "chip chip-on" : "chip"}
           aria-pressed={option === range}
+          data-tooltip={`Trend window · ${TREND_WINDOW[option].label}`}
           onClick={() => onRange(option)}
         >
           {option.toUpperCase()}
@@ -113,7 +115,7 @@ function TrendCard({ symbol, range, onRange }: {
       ? "up"
       : "down";
   return (
-    <Card title={window.label} actions={picker}>
+    <Card className="viz-card-trend" title={window.label} actions={picker}>
       {state.kind === LoadState.Loading && <p className="muted des-trend-note">Loading…</p>}
       {state.kind === LoadState.Error && <p className="muted des-trend-note">No bars for this window.</p>}
       {state.kind !== LoadState.Loading && state.kind !== LoadState.Error && closes.length < 2 && (
@@ -141,7 +143,8 @@ function TrendCard({ symbol, range, onRange }: {
   );
 }
 
-export function Overview({ detail, range, onRange }: {
+export function Overview({ detail, range, onRange, onOpen }: {
+  onOpen: (code: string) => void;
   detail: SymbolDetail;
   range: TrendRange;
   onRange: (range: TrendRange) => void;
@@ -154,7 +157,7 @@ export function Overview({ detail, range, onRange }: {
   return (
     <>
       <div className="des-head">
-        <h2 className="des-name">{detail.long_name ?? detail.short_name ?? detail.symbol}</h2>
+        <div className="des-identity"><p className="des-eyebrow">Security overview <span>/ Reference snapshot</span></p><h2 className="des-name">{detail.long_name ?? detail.short_name ?? detail.symbol}</h2></div>
         <div className="des-meta">
           <Chip>{detail.symbol}</Chip>
           <Chip>{detail.full_exchange_name ?? detail.exchange}</Chip>
@@ -168,6 +171,11 @@ export function Overview({ detail, range, onRange }: {
         </a>
       </div>
 
+      <nav className="des-actions" aria-label="symbol quick links">
+        {([["GP", "Price chart"], ["FA", "Financials"], ["HDS", "Ownership"], ["N", "News"]] as const).map(([code, label]) => (
+          <button type="button" key={code} onClick={() => onOpen(code)}><span>{code}</span>{label}<span aria-hidden="true">↗</span></button>
+        ))}
+      </nav>
       {stats.length > 0 && (
         <div className="stats">
           {stats.map((stat) => {
@@ -198,14 +206,14 @@ export function Overview({ detail, range, onRange }: {
             />
           </Card>
         )}
-      </div>
 
-      {summary !== null && (
-        <div className="des-about">
-          <h4>About</h4>
-          <p>{summary}</p>
-        </div>
-      )}
+        {summary !== null && (
+          <div className="des-about">
+            <h4>Company profile</h4>
+            <p>{summary}</p>
+          </div>
+        )}
+      </div>
     </>
   );
 }

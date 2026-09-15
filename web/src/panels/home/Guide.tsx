@@ -4,16 +4,17 @@
 // It is three lines, not a tour: a terminal reader reads once and then
 // uses the keyboard.
 import { Block } from "./Block";
+import { dockviewEnabled } from "../../app/config";
 
 export function Guide() {
+  if (!dockviewEnabled()) return null;
   return (
     <Block title="Build a page">
       {() => (
         <ul className="list home-guide">
           <li className="list-row">
-            <code className="usage">+</code> on a panel&apos;s tab bar, or{" "}
-            <code className="usage">Ctrl+Enter</code> in the command box — a second panel beside
-            this one. <code className="usage">Ctrl+Shift+arrow</code> moves the keyboard between
+            <code className="usage">+</code> opens a workspace with a second panel beside this page.
+            Inside a workspace, <code className="usage">Ctrl+Enter</code> adds another panel. <code className="usage">Ctrl+Shift+arrow</code> moves the keyboard between
             them.
           </li>
           <li className="list-row">
@@ -21,9 +22,7 @@ export function Guide() {
             panel wearing that letter follows it.
           </li>
           <li className="list-row">
-            <code className="usage">PG SAVE trading</code> keeps the layout under a name, on the
-            next function key. <code className="usage">PG</code> lists what is saved,{" "}
-            <code className="usage">SHARE</code> turns it into a link.
+            <code className="usage">SHARE</code> turns the workspace into a link.
           </li>
         </ul>
       )}

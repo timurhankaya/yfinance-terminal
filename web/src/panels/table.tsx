@@ -216,6 +216,7 @@ export interface DatasetTableProps {
    *  button, which calls it. */
   onLoadMore?: () => void;
   loadingMore?: boolean;
+  pageControl?: ReactNode;
   /** Columns the panel adds beside the catalogue's own -- a sparkline
    *  drawn from a second read, say. The engine's own `Column<Row>`, not
    *  a second column type: a cell is a cell whichever read filled it. */
@@ -241,7 +242,7 @@ function narrow(rows: Row[], query: string): Row[] {
 
 /** A dataset as a grid with j/k/Enter and click opening the row detail. */
 export function DatasetTable(props: DatasetTableProps): ReactElement {
-  const { columns, rows: given, grid, reverse = false, truncated = false, links = [], onLoadMore, loadingMore = false, extra = [] } = props;
+  const { columns, rows: given, grid, reverse = false, truncated = false, links = [], onLoadMore, loadingMore = false, extra = [], pageControl } = props;
   const ordered = reverse ? [...given].reverse() : given;
   const [query, setQuery] = useState("");
   // Narrowing before ordering, and both before j/k and the row detail
@@ -321,6 +322,7 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
           {truncated ? " (more exist: the list was cut at the page cap)" : ""} ·{" "}
           {shown.length} of {columns.length} columns in the grid; Enter or click a row for every field
         </p>
+        {rows.length === 0 && <p className="table-empty" role="status">{query.trim() ? "No loaded rows match this filter. Clear it or load more records." : "No records for these filters. Adjust the dataset filters to try again."}</p>}
         <div className="scroll-x" ref={tableRef}>
           <DataTable
             columns={gridColumns}
@@ -335,13 +337,13 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
             }}
           />
         </div>
-        {more && (
-          <p className="load-more">
-            <button type="button" className="fn" disabled={loadingMore} onClick={onLoadMore}>
-              {loadingMore ? "Loading…" : "Load more"}
-            </button>
-          </p>
-        )}
+        <div className="table-footer" aria-label="Table pagination">
+          <span className="table-total" role="status">{ordered.length.toLocaleString(LOCALE)} {ordered.length === 1 ? "row" : "rows"} loaded{more ? " · More available" : truncated ? " · Page cap reached" : " · All loaded"}</span>
+          <div className="table-page-actions">
+            {pageControl}
+            {more && <button type="button" className="fn load-more-button" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? "Loading…" : "Load more"}</button>}
+          </div>
+        </div>
       </div>
       {detail && (
         <div className="split-detail">

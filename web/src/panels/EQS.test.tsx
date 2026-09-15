@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { EQS, EQS_PANEL, EQS_USAGE, countLabel, runLabel } from "./EQS";
@@ -154,12 +154,11 @@ describe("the roster", () => {
       }),
     );
     draw({ screen: "day_gainers" });
-    expect(await screen.findByRole("button", { name: "Next" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
-    expect(screen.getByText("1–1 of 100")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Load more" })).toBeEnabled();
+    expect(screen.getByText(/1 row loaded/)).toBeInTheDocument();
   });
 
-  it("walks forward and back through the roster", async () => {
+  it("appends the next roster page while retaining earlier symbols", async () => {
     const asked: string[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
@@ -179,11 +178,12 @@ describe("the roster", () => {
       });
     });
     draw({ screen: "day_gainers" });
-    const next = await screen.findByRole("button", { name: "Next" });
+    const next = await screen.findByRole("button", { name: "Load more" });
     next.click();
     expect(await screen.findByText("ZZZ")).toBeInTheDocument();
     expect(asked.some((url) => url.includes("offset=250"))).toBe(true);
-    expect(screen.getByText("251–251 of 100")).toBeInTheDocument();
+    expect(screen.getByText("CCC")).toBeInTheDocument();
+    expect(screen.getByText(/2 rows loaded/)).toBeInTheDocument();
   });
 
   it("shows no paging control on a roster that fits", async () => {
@@ -194,7 +194,7 @@ describe("the roster", () => {
     );
     draw({ screen: "day_gainers" });
     await screen.findByText("CCC");
-    expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
   });
 
   it("tells the reader where the other ninety-odd columns are", async () => {
@@ -279,4 +279,16 @@ describe("labels", () => {
     expect(runLabel(summary({ fetched_at: null }))).toBe("last run 2026-09-08");
     expect(runLabel(summary({ fetched_at: null, as_of_date: null }))).toBe("never run");
   });
+});
+
+
+it("searches screen descriptions and clears an empty result", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(routed({ data: [summary()], next_cursor: null }));
+  draw({});
+  const search = await screen.findByRole("searchbox", { name: "Find a screen" });
+  fireEvent.change(search, { target: { value: "no-such-screen" } });
+  expect(screen.queryByRole("option")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+  expect(screen.getByRole("option")).toHaveTextContent("day_gainers");
+  expect(screen.getByRole("button", { name: /View matches for/ })).toBeEnabled();
 });

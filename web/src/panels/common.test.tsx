@@ -312,3 +312,20 @@ describe("usePagedRows", () => {
     expect(result.current.cursor).toBe("c1");
   });
 });
+
+it("finishes pagination when the next page is empty and terminal", async () => {
+  const fetchPage = vi.fn(async () => ({ rows: [], next_cursor: null }));
+  const { result } = renderHook(() => usePagedRows<string>("empty-last", "c1", fetchPage));
+  await act(async () => result.current.loadMore());
+  expect(result.current.cursor).toBeNull();
+  await act(async () => result.current.loadMore());
+  expect(fetchPage).toHaveBeenCalledTimes(1);
+});
+
+it("deduplicates repeated load-more clicks before React renders", async () => {
+  const fetchPage = vi.fn(async () => ({ rows: ["one"], next_cursor: null }));
+  const { result } = renderHook(() => usePagedRows("fast", "c1", fetchPage));
+  await act(async () => { result.current.loadMore(); result.current.loadMore(); });
+  expect(fetchPage).toHaveBeenCalledTimes(1);
+  expect(result.current.rows).toEqual(["one"]);
+});

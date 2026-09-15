@@ -100,6 +100,7 @@ export interface PagedRows<T> {
 
 interface Paged<T> {
   key: string;
+  fetched: boolean;
   rows: T[];
   cursor: string | null;
   loading: boolean;
@@ -117,41 +118,51 @@ export function usePagedRows<T>(
   firstCursor: string | null,
   fetchPage: (cursor: string) => Promise<{ rows: T[]; next_cursor: string | null }>,
 ): PagedRows<T> {
-  const [paged, setPaged] = useState<Paged<T>>({ key, rows: [], cursor: null, loading: false, error: null });
+  const [paged, setPaged] = useState<Paged<T>>({ key, fetched: false, rows: [], cursor: null, loading: false, error: null });
   // A ref, not a dep: callers pass an inline lambda, and a new function
   // every render must not reset the pages.
   const fetchRef = useRef(fetchPage);
   fetchRef.current = fetchPage;
 
+  const request = useRef<{ busy: boolean; cancelled: boolean }>({ busy: false, cancelled: false });
   useEffect(() => {
-    setPaged({ key, rows: [], cursor: null, loading: false, error: null });
+    request.current.cancelled = true;
+    request.current = { busy: false, cancelled: false };
+    setPaged({ key, fetched: false, rows: [], cursor: null, loading: false, error: null });
+    return () => { request.current.cancelled = true; };
   }, [key]);
 
   // The state can be one render behind the key; read it as empty until
   // the effect above catches up. Memoised so `loadMore` below keeps its
   // identity across renders that changed nothing.
   const current = useMemo<Paged<T>>(
-    () => (paged.key === key ? paged : { key, rows: [], cursor: null, loading: false, error: null }),
+    () => (paged.key === key ? paged : { key, fetched: false, rows: [], cursor: null, loading: false, error: null }),
     [paged, key],
   );
   // Once a page has been read, its `next_cursor` is the truth -- null
   // included, which is what "no more pages" looks like.
-  const cursor = current.rows.length > 0 || current.cursor !== null ? current.cursor : firstCursor;
+  const cursor = current.fetched ? current.cursor : firstCursor;
 
   const loadMore = useCallback(() => {
-    if (cursor === null || current.loading) return;
+    if (cursor === null || current.loading || request.current.busy) return;
+    const token = request.current;
+    token.busy = true;
     setPaged({ ...current, loading: true, error: null });
     void (async () => {
       try {
         const page = await fetchRef.current(cursor);
+        if (token.cancelled) return;
         setPaged((p) =>
           p.key === key
-            ? { ...p, rows: [...p.rows, ...page.rows], cursor: page.next_cursor, loading: false }
+            ? { ...p, fetched: true, rows: [...p.rows, ...page.rows], cursor: page.next_cursor, loading: false }
             : p,
         );
       } catch (err) {
+        if (token.cancelled) return;
         const message = err instanceof Error ? err.message : String(err);
         setPaged((p) => (p.key === key ? { ...p, loading: false, error: message } : p));
+      } finally {
+        token.busy = false;
       }
     })();
   }, [key, cursor, current]);
@@ -171,8 +182,17 @@ export function ErrorCard(props: { message: string; onRetry: () => void }): Reac
   );
 }
 
+export function EmptyState(props: { title: string; description: string; onRetry?: () => void }): ReactElement {
+  return <section className="empty-state" role="status">
+    <span className="empty-state-icon" aria-hidden="true">—</span>
+    <h3>{props.title}</h3>
+    <p>{props.description}</p>
+    {props.onRetry && <button type="button" onClick={props.onRetry}>Retry</button>}
+  </section>;
+}
+
 export function EmptyCard(props: { what: string }): ReactElement {
-  return <p className="card card-empty">No {props.what} for this symbol.</p>;
+  return <EmptyState title={`No ${props.what} for this symbol.`} description="There are no records available for this view. Try another tab, period or symbol." />;
 }
 
 export function MissingCard(props: { symbol: string | null }): ReactElement {
@@ -275,65 +295,68 @@ export function DataTable<Row extends Record<string, unknown>>(props: {
 }): ReactElement {
   const { columns, rows, rowKey, selected, onSelect, sort, onSort } = props;
   return (
-    <table className="grid">
-      <thead>
-        <tr>
-          {columns.map((column) => {
-            const sortable = onSort !== undefined && column.sortable !== false;
-            const active = sort?.key === column.key ? sort.direction : null;
-            return (
-              <th
-                key={column.key}
-                className={column.align === "right" ? "num" : undefined}
-                aria-sort={
-                  active === null
-                    ? undefined
-                    : active === SortDirection.Asc
-                      ? "ascending"
-                      : "descending"
-                }
-              >
-                {sortable ? (
-                  <button
-                    type="button"
-                    className="th-sort"
-                    onClick={() => onSort(column.key)}
-                    title={`Sort by ${column.label}`}
-                  >
-                    {column.label}
-                    <span aria-hidden="true" className="th-arrow">
-                      {active === SortDirection.Asc ? "▲" : active === SortDirection.Desc ? "▼" : ""}
-                    </span>
-                  </button>
-                ) : (
-                  column.label
-                )}
-              </th>
-            );
-          })}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => (
-          <tr
-            key={rowKey(row, index)}
-            className={selected === index ? "row-selected" : undefined}
-            // `aria-current`, not `aria-selected`: the latter is only
-            // meaningful inside a `grid`/`treegrid`, and on a plain table
-            // it is ignored -- leaving the visual selection with no
-            // accessible counterpart at all.
-            aria-current={selected === index ? "true" : undefined}
-            onClick={() => onSelect?.(index)}
-          >
-            {columns.map((column) => (
-              <td key={column.key} className={column.align === "right" ? "num" : undefined}>
-                {column.format ? column.format(row) : String(row[column.key] ?? "—")}
-              </td>
-            ))}
+    <div className="table-scroll">
+      <table className="grid">
+        <thead>
+          <tr>
+            {columns.map((column) => {
+              const sortable = onSort !== undefined && column.sortable !== false;
+              const active = sort?.key === column.key ? sort.direction : null;
+              return (
+                <th
+                  scope="col"
+                  key={column.key}
+                  className={column.align === "right" ? "num" : undefined}
+                  aria-sort={
+                    active === null
+                      ? undefined
+                      : active === SortDirection.Asc
+                        ? "ascending"
+                        : "descending"
+                  }
+                >
+                  {sortable ? (
+                    <button
+                      type="button"
+                      className="th-sort"
+                      onClick={() => onSort(column.key)}
+                      title={`Sort by ${column.label}`}
+                    >
+                      {column.label}
+                      <span aria-hidden="true" className="th-arrow">
+                        {active === SortDirection.Asc ? "▲" : active === SortDirection.Desc ? "▼" : ""}
+                      </span>
+                    </button>
+                  ) : (
+                    column.label
+                  )}
+                </th>
+              );
+            })}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr
+              key={rowKey(row, index)}
+              className={selected === index ? "row-selected" : undefined}
+              // `aria-current`, not `aria-selected`: the latter is only
+              // meaningful inside a `grid`/`treegrid`, and on a plain table
+              // it is ignored -- leaving the visual selection with no
+              // accessible counterpart at all.
+              aria-current={selected === index ? "true" : undefined}
+              onClick={() => onSelect?.(index)}
+            >
+              {columns.map((column) => (
+                <td key={column.key} className={column.align === "right" ? "num" : undefined}>
+                  {column.format ? column.format(row) : String(row[column.key] ?? "—")}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -384,7 +407,9 @@ export function useListKeys(
 
   useEffect(() => {
     function handler(event: KeyboardEvent) {
-      if (!focusedRef.current) return;
+      if (!focusedRef.current || event.defaultPrevented) return;
+      // A control may blur itself before this window listener runs.
+      if (event.target instanceof Element && event.target.closest(INTERACTIVE)) return;
       const el = document.activeElement;
       if (el !== null && el !== document.body && el.closest(INTERACTIVE) !== null) return;
       if (event.key === "j") setSelected((s) => Math.min(count - 1, s + 1));

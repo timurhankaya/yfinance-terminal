@@ -69,7 +69,7 @@ describe("DatasetTable", () => {
     render(<DatasetTable columns={COLUMNS} rows={ROWS} grid={["as_of_date", "value", "count", "flag", "url"]} />);
     const headers = screen.getAllByRole("columnheader").map((th) => th.textContent);
     expect(headers).toEqual(["as_of_date", "value", "count", "flag", "url"]);
-    expect(screen.getByText(/2 rows/)).toBeTruthy();
+    expect(screen.getByText(/2 rows loaded/)).toBeTruthy();
     expect(screen.getByText(/5 of 7 columns/)).toBeTruthy();
 
     fireEvent.click(screen.getAllByRole("row")[1]!);

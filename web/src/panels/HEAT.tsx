@@ -167,11 +167,13 @@ export async function loadSectors(period: HeatPeriod): Promise<TreemapItem[]> {
   for (const [key, row] of newest) {
     const value = asNumber(row.market_cap);
     if (value === null || value <= 0) continue;
+    const change = asNumber(row[column]);
     cells.push({
       key,
       label: names.get(key) ?? key,
       value,
-      percent: asNumber(row[column]),
+      // Domain performance is a fraction (0.015 = 1.5%), unlike screen quotes.
+      percent: change === null ? null : change * 100,
     });
   }
   return cells;
@@ -311,6 +313,7 @@ function Periods(props: {
             key={period}
             type="button"
             role="tab"
+            data-tooltip={`Performance window · Colour the heat map by the ${PERIOD_LABEL[period]} price change.`}
             aria-selected={period === current}
             className={period === current ? "tab tab-active" : "tab"}
             onClick={() =>

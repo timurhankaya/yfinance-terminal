@@ -12,9 +12,9 @@ import {
   type CatalogEntry,
   type Row,
 } from "../api/client";
-import { Controls, NumberArg, TextArg } from "./controls";
+import { DatasetFilters, NumberArg } from "./controls";
 import type { PanelArgs } from "../commands/types";
-import { EmptyCard, ErrorCard, LoadState, NextPageError, usePagedRows, usePanelData } from "./common";
+import { EmptyState, ErrorCard, LoadState, NextPageError, usePagedRows, usePanelData } from "./common";
 import { gridNames } from "./grid";
 import { linksFor } from "./links";
 import { TabChartView, type TabChart } from "./tabcharts";
@@ -105,12 +105,16 @@ export function DatasetView(props: {
     .map(([k, v]) => `${k}=${v}`)
     .join("&");
   const key = `${name}|${symbol ?? ""}|${mode}|${filterKey}|${pageSize}`;
+  const { state: catalogState } = usePanelData(name, async () => {
+    const catalog = await getCatalog();
+    return catalog.find((entry) => entry.name === name) ?? null;
+  });
   const { state, retry } = usePanelData<DatasetPage>(
     key,
     () => loadDataset(name, symbol, filters, mode, pageSize),
-    (loaded) => loaded.rows.length === 0,
   );
   const first = state.kind === LoadState.Ready ? state.data : null;
+  const entry = first?.entry ?? (catalogState.kind === LoadState.Ready ? catalogState.data : null);
   const paged = usePagedRows<Row>(key, first?.next_cursor ?? null, (cursor) =>
     first === null
       ? Promise.reject(new Error("no first page"))
@@ -122,57 +126,46 @@ export function DatasetView(props: {
     () => (first === null ? EMPTY_ROWS : [...first.rows, ...paged.rows]),
     [first, paged.rows],
   );
-  if (state.kind === LoadState.Loading) return <p className="muted">Loading {name}…</p>;
-  if (state.kind === LoadState.Missing) return <p className="card card-error">No dataset named {name}.</p>;
-  if (state.kind === LoadState.Error) {
-    return <ErrorCard message={describeError(state.message, filters)} onRetry={retry} />;
-  }
-  if (state.kind === LoadState.Empty) return <EmptyCard what={`${name} rows`} />;
-  const { entry } = state.data;
+  const pageControl = onArgs === undefined ? undefined : (
+    <NumberArg label="Rows per load" value={pageSize} min={1} max={PAGE_LIMIT} onSet={(value) => onArgs({ rows: String(value) })} />
+  );
   return (
-    <section>
-      <p className="detail-meta">
-        <strong>{entry.name}</strong> · {entry.family} · {entry.description}
-        {state.data.symbol !== null && <> · {state.data.symbol}</>}
-      </p>
-      {onArgs !== undefined && (
-        <Controls>
-          {entry.filters.map((filter) => (
-            <TextArg
-              key={filter}
-              label={filter}
-              value={filters[filter] ?? ""}
-              placeholder="any"
-              // A date filter gets a date field, read from the
-              // catalogue's own column type rather than guessed from the
-              // filter's name.
-              type={isDateFilter(entry, filter) ? "date" : "text"}
-              onSet={(value) => onArgs({ [filter]: value })}
-            />
-          ))}
-          <NumberArg
-            label="Page"
-            value={pageSize}
-            min={1}
-            max={PAGE_LIMIT}
-            onSet={(value) => onArgs({ rows: String(value) })}
-            suffix="rows"
+    <section className="dataset-view" aria-busy={state.kind === LoadState.Loading}>
+      <div className="dataset-heading">
+        <strong>{name.replaceAll("_", " ")}</strong>
+        {entry && <span className="muted">{entry.description}</span>}
+        {entry?.symbol_scoped && mode === SymbolMode.Auto && symbol && <span className="dataset-scope">{symbol}</span>}
+      </div>
+      {onArgs !== undefined && entry && <DatasetFilters
+        key={`${name}|${filterKey}`}
+        fields={entry.filters.map((filter) => ({ name: filter, type: isDateFilter(entry, filter) ? "date" : "text" }))}
+        values={filters}
+        onApply={onArgs}
+      />}
+      {state.kind === LoadState.Loading && <p className="muted" role="status">Loading {name}…</p>}
+      {state.kind === LoadState.Missing && <p className="card card-error">No dataset named {name}.</p>}
+      {state.kind === LoadState.Error && <ErrorCard message={describeError(state.message, filters)} onRetry={retry} />}
+      {first && <>
+        {chart !== undefined && rows.length > 0 && <TabChartView kind={chart} rows={rows} symbol={first.symbol ?? symbol} />}
+        {rows.length === 0 && paged.cursor === null ? <>
+          <EmptyState
+            title={Object.keys(filters).length > 0 ? "No records for these filters." : "No records available"}
+            description={`No ${name.replaceAll("_", " ")} records are available${first.symbol ? ` for ${first.symbol}` : ""}${Object.keys(filters).length > 0 ? " with the selected filters" : ""}. Try another tab or symbol, adjust any filters, or retry.`}
+            onRetry={retry}
           />
-        </Controls>
-      )}
-      {/* Above the table, never instead of it: the one thing a chart
-          cannot show is the exact figure. */}
-      {chart !== undefined && <TabChartView kind={chart} rows={rows} symbol={state.data.symbol ?? symbol} />}
-      <DatasetTable
-        key={entry.name}
-        columns={entry.columns}
-        rows={rows}
-        grid={gridNames(entry.name, entry.columns, state.data.symbol !== null ? ["symbol"] : [])}
-        links={linksFor(entry.name, entry.columns.map((c) => c.name))}
-        onLoadMore={paged.cursor === null ? undefined : paged.loadMore}
-        loadingMore={paged.loadingMore}
-      />
-      {paged.error !== null && <NextPageError message={paged.error} />}
+          {pageControl && <div className="empty-page-control">{pageControl}</div>}
+        </> : <DatasetTable
+          key={`${name}|${filterKey}|${symbol ?? ""}`}
+          columns={first.entry.columns}
+          rows={rows}
+          grid={gridNames(first.entry.name, first.entry.columns, first.symbol !== null ? ["symbol"] : [])}
+          links={linksFor(first.entry.name, first.entry.columns.map((c) => c.name))}
+          onLoadMore={paged.cursor === null ? undefined : paged.loadMore}
+          loadingMore={paged.loadingMore}
+          pageControl={pageControl}
+        />}
+        {paged.error !== null && <NextPageError message={paged.error} />}
+      </>}
     </section>
   );
 }

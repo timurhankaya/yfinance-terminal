@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation } from "react-router";
 import { Layout } from "../commands/types";
-import { FA, FA_PANEL, Freq, cell, incomeChart } from "./FA";
+import { FA, FA_PANEL, Freq, cell, incomeChart, pivot } from "./FA";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -90,7 +90,7 @@ describe("FA_PANEL.parseArgs", () => {
 });
 
 describe("FA", () => {
-  it("pivots facts into one row per item and one column per period, newest first", async () => {
+  it("pivots facts into one row per item and one column per period, oldest first", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url === INCOME_URL) return json(200, { data: incomeRows, next_cursor: null, as_of: null });
@@ -99,7 +99,7 @@ describe("FA", () => {
     renderFA();
     expect(await screen.findByText("TotalRevenue")).toBeInTheDocument();
     const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
-    expect(headers).toEqual(["Item", "2025-09-30", "2024-09-30"]);
+    expect(headers).toEqual(["Item", "2024-09-30", "2025-09-30"]);
     expect(screen.getByText("391.04B")).toBeInTheDocument();
     expect(screen.getByText("383.29B")).toBeInTheDocument();
     // NetIncome has no 2024 value: the cell shows a dash, not an empty string.
@@ -152,8 +152,7 @@ describe("incomeChart", () => {
   });
 
   it("reads revenue and net income, oldest first", () => {
-    // The table beside it is newest-first, because a table is read down;
-    // an axis is time and is read left to right.
+    // The chart sorts chronologically even when its input is unordered.
     const chart = incomeChart(
       table(
         ["2025-09-30", "2024-09-30"],
@@ -226,4 +225,16 @@ describe("FA's chart", () => {
     await screen.findByRole("table");
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
+});
+
+
+it("keeps the latest eight periods in ascending order with values aligned", () => {
+  const facts = Array.from({ length: 10 }, (_, index) => ({
+    period_end: `${2016 + index}-12-31`, item_key: "TotalRevenue", value: String(index), currency: "USD",
+  })).reverse();
+  const result = pivot(facts);
+  expect(result.periods).toEqual(Array.from({ length: 8 }, (_, index) => `${2018 + index}-12-31`));
+  expect(result.rows[0]?.["2018-12-31"]).toBe("2");
+  expect(result.rows[0]?.["2025-12-31"]).toBe("9");
+  expect(result.rows[0]?.["2017-12-31"]).toBeUndefined();
 });

@@ -34,7 +34,7 @@ function SectorsBody({ onOpen }: { onOpen: (key: string) => void }) {
       label="Sectors by market value, coloured by today's move"
       span={3}
       onOpen={onOpen}
-      format={(item) => item.label}
+      format={(item) => item.percent === null ? "No move data" : `${item.percent > 0 ? "+" : ""}${item.percent.toFixed(2)}%`}
     />
   );
 }

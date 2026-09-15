@@ -1,3 +1,4 @@
+import { STATEMENT_HELP } from "../app/tab-help";
 import { useMemo } from "react";
 import { getFinancials, type FinancialFact } from "../api/client";
 import { usePanelRun } from "../workspace/frame";
@@ -84,9 +85,9 @@ interface Pivot {
   currency: string | null;
 }
 
-/** One row per item_key (first-seen order), one column per period_end (newest first). */
+/** One row per item_key (first-seen order), one column per period_end (oldest first, keeping the latest eight). */
 export function pivot(facts: FinancialFact[]): Pivot {
-  const periods = [...new Set(facts.map((f) => f.period_end))].sort().reverse().slice(0, MAX_PERIODS);
+  const periods = [...new Set(facts.map((f) => f.period_end))].sort().slice(-MAX_PERIODS);
   const shown = new Set(periods);
   const items: string[] = [];
   const cells = new Map<string, string>();
@@ -138,7 +139,7 @@ export function incomeChart(table: Pivot, freq: Freq): IncomeChart | null {
   const revenueRow = table.rows.find((row) => row.item === REVENUE_ITEM);
   const incomeRow = table.rows.find((row) => row.item === INCOME_ITEM);
   if (revenueRow === undefined || incomeRow === undefined) return null;
-  const periods = [...table.periods].reverse();
+  const periods = [...table.periods].sort();
   const revenue = periods.map((period) => asNumber(revenueRow[period]));
   const income = periods.map((period) => asNumber(incomeRow[period]));
   if (revenue.every((value) => value === null)) return null;
@@ -186,7 +187,7 @@ export function FA({ symbol, args }: PanelProps) {
 
   const columns: Column<PivotRow>[] = table
     ? [
-        { key: "item", label: "Item" },
+        { key: "item", label: "Item", format: (row: PivotRow) => <span title={row.item}>{row.item}</span> },
         ...table.periods.map((period) => ({
           key: period,
           label: period,
@@ -197,12 +198,13 @@ export function FA({ symbol, args }: PanelProps) {
     : [];
 
   return (
-    <section>
+    <section className="financials">
       <div className="tabs" role="tablist" aria-label="statement">
         {STATEMENTS.map(([value, , label]) => (
           <button
             key={value}
             role="tab"
+            data-tooltip={STATEMENT_HELP[value]}
             aria-selected={value === statement}
             className={value === statement ? "tab tab-active" : "tab"}
             onClick={() => switchTo({ statement: value })}
@@ -216,6 +218,7 @@ export function FA({ symbol, args }: PanelProps) {
           <button
             key={value}
             role="tab"
+            data-tooltip={STATEMENT_HELP[value]}
             aria-selected={value === freq}
             className={value === freq ? "tab tab-active" : "tab"}
             onClick={() => switchTo({ freq: value })}

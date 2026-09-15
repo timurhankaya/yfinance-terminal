@@ -23,6 +23,7 @@ import type { ReactElement } from "react";
 import { listPanels } from "../commands/registry";
 import { usePanelRun } from "../workspace/frame";
 import { Strip } from "./Strip";
+import { functionHelp } from "./tab-help";
 
 export function SymbolBand(props: {
   symbol: string;
@@ -67,7 +68,7 @@ export function SymbolBand(props: {
                 ref={on ? active : undefined}
                 className={on ? "band-tab band-tab-on" : "band-tab"}
                 aria-current={on ? "page" : undefined}
-                title={panel.title}
+                data-tooltip={functionHelp(panel)}
                 onClick={() => run({ symbol, code: panel.code, args: {} })}
               >
                 {panel.code}

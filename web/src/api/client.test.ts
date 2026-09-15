@@ -16,6 +16,8 @@ import {
   searchSymbols,
 } from "./client";
 
+afterEach(() => vi.restoreAllMocks());
+
 function respond(status: number, body: unknown, contentType = "application/json"): Response {
   return new Response(body === null ? null : JSON.stringify(body), {
     status,
@@ -74,7 +76,7 @@ describe("endpoints", () => {
 
   it("searchSymbols skips the fetch entirely for a too-short prefix", async () => {
     const spy = vi.spyOn(globalThis, "fetch");
-    await expect(searchSymbols("a")).resolves.toEqual([]);
+    await expect(searchSymbols(" ")).resolves.toEqual([]);
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -207,4 +209,17 @@ describe("catalogue and dataset rows", () => {
     );
     await expect(getBars("aapl", Interval.D1, 2)).resolves.toEqual([{ n: 2 }, { n: 3 }]);
   });
+});
+
+it("resolves a single-letter ticker through its exact symbol endpoint", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(respond(200, { data: { symbol: "F", long_name: "Ford Motor Company" } }));
+  expect(await searchSymbols("f")).toEqual([{ symbol: "F", long_name: "Ford Motor Company" }]);
+  expect(fetch).toHaveBeenCalledWith("/ui/api/v1/symbols/F", expect.anything());
+});
+
+it("treats an unknown single-letter ticker as an empty search, while preserving server errors", async () => {
+  const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(respond(404, { title: "Not found" })).mockResolvedValueOnce(respond(503, { title: "Unavailable" }));
+  expect(await searchSymbols("X")).toEqual([]);
+  await expect(searchSymbols("X")).rejects.toThrow();
+  expect(fetcher).toHaveBeenCalledTimes(2);
 });

@@ -1,6 +1,8 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { AppRoutes } from "../app/App";
+import { registerAll } from "./index";
 import { WLA, WLA_MAX, WLA_PANEL, WLA_USAGE, parseSymbols } from "./WLA";
 import { handleFrame, resetLive, setSocketFactory, useLive } from "../live/store";
 import type { SocketLike } from "../live/socket";
@@ -118,11 +120,12 @@ describe("the grid", () => {
     expect(rows[1]!.textContent).toContain("open");
   });
 
-  it("says a symbol is not streamed rather than showing a blank price", () => {
+  it("says a symbol is not streamed when neither source has data", async () => {
     // A symbol outside `yfin stream scope` has no live path at all;
     // that is a configuration answer, not a missing one.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ data: { series: [], points: 22 } })));
     draw({ symbols: "ZZZZ" });
-    expect(screen.getByText("not streamed")).toBeInTheDocument();
+    expect(await screen.findByText("not streamed")).toBeInTheDocument();
   });
 
   it("watches the strip's symbol when the command carried no list", () => {
@@ -159,5 +162,45 @@ describe("the grid", () => {
     // Header plus the cap: the panel refuses to draw more than the
     // socket would subscribe to.
     expect(screen.getAllByRole("row")).toHaveLength(WLA_MAX + 1);
+  });
+});
+
+function Address() {
+  const location = useLocation();
+  return <output data-testid="address">{location.pathname}{location.search}</output>;
+}
+
+describe("watchlist editing", () => {
+  it("adds, deduplicates and removes symbols in the URL, including the last symbol", async () => {
+    registerAll();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ data: { series: [], points: 22 } })));
+    render(<MemoryRouter initialEntries={["/ui/m/WLA"]}><Address /><AppRoutes /></MemoryRouter>);
+    fireEvent.change(screen.getByLabelText("Watchlist symbols"), { target: { value: "aapl, MSFT aapl" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add symbols" }));
+    expect(await screen.findByRole("button", { name: "Remove MSFT" })).toBeInTheDocument();
+    expect(screen.getByTestId("address")).toHaveTextContent("/ui/m/WLA?symbols=AAPL%2CMSFT");
+    fireEvent.click(screen.getByRole("button", { name: "Remove MSFT" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove AAPL" }));
+    expect(await screen.findByText(/Nothing to watch yet/)).toBeInTheDocument();
+    expect(screen.getByTestId("address").textContent).toBe("/ui/m/WLA");
+  });
+
+  it("shows an archived close until a live quote arrives", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ data: { series: [{ symbol: "AAPL", closes: ["100", "110"] }], points: 22 } })));
+    draw({ symbols: "AAPL" });
+    expect(await screen.findByText("archived close")).toBeInTheDocument();
+    expect(within(screen.getAllByRole("row")[1]!).getByText("110.00")).toBeInTheDocument();
+    act(() => handleFrame({ op: Op.Snap, d: tick() }));
+    paint();
+    expect(screen.getByText("232.35")).toBeInTheDocument();
+    expect(screen.queryByText("archived close")).not.toBeInTheDocument();
+  });
+
+  it("rejects invalid symbols without changing the list", () => {
+    draw({ symbols: "AAPL" });
+    fireEvent.change(screen.getByLabelText("Watchlist symbols"), { target: { value: "bad!" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add symbols" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("bad! is not a valid symbol");
+    expect(screen.getByRole("button", { name: "Remove AAPL" })).toBeInTheDocument();
   });
 });

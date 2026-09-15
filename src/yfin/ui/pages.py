@@ -44,10 +44,14 @@ def default_dist_dir() -> Path:
     return Path(str(resources.files("yfin.ui") / "static" / "dist"))
 
 
-def install_pages(app: FastAPI, dist_dir: Path) -> None:
+def install_pages(app: FastAPI, dist_dir: Path, *, dockview_enabled: bool = True) -> None:
     # Read once at install, not per-request: the shell is static and a
     # rebuilt index.html needs a process restart to be picked up anyway.
     index = (dist_dir / "index.html").read_text(encoding="utf-8")
+    flag = "true" if dockview_enabled else "false"
+    index = index.replace(
+        "<head>", f'<head><meta name="yfin-dockview-enabled" content="{flag}">', 1
+    )
     pages = APIRouter(include_in_schema=False)
 
     # `path` is unused but must be declared: FastAPI binds `{path:path}`

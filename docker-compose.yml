@@ -113,6 +113,7 @@ services:
       # kind. Switching it on exposes it to whoever can reach the port,
       # with only the per-address brake below in front of it.
       YFAPI_UI_ENABLED: ${YFAPI_UI_ENABLED:-false}
+      YFAPI_DOCKVIEW_ENABLED: ${YFAPI_DOCKVIEW_ENABLED:-true}
       YFAPI_UI_REQUESTS_PER_MINUTE: ${YFAPI_UI_REQUESTS_PER_MINUTE:-600}
       # The admin page at /admin; off while empty.
       YFAPI_ADMIN_PASSWORD: ${YFAPI_ADMIN_PASSWORD:-}

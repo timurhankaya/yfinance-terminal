@@ -19,15 +19,15 @@ const PAGES: ReadonlyArray<[name: string, path: string]> = [
   ["analyst sections", `/ui/t/${SYMBOL}/ANR`],
   ["a statement", `/ui/t/${SYMBOL}/FA`],
   ["price bars", `/ui/t/${SYMBOL}/PX`],
-  ["a catalogue dataset", "/ui/m/DS?name=institutional_holders"],
+  ["a catalogue dataset", `/ui/m/DS?name=institutional_holders&symbol=${SYMBOL}`],
   ["a watchlist", `/ui/m/WLA?symbols=${SYMBOL}`],
-  ["the home page", "/ui"],
+  ["the home page", "/ui/"],
 ];
 
 for (const [what, path] of PAGES) {
   test(`headings sit over their columns: ${what}`, async ({ page }) => {
     await page.goto(path, { waitUntil: "networkidle" });
-    await page.waitForTimeout(1500);
+    await expect(page.locator("table.grid tbody tr").first()).toBeVisible();
 
     const offset = await page.evaluate(() => {
       const norm = (value: string) => (value === "start" ? "left" : value === "end" ? "right" : value);

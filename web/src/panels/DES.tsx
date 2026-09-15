@@ -12,6 +12,7 @@
 // The panel is three files because it does three things: `des/info.ts`
 // says what a key means, `des/layout.ts` says where it goes, and the two
 // components draw it. This file only wires them to the address.
+import { usePanelRun } from "../workspace/frame";
 import type { ReactElement } from "react";
 import { getSymbol, type SymbolDetail } from "../api/client";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
@@ -70,6 +71,7 @@ export function DES({ symbol, args }: PanelProps): ReactElement | null {
     symbol === null ? Promise.reject(new Error("no symbol")) : getSymbol(symbol),
   );
   const set = useArgs(DES_PANEL_CODE, symbol, args);
+  const run = usePanelRun();
 
   if (symbol === null) return null;
   if (state.kind === LoadState.Loading) return <p className="muted">Loading {symbol}…</p>;
@@ -87,7 +89,7 @@ export function DES({ symbol, args }: PanelProps): ReactElement | null {
 
   return (
     <section className="des-panel">
-      <Overview detail={detail} range={range} onRange={(next) => set({ range: next })} />
+      <Overview detail={detail} onOpen={(code) => run({ symbol, code, args: {} })} range={range} onRange={(next) => set({ range: next })} />
       <Fields
         symbol={symbol}
         tabs={tabs}

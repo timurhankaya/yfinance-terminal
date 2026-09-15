@@ -98,7 +98,7 @@ interface Page<T> {
   next_cursor: string | null;
 }
 
-export const SEARCH_MIN_PREFIX = 2;
+export const SEARCH_MIN_PREFIX = 1;
 
 /** Symbols by ticker OR by company name.
  *
@@ -112,6 +112,15 @@ export const SEARCH_MIN_PREFIX = 2;
 export async function searchSymbols(prefix: string): Promise<SymbolSummary[]> {
   const q = prefix.trim();
   if (q.length < SEARCH_MIN_PREFIX) return [];
+  // One-character tickers (F, C, T…) are valid. The broad search route
+  // requires two characters, so resolve these by exact identity.
+  if (q.length === 1) {
+    try { return [await getSymbol(q)]; }
+    catch (error) {
+      if (error instanceof ApiError && error.status === 404) return [];
+      throw error;
+    }
+  }
   const page = await apiFetch<Page<SymbolSummary>>(`/ui/api/search?q=${encodeURIComponent(q)}`);
   return page.data;
 }
@@ -475,9 +484,9 @@ export async function getScreens(): Promise<ScreenSummary[]> {
 }
 
 /** One page of a screen's latest roster, in the screen's own order. */
-export async function getScreen(key: string, offset = 0): Promise<ScreenDetail> {
+export async function getScreen(key: string, offset = 0, limit = SCREEN_PAGE): Promise<ScreenDetail> {
   const code = encodeURIComponent(key.trim().toLowerCase());
-  const search = new URLSearchParams({ limit: String(SCREEN_PAGE), offset: String(offset) });
+  const search = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   const envelope = await apiFetch<{ data: ScreenDetail }>(
     `/ui/api/screens/${code}?${search}`,
   );

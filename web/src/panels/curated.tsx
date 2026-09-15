@@ -1,3 +1,4 @@
+import { DATASET_HELP } from "../app/tab-help";
 // The curated panels: one mnemonic per data family, a tab per dataset,
 // all rendered through DatasetView. Each is configuration, not code, so
 // adding a dataset to the terminal is one line here (and DS reaches it
@@ -91,6 +92,7 @@ export function tabbedPanel(spec: TabbedPanelSpec): PanelSpec {
             <button
               key={tab.key}
               role="tab"
+              data-tooltip={`${tab.label} · ${DATASET_HELP[tab.dataset] ?? spec.title}`}
               aria-selected={tab.key === current.key}
               className={tab.key === current.key ? "tab tab-active" : "tab"}
               onClick={() =>

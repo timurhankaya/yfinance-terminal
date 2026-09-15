@@ -10,7 +10,7 @@
 // and NOT `role="img"` (Decision 8): `role="img"` drops the subtree from
 // the accessibility tree, and the boxes -- the whole content -- would
 // stop existing for a screen reader.
-import type { ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { divergingHeat } from "./colors";
 import { useVizTheme } from "./useVizTheme";
 
@@ -182,19 +182,35 @@ export interface TreemapProps {
 export function Treemap(props: TreemapProps): ReactElement | null {
   const { items, label, span, onOpen, format } = props;
   const theme = useVizTheme();
-  const boxes = squarify(capCells(items), WIDTH, HEIGHT);
+  const host = useRef<HTMLElement>(null);
+  const [width, setWidth] = useState(WIDTH);
+  const height = width * HEIGHT / WIDTH;
+  // Use actual pixels for the viewBox so labels stay 11px in narrow tiles.
+  const hasItems = items.some((item) => Number.isFinite(item.value) && item.value > 0);
+  useEffect(() => {
+    const element = host.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry && entry.contentRect.width > 0) setWidth(entry.contentRect.width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [hasItems]);
+  const boxes = squarify(capCells(items), width, height);
   if (boxes.length === 0) return null;
 
   return (
-    <figure className="viz-figure">
+    <figure className="viz-figure" ref={host}>
       <svg
         className="viz viz-treemap"
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+        viewBox={`0 0 ${width} ${height}`}
         role="group"
         aria-label={label}
       >
         {boxes.map((box) => {
           const roomy = box.width >= LABEL_WIDTH && box.height >= LABEL_HEIGHT;
+          const maxChars = Math.max(1, Math.floor((box.width - 8) / 7));
+          const fit = (text: string) => text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
           return (
             <g
               key={box.key}
@@ -202,6 +218,7 @@ export function Treemap(props: TreemapProps): ReactElement | null {
               tabIndex={0}
               role="button"
               aria-label={`${box.label}, ${format(box)}`}
+              data-tooltip={`${box.label} · ${format(box)}`}
               onClick={() => onOpen(box.key)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
@@ -229,7 +246,7 @@ export function Treemap(props: TreemapProps): ReactElement | null {
                     y={box.y + 13}
                     fill={theme.fg}
                   >
-                    {box.label}
+                    {fit(box.label)}
                   </text>
                   {box.height >= LABEL_HEIGHT * 2 && (
                     <text
@@ -238,7 +255,7 @@ export function Treemap(props: TreemapProps): ReactElement | null {
                       y={box.y + 27}
                       fill={theme.fg}
                     >
-                      {format(box)}
+                      {fit(format(box))}
                     </text>
                   )}
                 </>

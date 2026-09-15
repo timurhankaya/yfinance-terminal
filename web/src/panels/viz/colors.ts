@@ -54,13 +54,13 @@ export interface VizTheme {
 //: computed style to read -- jsdom, and a paint before the stylesheet
 //: has arrived.
 export const FALLBACK: VizTheme = {
-  bg: "#0b0e11",
-  fg: "#d7dde3",
-  muted: "#7f8a96",
-  line: "#1f262e",
-  accent: "#f2b544",
-  up: "#4cc38a",
-  down: "#ff6b6b",
+  bg: "#080b10",
+  fg: "#e2e8f0",
+  muted: "#9aa9bc",
+  line: "#2a3748",
+  accent: "#ffc247",
+  up: "#3ce5a0",
+  down: "#ff6275",
   group: {
     [Group.A]: "#56b4e9",
     [Group.B]: "#e69f00",

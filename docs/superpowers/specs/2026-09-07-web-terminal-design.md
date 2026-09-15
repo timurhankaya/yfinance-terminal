@@ -421,9 +421,11 @@ kartıdır.
 
 **Künye.** Sayfa altbilgisi Yahoo Finance'e (`https://finance.yahoo.com/`)
 ve `yfinance` paketine (`https://github.com/ranaroussi/yfinance`)
-logolarıyla bağlantı verir, Yahoo ile bağlantısızlık notunu taşır ve
-sağda "Powered by monafy.com · Timurhan Kaya" (GitHub `kayacekovic`)
-yazar; logolar CSP'nin `img-src https:` iznine dayanır.
+logolarıyla bağlantı verir, Yahoo ile bağlantısızlık notunu ve Yahoo
+ToS bağlantısını (`https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html`)
+taşır — yazılım veriyi lisanslamaz — ve sağda "Powered by monafy.com ·
+Timurhan Kaya" (GitHub `kayacekovic`) yazar; logolar CSP'nin
+`img-src https:` iznine dayanır.
 
 **Dış bağlantılar.** Satırların ima ettiği sayfalar `panels/links.ts`
 kurallarıyla türetilir ve 2026-09-07'de canlı siteye karşı doğrulandı:

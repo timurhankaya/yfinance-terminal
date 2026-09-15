@@ -65,6 +65,9 @@ class ApiSettings(BaseSettings):
     # serves, through its own unmetered mount (`/ui/api/v1`). The only
     # thing in front of it is the per-address brake below.
     ui_enabled: bool = False
+    #: Split-panel workspaces. Read into the HTML shell at API startup so
+    #: changing this value needs no Vite rebuild.
+    dockview_enabled: bool = True
     #: Per client IP, per process, over everything under /ui/api. A crude
     #: brake on one browser's worth of traffic, not the API's limiter.
     ui_requests_per_minute: int = Field(default=600, ge=1)

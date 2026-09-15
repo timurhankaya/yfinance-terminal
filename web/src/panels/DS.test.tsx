@@ -173,3 +173,23 @@ describe("DS", () => {
     expect(await screen.findByText(/symbol is required/)).toBeInTheDocument();
   });
 });
+
+it("keeps dataset filters and page size available when a query has no records", async () => {
+  mockApi([]);
+  renderDS(null, { name: "market_status", region: "ZZ" });
+  expect(await screen.findByText(/No records for these filters/)).toBeInTheDocument();
+  fireEvent.click(screen.getByText("Dataset filters"));
+  expect(screen.getByRole("textbox", { name: "region" })).toHaveValue("ZZ");
+  expect(screen.getByRole("spinbutton", { name: /Rows per load/ })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  expect(screen.getByTestId("location").textContent).not.toContain("region=");
+});
+
+it("explains an empty dataset in context and offers retry without an empty table", async () => {
+  mockApi([]);
+  renderDS("AKBNK.IS", { name: "major_holders" });
+  expect(await screen.findByRole("heading", { name: "No records available" })).toBeInTheDocument();
+  expect(screen.getByText(/major holders.*AKBNK.IS/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+});

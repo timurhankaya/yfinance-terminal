@@ -1,4 +1,19 @@
 import "@testing-library/jest-dom/vitest";
+import { JSDOM } from "jsdom";
+
+// Node 22 exposes a global `localStorage` accessor that returns undefined
+// unless it is started with `--localstorage-file`. Vitest's jsdom window is
+// the global object, so that accessor shadows jsdom's origin-backed storage.
+// Borrow a real storage area from a same-origin jsdom instance for tests.
+const storageWindow = new JSDOM("", { url: "http://localhost/" }).window;
+Object.defineProperty(globalThis, "localStorage", {
+  configurable: true,
+  value: storageWindow.localStorage,
+});
+Object.defineProperty(globalThis, "Storage", {
+  configurable: true,
+  value: storageWindow.Storage,
+});
 
 // jsdom has no ResizeObserver and dockview builds its grid on one. The
 // stub never fires: a jsdom element has no size to observe, and every

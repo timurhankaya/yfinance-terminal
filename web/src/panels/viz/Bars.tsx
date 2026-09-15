@@ -6,6 +6,7 @@
 // bar draws a loss as a short rise. `lightweight-charts` is not this: it
 // draws time, and a fiscal quarter is a category rather than an instant.
 import type { ReactElement } from "react";
+import { useChartSize } from "./useChartSize";
 import { seriesColors } from "./colors";
 import { useVizTheme } from "./useVizTheme";
 import { extent, linearScale, niceTicks } from "./scale";
@@ -44,13 +45,8 @@ export interface BarsProps {
   format: (value: number) => string;
 }
 
-const WIDTH = 640;
-const HEIGHT = 260;
 const MARGIN = { top: 10, right: 44, bottom: 26, left: 56 };
-const PLOT = {
-  width: WIDTH - MARGIN.left - MARGIN.right,
-  height: HEIGHT - MARGIN.top - MARGIN.bottom,
-};
+
 
 const NO_MARKS: BarMark[] = [];
 
@@ -61,6 +57,8 @@ function finite(values: ReadonlyArray<number | null>): number[] {
 export function Bars(props: BarsProps): ReactElement | null {
   const { categories, series, line, marks = NO_MARKS, label, format } = props;
   const theme = useVizTheme();
+  const { ref, width: WIDTH, height: HEIGHT } = useChartSize(260);
+  const PLOT = { width: WIDTH - MARGIN.left - MARGIN.right, height: HEIGHT - MARGIN.top - MARGIN.bottom };
   const all = series.flatMap((s) => finite(s.values));
   const span = extent([...all, 0]);
   if (span === null || categories.length === 0) return null;
@@ -90,8 +88,8 @@ export function Bars(props: BarsProps): ReactElement | null {
         );
 
   return (
-    <figure className="viz-figure">
-      <svg className="viz" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={label}>
+    <figure className="viz-figure" ref={ref}>
+      <svg className="viz" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} width={WIDTH} height={HEIGHT} role="img" aria-label={label}>
         {ticks.map((tick) => (
           <g key={tick}>
             <line
@@ -113,7 +111,7 @@ export function Bars(props: BarsProps): ReactElement | null {
             </text>
           </g>
         ))}
-        {categories.map((category, index) => (
+        {categories.map((category, index) => index % Math.max(1, Math.ceil(58 / band)) === 0 ? (
           <text
             key={category}
             className="viz-tick"
@@ -124,7 +122,7 @@ export function Bars(props: BarsProps): ReactElement | null {
           >
             {category}
           </text>
-        ))}
+        ) : null)}
         {series.map((one, sIndex) =>
           one.values.map((value, index) => {
             if (value === null || !Number.isFinite(value)) return null;

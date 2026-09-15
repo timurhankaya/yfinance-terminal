@@ -15,7 +15,7 @@
 // its own, so one symbol ticking re-renders one row. Measured and
 // asserted -- `docs/measurements/websocket.md` ("Browser store at
 // watchlist size") and `web/src/live/hooks.test.tsx`.
-import type { ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import { SYMBOL_RE } from "../commands/parser";
 import { usePanelRun } from "../workspace/frame";
 import { Layout, type PanelArgs, type PanelProps, type PanelSpec } from "../commands/types";
@@ -72,24 +72,36 @@ function parseArgs(tokens: string[]): PanelArgs {
 }
 
 function Row(
-  { symbol, selected, spark }: { symbol: string; selected: boolean; spark: SparkData },
+  { symbol, selected, spark, onOpen, onRemove }: {
+    symbol: string; selected: boolean; spark: SparkData;
+    onOpen: () => void; onRemove: () => void;
+  },
 ): ReactElement {
   // One subscription per row, and one selector per row: this is the
   // hook whose isolation makes the whole panel affordable.
   const quote = useQuote(symbol);
-  const change = quote?.c === undefined ? null : Number(quote.c);
+  const closes = spark.bySymbol.get(symbol);
+  const close = closes?.at(-1);
+  const previous = closes?.at(-2);
+  const archiveChange = close !== undefined && previous !== undefined ? close - previous : undefined;
+  const price = quote?.p ?? close;
+  const delta = quote === undefined ? archiveChange : quote.c;
+  const percent = quote === undefined
+    ? archiveChange !== undefined && previous !== undefined && previous !== 0 ? archiveChange / previous * 100 : undefined
+    : quote.cp;
+  const change = delta === undefined ? null : Number(delta);
   const move = change === null || !Number.isFinite(change) || change === 0
     ? undefined
     : change > 0 ? "up" : "down";
   return (
     <tr className={selected ? "row-selected" : undefined} aria-selected={selected}>
-      <td className="strip-symbol">{symbol}</td>
-      <td className="num">{quote === undefined ? "—" : formatDecimal(quote.p)}</td>
+      <td className="strip-symbol"><button type="button" onClick={onOpen} aria-label={`Open ${symbol}`}>{symbol}</button></td>
+      <td className="num">{price === undefined ? "—" : formatDecimal(price)}</td>
       <td className={move === undefined ? "num" : `num ${move}`}>
-        {quote?.c === undefined ? "—" : formatDecimal(quote.c)}
+        {delta === undefined ? "—" : formatDecimal(delta)}
       </td>
       <td className={move === undefined ? "num" : `num ${move}`}>
-        {quote?.cp === undefined ? "—" : `${formatDecimal(quote.cp)}%`}
+        {percent === undefined ? "—" : `${formatDecimal(percent)}%`}
       </td>
       <td className="num">{quote?.v === undefined ? "—" : formatInteger(quote.v)}</td>
       {/* The one cell on the row that does NOT come from the socket. It
@@ -105,17 +117,20 @@ function Row(
             live path at all, and that is a configuration answer rather
             than a missing one. */}
         {quote === undefined ? (
-          <span className="muted">not streamed</span>
+          <span className="muted">{close !== undefined ? "archived close" : spark.loading ? "loading" : spark.failed ? "archive unavailable" : "not streamed"}</span>
         ) : (
           <span className="muted">{new Date(quote.t).toISOString().slice(11, 19)}</span>
         )}
       </td>
+      <td><button type="button" aria-label={`Remove ${symbol}`} onClick={onRemove}>Remove</button></td>
     </tr>
   );
 }
 
 export function WLA({ symbol, args }: PanelProps) {
   const go = usePanelRun();
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const symbols = parseSymbols(args.symbols);
   // `WLA` with a symbol on the strip and no list of its own watches that
   // one: the shortest way in, and it keeps the command meaningful from
@@ -133,10 +148,32 @@ export function WLA({ symbol, args }: PanelProps) {
     }
   };
   const [selected] = useListKeys(watched.length, open);
+  const update = (next: string[]) => {
+    go({ symbol: null, code: "WLA", args: next.length ? { symbols: next.join(",") } : {} });
+  };
+  const controls = (
+    <form className="watchlist-controls" onSubmit={(event) => {
+      event.preventDefault();
+      const tokens = draft.trim().split(/[\s,]+/).filter(Boolean);
+      if (!tokens.length) { setError("Enter at least one symbol."); return; }
+      const invalid = tokens.find((token) => !SYMBOL_RE.test(token.toUpperCase()));
+      if (invalid) { setError(`${invalid} is not a valid symbol.`); return; }
+      const next = [...new Set([...watched, ...tokens.map((token) => token.toUpperCase())])];
+      if (next.length > WLA_MAX) { setError(`Watch up to ${WLA_MAX} symbols.`); return; }
+      update(next);
+      setDraft("");
+      setError(null);
+    }}>
+      <label>Symbols <input aria-label="Watchlist symbols" placeholder="AAPL, MSFT, NVDA" value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
+      <button type="submit">Add symbols</button>
+      {error && <p role="alert" className="warn">{error}</p>}
+    </form>
+  );
 
   if (watched.length === 0) {
     return (
       <section>
+        {controls}
         <p className="muted">
           Nothing to watch yet. Type <code className="usage">{WLA_ARGS}</code> — the list is the
           URL, so it is shareable and Esc walks back through earlier ones.
@@ -147,6 +184,7 @@ export function WLA({ symbol, args }: PanelProps) {
 
   return (
     <section>
+      {controls}
       <p className="chart-note">
         <span>
           {watched.length} {watched.length === 1 ? "symbol" : "symbols"} · UTC
@@ -154,29 +192,32 @@ export function WLA({ symbol, args }: PanelProps) {
         {!enabled && <span className="muted">live stream off; these are last snapshots</span>}
         {enabled && link !== LinkState.Open && <span className="strip-link">reconnecting</span>}
       </p>
-      <table className="grid" aria-label="watchlist">
-        <thead>
-          <tr>
-            <th>Symbol</th>
-            <th className="num">Price</th>
-            <th className="num">Change</th>
-            <th className="num">%</th>
-            <th className="num">Volume</th>
-            <th>{sparkLabel(spark)}</th>
-            <th>Session</th>
-            <th>Last</th>
-          </tr>
-        </thead>
-        <tbody>
-          {watched.map((code, index) => (
-            <Row key={code} symbol={code} selected={index === selected} spark={spark} />
-          ))}
-        </tbody>
-      </table>
+      <div className="table-scroll">
+        <table className="grid" aria-label="watchlist">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th className="num">Price</th>
+              <th className="num">Change</th>
+              <th className="num">%</th>
+              <th className="num">Volume</th>
+              <th>{sparkLabel(spark)}</th>
+              <th>Session</th>
+              <th>Last</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {watched.map((code, index) => (
+              <Row key={code} symbol={code} selected={index === selected} spark={spark} onOpen={() => open(index)} onRemove={() => update(watched.filter((item) => item !== code))} />
+            ))}
+          </tbody>
+        </table>
+      </div>
       <p className="chart-legend">
         <span className="muted">
-          j / k moves, Enter opens the selected symbol. Add or remove symbols by retyping the
-          command.
+          j / k moves, Enter or a symbol opens its details. Lists are saved in the URL;
+          bookmark it to return. Archived closes are shown when no streamed quote is available.
         </span>
       </p>
     </section>

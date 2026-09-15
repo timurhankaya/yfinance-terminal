@@ -4,6 +4,7 @@
 // of a table make the reader do the arithmetic of "where is the price in
 // that range" themselves. That distance is the whole question.
 import type { ReactElement } from "react";
+import { useChartSize } from "./useChartSize";
 
 import { useVizTheme } from "./useVizTheme";
 import { linearScale } from "./scale";
@@ -19,7 +20,6 @@ export interface BulletProps {
   format: (value: number) => string;
 }
 
-const WIDTH = 640;
 const HEIGHT = 56;
 const PAD = 8;
 const TRACK = { y: 18, height: 12 };
@@ -27,6 +27,7 @@ const TRACK = { y: 18, height: 12 };
 export function Bullet(props: BulletProps): ReactElement | null {
   const { low, high, mean, actual, label, format } = props;
   const theme = useVizTheme();
+  const { ref, width: WIDTH } = useChartSize(HEIGHT);
   if (!Number.isFinite(low) || !Number.isFinite(high) || high < low) return null;
 
   const x = linearScale({ min: low, max: high }, { min: PAD, max: WIDTH - PAD });
@@ -45,8 +46,8 @@ export function Bullet(props: BulletProps): ReactElement | null {
     : Math.min(WIDTH - PAD, Math.max(PAD, x(actual)));
 
   return (
-    <figure className="viz-figure">
-      <svg className="viz" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={label}>
+    <figure className="viz-figure" ref={ref}>
+      <svg className="viz" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} width={WIDTH} height={HEIGHT} role="img" aria-label={label}>
         <rect
           x={PAD}
           y={TRACK.y}

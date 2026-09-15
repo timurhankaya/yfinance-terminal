@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router";
 import { HOME_PATH } from "../commands/parser";
 import { Shell } from "./Shell";
+import { dockviewEnabled } from "./config";
 
 export function AppRoutes() {
   return (
@@ -17,10 +18,11 @@ export function AppRoutes() {
           left to do, and the storage went with it. */}
       <Route path="/ui" element={<Shell />} />
       <Route path="/ui/m/:code" element={<Shell />} />
+      <Route path="/ui/t/:symbol" element={<Shell />} />
       <Route path="/ui/t/:symbol/:code" element={<Shell />} />
       {/* A saved page is neither: its address names the page, and what
           it holds is the layout, not one command. */}
-      <Route path="/ui/w/:name" element={<Shell />} />
+      <Route path="/ui/w/:name" element={dockviewEnabled() ? <Shell /> : <Navigate to={HOME_PATH} replace />} />
       <Route path="*" element={<Navigate to={HOME_PATH} replace />} />
     </Routes>
   );

@@ -71,11 +71,24 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  document.querySelector('meta[name="yfin-dockview-enabled"]')?.remove();
   vi.restoreAllMocks();
   localStorage.clear();
 });
 
 describe("AppRoutes", () => {
+  it("disables split controls and workspace routes through runtime config", async () => {
+    const meta = document.createElement("meta");
+    meta.name = "yfin-dockview-enabled";
+    meta.content = "false";
+    document.head.append(meta);
+    mockFetch(() => json(200, { data: [], next_cursor: null }));
+    mount("/ui/w/trading");
+    expect(await screen.findByRole("navigation", { name: "functions" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open a second panel" })).not.toBeInTheDocument();
+    expect(document.querySelector(".dockview-react")).toBeNull();
+    expect(screen.queryByRole("button", { name: "PG" })).not.toBeInTheDocument();
+  });
   it("credits the data source, the package and the people behind the terminal", async () => {
     mockFetch((url) => {
       if (url === "/ui/api/v1/symbols/AAPL") return json(200, symbolBody("AAPL", "Apple Inc."));
@@ -87,11 +100,13 @@ describe("AppRoutes", () => {
     expect(links).toEqual([
       ["Yahoo Finance", "https://finance.yahoo.com/"],
       ["yfinance", "https://github.com/ranaroussi/yfinance"],
+      ["Yahoo's terms", "https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html"],
       ["monafy.com", "https://monafy.com/"],
       ["Timurhan Kaya", "https://github.com/kayacekovic"],
     ]);
     for (const a of within(footer).getAllByRole("link")) expect(a.getAttribute("rel")).toBe("noopener noreferrer");
     expect(footer.textContent).toContain("Not affiliated with, endorsed by or connected to Yahoo.");
+    expect(footer.textContent).toContain("this software does not license it");
     expect(footer.textContent).toContain("Powered by");
   });
 
@@ -588,7 +603,7 @@ describe("saved pages", () => {
   it("turns an address into the working page when it is split", async () => {
     // An address page IS one panel. Splitting it is the moment it stops
     // being an address, and what it was showing comes along -- otherwise
-    // Ctrl+Enter on `/ui/t/AAPL/DES` would either do nothing or throw the
+    // The + action on `/ui/t/AAPL/DES` must not throw the
     // page away.
     stubApi();
     registerSimple("AAA");
@@ -596,9 +611,12 @@ describe("saved pages", () => {
     mount("/ui/t/AAPL/FAKEFA");
     await screen.findByText("fake FA panel");
 
+    expect(document.querySelector(".dock")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Open a second panel" }));
+    await waitFor(() => expect(screen.getAllByText("fake FA panel")).toHaveLength(2));
     const box = await screen.findByLabelText("command");
     await user.click(box);
-    await user.keyboard("AAA{Control>}{Enter}{/Control}");
+    await user.keyboard("AAA{Enter}");
 
     expect(await screen.findByText("panel AAA")).toBeInTheDocument();
     // Both panels, on the working page.

@@ -1,0 +1,261 @@
+Yahoo Finance permission emails — Monafy Ltd
+From: Timurhan Kaya <management@monafy.com>
+Prepared: 2026-09-14
+
+Fill before sending: company number, registered office, telephone.
+Do not launch the public instance until Yahoo replies in writing.
+Send Mail 1 first. Use Mail 2 only after 10 business days with no reply.
+Mail 3 is brand/trade mark only — do not send it instead of Mail 1.
+Mail 4 is a later commercial enquiry, not a substitute for legal permission.
+
+Suggested product URL in these drafts: https://yfinance.monafy.com/
+Prefer a neutral host (e.g. terminal.monafy.com) if Yahoo objects to
+"yfinance" in the hostname. Do not put Yahoo marks in the product name.
+
+========================================================================
+MAIL 1 — EMEA legal (send first)
+========================================================================
+
+From:    Timurhan Kaya <management@monafy.com>
+To:      emea-legal@yahooinc.com
+Subject: Permission request — delayed data display and nominative trade mark use (Monafy Ltd, United Kingdom)
+
+Dear Yahoo Legal (EMEA),
+
+I write on behalf of Monafy Ltd, a private limited company registered in
+England and Wales.
+
+Registered name:          Monafy Ltd
+Company number:           [00000000]
+Registered office:        [full UK address]
+Country of registration:  United Kingdom
+Contact:                  Timurhan Kaya, Director
+Email:                    management@monafy.com
+Telephone:                [+44 …]
+Website:                  https://monafy.com/
+Product URL (proposed):   https://yfinance.monafy.com/
+
+We request written permission for a narrowly defined use of Yahoo Finance
+materials, as follows.
+
+1. What we are building
+Monafy Ltd is developing an open-source research terminal (AGPL-3.0-or-later)
+that a user can self-host. We also intend to operate one public instance on
+our own domain for demonstration and research. The interface is a
+multi-panel market terminal. It is not presented as a Yahoo product, a
+Yahoo API, or a Yahoo-affiliated service.
+
+2. What we ask permission to do
+Subject to any conditions you require, we ask Yahoo to grant Monafy Ltd a
+revocable, non-exclusive, non-transferable, non-sublicensable permission to:
+
+(a) Display, on the Product URL and in screenshots used only to explain that
+    product, delayed market information that Yahoo Finance already makes
+    publicly available (quotes, historical prices, fundamentals, and related
+    reference fields), in our own terminal layout;
+
+(b) Use the words "Yahoo Finance" and "Yahoo" in the nominative sense, and
+    to show the Yahoo Finance favicon or an equivalent small source mark in
+    the page footer, solely to identify the source of that information;
+
+(c) Link from that footer to https://finance.yahoo.com/ and to Yahoo's
+    Terms of Service.
+
+We are not asking to use Yahoo's primary word mark or logo as our product
+name, in our company name, or in a domain name.
+
+3. Attribution and non-affiliation (proposed footer)
+The footer on every page would read, in substance:
+
+    Data  Yahoo Finance  via  yfinance
+    Not affiliated with, endorsed by or connected to Yahoo.
+    Data is subject to Yahoo's terms; this software does not license it.
+    Powered by Monafy Ltd · monafy.com
+
+"Yahoo Finance" and "Yahoo's terms" would be links to Yahoo properties.
+We will use ™ / ® notices in the form you specify.
+
+4. What we will not do without a further written licence
+- Claim any partnership, sponsorship, certification or endorsement by Yahoo
+- Put Yahoo brands in advertising, sales decks, or merchandise
+- Remove, obscure or alter Yahoo legal notices
+- Sell, sublicence or provide a wholesale API whose purpose is to replace
+  Yahoo Finance
+- Present the service as suitable for order routing or as a substitute for
+  an exchange or licensed real-time feed
+- Use Yahoo brand features on any other URL than those listed above
+
+5. Access method
+The software retrieves data that Yahoo Finance already publishes, through
+the independently maintained open-source library "yfinance"
+(https://github.com/ranaroussi/yfinance), which is not affiliated with
+Yahoo. We understand that automated collection and redistribution require
+Yahoo's express prior permission. That is why we are writing before a
+public launch. We will accept rate limits, delayed-only display, a
+restricted symbol universe, or a Yahoo-specified official interface if you
+prefer that to the current retrieval method.
+
+6. Territory, users, term
+- Territory: worldwide website display, company established in the UK
+- Users: members of the public visiting the Product URL, plus self-hosted
+  copies of the same software (self-hosted copies would carry the same
+  attribution; we accept that permission for our public instance does not
+  automatically extend to third-party operators)
+- Commercial status: the software is free and open source; Monafy Ltd may
+  later offer paid operation of a customer's own instance. We are not
+  asking to resell Yahoo's data as a feed
+- Duration: 24 months or until withdrawn, renewable
+- Volume (estimate): [e.g. under N page views/day; delayed quotes only;
+  no continuous tick republication on the public site]
+
+7. Third-party content
+We understand that much of what appears on Yahoo Finance is licensed from
+exchanges and vendors (including LSEG and others), and that Yahoo cannot
+grant rights it does not own. We ask you to:
+- grant what Yahoo can grant (Yahoo-owned branding, and any Yahoo right in
+  the public HTML/JSON display); and
+- tell us which underlying licensors we must approach separately for a
+  public display terminal.
+
+8. Attachments
+- Companies House extract for Monafy Ltd
+- Footer mock-up and two screenshots of the terminal (unmodified Yahoo
+  word marks; no Yahoo logo lock-up in the chrome)
+- One-page product description
+
+We would be grateful for written approval, a short list of required
+changes, or a pointer to the correct commercial team if this should be
+handled as a display or data partnership rather than a brand permission.
+
+We will not launch the public instance, and we will not use Yahoo brand
+features beyond factual nominative reference, until we have your written
+position.
+
+Please reply to management@monafy.com.
+
+Yours faithfully,
+
+Timurhan Kaya
+Director
+For and on behalf of Monafy Ltd
+management@monafy.com
+[phone]
+https://monafy.com/
+
+========================================================================
+MAIL 2 — follow-up (10 business days, no reply)
+========================================================================
+
+From:    Timurhan Kaya <management@monafy.com>
+To:      emea-legal@yahooinc.com
+Subject: Re: Permission request — Monafy Ltd (United Kingdom)
+
+Dear Yahoo Legal (EMEA),
+
+I am following up on the permission request sent on [date] on behalf of
+Monafy Ltd (company no. [00000000]).
+
+We remain ready to narrow the request (delayed data only, footer-only
+trade mark use, a Yahoo-specified attribution line, or a limited symbol
+list) if that helps you consider it.
+
+If brand use and data display sit with different teams, please forward
+this to the right contact or tell us where to write.
+
+Yours faithfully,
+
+Timurhan Kaya
+Director
+Monafy Ltd
+management@monafy.com
+
+========================================================================
+MAIL 3 — trade marks only (optional, after Mail 1)
+========================================================================
+
+From:    Timurhan Kaya <management@monafy.com>
+To:      trademarks@yahooinc.com
+Subject: Request for approval — nominative use of "Yahoo Finance" (Monafy Ltd)
+
+Dear Yahoo Trade Marks,
+
+Monafy Ltd (England and Wales, company no. [00000000]) requests approval
+to use the words "Yahoo Finance" and a small Yahoo Finance source icon
+in the footer of https://yfinance.monafy.com/ , solely to identify the
+data source, with this notice:
+
+    Not affiliated with, endorsed by or connected to Yahoo.
+
+We will not place Yahoo brands in the product name, company name, domain,
+advertising or merchandise. Layout attached. A parallel request covering
+data display has been sent to emea-legal@yahooinc.com.
+
+Yours faithfully,
+
+Timurhan Kaya
+Director
+Monafy Ltd
+management@monafy.com
+
+========================================================================
+MAIL 4 — Finance partnerships (second wave)
+========================================================================
+
+From:    Timurhan Kaya <management@monafy.com>
+To:      [Yahoo Finance business development / partnerships]
+Subject: Display partnership enquiry — research terminal, Monafy Ltd (UK)
+
+Dear [Name],
+
+Monafy Ltd is a UK company building an open-source research terminal. We
+have written to Yahoo Legal (EMEA) for permission to display delayed
+Yahoo Finance information on our own domain and to credit Yahoo Finance
+in the footer, without claiming any affiliation.
+
+If Yahoo Finance licenses a display, delayed-quote, or research-terminal
+arrangement for a small UK company, we would like to be pointed to the
+right product and commercial owner. We are prepared to accept delayed
+data only, Yahoo's attribution spec, and no right to sublicence.
+
+Legal contact: management@monafy.com
+Product: https://yfinance.monafy.com/  (not yet public)
+Company: Monafy Ltd, [company no.]
+
+Yours sincerely,
+
+Timurhan Kaya
+Director
+Monafy Ltd
+management@monafy.com
+
+========================================================================
+YAHOO PERMISSION FORM
+https://www.yahooinc.com/ipr/en-US/forms/permission
+Paste Mail 1 sections 1-4 into Description. Attach mock-up + Companies House.
+========================================================================
+
+Name:                     Timurhan Kaya
+Business Name:            Monafy Ltd
+Address / City:           [registered office]
+State:                    N/A (United Kingdom — primary request is by email
+                          to emea-legal@yahooinc.com)
+Zip:                      [postcode]
+Phone:                    [+44 …]
+Email:                    management@monafy.com
+Requested brand feature:  Other
+Type of work:             Website
+Yahoo site:               finance.yahoo.com
+Authors and editors:      Monafy Ltd / Timurhan Kaya
+Description:              See Mail 1, sections 1-4. Public research terminal
+                          on https://yfinance.monafy.com/. Nominative "Yahoo
+                          Finance" and footer source icon only. Product name
+                          is not Yahoo-branded. Non-affiliation notice on
+                          every page.
+Distribution plans:       Public website https://yfinance.monafy.com/; UK
+                          company; no merchandise; no advertising lock-ups;
+                          delayed display only; no wholesale API.
+Other details:            Company no. [00000000]. Yahoo cannot grant
+                          third-party vendor rights — please say whom else
+                          we must ask.
+Attachments:              Footer mock-up, two terminal screenshots,
+                          Companies House extract

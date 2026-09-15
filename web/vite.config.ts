@@ -27,6 +27,12 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // jsdom's default `about:blank` origin has no storage area. The app's
+    // saved pages and accent preference both use localStorage, so give unit
+    // tests the same-origin URL they have in the browser.
+    environmentOptions: {
+      jsdom: { url: "http://localhost/" },
+    },
     // Playwright owns `e2e/`. Vitest's default glob would pick those
     // `.spec.ts` files up and run them in jsdom, where `@playwright/test`
     // has no runner and every one fails on import.

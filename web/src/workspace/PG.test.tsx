@@ -76,7 +76,7 @@ describe("PG", () => {
   it("says how to make a page when there are none", () => {
     draw();
     expect(screen.getByText(/No saved pages yet/)).toBeInTheDocument();
-    expect(screen.getByText(/PG SAVE trading/)).toBeInTheDocument();
+    expect(screen.getByText("PG SAVE trading", { exact: true })).toBeInTheDocument();
   });
 
   it("lists saved pages with the key that opens each", () => {
@@ -130,5 +130,29 @@ describe("PG", () => {
     });
     draw();
     expect(screen.getByText(/will not let the terminal store anything/)).toBeInTheDocument();
+  });
+});
+
+
+describe("page discovery", () => {
+  it("filters pages while preserving their original function keys and opens the match", () => {
+    savePage(page("trading"));
+    savePage(page("options"));
+    draw();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find a page" }), { target: { value: "OPT" } });
+    expect(screen.queryByText("trading")).not.toBeInTheDocument();
+    expect(screen.getByText(PAGE_KEYS[1]!)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open page options" }));
+    expect(screen.getByTestId("where")).toHaveTextContent("/ui/w/options");
+  });
+
+  it("protects an existing page when renaming to the same name", () => {
+    savePage(page("trading"));
+    savePage(page("options"));
+    vi.spyOn(window, "prompt").mockReturnValue("options");
+    draw();
+    fireEvent.click(screen.getAllByRole("button", { name: "rename" })[0]!);
+    expect(screen.getByRole("alert")).toHaveTextContent("already exists");
+    expect(readStore().order).toEqual(["trading", "options"]);
   });
 });

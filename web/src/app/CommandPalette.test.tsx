@@ -48,11 +48,11 @@ describe("CommandPalette", () => {
       throw new Error(`unexpected ${url}`);
     });
     render(<Harness onPick={() => {}} onClose={() => {}} />);
-    expect(screen.getByText(/DES —/)).toBeInTheDocument();
-    expect(screen.getByText(/GIP —/)).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /DES —/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /GIP —/ })).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("palette"), "GI");
-    expect(screen.queryByText(/DES —/)).not.toBeInTheDocument();
-    expect(screen.getByText(/GIP —/)).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /DES —/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /GIP —/ })).toBeInTheDocument();
   });
 
   it("says what search matches and how to open a pick beside the panel", () => {
@@ -83,9 +83,9 @@ describe("CommandPalette", () => {
       expect.stringContaining("/ui/api/search?q=microsoft"),
       expect.anything(),
     ));
-    const item = await screen.findByText(/MSFT — Microsoft/);
+    const item = await screen.findByRole("option", { name: /MSFT — Microsoft/ });
     await userEvent.click(item);
-    expect(onPick).toHaveBeenCalledWith("MSFT", false);
+    expect(onPick).toHaveBeenCalledWith("MSFT", false, "symbol");
   });
 
   it("opens a pick beside the panel when the modifier is held", async () => {
@@ -101,13 +101,13 @@ describe("CommandPalette", () => {
     const onPick = vi.fn();
     render(<Harness onPick={onPick} onClose={() => {}} />);
     await userEvent.type(screen.getByLabelText("palette"), "microsoft");
-    const item = await screen.findByText(/MSFT — Microsoft/);
+    const item = await screen.findByRole("option", { name: /MSFT — Microsoft/ });
     // `fireEvent`, because the modifier IS the assertion: userEvent's
     // held-key syntax does not put `ctrlKey` on the pointer event, and a
     // test that silently sent a plain click would have passed against a
     // component that ignored the modifier entirely.
     fireEvent.click(item, { ctrlKey: true });
-    expect(onPick).toHaveBeenCalledWith("MSFT", true);
+    expect(onPick).toHaveBeenCalledWith("MSFT", true, "symbol");
   });
 
   it("closes on Escape", async () => {
@@ -119,4 +119,53 @@ describe("CommandPalette", () => {
     await userEvent.type(screen.getByLabelText("palette"), "{Escape}");
     expect(onClose).toHaveBeenCalled();
   });
+});
+
+it("distinguishes a failed symbol search from an empty result", async () => {
+  mockFetch(() => json(503, { title: "Search unavailable" }));
+  render(<Harness onPick={() => {}} onClose={() => {}} />);
+  await userEvent.type(screen.getByLabelText("palette"), "zz");
+  expect(await screen.findByRole("alert")).toHaveTextContent(/search.*unavailable/i);
+  expect(screen.getByRole("button", { name: "Retry search" })).toBeInTheDocument();
+});
+
+it("shows a useful empty result message", async () => {
+  mockFetch(() => json(200, { data: [], next_cursor: null }));
+  render(<Harness onPick={() => {}} onClose={() => {}} />);
+  await userEvent.type(screen.getByLabelText("palette"), "zz");
+  expect(await screen.findByText(/No symbols found/)).toBeInTheDocument();
+});
+
+it("removes old results immediately when the query changes", async () => {
+  mockFetch(() => json(200, { data: [{ symbol: "AAPL", long_name: "Apple Inc.", short_name: null, exchange: "NMS", quote_type: "EQUITY" }], next_cursor: null }));
+  render(<Harness onPick={() => {}} onClose={() => {}} />);
+  const input = screen.getByLabelText("palette");
+  await userEvent.type(input, "AA");
+  await screen.findByRole("option", { name: /AAPL —/ });
+  fireEvent.change(input, { target: { value: "ZZ" } });
+  expect(screen.queryByRole("option", { name: /AAPL —/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("Searching symbols");
+});
+
+it("retries a failed search and shows the recovered results", async () => {
+  let available = false;
+  mockFetch(() => available ? json(200, { data: [{ symbol: "AAPL", long_name: "Apple Inc.", short_name: null, exchange: "NMS", quote_type: "EQUITY" }], next_cursor: null }) : json(503, { title: "Unavailable" }));
+  render(<Harness onPick={() => {}} onClose={() => {}} />);
+  await userEvent.type(screen.getByLabelText("palette"), "AA");
+  await screen.findByRole("alert");
+  available = true;
+  await userEvent.click(screen.getByRole("button", { name: "Retry search" }));
+  expect(await screen.findByRole("option", { name: /AAPL —/ })).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+it("distinguishes a symbol result from a function with the same code", async () => {
+  mockFetch(() => json(200, { data: [{ symbol: "DES", long_name: "Example Security", exchange: "NMS" }], next_cursor: null }));
+  const onPick = vi.fn();
+  render(<Harness onPick={onPick} onClose={() => {}} />);
+  await userEvent.type(screen.getByLabelText("palette"), "DES");
+  await userEvent.click(await screen.findByRole("option", { name: /DES — Example Security/ }));
+  expect(onPick).toHaveBeenLastCalledWith("DES", false, "symbol");
+  await userEvent.click(screen.getByRole("option", { name: "DES — Description" }));
+  expect(onPick).toHaveBeenLastCalledWith("DES", false, "function");
 });
