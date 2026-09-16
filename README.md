@@ -341,7 +341,7 @@ audit. When Yahoo breaks something, the fix usually belongs upstream.
 | Metrics, logs, traces | **Stable** | Prometheus + Grafana + Loki + Tempo + Alloy under `--profile observability`. A daemon thread in the scheduler turns nine database queries into gauges every five minutes so a scrape never touches a connection; every process renders one JSON log line through one redacting chain; four hand-drawn spans cover the boundaries the automatic instrumentation cannot see. Costs are measured in [`docs/measurements/observability.md`](docs/measurements/observability.md). |
 | Sharded parallel sync | **Stable** | Process-per-shard, advisory-lock guarded |
 | Settings in database | **Stable** | 73 settings overridable at runtime across 14 groups; `yfin config`. Eleven more are env-only, because they are read before a database exists. |
-| CI | **Stable** | GitHub Actions: ruff, `mypy --strict`, pytest, an OpenAPI contract diff, a change-event schema diff, a live tick-field diff, and `promtool` / `alloy fmt` / `docker compose config` over the deploy files through their pinned images; a second job runs `-m repo` and `alembic check` against a pinned PostgreSQL 18 + TimescaleDB service; a third builds the web terminal |
+| CI | **Stable** | GitHub Actions: ruff, `mypy --strict`, pytest, an OpenAPI contract diff, a change-event schema diff, a live tick-field diff, and `promtool` / `alloy fmt` / `docker compose config` over the deploy files through their pinned images; a second job runs `-m repo` and `alembic check` against a pinned PostgreSQL 18 + TimescaleDB service; a third builds the web terminal. A `CD` workflow publishes the image to GHCR after a green run on `main` |
 | Compression / retention policies | **Not enabled** | Deliberate: the rescale path rewrites historical rows. Needs measurement first. |
 | Continuous aggregates | **Not enabled** | Out of scope so far |
 
@@ -496,12 +496,23 @@ curl -fsS http://localhost:8000/health/ready     # {"status":"ok","database":"ok
 ```
 
 Monitoring is the `observability` profile with `deploy/observability/.env`
-filled in (see "Monitoring"). Upgrades are `git pull`, the same
-`up -d --build` **with every profile that runs here** (`--profile
-stream`, `--profile kafka`; compose leaves a service outside the given
-profiles untouched, still on the old image), and `yfin db upgrade head`;
-take the backup below first, because a rolled-back image does not roll
-back the schema. `stop` and `down` need the same profiles. The
+filled in (see "Monitoring"). Every push to `main` that passes CI
+publishes the image as `ghcr.io/timurhankaya/yfinance-terminal:main` and
+`:sha-<short>` (`.github/workflows/cd.yml`), so a host need not build:
+
+```bash
+docker login ghcr.io                     # unless the package was made public
+export YFIN_IMAGE_TAG=sha-abc1234        # or main; pin the sha in production
+docker compose --profile stream pull
+docker compose --profile stream up -d --no-build
+docker compose exec api yfin db upgrade head
+```
+
+Pass **every profile that runs here** (`--profile stream`, `--profile
+kafka`) to `pull`, `up`, `stop` and `down`: compose leaves a service
+outside the given profiles untouched, still on the old image. Take the
+backup below before an upgrade, because a rolled-back image does not
+roll back the schema. The
 archive lives in the `yfin-pgdata` volume — back it up
 with `docker compose exec timescaledb pg_dump -U yfin -d yfinance -Fc`.
 Terminate TLS in front of the API; nothing in the stack serves it.
