@@ -251,6 +251,21 @@ def test_health_rows_flag_a_stale_heartbeat(
     assert stale[0]["state"] == "open"  # still claims to be open
 
 
+def test_health_rows_ignore_finished_sessions(
+    repository: StreamRepository, db_session: Session
+) -> None:
+    """Status must not report a connection left by an older stream process."""
+    session_id = repository.open_session(connection_count=1, symbol_count=1)
+    _record(repository, session_id, connection_key="OLD")
+    db_session.execute(
+        text("UPDATE stream_sessions SET finished_at = :finished, status = 'failed'"),
+        {"finished": datetime.now(UTC)},
+    )
+    db_session.commit()
+
+    assert repository.health_rows(stale_after_seconds=60) == []
+
+
 def test_forget_connections_removes_rows(
     repository: StreamRepository, db_session: Session
 ) -> None:

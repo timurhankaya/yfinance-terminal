@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.models.ops import SchedulerRun
+from yfin.models.sync import RunScope, RunStatus, SyncRun
 from yfin.scheduler import runs
 
 pytestmark = pytest.mark.repo
@@ -126,6 +127,29 @@ class TestOrphans:
         assert db_session.execute(
             select(func.count()).select_from(SchedulerRun)
         ).scalar_one() == 0
+
+    def test_closes_sync_run_linked_to_terminated_scheduler_run(
+        self, factory: sessionmaker[Session], db_session: Session
+    ) -> None:
+        """A scheduler restart must not leave its child audit run running."""
+        scheduler_run_id = runs.open_run(factory, "sync", SCHEDULED)
+        db_session.add(
+            SyncRun(
+                started_at=SCHEDULED,
+                scope=RunScope.SYMBOLS,
+                status=RunStatus.RUNNING,
+                symbol_count=1,
+                dataset_count=1,
+                job_run_id=scheduler_run_id,
+            )
+        )
+        db_session.commit()
+
+        runs.close_orphans(factory)
+        assert runs.close_orphan_sync_runs(factory) == 1
+        row = db_session.execute(select(SyncRun)).scalar_one()
+        assert row.status == RunStatus.FAILED
+        assert row.finished_at is not None
 
 
 class TestLastSuccess:

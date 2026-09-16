@@ -332,9 +332,15 @@ class LiveSession:
         while True:
             frame = await self._out.get()
             dropped = self._take_dropped()
-            if dropped:
-                await self._ws.send_json({"op": Op.Dropped, "n": dropped})
-            await self._ws.send_json(frame)
+            try:
+                if dropped:
+                    await self._ws.send_json({"op": Op.Dropped, "n": dropped})
+                await self._ws.send_json(frame)
+            except (WebSocketDisconnect, RuntimeError):
+                # The browser can close while this task is awaiting a send.
+                # Treat that as normal lifecycle completion; otherwise the
+                # task exception is reported as an ASGI application error.
+                return
 
     # --- frames in ---------------------------------------------------------
 

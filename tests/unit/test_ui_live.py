@@ -302,6 +302,11 @@ def _session(socket: _FakeSocket) -> LiveSession:
     return LiveSession(cast(WebSocket, socket), "test-request")
 
 
+class _DisconnectingSocket(_FakeSocket):
+    async def send_json(self, frame: dict[str, Any]) -> None:
+        raise WebSocketDisconnect(code=1006)
+
+
 async def _drain(session: LiveSession) -> None:
     while not session._out.empty():
         await asyncio.sleep(0)
@@ -359,6 +364,15 @@ class TestTheBoundedQueue:
         # Counted into the second report rather than lost with the first.
         reports = [frame for frame in socket.sent if frame["op"] == Op.Dropped]
         assert reports == [{"op": Op.Dropped, "n": 3}, {"op": Op.Dropped, "n": 2}]
+
+
+class TestSenderDisconnect:
+    async def test_client_disconnect_does_not_escape_as_an_asgi_error(self) -> None:
+        """A browser closing during a send is a normal socket lifecycle event."""
+        session = _session(_DisconnectingSocket())
+        session._offer({"op": Op.Live, "enabled": False})
+
+        await session._sender()
 
 
 class _DeadPubSub:

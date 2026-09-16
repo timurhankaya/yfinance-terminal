@@ -434,6 +434,7 @@ class SchedulerService:
         """Blocks until SIGTERM or SIGINT."""
         scheduler = self.build()
         runs.close_orphans(self._factory)
+        runs.close_orphan_sync_runs(self._factory)
         for job_name, when in runs.last_success(self._factory).items():
             state = self._states.get(job_name)
             if state is not None:

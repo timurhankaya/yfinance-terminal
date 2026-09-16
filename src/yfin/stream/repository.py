@@ -274,6 +274,9 @@ class StreamRepository:
                     "       reconnect_count, last_error, "
                     "       (now() - heartbeat_at) > make_interval(secs => :stale) AS stale "
                     "  FROM stream_connection_health "
+                    " WHERE session_id IN ("
+                    "       SELECT id FROM stream_sessions WHERE finished_at IS NULL"
+                    "  ) "
                     " ORDER BY connection_key"
                 ),
                 {"stale": stale_after_seconds},

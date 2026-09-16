@@ -9,7 +9,7 @@ what cron gave us.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
@@ -137,6 +137,39 @@ def close_orphans(factory: sessionmaker[Session]) -> int:
     return closed
 
 
+def close_orphan_sync_runs(factory: sessionmaker[Session]) -> int:
+    """Closes sync audit rows whose scheduler parent was terminated.
+
+    The scheduler and sync are separate processes.  On a scheduler restart,
+    the scheduler row is recoverable, but the child may have been killed
+    before its own finalizer ran.  Leaving that child as ``running`` makes
+    freshness dashboards claim work is still in progress forever.  A run
+    older than one day cannot be a healthy scheduled sync, so old manual
+    rows without a scheduler parent are recovered too.
+    """
+    with factory() as session:
+        result = session.execute(
+            text(
+                "UPDATE sync_runs AS sync "
+                "   SET finished_at = :now, status = 'failed' "
+                " WHERE sync.status = 'running' "
+                "   AND sync.started_at < :cutoff "
+                "   AND (sync.job_run_id IS NULL OR sync.job_run_id IN ("
+                "       SELECT id FROM scheduler_runs WHERE result = 'terminated'"
+                "   ))"
+            ),
+            {
+                "now": datetime.now(UTC),
+                "cutoff": datetime.now(UTC) - timedelta(days=1),
+            },
+        )
+        session.commit()
+        closed = int(getattr(result, "rowcount", 0) or 0)
+    if closed:
+        log.warning("closed sync runs left open by a terminated scheduler", count=closed)
+    return closed
+
+
 def last_success(factory: sessionmaker[Session]) -> dict[str, datetime]:
     """The newest successful finish per job.
 
@@ -156,6 +189,7 @@ def last_success(factory: sessionmaker[Session]) -> dict[str, datetime]:
 
 __all__ = [
     "close_orphans",
+    "close_orphan_sync_runs",
     "close_run",
     "last_success",
     "open_run",
