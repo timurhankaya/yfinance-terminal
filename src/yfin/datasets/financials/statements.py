@@ -57,7 +57,7 @@ def financial_currency(ctx: SyncContext) -> str | None:
             "info", lambda: call_yahoo(ctx.ticker.get_info, what=f"info:{ctx.symbol}")
         )
     except Exception as exc:  # noqa: BLE001 - secondary field, does not fail the cell
-        log.warning("financialCurrency unavailable", symbol=ctx.symbol, error=str(exc))
+        log.debug("financialCurrency unavailable", symbol=ctx.symbol, error=str(exc))
         return None
     if not isinstance(info, dict):
         return None
@@ -108,7 +108,7 @@ class StatementDataset(HashGatedDataset[StatementPayload]):
         for column in frame.columns:
             period_end = nz.to_local_date(column)
             if period_end is None:
-                log.warning(
+                log.debug(
                     "statement period has no date",
                     symbol=symbol,
                     dataset=self.name,
@@ -131,7 +131,7 @@ class StatementDataset(HashGatedDataset[StatementPayload]):
                     # at max 60 chars; this path is a safety valve against
                     # library upgrades. The cell stays `ok`, data lives in
                     # raw_json.
-                    log.warning(
+                    log.debug(
                         "item_key too long",
                         symbol=symbol,
                         dataset=self.name,
@@ -199,7 +199,7 @@ _SPECS: tuple[tuple[str, StatementKind, StatementFreq], ...] = (
     ("balance_sheet", StatementKind.BALANCE_SHEET, StatementFreq.ANNUAL),
     ("quarterly_balance_sheet", StatementKind.BALANCE_SHEET, StatementFreq.QUARTERLY),
     # ttm_balance_sheet DOES NOT EXIST: freq="trailing" on the balance sheet
-    # raises ValueError: Illegal argument (fundamentals.py:80-82).
+    # raises ValueError: Illegal argument (fundamentals.py).
     ("cashflow", StatementKind.CASH_FLOW, StatementFreq.ANNUAL),
     ("quarterly_cashflow", StatementKind.CASH_FLOW, StatementFreq.QUARTERLY),
     ("ttm_cashflow", StatementKind.CASH_FLOW, StatementFreq.TTM),

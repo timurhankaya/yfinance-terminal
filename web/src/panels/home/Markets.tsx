@@ -5,7 +5,7 @@
 import { PAGE_LIMIT, getDatasetPage } from "../../api/client";
 import type { Row } from "../../api/client";
 import { DataTable, LoadState, usePanelData, useSortedRows, type Column } from "../common";
-import { asNumber, formatPrice } from "../format";
+import { asNumber, formatPrice, text } from "../format";
 import { SparkCell, sparkLabel, useSparklines } from "../spark";
 import type { SparkData } from "../spark";
 import { Block, Failed, Waiting } from "./Block";
@@ -18,18 +18,13 @@ interface MarketRow extends Record<string, unknown> {
   state: string;
 }
 
-function text(row: Row, key: string): string {
-  const value = row[key];
-  return typeof value === "string" ? value : "";
-}
-
 function marketRows(rows: Row[]): MarketRow[] {
   return rows.map((row) => ({
     symbol: text(row, "symbol"),
     name: text(row, "short_name"),
     price: typeof row.regular_market_price === "string" ? row.regular_market_price : null,
     change_percent: asNumber(row.regular_market_change_percent),
-    state: text(row, "market_state").toLowerCase(),
+    state: typeof row.market_state === "string" ? row.market_state.toLowerCase() : "—",
   }));
 }
 

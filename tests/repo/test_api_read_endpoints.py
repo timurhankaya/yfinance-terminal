@@ -544,6 +544,12 @@ def test_an_inverted_range_is_NOT_called_too_large(client: TestClient) -> None:
     assert response.json()["type"] == "invalid_parameter"
 
 
+def test_an_unknown_statement_is_invalid_parameter_not_a_server_error(client: TestClient) -> None:
+    response = _get(client, f"/v1/symbols/{SYMBOL}/financials", statement="nope", freq="annual")
+    assert response.status_code == 422
+    assert response.json()["type"] == "invalid_parameter"
+
+
 def test_a_range_that_really_is_too_large_still_says_so(client: TestClient) -> None:
     response = _get(
         client,

@@ -26,9 +26,7 @@ SEMCONV_VALUE = "http,database"
 #: points it at Alloy's OTLP gRPC receiver.
 ENDPOINT_VAR = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
-#: The span export gives up after this and drops the batch. Five seconds is
-#: longer than any healthy export and shorter than anything a caller would
-#: notice, because no caller ever waits for it.
+#: Export timeout; the batch is dropped past it. No caller waits on it.
 EXPORT_TIMEOUT_MS = 5_000
 
 #: Set once tracing is on, so `span()` can skip the tracer lookup entirely

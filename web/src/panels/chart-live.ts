@@ -28,10 +28,9 @@ export function useLiveSeries(
   const [bar, setBar] = useState<Candle | null>(null);
   const [rolledAt, setRolledAt] = useState<number | null>(null);
   // A mirror of `bar`, so the effect below can read the running candle
-  // without reading state inside a `setBar` updater. React requires
-  // updaters to be pure and double-invokes them in StrictMode to prove
-  // it; a `setRolledAt` in there fired twice per boundary, and the
-  // caller turns every roll into a window refetch.
+  // without reading state inside a `setBar` updater. React double-invokes
+  // updaters in StrictMode, so a `setRolledAt` inside one would fire twice,
+  // and the caller turns every roll into a window refetch.
   const barRef = useRef<Candle | null>(bar);
   barRef.current = bar;
 

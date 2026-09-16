@@ -6,7 +6,7 @@ logs or fails with it."""
 from __future__ import annotations
 
 from importlib.metadata import version
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +30,9 @@ from yfin.core.config import bootstrap_settings
 from yfin.core.logging_setup import configure_logging, get_logger
 from yfin.core.metrics import set_build_info
 from yfin.core.tracing import configure_tracing, instrument_fastapi
+
+if TYPE_CHECKING:
+    from prometheus_fastapi_instrumentator import Instrumentator
 
 log = get_logger(__name__)
 
@@ -73,17 +76,13 @@ def _install_documentation_pages(app: FastAPI) -> None:
         )
 
 
-def build_instrumentator(registry: object | None = None) -> Any:
-    """The instrumentator, configured; None without the package. `registry` is
-    for tests: the default one is process-wide and a duplicate registration
-    silently attaches no instrumentation, so a second app in one process
-    records nothing. In-progress gauges are meaningless under
-    `PROMETHEUS_MULTIPROC_DIR`, hence off."""
-    try:
-        from prometheus_fastapi_instrumentator import Instrumentator
-    except ImportError as exc:  # pragma: no cover - the package is in [api]
-        log.warning("http metrics not installed", error=str(exc))
-        return None
+def build_instrumentator(registry: object | None = None) -> Instrumentator:
+    """The instrumentator, configured. `registry` is for tests: the default
+    one is process-wide and a duplicate registration silently attaches no
+    instrumentation. In-progress gauges are meaningless under
+    `PROMETHEUS_MULTIPROC_DIR`, hence off. Imported here, not at module
+    level: `prometheus_client` reads `PROMETHEUS_MULTIPROC_DIR` at import."""
+    from prometheus_fastapi_instrumentator import Instrumentator
 
     kwargs: dict[str, Any] = {} if registry is None else {"registry": registry}
     return Instrumentator(
@@ -102,8 +101,6 @@ def _install_metrics(app: FastAPI) -> None:
     from fastapi import Depends
 
     instrumentator = build_instrumentator()
-    if instrumentator is None:
-        return
 
     from yfin.api.core.window import metrics_window
 

@@ -100,7 +100,7 @@ class ScreenPage:
     """A single `yf.screen` response."""
 
     quotes: list[dict[str, Any]]
-    total: int
+    total: int | None
     # Populated only on the FIRST predefined page (GET); the POST response
     # carries 5 keys and includes none of these.
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -112,7 +112,7 @@ class ScreenPayload:
     as_of_date: date
     fetched_at: datetime
     quotes: list[dict[str, Any]]
-    total: int
+    total: int | None
     page_count: int
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -147,7 +147,7 @@ def _fetch_page(
     body = expect_dict(raw, what="screen")
     return ScreenPage(
         quotes=dict_items(body, "quotes"),
-        total=nz.to_int(body.get("total")) or 0,
+        total=nz.to_int(body.get("total")),
         metadata={k: v for k, v in body.items() if k != "quotes"},
     )
 
@@ -230,8 +230,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
                     f"valid names: {', '.join(sorted(keys))}"
                 )
             keys = [k for k in keys if k in set(wanted)]
-        # Read the disabled set ONCE. Asking per screen inside the
-        # comprehension issued 19 round-trips for one answer.
+        # Read once, not per screen.
         disabled = state.disabled_variants() if state is not None else frozenset()
         return [k for k in keys if k not in disabled]
 
@@ -245,7 +244,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
 
         quotes: list[dict[str, Any]] = []
         metadata: dict[str, Any] = {}
-        total = 0
+        total: int | None = None
         offset = 0
         pages = 0
 
@@ -266,7 +265,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
             if not page.quotes:
                 break
             offset += len(page.quotes)
-            if offset >= page.total:
+            if page.total is not None and offset >= page.total:
                 break
 
         return ScreenPayload(
@@ -446,6 +445,5 @@ def _symbol_row(symbol: str, quote: dict[str, Any], raw: ScreenPayload) -> dict[
 
 # OPT-IN: `yfin screen sync` resolves this dataset BY NAME
 # (`MARKET_DATASETS.resolve(["screener"])`), so the command works. A bare
-# `yfin market sync` does NOT pull it in -- otherwise that command's cost
-# would silently jump from ~20 requests to ~50, which nobody asked for.
+# `yfin market sync` does NOT pull it in.
 register_market(ScreenerDataset(), opt_in=True)

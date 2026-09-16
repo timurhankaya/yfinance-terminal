@@ -32,7 +32,7 @@ GLOBAL_REGION_MARKER = "*"
 VOLATILE_COLUMNS = frozenset(_VOLATILE_COLUMNS)
 
 # Columns updated on the gate row when the hash changes. `first_seen_at` is
-# deliberately excluded: if ON DUPLICATE KEY UPDATE covered it, the rule
+# deliberately excluded: if the conflict branch covered it, the rule
 # "written only on the first INSERT" would break.
 GATE_UPDATE_COLUMNS = ("as_of_date", "content_hash", "row_count", "fetched_at")
 

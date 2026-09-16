@@ -133,8 +133,7 @@ RANGE_VARIANT = (
     (*PROBLEM_VARIANTS[422][1], errors.TYPE_RANGE_TOO_LARGE),
 )
 
-#: The operations that can answer with `range_too_large`. `listActions`
-#: was missing and sent a type its own published schema forbade.
+#: The operations that can answer with `range_too_large`.
 RANGED = frozenset({"listBars", "listActions"})
 
 #: The examples the document must carry, as

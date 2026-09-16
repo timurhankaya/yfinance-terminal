@@ -118,10 +118,10 @@ const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 //: epoch, and both contain "year".
 const YEAR_KEYS = new Set(["year_born", "fiscal_year"]);
 
-/** One info value as text, by what its key says it is. */
 //: Digits that are not numbers: a postal code of 95014 is not 95,014.
 const TEXT_KEYS = new Set(["zip", "phone", "fax", "address1", "address2", "message_board_id", "price_hint"]);
 
+/** One info value as text, by what its key says it is. */
 export function formatInfo(key: string, value: unknown): string {
   if (typeof value === "boolean") return value ? "yes" : "no";
   if (TEXT_KEYS.has(key)) return String(value);

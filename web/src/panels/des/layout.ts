@@ -107,9 +107,7 @@ const CANDIDATES: ReadonlyArray<[key: string, label: string, signed?: true]> = [
   ["volume", "Volume"],
 ];
 
-//: Six, because the grid is `minmax(132px, 1fr)`: six fit on one row of a
-//: full-width panel and wrap to two of three in a split. A seventh would
-//: leave a widow on most widths.
+//: Six: they fit one row at full width and two rows of three in a split.
 export const STAT_CARDS = 6;
 
 /** The cards, in candidate order, for the keys this snapshot filled. */

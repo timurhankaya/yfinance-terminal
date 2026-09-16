@@ -84,23 +84,16 @@ def rescale_before_bars(
     )
     if not writes_bars:
         return
-    try:
-        apply_pending(session, payload.symbol, collector=collector)
-    except Exception as exc:  # noqa: BLE001 - a hook failure must not drop the symbol
-        # Swallowing this is dangerous since we're in the same transaction:
-        # a broken rescale would silently stick. Re-raise instead and let
-        # persist_with_retry and the caller handle it.
-        log.error("rescale hook failed", symbol=payload.symbol, error=str(exc))
-        raise
+    apply_pending(session, payload.symbol, collector=collector)
 
 
 def mark_unknown(session: Session, symbol: str, threshold: int) -> None:
-    """A symbol unknown for 5 consecutive runs gets is_active=0. Data is not deleted."""
+    """A symbol unknown for `threshold` consecutive runs gets is_active=0. Data is not deleted."""
     row = session.get(Symbol, symbol)
     if row is None:
         # The universe is managed by hand; a symbol not on record has no
         # streak counter. Log it instead of staying silent.
-        log.info("unknown symbol not tracked (not in symbols table)", symbol=symbol)
+        log.debug("unknown symbol not tracked (not in symbols table)", symbol=symbol)
         return
     streak = (row.unknown_streak or 0) + 1
     session.execute(
@@ -153,7 +146,7 @@ def persist_with_retry(
                 if attempt < attempts and is_lock_conflict(exc):
                     metrics.inc("yfin_sync_retries_total", kind="lock_conflict")
                     delay = 0.05 * attempt + random.uniform(0, 0.05)
-                    log.warning(
+                    log.debug(
                         "lock conflict; retrying",
                         symbol=payload.symbol,
                         attempt=attempt,

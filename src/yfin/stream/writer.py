@@ -89,9 +89,8 @@ class SymbolFilter:
             return set()
         hits = candidates & self._known
         misses = candidates - self._known
-        # Counted per SYMBOL, not per call: a batch of 500 ticks holding one
-        # unknown symbol is 499 hits and one miss, and the ratio of calls
-        # would report that as a 100 % miss.
+        # Counted per SYMBOL, not per call: one unknown symbol must not count
+        # a whole batch as a miss.
         metrics.inc("yfin_cache_ops_total", len(hits), cache="symbol_filter", result="hit")
         if misses:
             metrics.inc(
@@ -307,7 +306,7 @@ class StreamWriter:
             if row["symbol"] not in known
         ]
         if unknown:
-            log.warning(
+            log.debug(
                 "ticks rejected for unknown symbols",
                 count=len(unknown),
                 symbols=sorted({reject.symbol for reject in unknown if reject.symbol}),

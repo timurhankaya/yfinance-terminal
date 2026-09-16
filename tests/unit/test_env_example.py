@@ -65,7 +65,7 @@ def test_the_signing_key_is_documented_as_mandatory() -> None:
     line = next(ln for ln in text.splitlines() if ln.startswith("YFAPI_JWT_SIGNING_KEY="))
     index = text.splitlines().index(line)
     comment = "\n".join(text.splitlines()[max(0, index - 6) : index]).lower()
-    assert "required" in comment or "zorunlu" in comment, (
+    assert "required" in comment, (
         "YFAPI_JWT_SIGNING_KEY carries no note saying it is mandatory"
     )
 

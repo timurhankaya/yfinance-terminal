@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any
 
+from yfin.core import metrics
 from yfin.core import normalize as nz
 from yfin.core.logging_setup import get_logger
 from yfin.models.base import FACT_PRECISION
@@ -50,7 +51,8 @@ def warn_unmapped(
     mapped = {f.source for f in fields}
     unmapped = sorted(k for k in payload if k not in mapped and k not in ignore)
     if unmapped:
-        log.warning("unmapped keys", dataset=dataset, keys=unmapped)
+        metrics.inc("yfin_sync_normalize_notes_total", kind="unmapped_keys")
+        log.debug("unmapped keys", dataset=dataset, keys=unmapped)
     return unmapped
 
 
@@ -97,7 +99,8 @@ def to_fact_value(value: Any) -> Decimal | None:
             ctx.prec = FACT_PRECISION
             return dec.quantize(FACT_QUANTUM)
     except InvalidOperation:
-        log.warning("fact value out of range", value=str(dec)[:32])
+        metrics.inc("yfin_sync_normalize_notes_total", kind="out_of_range")
+        log.debug("fact value out of range", value=str(dec)[:32])
         return None
 
 
@@ -130,10 +133,12 @@ def key_value(
     if text is not None:
         text = text.strip()
     if not text:
-        log.warning("empty key field", dataset=dataset, symbol=symbol, field=field)
+        metrics.inc("yfin_sync_normalize_notes_total", kind="empty_key")
+        log.debug("empty key field", dataset=dataset, symbol=symbol, field=field)
         return None
     if len(text) > max_len:
-        log.warning(
+        metrics.inc("yfin_sync_normalize_notes_total", kind="key_too_long")
+        log.debug(
             "key field too long",
             dataset=dataset,
             symbol=symbol,

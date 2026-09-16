@@ -225,10 +225,8 @@ class IndustryRankingsDataset(_DomainRankingsDataset):
     )
 
     def normalize(self, raw: DomainPayload, key: str) -> NormalizedResult:
-        # `infrastructure-operations`: none of the three blocks are
-        # present -> empty result -> `AsOfGate.upsert`'s `is_empty` branch
-        # writes no gate row, and cells come out `empty`. Yahoo reporting
-        # `companiesCount=1` for this industry confirms this is real, not a bug.
+        # An industry with none of the three blocks is an empty result; no
+        # gate row is written.
         return NormalizedResult(
             writes=[self._movers_write(raw, key), self._companies_write(raw, key)]
         )
@@ -255,7 +253,7 @@ class IndustryRankingsDataset(_DomainRankingsDataset):
                     "rank_type": rank_type,
                     "symbol": symbol,
                     "name": text_of(entry, "name", 255),
-                    # ELOX reports 9999.0 -- not treated as a sentinel
+                    # 9999.0 is written as-is, not treated as a sentinel.
                     "ytd_return": dec_of(entry, "ytdReturn"),
                     "last_price": dec_of(entry, "lastPrice"),
                     "target_price": dec_of(entry, "targetPrice"),

@@ -34,14 +34,14 @@ def test_the_sets_are_exhaustive_and_disjoint() -> None:
     assert not (ENV_ONLY_FIELDS & DB_MANAGED_FIELDS)
 
 
-def test_anlik_goruntu_sayilari() -> None:
+def test_snapshot_counts() -> None:
     assert len(Settings.model_fields) == SNAPSHOT_TOTAL
     assert len(ENV_ONLY_FIELDS) == SNAPSHOT_ENV_ONLY
     assert len(DB_MANAGED_FIELDS) == SNAPSHOT_DB_MANAGED
 
 
 @pytest.mark.parametrize("key", sorted(DB_MANAGED_FIELDS))
-def test_metadata_eksiksiz(key: str) -> None:
+def test_metadata_is_complete(key: str) -> None:
     """Guard 2 -- metadata.
 
     The panel form cannot render without `description` + `group`; a field
@@ -54,7 +54,7 @@ def test_metadata_eksiksiz(key: str) -> None:
     assert extra.get("group") in SETTING_GROUPS, f"{key}: invalid group {extra.get('group')!r}"
 
 
-def test_gruplar_hepsi_kullaniliyor() -> None:
+def test_every_group_is_used() -> None:
     """An unused group name would leave the panel with an empty tab."""
     used = {
         Settings.model_fields[key].json_schema_extra["group"]  # type: ignore[index]
@@ -64,7 +64,7 @@ def test_gruplar_hepsi_kullaniliyor() -> None:
 
 
 @pytest.mark.parametrize("key", sorted(Settings.model_fields))
-def test_sir_adi_citi(key: str) -> None:
+def test_secret_name_fence(key: str) -> None:
     """Guard 3, secret-name pattern: a field matching `secret|password|token|credential`
     outside `ENV_ONLY_FIELDS` would be exposed to the DB next to the data it protects."""
     if SECRET_NAME_RE.search(key):
@@ -72,7 +72,7 @@ def test_sir_adi_citi(key: str) -> None:
 
 
 @pytest.mark.parametrize("key", sorted(DB_MANAGED_FIELDS))
-def test_skaler_citi(key: str) -> None:
+def test_scalar_fence(key: str) -> None:
     """Guard 4, scalar-ness: the `value` column is text and the serialization rule is
     defined only for scalars."""
     assert Settings.model_fields[key].annotation in (bool, int, float, str)

@@ -58,24 +58,21 @@ function num(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** Bars as candles, oldest first, one per instant. `close` is the only
- *  column the archive guarantees; `open`, `high`, `low` fall back to it.
- *  Duplicate instants keep the LAST row: the chart library refuses times
- *  that are not strictly increasing, and a page overlap duplicates. */
+/** Bars as candles, oldest first, one per instant. A row missing any of
+ *  the four prices is skipped: a candle drawn from a substituted open
+ *  would colour a move nobody measured. Duplicate instants keep the LAST
+ *  row: the chart library refuses times that are not strictly increasing,
+ *  and a page overlap duplicates. */
 export function toCandles(rows: Row[]): Candle[] {
   const byTime = new Map<number, Candle>();
   for (const row of rows) {
     const time = seconds(row.ts_utc);
+    const open = num(row.open);
+    const high = num(row.high);
+    const low = num(row.low);
     const close = num(row.close);
-    if (time === null || close === null) continue;
-    const open = num(row.open) ?? close;
-    byTime.set(time, {
-      time,
-      open,
-      close,
-      high: num(row.high) ?? Math.max(open, close),
-      low: num(row.low) ?? Math.min(open, close),
-    });
+    if (time === null || open === null || high === null || low === null || close === null) continue;
+    byTime.set(time, { time, open, high, low, close });
   }
   return [...byTime.values()].sort((a, b) => a.time - b.time);
 }
@@ -118,10 +115,6 @@ const ACTION_PREFIX: Record<MarkerKind, string> = {
   [MarkerKind.CapitalGain]: "CG",
 };
 
-/** Dividends and splits, snapped to the candle that carries them: an
- *  action's date is a SESSION date and a candle's time an instant, so the
- *  marker goes on the first candle at or after the action. An action
- *  after the last candle is dropped rather than piled on the right edge. */
 /** `0.270000000000` -> `0.27`, `2.000000000000` -> `2`; anything that is
  *  not a decimal string is shown as it came. */
 export function trimDecimal(value: unknown): string {
@@ -129,6 +122,10 @@ export function trimDecimal(value: unknown): string {
   return /^-?\d+\.\d+$/.test(text) ? text.replace(/0+$/, "").replace(/\.$/, "") : text;
 }
 
+/** Dividends and splits, snapped to the candle that carries them: an
+ *  action's date is a SESSION date and a candle's time an instant, so the
+ *  marker goes on the first candle at or after the action. An action
+ *  after the last candle is dropped rather than piled on the right edge. */
 export function toMarkers(actions: Row[], candles: Candle[]): ActionMarker[] {
   const times = candles.map((candle) => candle.time);
   // An action before the first candle belongs to a session this window
@@ -171,8 +168,7 @@ export interface GapBands {
   truncated: boolean;
 }
 
-//: A 1m gap of a whole trading day is 390 slots; a month of them is
-//: 8,000, and past a few thousand the band costs more than it explains.
+//: Past a few thousand slots the band costs more than it explains.
 export const GAP_SLOT_LIMIT = 3000;
 
 /** Open gaps, as time slots the chart can shade. A gap has NO bars, so

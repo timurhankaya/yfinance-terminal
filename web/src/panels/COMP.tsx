@@ -17,9 +17,8 @@ import { GROUP_ORDER, Swatch, seriesColors } from "./viz";
 
 /** The windows a comparison is asked over.
  *
- *  No `5y` and no `max`: `/v1/.../bars` pages at 1,000 rows, five years
- *  of daily closes is ~1,250, and seven symbols would be fourteen pages
- *  to answer a question three years already answers. */
+ *  No `5y` and no `max`: `/v1/.../bars` pages at 1,000 rows and three
+ *  years already answers the question. */
 export enum CompPeriod {
   SixMonth = "6m",
   Year = "1y",

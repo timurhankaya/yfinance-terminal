@@ -9,6 +9,8 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
+from curl_cffi.requests import Session
+
 from yfin.core.logging_setup import scrub
 from yfin.proxy.dsn import ProxyEndpoint
 from yfin.proxy.health import HealthEvent
@@ -28,22 +30,12 @@ class CheckResult:
     detail: str = ""
 
 
-def _new_check_session(endpoint: ProxyEndpoint | None) -> tuple[object, bool]:
-    """(session, impersonated). Falls back to plain requests if curl_cffi is absent."""
-    try:
-        from curl_cffi import requests as backend
-
-        session = backend.Session(impersonate="chrome")
-        impersonated = True
-    except ImportError:  # pragma: no cover - depends on environment
-        import requests as backend  # type: ignore[no-redef]
-
-        session = backend.Session()
-        impersonated = False
+def _new_check_session(endpoint: ProxyEndpoint | None) -> Session:
+    session = Session(impersonate="chrome")
     if endpoint is not None:
         dsn = endpoint.dsn()
         session.proxies = {"http": dsn, "https": dsn}
-    return session, impersonated
+    return session
 
 
 def check_endpoint(endpoint: ProxyEndpoint, timeout: float) -> CheckResult:
@@ -53,13 +45,12 @@ def check_endpoint(endpoint: ProxyEndpoint, timeout: float) -> CheckResult:
     The raw request has an empty cookie jar, unlike real traffic, so this is
     complementary to passive observation of sync results."""
     label = endpoint.host
-    session, impersonated = _new_check_session(endpoint)
-    detail = "" if impersonated else "curl_cffi absent: measured without TLS impersonation"
+    session = _new_check_session(endpoint)
     latency: int | None = None
     try:
         for index, url in enumerate((CHECK_CHART_URL, CHECK_CRUMB_URL)):
             started = time.perf_counter()
-            response = session.get(url, timeout=timeout)  # type: ignore[attr-defined]
+            response = session.get(url, timeout=timeout)
             if index == 0:
                 latency = int((time.perf_counter() - started) * 1000)
             code = int(response.status_code)
@@ -83,7 +74,5 @@ def check_endpoint(endpoint: ProxyEndpoint, timeout: float) -> CheckResult:
     except Exception as exc:  # noqa: BLE001 - every transport error is NETWORK
         return CheckResult(label, HealthEvent.NETWORK, None, scrub(f"{type(exc).__name__}: {exc}"))
     finally:
-        close = getattr(session, "close", None)
-        if callable(close):
-            close()
-    return CheckResult(label, HealthEvent.SUCCESS, latency, detail)
+        session.close()
+    return CheckResult(label, HealthEvent.SUCCESS, latency)

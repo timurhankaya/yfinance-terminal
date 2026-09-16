@@ -27,7 +27,7 @@ from yfin.storage.contracts import RowWriter, TableWrite, WriteStats
 
 log = get_logger(__name__)
 
-# `holding_rank` is TINYINT UNSIGNED (models/funds.py); the limit is the
+# `holding_rank` is CHECKed to 0..255 (models/funds.py); the limit is the
 # column's, not the source's.
 MAX_HOLDING_RANK = 255
 
@@ -198,8 +198,8 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
             )
         except (YFDataException, KeyError) as exc:
             # Under hide_exceptions=False, the source raises a raw
-            # KeyError('topHoldings'), NOT YFDataException (scrapers/funds.py:190-194).
-            log.info("no fund data", symbol=ctx.symbol, error=str(exc)[:80])
+            # KeyError('topHoldings'), NOT YFDataException (scrapers/funds.py).
+            log.debug("no fund data", symbol=ctx.symbol, error=str(exc)[:80])
             return FundsPayload(data=None, fetched_at=ctx.fetched_at)
         return FundsPayload(data=data, fetched_at=ctx.fetched_at)
 
@@ -212,7 +212,7 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
             # quote_type is NOT NULL; a partially populated object cannot be
             # trusted (for a non-fund symbol, `description` on a second access
             # returns the company summary instead).
-            log.warning("funds data has no quote type", symbol=symbol)
+            log.debug("funds data has no quote type", symbol=symbol)
             return NormalizedResult()
 
         as_of = raw.fetched_at.date()
@@ -272,7 +272,7 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
             for position, label in enumerate(operations.index):
                 mapping = OPERATIONS.get(str(label))
                 if mapping is None:
-                    log.warning(
+                    log.debug(
                         "unmapped keys", dataset=self.name, symbol=symbol, keys=[str(label)]
                     )
                     continue
@@ -309,7 +309,7 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
             for position, label in enumerate(frame.index):
                 metric = metrics.get(str(label)) or _slug(label)
                 if metric is None or len(metric) > ITEM_KEY_LENGTH:
-                    log.warning(
+                    log.debug(
                         "unusable fund metric label",
                         symbol=symbol,
                         section=section.value,
@@ -402,11 +402,11 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
         if isinstance(frame, pd.DataFrame) and not frame.empty:
             for rank, (index, record) in enumerate(frame.iterrows()):
                 if rank > MAX_HOLDING_RANK:
-                    # `holding_rank` is TINYINT UNSIGNED; a CHECK violation
+                    # `holding_rank` is CHECKed to 0..255; a CHECK violation
                     # would roll back all of the symbol's datasets, so extra
                     # rows are dropped and the cell stays `ok`.
-                    log.warning(
-                        "top_holdings rank sinirini asti",
+                    log.debug(
+                        "top_holdings rank over the limit",
                         dataset=self.name,
                         symbol=symbol,
                         limit=MAX_HOLDING_RANK,

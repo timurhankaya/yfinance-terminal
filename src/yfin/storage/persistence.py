@@ -131,8 +131,7 @@ def _returning_row(statement: Any) -> Any:
 class PostgresRowWriter:
     """PostgreSQL implementation of RowWriter.
 
-    With no collector the emitted statements must stay byte-for-byte
-    unchanged; `tests/unit/test_insert_statement.py` compares them as text.
+    Without a collector a statement carries no predicate and no RETURNING.
     """
 
     def __init__(
@@ -293,8 +292,8 @@ class PostgresRowWriter:
                     > table.c[write.guard_column],
                 )
             if predicate is None:
-                # No collector, or an all-volatile update map: today's
-                # statement, with no returning clause to pay for.
+                # No collector, or an all-volatile update map: no predicate
+                # and no RETURNING clause.
                 return stmt.on_conflict_do_update(
                     index_elements=list(write.key_columns), set_=update_map
                 )
@@ -306,9 +305,8 @@ class PostgresRowWriter:
                 )
             )
 
-        # Nothing to update: insert, and leave an existing row alone. The
-        # shape is unchanged; with a collector the rows it DID insert come
-        # back, because those are events.
+        # Nothing to update: insert, and leave an existing row alone. With a
+        # collector the rows it DID insert come back: those are events.
         nothing = stmt.on_conflict_do_nothing(index_elements=list(write.key_columns))
         return _returning_row(nothing) if collecting else nothing
 
@@ -415,8 +413,7 @@ class PostgresRowWriter:
         if not volatile or set(volatile) & set(write.key_columns):
             return
         # `DO NOTHING` never updates anything, so there is nothing to keep
-        # current: an existing row keeps the values it already had, exactly
-        # as it does today.
+        # current: an existing row keeps the values it already had.
         if not self._update_columns_present(write, present):
             return
 

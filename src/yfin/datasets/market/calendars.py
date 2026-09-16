@@ -60,7 +60,7 @@ def _fetch_pages(mctx: MarketContext, method: str, **extra: Any) -> pd.DataFrame
     if not complete:
         # The page cap is reachable: an earnings season carries more events
         # than the page budget, and everything past it is dropped.
-        log.warning(
+        log.debug(
             "calendar hit the page cap; events beyond it were not fetched",
             method=method,
             max_pages=cfg.yf_calendar_max_pages,
@@ -174,7 +174,7 @@ class EarningsCalendarDataset(CalendarDatasetBase):
         symbol = _symbol_of(index, dataset=self.name)
         ts = nz.to_datetime_utc(record.get("Event Start Date"))
         if symbol is None or ts is None:
-            log.warning("calendar row missing key", table=self.table)
+            log.debug("calendar row missing key", table=self.table)
             return None
         return {
             "symbol": symbol,
@@ -197,7 +197,7 @@ class EconomicCalendarDataset(CalendarDatasetBase):
     table = "calendar_economic"
     method = "get_economic_events_calendar"
     has_symbol = False
-    # Index (Event) is NOT unique (29 repeats in 100 rows); the triple key is.
+    # Index (Event) is NOT unique; the triple key is.
     key_columns = ("region", "event_time_utc", "event_name")
     update_columns = ("period_for", "actual", "expected", "last_reported", "revised", "fetched_at")
     api = (
@@ -222,7 +222,7 @@ class EconomicCalendarDataset(CalendarDatasetBase):
         )
         ts = nz.to_datetime_utc(record.get("Event Time"))
         if event_name is None or region is None or ts is None:
-            log.warning("calendar row missing key", table=self.table)
+            log.debug("calendar row missing key", table=self.table)
             return None
         return {
             "region": region,
@@ -276,7 +276,7 @@ class IpoCalendarDataset(CalendarDatasetBase):
             record.get("Action"), 16, field="action", dataset=self.name, symbol=symbol or "-"
         )
         if symbol is None or ts is None or action is None:
-            log.warning("calendar row missing key", table=self.table)
+            log.debug("calendar row missing key", table=self.table)
             return None
         return {
             "symbol": symbol,
@@ -327,7 +327,7 @@ class SplitsCalendarDataset(CalendarDatasetBase):
         symbol = _symbol_of(index, dataset=self.name)
         ts = nz.to_datetime_utc(record.get("Payable On"))
         if symbol is None or ts is None:
-            log.warning("calendar row missing key", table=self.table)
+            log.debug("calendar row missing key", table=self.table)
             return None
         old_worth = nz.to_int(record.get("Old Share Worth"))
         new_worth = nz.to_int(record.get("Share Worth"))

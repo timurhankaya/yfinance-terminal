@@ -4,7 +4,7 @@
 // carries each panel's `params`, and a second map would disagree with it
 // on the first drag. The document is portable: it can be stored server-side unchanged.
 import type { SerializedDockview } from "dockview-react";
-import type { PanelParams, PanelSeed } from "../app/Workspace";
+import type { PanelSeed } from "../app/Workspace";
 import { getPanel } from "../commands/registry";
 import type { PanelArgs } from "../commands/types";
 import { GROUP_ORDER, Group } from "./groups";
@@ -36,9 +36,7 @@ export const STORE_VERSION = 1;
 
 /** Characters a shared link may carry.
  *
- *  A URL is safe end to end -- browser, proxy header buffer, access log
- *  -- to about 8 KB. Base64 inflates by a third, so 4,000 characters of
- *  layout is a ~5.3 KB address with room left over. */
+ *  A URL is safe end to end to about 8 KB. */
 export const SHARE_MAX = 4000;
 
 export function emptyStore(): PageStore {
@@ -107,11 +105,6 @@ export function seedsFromDock(dock: SerializedDockview): PanelSeed[] {
     });
   }
   return seeds;
-}
-
-/** The params dockview stores for one seed. */
-export function paramsOf(seed: PanelSeed): PanelParams {
-  return { code: seed.code, symbol: seed.symbol, args: seed.args, group: seed.group };
 }
 
 //: base64url, so the link survives a query string without escaping. The

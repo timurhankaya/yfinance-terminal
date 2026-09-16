@@ -25,9 +25,8 @@ log = get_logger(__name__)
 # `os.getenv`.
 SETTINGS_SOURCE_VAR = "YF_SETTINGS_SOURCE"
 
-# The 14 groups the admin panel organizes by. Adding a new group name is a
-# deliberate decision; `tests/unit/test_settings_split.py` rejects unknown
-# groups.
+# Groups the admin panel organizes by; `tests/unit/test_settings_split.py`
+# rejects a group not listed here.
 SETTING_GROUPS: tuple[str, ...] = (
     "client",
     "runner",
@@ -280,8 +279,8 @@ class Settings(BaseSettings):
         "Comma-separated 24/7 symbols appended to every subscription to detect silence.",
         default="BTC-USD",
     )
-    # ~40 seconds of the projected load. Deeper buffers do not help: a
-    # writer that is minutes behind has a problem no queue depth fixes.
+    # Deeper buffers do not help: a writer that is minutes behind has a
+    # problem no queue depth fixes.
     yf_stream_queue_maxsize: int = _cfg(
         "stream", "Bounded tick queue; overflow drops ticks and counts them.",
         default=10_000, ge=100,
@@ -538,11 +537,8 @@ ENV_ONLY_FIELDS = frozenset(
     }
 )
 
-# Derived as the COMPLEMENT: any new `Settings` field automatically becomes
-# DB-managed. Writing the list by hand would let a new field silently join
-# neither set. The fail-open risk of deriving it is guarded by four checks in
-# `tests/unit/test_settings_split.py` (consumability, metadata, secret-name
-# pattern, scalar-ness).
+# The complement, so a new field cannot land in neither set;
+# `tests/unit/test_settings_split.py` guards it.
 DB_MANAGED_FIELDS = frozenset(Settings.model_fields) - ENV_ONLY_FIELDS
 
 
@@ -684,9 +680,9 @@ def settings_from_overrides(overrides: Mapping[str, str]) -> Settings:
 
 def get_settings() -> Settings:
     global _settings
-    if _settings is None:  # fast path, no lock
+    if _settings is None:
         with _lock:
-            if _settings is None:  # double-checked
+            if _settings is None:
                 _settings = _load()
     return _settings
 

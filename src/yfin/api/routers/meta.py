@@ -71,7 +71,7 @@ def _check_database() -> bool:
             conn.execute(text("SELECT 1"))
         return True
     except Exception:  # noqa: BLE001 - a readiness probe reports, never raises
-        log.warning("health_database_unreachable", exc_info=True)
+        log.error("health_database_unreachable", exc_info=True)
         return False
 
 
@@ -83,7 +83,7 @@ def _check_redis(settings: ApiSettings) -> bool:
         client.ping()
         return True
     except Exception:  # noqa: BLE001 - same contract as the database probe
-        log.warning("health_redis_unreachable", exc_info=True)
+        log.error("health_redis_unreachable", exc_info=True)
         return False
 
 

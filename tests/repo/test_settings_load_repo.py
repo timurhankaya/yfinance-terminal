@@ -57,7 +57,7 @@ def test_a_broken_value_inserted_by_raw_SQL_FAILS_the_run(
         get_settings()
 
 
-def test_tablo_yokken_env_only_devam(
+def test_without_the_table_env_only_continues(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`yfin db upgrade` itself calls get_settings() before the table

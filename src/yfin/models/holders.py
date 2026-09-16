@@ -97,7 +97,7 @@ class InsiderActivity(Base):
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     period_label: Mapped[str] = mapped_column(AsciiKeyType(8), nullable=False)
-    # Can be negative (KO net -547_806) -> signed DECIMAL(38,0).
+    # Can be negative -> signed DECIMAL(38,0).
     purchases_shares: Mapped[Decimal | None] = mapped_column(BigNumType())
     sales_shares: Mapped[Decimal | None] = mapped_column(BigNumType())
     net_shares: Mapped[Decimal | None] = mapped_column(BigNumType())

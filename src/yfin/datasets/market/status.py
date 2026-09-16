@@ -201,7 +201,7 @@ class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
             quote_map = nz.as_mapping(quote)
             unmapped = sorted(set(quote_map) - _MAPPED_SUMMARY_KEYS)
             if unmapped:
-                log.warning(
+                log.debug(
                     "unmapped market summary keys",
                     region=raw.region,
                     board=board_code,

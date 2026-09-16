@@ -311,15 +311,15 @@ def prune(
         raise typer.Exit(code=2) from None
 
     prefix = "to delete" if report.dry_run else "deleted"
-    typer.echo(f"{prefix} oksuz haber: {report.orphan_news}")
-    typer.echo(f"{prefix} oksuz rapor: {report.orphan_reports}")
+    typer.echo(f"{prefix} orphan news: {report.orphan_news}")
+    typer.echo(f"{prefix} orphan reports: {report.orphan_reports}")
     for label, counts in (
-        ("takvim", report.calendars),
+        ("calendars", report.calendars),
         ("history", report.history),
         ("as-of", report.asof),
         ("domain as-of", report.domain_asof),
-        ("kesif as-of", report.discovery_asof),
-        ("ekran", report.screens),
+        ("discovery as-of", report.discovery_asof),
+        ("screens", report.screens),
     ):
         for table, count in sorted(counts.items()):
             typer.echo(f"{prefix} {label} [{table}]: {count}")

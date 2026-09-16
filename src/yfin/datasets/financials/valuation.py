@@ -24,7 +24,7 @@ from yfin.models.financials import API_FREQ, StatementFreq, StatementKind
 log = get_logger(__name__)
 
 # The source's one non-period column. Source builds column labels as
-# f"{d.month}/{d.day}/{d.year}" (quote.py:815).
+# f"{d.month}/{d.day}/{d.year}" (quote.py).
 CURRENT_COLUMN = "Current"
 COLUMN_FORMAT = "%m/%d/%Y"
 
@@ -43,7 +43,7 @@ def period_columns(frame: pd.DataFrame, *, symbol: str, dataset: str) -> pd.Data
         try:
             period_end = datetime.strptime(label, COLUMN_FORMAT).date()
         except ValueError:
-            log.warning(
+            log.debug(
                 "valuation column is not a period",
                 symbol=symbol,
                 dataset=dataset,
@@ -67,7 +67,7 @@ def quote_currency(ctx: SyncContext) -> str | None:
             "info", lambda: call_yahoo(ctx.ticker.get_info, what=f"info:{ctx.symbol}")
         )
     except Exception as exc:  # noqa: BLE001 - secondary field, does not fail the cell
-        log.warning("quote currency unavailable", symbol=ctx.symbol, error=str(exc))
+        log.debug("quote currency unavailable", symbol=ctx.symbol, error=str(exc))
         return None
     if not isinstance(info, dict):
         return None
@@ -87,7 +87,7 @@ class ValuationDataset(StatementDataset):
     def fetch(self, ctx: SyncContext) -> StatementPayload:
         api_freq = API_FREQ[self.freq]
         # `periods=None`: the default of 5 truncates the frame CLIENT-SIDE
-        # (quote.py:640-644) -- full history already comes back on the same
+        # (quote.py) -- full history already comes back on the same
         # request, so truncating would throw away free data. This cache key
         # is separate from the statements'; the same Ticker holds two
         # distinct endpoints.

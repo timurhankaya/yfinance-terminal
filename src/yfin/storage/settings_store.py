@@ -252,7 +252,7 @@ def _first_error(exc: ValidationError) -> str:
 
 
 def _upsert(session: Session, key: str, value: str) -> None:
-    """Update the existing row, or insert one. Engine-neutral on purpose."""
+    """Update the existing row, or insert one."""
     row = session.get(SettingRow, key)
     if row is None:
         session.add(SettingRow(setting_key=key, value=value))
@@ -353,8 +353,8 @@ def plan_seed(
             plan[key] = value
 
     if adopt_env is not None:
-        # One-time, for migration. A setup with YF_MAX_SHARDS=8 in `.env`
-        # would otherwise silently drop back to 4 after this migration.
+        # --adopt-env writes the effective env values as rows so an env
+        # override is not lost.
         for key, value in adopt_env.items():
             if key in validated or key in existing:
                 continue

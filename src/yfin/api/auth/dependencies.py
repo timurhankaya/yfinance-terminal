@@ -31,7 +31,6 @@ from yfin.core.logging_setup import get_logger
 log = get_logger(__name__)
 
 REALM = "yfin-api"
-TOKEN_URL = "/oauth/token"
 BEARER_PREFIX = "bearer "
 
 SCOPE_DESCRIPTIONS = {scope.value: f"Read {scope.name.lower()} data" for scope in ApiScope}
@@ -42,7 +41,7 @@ SCOPE_DESCRIPTIONS = {scope.value: f"Read {scope.name.lower()} data" for scope i
 oauth2_scheme = OAuth2(
     flows=OAuthFlows(
         clientCredentials=OAuthFlowClientCredentials(
-            tokenUrl=TOKEN_URL, scopes=SCOPE_DESCRIPTIONS
+            tokenUrl="/oauth/token", scopes=SCOPE_DESCRIPTIONS
         )
     ),
     scheme_name="clientCredentials",

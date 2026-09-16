@@ -102,7 +102,7 @@ class PeriodFrameDataset(AsOfDataset[AsOfFramePayload]):
 
             missing = [name for name in self.required if row.get(name) is None]
             if missing:
-                log.warning(
+                log.debug(
                     "required column missing; row dropped",
                     dataset=self.name,
                     symbol=symbol,

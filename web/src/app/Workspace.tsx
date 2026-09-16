@@ -13,7 +13,7 @@ import type {
   IDockviewPanelHeaderProps,
   SerializedDockview,
 } from "dockview-react";
-import { getPanel, retiredNote } from "../commands/registry";
+import { getPanel } from "../commands/registry";
 import { Layout } from "../commands/types";
 import type { Command, PanelArgs } from "../commands/types";
 import { FrameProvider } from "../workspace/frame";
@@ -56,17 +56,7 @@ function Body({ code, symbol, args, group }: PanelParams) {
   const groups = useContext(GroupContext);
   const spec = getPanel(code);
   const shown = symbolFor(groups, group, symbol);
-  if (spec === undefined) {
-    // A saved page or a shared link can carry a code this build no
-    // longer has; say where its work went rather than only that it is
-    // gone.
-    const moved = retiredNote(code);
-    return (
-      <p className="muted">
-        {code} is no longer a function{moved === undefined ? "." : `. Use ${moved}.`}
-      </p>
-    );
-  }
+  if (spec === undefined) return <p className="muted">{code} is not a function.</p>;
   if (spec.needsSymbol && shown === null) return <p className="muted">Type a symbol to begin.</p>;
   const Component = spec.component;
   return (
@@ -162,7 +152,7 @@ function AddPanel(props: IDockviewHeaderActionsProps) {
   );
 }
 
-/** `AAPL GIP`, `A · AAPL GIP` once it follows a letter, or just `HEAT`
+/** `AAPL GP`, `A · AAPL GP` once it follows a letter, or just `HEAT`
  *  for a page that is not about one symbol. */
 export function title(params: PanelParams, groups: GroupSymbols = {}): string {
   const shown = symbolFor(groups, params.group, params.symbol);

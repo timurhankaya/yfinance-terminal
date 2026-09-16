@@ -82,7 +82,7 @@ class UpgradesDowngradesDataset(Dataset[RangedFramePayload]):
 
         unmapped = sorted(str(c) for c in frame.columns if str(c) not in MAPPED_SOURCES)
         if unmapped:
-            log.warning("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
+            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
 
         ranged = raw.start is not None or raw.end is not None
         rows: dict[tuple[Any, ...], dict[str, Any]] = {}
@@ -92,7 +92,7 @@ class UpgradesDowngradesDataset(Dataset[RangedFramePayload]):
             # second), so it is already UTC -- no second tz conversion.
             ts_utc = nz.to_datetime_utc(index)
             if ts_utc is None:
-                log.warning("grade change has no timestamp", symbol=symbol)
+                log.debug("grade change has no timestamp", symbol=symbol)
                 continue
             if ranged and not in_range(ts_utc.date(), raw.start, raw.end):
                 continue

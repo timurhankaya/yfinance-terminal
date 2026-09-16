@@ -84,7 +84,7 @@ class CalendarDataset(SnapshotDataset[CalendarPayload]):
         if len(dates) > 2:
             # Source has no documented list-length limit; middle entries are
             # dropped, hence the warning.
-            log.warning("earnings date list has extra entries", symbol=symbol, count=len(dates))
+            log.debug("earnings date list has extra entries", symbol=symbol, count=len(dates))
 
         row: dict[str, Any] = {
             "symbol": symbol,

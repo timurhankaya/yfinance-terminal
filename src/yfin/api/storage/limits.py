@@ -17,7 +17,7 @@ from yfin.models import DAILY_INTERVAL, INTRADAY_INTERVALS
 STATEMENT_TIMEOUT_MS = 10_000
 
 #: Maximum span of a single bars request, by interval class. Intraday is
-#: the tight one: a month of 1m bars is already ~8,000 rows per symbol.
+#: the tight one.
 MAX_SPAN = {
     "intraday": timedelta(days=31),
     "daily": timedelta(days=3653),  # ~10 years

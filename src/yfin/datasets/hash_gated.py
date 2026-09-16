@@ -109,8 +109,7 @@ class HashGate:
 class HashGatedDataset[RawT](HashGate, Dataset[RawT]):
     """Hash-gated dataset on the symbol axis.
 
-    The body moved to `HashGate`; this class only combines the two sides
-    and leaves existing call sites unchanged.
+    Combines `HashGate` with the symbol-axis `Dataset`.
     """
 
 

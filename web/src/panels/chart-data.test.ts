@@ -44,11 +44,9 @@ describe("toCandles", () => {
     expect(candles.map((c) => c.time)).toEqual([T0, T0 + 300, T0 + 600]);
   });
 
-  it("falls back to the close for the columns that are nullable", () => {
-    // Only `close` is NOT NULL in the archive. A bar with a price in it
-    // draws flat rather than not at all.
-    const [only] = toCandles([bar(0, { open: null, high: null, low: null })]);
-    expect(only).toEqual({ time: T0, open: 105, high: 105, low: 105, close: 105 });
+  it("drops a row missing any of the four prices", () => {
+    expect(toCandles([bar(0, { open: null, high: null, low: null })])).toEqual([]);
+    expect(toCandles([bar(0, { high: null })])).toEqual([]);
   });
 
   it("drops a row with no close", () => {

@@ -125,8 +125,8 @@ GATE_TABLES: Final[frozenset[str]] = frozenset(
 )
 
 
-#: Rows here are never published, and the writer emits today's statement for
-#: them even when a collector is present.
+#: Rows here are never published, and the writer emits no predicate and no
+#: RETURNING for them.
 INFRASTRUCTURE_TABLES: Final[frozenset[str]] = (
     frozenset(
         {

@@ -73,8 +73,8 @@ class ScopeReader:
             ).scalar_one()
             value: frozenset[str] | None
             if not any_row:
-                # No rows for 1m means no symbols (risk: 1.21B rows/year);
-                # for other intervals it means the full universe.
+                # No rows for 1m means no symbols; for other intervals it
+                # means the full universe.
                 value = frozenset() if interval == "1m" else None
             else:
                 rows = session.execute(

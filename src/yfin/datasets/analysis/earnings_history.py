@@ -63,15 +63,12 @@ class EarningsHistoryDataset(Dataset[RangedFramePayload]):
         assert isinstance(frame, pd.DataFrame)
 
         # This table has no `raw_json`, so a column Yahoo adds is lost for
-        # good rather than kept and promoted later. Every sibling in this
-        # package says so when it happens; this one was the exception, and
-        # a four-column allowlist has already been caught short once --
-        # `grade_changes` documents finding seven where the docs said four.
+        # good rather than kept and promoted later.
         unmapped = sorted(
             str(column) for column in frame.columns if str(column) not in MAPPED_SOURCES
         )
         if unmapped:
-            log.warning("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
+            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
 
         ranged = raw.start is not None or raw.end is not None
         rows: dict[Any, dict[str, Any]] = {}
@@ -79,7 +76,7 @@ class EarningsHistoryDataset(Dataset[RangedFramePayload]):
         for index, record in frame.iterrows():
             quarter_end = nz.to_local_date(index)
             if quarter_end is None:
-                log.warning("earnings history row has no quarter", symbol=symbol)
+                log.debug("earnings history row has no quarter", symbol=symbol)
                 continue
             if ranged and not in_range(quarter_end, raw.start, raw.end):
                 continue

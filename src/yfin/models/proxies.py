@@ -80,9 +80,7 @@ class Proxy(Base):
     username: Mapped[str] = mapped_column(
         ProxyLabelType(), nullable=False, server_default=text("''")
     )
-    # Fernet tokens are URL-safe base64 ASCII, so VARBINARY removes any
-    # charset/collation conversion risk. 512 bytes covers a password up
-    # to ~310 bytes.
+    # Fernet token bytes, never text.
     password_enc: Mapped[bytes | None] = mapped_column(LargeBinary)
 
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))

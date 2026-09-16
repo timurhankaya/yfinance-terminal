@@ -3,7 +3,6 @@
 // generated `tick-fields.json`; what is written by hand here is only the
 // TypeScript shape, and a test holds the two together so a renamed key
 // breaks the build instead of a chart.
-import table from "./tick-fields.json";
 
 /** Every frame carries one of these under `op`, both directions. */
 export enum Op {
@@ -106,16 +105,6 @@ export const TICK_WIRE: Record<keyof Tick, WireKind> = {
   bs: WireKind.Int,
   as: WireKind.Int,
 };
-
-/** The generated table, as the tests read it. */
-export const GENERATED_FIELDS: ReadonlyArray<{
-  key: string;
-  column: string;
-  kind: string;
-  required: boolean;
-}> = table.fields;
-
-export const CHANNEL_PREFIX: string = table.channelPrefix;
 
 export type ServerFrame =
   | { op: Op.Live; enabled: boolean }

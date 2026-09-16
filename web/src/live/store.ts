@@ -4,13 +4,13 @@
 // zero, so `GP -> QR` on one symbol never round-trips. Only the symbol
 // `QR` shows keeps a tick history, and it is a bounded ring.
 import { create } from "zustand";
-import { LinkState, MarketHours, Op, WsErrorCode } from "./types";
+import { LinkState, Op, WsErrorCode } from "./types";
 import type { ServerFrame, Tick } from "./types";
 import { LiveSocket } from "./socket";
 import type { SocketLike } from "./socket";
 
-//: What `QR` can scroll back through. A tick is ~150 bytes here, so this
-//: is a third of a megabyte for the one symbol on screen.
+//: What `QR` can scroll back through; bounded so one symbol's tape cannot
+//: grow for the life of the page.
 export const TAPE_MAX = 2000;
 
 export interface LiveState {
@@ -197,14 +197,4 @@ export function resetLive(): void {
     tapeSymbol: null,
     tape: [],
   });
-}
-
-// --- reading ---------------------------------------------------------------
-
-/** True when the tick belongs to the regular session.
- *
- *  `session=regular` is what `GIP` asks the API for, so a live candle
- *  built from extended-hours ticks would not match the bars under it. */
-export function isRegularSession(tick: Tick): boolean {
-  return tick.mh === MarketHours.Regular;
 }

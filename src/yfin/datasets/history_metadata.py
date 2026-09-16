@@ -1,4 +1,4 @@
-"""history_metadata dataset'i (S6.3 #3)."""
+"""history_metadata dataset -> history_metadata."""
 
 from __future__ import annotations
 

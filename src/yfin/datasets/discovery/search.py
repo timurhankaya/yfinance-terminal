@@ -118,10 +118,9 @@ class SearchDataset(DiscoveryDataset[SearchPayload]):
         "search_report_hits",
         gate=DISCOVERY_GATE_TABLE,
     )
-    # All three, because none of them alone is guaranteed: "Turkish
-    # Airlines" comes back with no quotes and three research reports, so
-    # `search_report_hits` is the only gated table with a row. The four
-    # ungated tables are never sources -- they carry no `query_term`.
+    # All three: a term can return reports and no quotes, or lists and
+    # nothing else. The four ungated tables are never sources -- they carry
+    # no `query_term`.
     gate_source_tables = ("search_quotes", "search_report_hits", "search_lists")
     api = (
         ApiExposure(
@@ -352,7 +351,7 @@ def _news_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str,
         if news_id is None or title is None or pub_date is None:
             # `title` and `pub_date` are NOT NULL; if missing, the row is
             # dropped and a warning logged -- instead of dropping the whole cell.
-            log.warning("a search news item arrived with a missing field", news_id=news_id)
+            log.debug("a search news item arrived with a missing field", news_id=news_id)
             continue
         if news_id in seen:
             continue
@@ -434,6 +433,5 @@ def _report_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[st
 
 
 # Opt-in: registered but excluded from the `all` expansion.
-# `yfin sync --datasets search` runs it; a bare `yfin sync` does not fetch
-# it, so its cost is unchanged.
+# `yfin sync --datasets search` runs it; a bare `yfin sync` does not fetch it.
 register(SearchDataset(), opt_in=True)

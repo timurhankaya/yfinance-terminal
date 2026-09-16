@@ -118,21 +118,21 @@ def _shared_watermark(ctx: SyncContext) -> date | datetime | None:
         marks.append(mark)
     if not marks:
         # No consumer is selected (direct call); falls back to
-        # price_history, keeping behavior unchanged from before.
+        # price_history.
         return ctx.watermark("price_history", "session_date")
     return min(marks, key=_as_date)
 
 
 def fetch_history_frame(ctx: SyncContext) -> pd.DataFrame:
     """Single daily series. capital_gains is NOT A SEPARATE NETWORK CALL -
-    it comes from the same cache (history.py:723), shared via ctx.cached."""
+    it comes from the same cache (history.py), shared via ctx.cached."""
 
     def _call() -> pd.DataFrame:
         kwargs: dict[str, Any] = {
             "interval": "1d",
             "auto_adjust": False,  # so 'Adj Close' comes as a separate column
             # actions=True is REQUIRED: dividends/splits/capital_gains are
-            # fed from these columns (history.py:619-620, otherwise dropped).
+            # fed from these columns (history.py, otherwise dropped).
             "actions": True,
             # Fixes Yahoo's known data errors (missing split/dividend
             # adjustment, 100x currency errors, duplicate dividends).

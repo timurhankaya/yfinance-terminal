@@ -1,8 +1,4 @@
-"""Normalization rules.
-
-Every rule here is based on a live-API observation; simplifying any of
-them reintroduces a concrete, previously-observed bug.
-"""
+"""Normalization rules."""
 
 from __future__ import annotations
 
@@ -16,6 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from yfin.core import metrics
 from yfin.core.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -239,7 +236,8 @@ def warn_unmapped_epoch_like(payload: Mapping[str, Any], mapped_keys: frozenset[
         if _EPOCH_LOW <= number <= _EPOCH_HIGH:
             suspects.append(key)
     for key in suspects:
-        log.warning("unmapped epoch-like key", key=key)
+        metrics.inc("yfin_sync_normalize_notes_total", kind="unmapped_keys")
+        log.debug("unmapped epoch-like key", key=key)
     return suspects
 
 
@@ -351,11 +349,12 @@ def as_mapping(raw: Any) -> dict[str, Any]:
         except (KeyError, AttributeError, TypeError):
             unreadable.append(str(key))
     if unreadable:
-        log.warning("unreadable source keys", keys=unreadable)
+        metrics.inc("yfin_sync_normalize_notes_total", kind="unreadable_keys")
+        log.debug("unreadable source keys", keys=unreadable)
     return out
 
 
 def normalize_person_name(name: str) -> str:
-    """company_officers.name: the source has double spaces
-    ('Mr. Kevan  Parekh'); without normalizing, duplicate rows result."""
+    """company_officers.name: the source has double spaces; without
+    normalizing, duplicate rows result."""
     return " ".join(name.split())

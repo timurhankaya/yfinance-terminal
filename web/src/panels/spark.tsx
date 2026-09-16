@@ -87,14 +87,3 @@ function trend(closes: readonly number[]): string {
   return last > first ? "up" : "down";
 }
 
-/** The symbols a page of rows wants a sparkline for: deduplicated, in row
- *  order, and cut at the route's cap. */
-export function rowSymbols(rows: ReadonlyArray<Record<string, unknown>>): string[] {
-  const seen = new Set<string>();
-  for (const row of rows) {
-    const symbol = row.symbol;
-    if (typeof symbol === "string" && symbol !== "") seen.add(symbol);
-    if (seen.size === SPARKLINE_MAX_SYMBOLS) break;
-  }
-  return [...seen];
-}

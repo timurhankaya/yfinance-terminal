@@ -37,16 +37,16 @@ class TokenBucket:
         self._last = time.monotonic()
         self._lock = threading.Lock()
 
-    def acquire(self, tokens: float = 1.0) -> None:
+    def acquire(self) -> None:
         while True:
             with self._lock:
                 now = time.monotonic()
                 self._tokens = min(self._capacity, self._tokens + (now - self._last) * self._rate)
                 self._last = now
-                if self._tokens >= tokens:
-                    self._tokens -= tokens
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
                     return
-                deficit = tokens - self._tokens
+                deficit = 1.0 - self._tokens
                 wait = deficit / self._rate
             time.sleep(wait)
 
@@ -64,7 +64,7 @@ def get_rate_limiter() -> TokenBucket:
 
 
 def _log_retry(state: RetryCallState) -> None:
-    log.warning(
+    log.debug(
         "yahoo retry",
         attempt=state.attempt_number,
         error=str(state.outcome.exception()) if state.outcome else None,
@@ -81,7 +81,7 @@ def call_optional[T](fn: Callable[[], T], *, what: str) -> T | None:
         return call_yahoo(fn, what=what)
     except Exception as exc:
         if is_absent_data(exc):
-            log.info("no data", what=what, reason=str(exc)[:80])
+            log.debug("no data", what=what, reason=str(exc)[:80])
             return None
         raise
 

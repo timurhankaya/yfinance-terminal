@@ -30,7 +30,7 @@ def _symbol_fk(primary_key: bool) -> Column[Any]:
 
 
 def _snapshot_table(
-    name: str, fields: tuple[Field, ...], *, historical: bool, with_hash: bool = True
+    name: str, fields: tuple[Field, ...], *, historical: bool
 ) -> Table:
     cols: list[Column[Any]] = [_symbol_fk(primary_key=True)]
     if historical:
@@ -39,8 +39,7 @@ def _snapshot_table(
         cols.append(Column("fetched_at", TsType(), primary_key=True, nullable=False))
     cols.extend(make_column(f, name) for f in fields)
     cols.append(Column("raw_json", RawJsonType(), nullable=False))
-    if with_hash:
-        cols.append(Column("content_hash", HashType(), nullable=False))
+    cols.append(Column("content_hash", HashType(), nullable=False))
     if not historical:
         cols.append(Column("fetched_at", TsType(), nullable=False))
     args: list[object] = list(cols)

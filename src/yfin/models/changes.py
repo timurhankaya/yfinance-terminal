@@ -27,8 +27,7 @@ from yfin.models.base import Base, RawJsonType, TsType, Xid8Type
 #: a unit test holds the two together.
 PIPELINE_RELAY_LOCK_NAME = "yfin_pipeline_relay"
 
-#: Width of the `family` column: the longest `DataFamily` value is
-#: "fundamentals" at twelve characters.
+#: Width of the `family` column.
 FAMILY_LENGTH = 16
 
 

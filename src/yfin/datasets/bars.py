@@ -469,9 +469,9 @@ class IntervalBarDataset(Dataset[BarPayload]):
             windows.append(None)
 
         # Per-slice error isolation. Treating the whole fetch as one atomic
-        # unit would lose the entire 29-day first fill on a single network
-        # error. A failed slice is written to bar_gaps and retried next run
-        # if its window is still open.
+        # unit would lose the whole first fill on a single network error. A
+        # failed slice is written to bar_gaps and retried next run if its
+        # window is still open.
         frames: list[pd.DataFrame] = []
         fetched: list[tuple[date, date]] = []
         failed: list[tuple[date, date]] = []
@@ -483,7 +483,7 @@ class IntervalBarDataset(Dataset[BarPayload]):
                 errors.append(exc)
                 if window is not None:
                     failed.append(window)
-                log.warning(
+                log.debug(
                     "bar slice dropped",
                     symbol=ctx.symbol,
                     interval=self.interval,
@@ -499,7 +499,7 @@ class IntervalBarDataset(Dataset[BarPayload]):
                 # Yahoo holds no bars at this interval: an EMPTY result, not
                 # FAILED. The windows still go to bar_gaps as fetch_failed
                 # so a later run retries them.
-                log.info(
+                log.debug(
                     "bars: yahoo holds no data",
                     symbol=ctx.symbol,
                     interval=self.interval,
@@ -536,8 +536,8 @@ class IntervalBarDataset(Dataset[BarPayload]):
             # Extended-hours bars are written and flagged with is_extended:
             # a missed intraday bar can never be re-fetched.
             "prepost": get_settings().yf_bar_prepost,
-            # repair is off: it issues 1->6 requests for 5m, 1->8 for 15m,
-            # and resamples 1wk/1mo from 1d, shifting row keys.
+            # repair is off: it multiplies requests per slice and resamples
+            # 1wk/1mo from 1d, shifting row keys.
             "repair": False,
         }
         if window is None:

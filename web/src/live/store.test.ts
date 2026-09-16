@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   TAPE_MAX,
   handleFrame,
-  isRegularSession,
   release,
   resetLive,
   retain,
@@ -213,17 +212,6 @@ describe("status", () => {
     expect(useLive.getState().dropped).toBe(5);
   });
 });
-
-describe("isRegularSession", () => {
-  it("is true only for the regular session", () => {
-    // `GIP` asks the API for `session=regular`; a live candle built from
-    // extended-hours ticks would not match the bars under it.
-    expect(isRegularSession(tick({ mh: MarketHours.Regular }))).toBe(true);
-    expect(isRegularSession(tick({ mh: MarketHours.PreMarket }))).toBe(false);
-    expect(isRegularSession(tick({ mh: MarketHours.PostMarket }))).toBe(false);
-  });
-});
-
 
 describe("the subscription budget", () => {
   it("records a refusal instead of swallowing it", async () => {

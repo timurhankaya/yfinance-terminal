@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Final
 
+from google.protobuf.message import DecodeError
 from yfinance.pricing_pb2 import PricingData
 
 from yfin.core import normalize as nz
@@ -33,7 +34,7 @@ from yfin.stream.rejects import (
     Reject,
 )
 
-#: The only envelope type observed on the wire. yfinance never checks it.
+#: The envelope type this decoder handles.
 ENVELOPE_TYPE_PRICING: Final = "pricing"
 
 # --- enum codes ------------------------------------------------------------
@@ -381,7 +382,7 @@ def decode_envelope(raw: str | bytes, *, received_at: datetime | None = None) ->
     message = PricingData()
     try:
         message.ParseFromString(payload)
-    except Exception as exc:  # protobuf raises DecodeError, not a stdlib type
+    except DecodeError as exc:
         return DecodeResult(rejects=[
             Reject(REJECT_DECODE_FAILED, detail=f"not protobuf: {exc}", raw_base64=encoded)
         ])

@@ -153,7 +153,6 @@ def publish(
     messages: Sequence[OutboxMessage],
     *,
     spec: OutboxSpec,
-    flush_timeout: float = 30.0,
 ) -> DeliveryTracker:
     """Publishes a batch and waits for every acknowledgement."""
     tracker = DeliveryTracker()
@@ -168,7 +167,7 @@ def publish(
             on_delivery=tracker.callback,
             **extra,
         )
-    remaining = producer.flush(flush_timeout)
+    remaining = producer.flush(30.0)
     if remaining:
         tracker.failed.append(f"{remaining} message(s) still queued after flush")
     return tracker

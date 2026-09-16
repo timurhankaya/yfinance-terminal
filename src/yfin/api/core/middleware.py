@@ -116,7 +116,7 @@ class RequestContextMiddleware(SettingsMiddleware):
             response.headers["X-Request-Id"] = request_id
             return response
 
-        log.info(
+        log.debug(
             "request",
             request_id=request_id,
             method=request.method,

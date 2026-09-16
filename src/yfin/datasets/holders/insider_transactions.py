@@ -84,12 +84,12 @@ class InsiderTransactionsDataset(Dataset[RangedFramePayload]):
 
         unmapped = sorted(str(c) for c in frame.columns if str(c) not in MAPPED_SOURCES)
         if unmapped:
-            log.warning("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
+            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
 
         deduped = frame.drop_duplicates()
         dropped = len(frame) - len(deduped)
         if dropped:
-            log.warning("dropped duplicate insider rows", symbol=symbol, rows=dropped)
+            log.debug("dropped duplicate insider rows", symbol=symbol, rows=dropped)
 
         ranged = raw.start is not None or raw.end is not None
         rows: dict[tuple[Any, ...], dict[str, Any]] = {}
@@ -97,7 +97,7 @@ class InsiderTransactionsDataset(Dataset[RangedFramePayload]):
         for _, record in deduped.iterrows():
             start_date = nz.to_local_date(record.get("Start Date"))
             if start_date is None:
-                log.warning("insider transaction has no start date", symbol=symbol)
+                log.debug("insider transaction has no start date", symbol=symbol)
                 continue
             if ranged and not in_range(start_date, raw.start, raw.end):
                 continue

@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { EQS } from "./EQS";
 import { WLA } from "./WLA";
-import { SPARK_FAILED_LABEL, SPARK_LABEL, rowSymbols } from "./spark";
-import { SPARKLINE_MAX_SYMBOLS, resetCatalogCache } from "../api/client";
+import { SPARK_FAILED_LABEL, SPARK_LABEL } from "./spark";
+import { resetCatalogCache } from "../api/client";
 import { handleFrame, resetLive, setSocketFactory } from "../live/store";
 import { MarketHours, Op } from "../live/types";
 import type { SocketLike } from "../live/socket";
@@ -101,23 +101,6 @@ function drawWatchlist(symbols: string) {
     </MemoryRouter>,
   );
 }
-
-describe("rowSymbols", () => {
-  it("deduplicates and keeps row order", () => {
-    expect(rowSymbols([{ symbol: "B" }, { symbol: "A" }, { symbol: "B" }])).toEqual(["B", "A"]);
-  });
-
-  it("ignores a row with no symbol column", () => {
-    expect(rowSymbols([{ region: "US" }, { symbol: "A" }])).toEqual(["A"]);
-  });
-
-  it("stops at the route's ceiling rather than being refused", () => {
-    const rows = Array.from({ length: SPARKLINE_MAX_SYMBOLS + 20 }, (_, i) => ({
-      symbol: `S${i}`,
-    }));
-    expect(rowSymbols(rows)).toHaveLength(SPARKLINE_MAX_SYMBOLS);
-  });
-});
 
 describe("WLA", () => {
   it("asks for the whole list in one request", async () => {

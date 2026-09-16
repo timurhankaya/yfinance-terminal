@@ -28,11 +28,7 @@ def test_domain_symbols_are_written_inactive(db_session: Session) -> None:
     for row in rows:
         assert row.is_active == 0
         assert row.symbol.startswith("^YH")
-        assert (row.exchange, row.currency, row.timezone) == (
-            "YHD",
-            "USD",
-            "America/New_York",
-        )
+        assert (row.exchange, row.currency, row.timezone) == ("YHD", None, None)
 
 
 def test_manual_activation_is_not_overwritten(db_session: Session) -> None:

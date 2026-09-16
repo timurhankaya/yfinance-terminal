@@ -9,34 +9,26 @@ import enum
 import re
 from http import HTTPStatus
 
+from curl_cffi.requests import exceptions as _curl_exc
 from yfinance import exceptions as yf_exceptions
 
-# curl_cffi is yfinance's preferred backend but not required (_http.py falls
-# back to plain requests via YF_DISABLE_CURL_CFFI). Typed classification is
-# used when available, text matching otherwise.
-try:  # pragma: no cover - environment dependent
-    from curl_cffi.requests import exceptions as _curl_exc
-
-    _NETWORK_EXC: tuple[type[BaseException], ...] = (
-        _curl_exc.ProxyError,
-        _curl_exc.InvalidProxyURL,
-        _curl_exc.DNSError,
-        _curl_exc.ConnectionError,
-        _curl_exc.Timeout,
-        _curl_exc.ConnectTimeout,
-        _curl_exc.ReadTimeout,
-        _curl_exc.SSLError,
-        _curl_exc.CertificateVerifyError,
-        _curl_exc.ChunkedEncodingError,
-    )
-    _DATA_EXC: tuple[type[BaseException], ...] = (
-        _curl_exc.InvalidJSONError,
-        _curl_exc.JSONDecodeError,
-        _curl_exc.ContentDecodingError,
-    )
-except ImportError:  # pragma: no cover
-    _NETWORK_EXC = ()
-    _DATA_EXC = ()
+_NETWORK_EXC: tuple[type[BaseException], ...] = (
+    _curl_exc.ProxyError,
+    _curl_exc.InvalidProxyURL,
+    _curl_exc.DNSError,
+    _curl_exc.ConnectionError,
+    _curl_exc.Timeout,
+    _curl_exc.ConnectTimeout,
+    _curl_exc.ReadTimeout,
+    _curl_exc.SSLError,
+    _curl_exc.CertificateVerifyError,
+    _curl_exc.ChunkedEncodingError,
+)
+_DATA_EXC: tuple[type[BaseException], ...] = (
+    _curl_exc.InvalidJSONError,
+    _curl_exc.JSONDecodeError,
+    _curl_exc.ContentDecodingError,
+)
 
 
 # "Is this retryable" is not the same as "is this the proxy's fault": an
@@ -55,8 +47,8 @@ class ErrorKind(enum.StrEnum):
 PROXY_FAULT_KINDS = frozenset({ErrorKind.RATE_LIMITED, ErrorKind.BLOCKED, ErrorKind.NETWORK})
 
 
-# Programming/data errors are never retried: they are deterministic, so 5
-# attempts just waste ~30s. Checked before text matching, since a message
+# Programming/data errors are never retried: they are deterministic, so a
+# retry cannot help. Checked before text matching, since a message
 # like ValueError("invalid connection string") would otherwise match the
 # "connection" marker.
 class DatasetOutOfScope(Exception):
@@ -144,19 +136,16 @@ def classify_error(exc: BaseException) -> ErrorKind:
 
     Order matters: curl_cffi's RequestException derives from OSError, so the
     HTTP status check runs before any "OSError -> NETWORK" rule."""
-    # 1) yfinance's dedicated rate-limit exception
     if isinstance(exc, yf_exceptions.YFRateLimitError):
         return ErrorKind.RATE_LIMITED
 
-    # 2) HTTP status code (before the OSError check)
     code = _status_code(exc)
     if code is not None:
         return _kind_from_status(code)
 
-    # 3) yfinance types. YFPricesMissingError means "no price in this
-    #    range" (holiday, new IPO, closed exchange), not "invalid symbol",
-    #    and falls to DATA; otherwise every holiday would look like
-    #    unknown_symbol.
+    # YFPricesMissingError means "no price in this range" (holiday, new IPO,
+    # closed exchange), not "invalid symbol", and falls to DATA; otherwise
+    # every holiday would look like unknown_symbol.
     if isinstance(exc, yf_exceptions.YFTzMissingError):
         return ErrorKind.UNKNOWN_SYMBOL
     if is_no_data(exc) or isinstance(exc, yf_exceptions.YFDataException):
@@ -164,21 +153,17 @@ def classify_error(exc: BaseException) -> ErrorKind:
     if isinstance(exc, yf_exceptions.YFTickerMissingError):
         return ErrorKind.UNKNOWN_SYMBOL
 
-    # 4) Transport layer (curl_cffi types)
-    if _NETWORK_EXC and isinstance(exc, _NETWORK_EXC):
+    if isinstance(exc, _NETWORK_EXC):
         return ErrorKind.NETWORK
-    if _DATA_EXC and isinstance(exc, _DATA_EXC):
+    if isinstance(exc, _DATA_EXC):
         return ErrorKind.DATA
 
-    # 5) Deterministic programming/data errors
     if isinstance(exc, _NEVER_RETRYABLE):
         return ErrorKind.DATA
 
-    # 6) Built-in network exceptions
     if isinstance(exc, TimeoutError | ConnectionError):
         return ErrorKind.NETWORK
 
-    # 7) Text fallback
     text = f"{type(exc).__name__} {exc}".lower()
     if _HTTP_STATUS_RE.search(text) and _HTTP_CONTEXT_RE.search(text):
         return ErrorKind.RATE_LIMITED if "429" in text else ErrorKind.NETWORK
@@ -189,9 +174,7 @@ def classify_error(exc: BaseException) -> ErrorKind:
     return ErrorKind.DATA
 
 
-# BLOCKED is never retried: 5 attempts with jittered backoff on a banned
-# proxy burns ~30s and the token bucket for nothing, and the health state
-# machine will cooldown that proxy anyway.
+# BLOCKED is never retried: the health state machine cools the proxy down anyway.
 _RETRY_KINDS = frozenset({ErrorKind.RATE_LIMITED, ErrorKind.NETWORK})
 
 

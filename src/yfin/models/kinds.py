@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy import BigInteger, Boolean, Integer, String, Text
 from sqlalchemy.types import TypeEngine
 
+from yfin.core import metrics
 from yfin.core import normalize as nz
 from yfin.core.logging_setup import get_logger
 from yfin.models.base import BIG_PRECISION, BigNumType, PriceType, TsType
@@ -52,7 +53,8 @@ def _to_big(value: Any) -> Decimal | None:
             ctx.prec = BIG_PRECISION
             return dec.quantize(Decimal(1))
     except InvalidOperation:
-        log.warning("big value out of range", value=str(dec)[:32])
+        metrics.inc("yfin_sync_normalize_notes_total", kind="out_of_range")
+        log.debug("big value out of range", value=str(dec)[:32])
         return None
 
 

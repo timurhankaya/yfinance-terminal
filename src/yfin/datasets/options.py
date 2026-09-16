@@ -204,7 +204,7 @@ class OptionsDataset(AsOfDataset[OptionsPayload]):
         assert isinstance(frame, pd.DataFrame)
         unmapped = sorted(str(c) for c in frame.columns if str(c) not in COLUMN_MAP)
         if unmapped:
-            log.warning("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
+            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
 
         rows: dict[str, dict[str, Any]] = {}
         for _, record in frame.iterrows():
@@ -252,7 +252,7 @@ def _expiry_dates(expiries: list[str], symbol: str) -> set[date]:
     for raw in expiries:
         value = nz.to_local_date(raw)
         if value is None:
-            log.warning("unparsable expiry", dataset="options", symbol=symbol, value=str(raw))
+            log.debug("unparsable expiry", dataset="options", symbol=symbol, value=str(raw))
             continue
         parsed.add(value)
     return parsed

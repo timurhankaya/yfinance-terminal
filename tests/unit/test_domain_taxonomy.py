@@ -73,8 +73,8 @@ def test_symbol_rows_are_inactive_and_typed() -> None:
         assert row["is_active"] is False
         assert row["quote_type"] == "INDEX"
         assert row["exchange"] == "YHD"
-        assert row["currency"] == "USD"
-        assert row["timezone"] == "America/New_York"
+        assert row["currency"] is None
+        assert row["timezone"] is None
         assert row["last_seen_at"] == FETCHED_AT
 
 

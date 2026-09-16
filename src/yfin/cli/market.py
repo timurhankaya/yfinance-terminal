@@ -105,15 +105,15 @@ def screen_list(
         typer.echo("screens table is empty; `yfin screen sync` has not run yet")
         return
     typer.echo(
-        f"{'ekran':<28} {'tur':<11} {'tip':<11} {'akt':<5} "
-        f"{'gun':<11} {'total':>7} {'alinan':>7} {'sayfa':>5}"
+        f"{'screen':<28} {'kind':<11} {'type':<11} {'on':<5} "
+        f"{'day':<11} {'total':>7} {'fetched':>7} {'pages':>5}"
     )
     for key, kind, quote_type, enabled, as_of, total, fetched, pages in rows:
-        flag = "evet" if enabled else "HAYIR"
+        flag = "yes" if enabled else "NO"
         # `total` > `fetched_rows` -> the screen hit the page limit. This gap is
         # one of the edge-case proofs of a completeness claim and must not be
         # silent.
-        truncated = "  KIRPILDI" if total and fetched and total > fetched else ""
+        truncated = "  TRUNCATED" if total and fetched and total > fetched else ""
         typer.echo(
             f"{key:<28} {kind:<11} {quote_type:<11} {flag:<5} "
             f"{str(as_of or '-'):<11} {str(total or '-'):>7} {str(fetched or '-'):>7} "

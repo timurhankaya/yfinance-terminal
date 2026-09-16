@@ -1,6 +1,5 @@
 // How to get a second panel, in the place a reader looks first.
 //
-// The gestures existed before this block did; nothing on screen said so.
 // It is three lines, not a tour: a terminal reader reads once and then
 // uses the keyboard.
 import { Block } from "./Block";

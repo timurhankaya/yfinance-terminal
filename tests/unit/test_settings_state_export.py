@@ -14,7 +14,7 @@ from yfin.storage.settings_store import (
 )
 
 
-def test_rows_None_DB_YE_BAKILMADI_demektir() -> None:
+def test_rows_None_means_the_db_was_NOT_read() -> None:
     """An unreachable DB reaches the same outcome as `YF_SETTINGS_SOURCE=env`:
     no row is active, and the source falls back to env/default."""
     states = settings_state(rows=None)

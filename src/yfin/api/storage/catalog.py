@@ -70,9 +70,8 @@ def _build() -> dict[str, CatalogEntry]:
         # indexing is its published shape, not a second accessor.
         for name in registry:
             dataset = registry[name]
-            # `dataset.api`, not `getattr(dataset, "api", ())`: the
-            # three bases DECLARE the field, so the reflective read only
-            # served to hide a dataset whose declaration was misspelled.
+            # `dataset.api`, not `getattr(...)`: the bases declare the field,
+            # and a reflective read would hide a misspelled declaration.
             for exposure in dataset.api:
                 _add(entries, kind, dataset.name, exposure)
     return entries

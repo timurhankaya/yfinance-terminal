@@ -9,7 +9,6 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from domain_support import AS_OF, FIXTURE_SECTORS, run_dataset, run_taxonomy
-from helpers import expected_domain_cell_count as expected_cell_count
 from yfin.pipeline.domain_audit import audit_domains
 
 pytestmark = pytest.mark.repo
@@ -84,8 +83,3 @@ def test_audit_reports_failed_cells_of_a_run(db_session: Session) -> None:
     assert report.failed_cells == 1
     assert report.cells_by_status == {"failed": 1}
     assert report.exit_code() == 1
-
-
-def test_expected_cell_count_formula() -> None:
-    assert expected_cell_count(1) == 1239
-    assert expected_cell_count(1, industry_count=0) == 2 + 44 + 33

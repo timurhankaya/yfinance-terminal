@@ -96,9 +96,9 @@ class DomainDataset[RawT](ABC):
     # True enters the region loop; False runs a single pass (`region='*'`)
     regional: bool = False
     # False means the dataset does not enter the key loop and runs once.
-    # Only bootstrap (`domain_taxonomy`) is like this: 156 `symbols` rows
-    # and 156 `domains` rows are written in one transaction -- the taxonomy
-    # is either consistent as a whole or not written at all.
+    # Only bootstrap (`domain_taxonomy`) is like this: the whole taxonomy is
+    # written in one transaction -- it is either consistent as a whole or
+    # not written at all.
     per_key: bool = True
 
     @abstractmethod

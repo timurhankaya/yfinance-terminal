@@ -99,7 +99,7 @@ function Row(
       <td className="spark-cell">
         <SparkCell data={spark} symbol={symbol} />
       </td>
-      <td>{quote === undefined ? "" : (SESSION_LABEL[quote.mh] ?? "?")}</td>
+      <td>{quote === undefined ? "—" : (SESSION_LABEL[quote.mh] ?? "—")}</td>
       <td>
         {/* Not "no data": a symbol outside `yfin stream scope` has no
             live path at all, and that is a configuration answer rather

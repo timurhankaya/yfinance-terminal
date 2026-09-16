@@ -83,7 +83,7 @@ class InsiderPurchasesDataset(AsOfDataset[AsOfFramePayload]):
         match = PERIOD_PATTERN.match(header)
         if match is None:
             # period_label is NOT NULL: no row can be written if the pattern fails.
-            log.warning("unparsable insider period header", symbol=symbol, header=header)
+            log.debug("unparsable insider period header", symbol=symbol, header=header)
             return NormalizedResult()
         period_label = match.group(1)[:PERIOD_LABEL_LENGTH]
 
@@ -112,7 +112,7 @@ class InsiderPurchasesDataset(AsOfDataset[AsOfFramePayload]):
                 unknown.append(key)
 
         if unknown:
-            log.warning("unmapped keys", dataset=self.name, symbol=symbol, keys=sorted(unknown))
+            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=sorted(unknown))
 
         row["fetched_at"] = raw.fetched_at
         return NormalizedResult(

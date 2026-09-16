@@ -90,7 +90,6 @@ def eligible_proxies(
 
 
 def build_plans(
-    session: Session,
     eligible: Sequence[Proxy],
     settings: Settings,
     *,

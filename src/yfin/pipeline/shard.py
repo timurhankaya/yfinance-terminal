@@ -51,7 +51,7 @@ SENTINEL = "\x00"
 
 # Child's own pool: there are two real concurrent consumers (WatermarkReader
 # serializes reads with its own lock, plus the main thread's symbol
-# transaction). Invariant: (shard_count x 5) + 2 <= max_connections.
+# transaction).
 CHILD_POOL_SIZE = 3
 
 
@@ -231,7 +231,7 @@ def run_sharded(
             )
             # Endpoints are resolved under the lock; Proxy objects are
             # session-bound, while ShardSpec is plain data.
-            specs_source = build_plans(session, eligible, cfg, require_proxy=require_proxy)
+            specs_source = build_plans(eligible, cfg, require_proxy=require_proxy)
         shard_count = max(1, len(specs_source))
         run_id = open_run(
             factory,

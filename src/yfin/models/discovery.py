@@ -49,7 +49,7 @@ QUERY_TERM_LENGTH = SYMBOL_LENGTH
 LIST_KEY_LENGTH = 128
 
 # `lookupTotals` reports nine types; the `LOOKUP_TYPES` constant lists
-# eight -- `privateCompany` is not among them (lookup.py:31). Free text
+# eight -- `privateCompany` is not among them (lookup.py). Free text
 # rather than an ENUM, so a new type reported by the source needs no
 # schema change.
 LOOKUP_TYPE_LENGTH = 24

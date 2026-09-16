@@ -54,7 +54,7 @@ FALLBACK_OVERLAP = 0.5
 _REGION_PATTERN = re.compile(r"[A-Z]{2}")
 
 # `sync_run_items.symbol` is NOT NULL; the bootstrap turn has no single
-# domain symbol (it writes all 156 at once).
+# domain symbol.
 TAXONOMY_SCOPE_MARKER = GLOBAL_REGION_MARKER
 
 
@@ -235,7 +235,7 @@ def run_domain_sync(
     def emit(records: Sequence[ItemRecord]) -> None:
         write_items(factory, run_id, records, proxy_id=proxy_id, proxy_label=proxy_label)
 
-    # 4. Bootstrap: one turn, one transaction.
+    # Bootstrap: one turn, one transaction.
     for dataset in [d for d in selected if not d.per_key]:
         emit(
             _run_turn(
@@ -249,8 +249,8 @@ def run_domain_sync(
             )
         )
 
-    # 5. Keys from the DB. The bootstrap turn runs first on every
-    #    resolution, so the list is always fresh.
+    # Keys from the DB. The bootstrap turn runs first on every
+    # resolution, so the list is always fresh.
     base_ctx.parents.update(domain_parents(factory))
     # Keyed by the enum `dataset.scope` is typed with, so the lookup
     # below cannot miss because the key was hand-typed.
@@ -259,7 +259,7 @@ def run_domain_sync(
         DomainType.INDUSTRY: domain_targets(factory, DomainType.INDUSTRY),
     }
 
-    # 6. Sectors first, then industries.
+    # Sectors first, then industries.
     per_key = [d for d in selected if d.per_key]
     ordered = [d for d in per_key if d.scope == DomainType.SECTOR] + [
         d for d in per_key if d.scope == DomainType.INDUSTRY

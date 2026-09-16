@@ -24,7 +24,7 @@ from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
 
-# Yahoo caps the limit at 100 (base.py:634: ValueError).
+# Yahoo caps the limit at 100 (base.py: ValueError).
 PAGE_LIMIT = 100
 KEY_COLUMNS = ("symbol", "earnings_ts_utc", "fact_hash")
 UPDATE_COLUMNS = (
@@ -58,7 +58,7 @@ def _fetch_pages(symbol: str, max_pages: int) -> tuple[pd.DataFrame | None, bool
             break
         frames.append(frame)
     if not complete:
-        log.warning(
+        log.debug(
             "earnings dates hit the page cap; history may be truncated",
             symbol=symbol,
             max_pages=max_pages,
@@ -123,7 +123,7 @@ class EarningsDatesDataset(Dataset[EarningsDatesPayload]):
             ts_utc = nz.to_datetime_utc(index)
             local_date = nz.to_local_date(index)
             if ts_utc is None or local_date is None:
-                log.warning("earnings date row has no timestamp", symbol=symbol)
+                log.debug("earnings date row has no timestamp", symbol=symbol)
                 continue
 
             values = {

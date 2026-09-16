@@ -238,7 +238,7 @@ def warn_unmapped(
             if name not in known:
                 extra[str(name)] = None
     if extra:
-        log.warning(
+        log.debug(
             "unmapped keys", dataset=dataset, domain_key=key, block=block, keys=sorted(extra)
         )
     return sorted(extra)

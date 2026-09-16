@@ -30,8 +30,7 @@ class TableWrite:
     key_columns: tuple[str, ...]  # used by the verification query
     update_columns: tuple[str, ...]  # columns updated on conflict
     mode: WriteMode = "upsert"
-    # Columns that define replace_scope's delete scope. Default ("symbol",)
-    # leaves existing call sites unchanged.
+    # Columns that define replace_scope's delete scope.
     scope_columns: tuple[str, ...] = ("symbol",)
     # Explicit scope values, for when they cannot be derived from rows (e.g.
     # rows is empty because every line item for the period came back NaN).

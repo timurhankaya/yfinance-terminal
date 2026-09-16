@@ -91,7 +91,7 @@ def test_adopt_env_values_returns_39_keys_as_text() -> None:
     ("value", "expected"),
     [(True, "true"), (False, "false"), (8, "8"), (2.0, "2.0"), ("all", "all"), ("", "")],
 )
-def test_serilestirme_kurali(value: object, expected: str) -> None:
+def test_serialization_rule(value: object, expected: str) -> None:
     """`"True"` is never written: pydantic would parse it too, but it would
     break round-trip equality with `.env` formatting."""
     assert serialize(value) == expected

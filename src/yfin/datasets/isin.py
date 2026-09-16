@@ -19,7 +19,7 @@ class IsinDataset(Dataset[str | None]):
         return result
 
     def normalize(self, raw: str | None, symbol: str) -> NormalizedResult:
-        # Sentinel ISIN: '-' comes back for THYAO.IS, BTC-USD, ^GSPC, GC=F, EURUSD=X
+        # '-' is Yahoo's "no ISIN" sentinel.
         isin = nz.to_str(raw, 16)
         if isin is None:
             return NormalizedResult(writes=[], skipped={})

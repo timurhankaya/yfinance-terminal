@@ -6,8 +6,7 @@ import type { RefObject } from "react";
 
 export function useWhenVisible(ref: RefObject<Element | null>): boolean {
   // jsdom has no IntersectionObserver, and neither do a few older
-  // browsers. Both get the honest fallback: everything is visible, which
-  // is the behaviour before this existed.
+  // browsers. Both get the honest fallback: everything is visible.
   const [seen, setSeen] = useState(() => typeof IntersectionObserver === "undefined");
 
   useEffect(() => {

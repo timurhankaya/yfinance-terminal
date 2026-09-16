@@ -45,7 +45,7 @@ def test_a_db_override_beats_the_default(monkeypatch: pytest.MonkeyPatch) -> Non
     assert get_settings().yf_max_shards == 9
 
 
-def test_db_ezmesi_env_i_ezer(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_db_override_beats_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pydantic init kwargs override env; no separate precedence logic is
     written. This test pins that behavior as a contract."""
     monkeypatch.setenv("YF_MAX_SHARDS", "7")
@@ -66,14 +66,14 @@ def test_without_the_table_the_run_continues_env_only(monkeypatch: pytest.Monkey
     assert get_settings().yf_max_shards == DEFAULT
 
 
-def test_source_env_iken_db_ye_HIC_bakilmaz(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_with_source_env_the_db_is_NEVER_read(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(SETTINGS_SOURCE_VAR, "env")
     calls = _rows(monkeypatch, {KEY: "9"})
     assert get_settings().yf_max_shards == DEFAULT
     assert calls == [], "DB was read while YF_SETTINGS_SOURCE=env"
 
 
-def test_source_env_bosluk_ve_buyuk_harf_toleransli(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_source_env_tolerates_whitespace_and_case(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(SETTINGS_SOURCE_VAR, "  ENV \n")
     calls = _rows(monkeypatch, {KEY: "9"})
     assert get_settings().yf_max_shards == DEFAULT
@@ -117,7 +117,7 @@ def test_an_invalid_value_NEVER_STARTS_the_run(monkeypatch: pytest.MonkeyPatch) 
         get_settings()
 
 
-def test_load_overrides_get_settings_CAGIRMAZ(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_overrides_does_NOT_call_get_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Guards against a RecursionError. The loader runs inside
     `get_settings()`; using a helper like `create_db_engine()` that does
     `settings or get_settings()` would create an infinite loop."""

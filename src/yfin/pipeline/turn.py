@@ -103,7 +103,7 @@ def run_turn(
             "yfin_sync_yahoo_requests_total", dataset=turn.dataset.name, outcome="failed"
         )
         metrics.inc("yfin_sync_yahoo_errors_total", kind=kind.value)
-        log.warning(
+        log.debug(
             f"{turn.kind} dataset failed",
             dataset=turn.dataset.name,
             kind=kind.value,

@@ -73,9 +73,6 @@ a { color: var(--accent); }
 .grid { width: 100%; border-collapse: collapse; }
 .grid th { text-align: left; color: var(--accent); background: var(--surface-2); font-weight: 600; vertical-align: middle; border-bottom: 1px solid var(--line); padding: 4px 8px; }
 .grid td { vertical-align: middle; padding: 5px 8px; border-bottom: 1px solid var(--line); }
-/* A heading sits over its own column. The alignment was on `td` alone,
-   so a right-aligned number hung under the NEXT column's left-aligned
-   label and the table read as though it were offset by one. */
 .grid th.num, .grid td.num { text-align: right; }
 .grid .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .grid tbody tr:nth-child(even) { background: #0d131d; }
@@ -104,11 +101,8 @@ a { color: var(--accent); }
 .palette-note { margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 .scroll-x { overflow-x: auto; max-width: 100%; }
 .dataset .grid th, .dataset .grid td { white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
-/* As wide as its content, not as wide as the window. Six columns
-   stretched across a 1700-pixel panel put a quarter of a metre between a
-   holder's name and its percentage, and the eye loses the row on the way
-   across. The floor keeps a narrow panel's table from collapsing into
-   its ellipses. */
+/* As wide as its content, not as wide as the window. The floor keeps a
+   narrow panel's table from collapsing. */
 .dataset .grid { width: 100%; min-width: 100%; }
 .json { margin: 0; white-space: pre-wrap; word-break: break-all; font: inherit; color: var(--muted); }
 .family { display: block; margin: 10px 0 2px; color: var(--accent); text-transform: uppercase; font-size: 11px; }
@@ -136,9 +130,7 @@ a { color: var(--accent); }
 .tape-head .num { text-align: right; }
 .tape-line { display: grid; grid-template-columns: 96px 1fr 1fr 1fr; gap: 8px; }
 .tape-line .num { text-align: right; font-variant-numeric: tabular-nums; }
-/* Direction, wherever it appears: a grid cell, the strip, a legend.
-   Four compound selectors said the same thing in two places and left
-   a plain span uncoloured. */
+/* Direction, wherever it appears: a grid cell, the strip, a legend. */
 .up { color: var(--up); }
 .down { color: var(--down); }
 .fn-group { padding: 3px 8px 3px 2px; color: var(--muted); font-size: 11px; text-transform: uppercase; align-self: center; }
@@ -311,15 +303,12 @@ table[aria-label="watchlist"] .strip-symbol button { color: var(--accent); backg
   background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
-/* Only ever inside the band now, so this cannot reach another surface. */
 .band .strip { overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
 /* Inside the band the strip is a row, not a bar: the band draws the one
    rule under both of them. */
 .band .strip { border-bottom: 0; padding-bottom: 2px; }
-/* Scrolled, never wrapped. Fourteen codes are ~480px; a split panel is
-   often narrower than that, and three wrapped rows of tabs would push
-   the data off the first screen. `SymbolBand` scrolls the active one
-   into view. */
+/* Scrolled, never wrapped: wrapped tabs would push the data off the
+   first screen. `SymbolBand` scrolls the active one into view. */
 .band-tabs { display: flex; gap: 1px; padding: 0 6px; overflow-x: auto; scrollbar-width: thin; }
 .band-tab {
   flex: 0 0 auto;
@@ -352,8 +341,7 @@ table[aria-label="watchlist"] .strip-symbol button { color: var(--accent); backg
 .des-out { margin-left: auto; font: 11px/1.5 var(--font-ui); white-space: nowrap; }
 
 /* Six numbers, on cards, above everything else on the page. */
-/* 150, not 132: at a split-pane width the smaller minimum fitted five
-   cards and left the sixth alone on a row of its own. */
+/* Six cards fit one row at full width. */
 .stats { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); margin: 0 0 12px; }
 .stat { padding: 7px 10px 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; }
 .stat-label {
@@ -395,13 +383,9 @@ table[aria-label="watchlist"] .strip-symbol button { color: var(--accent); backg
 .des-trend .spark { width: 100%; height: 72px; max-height: none; }
 .des-trend-note { margin: 2px 0 0; font: 12px/1.4 var(--font-mono); font-variant-numeric: tabular-nums; }
 
-/* The card is as wide as the prose it holds. At the full width of a
-   window it was a half-empty box with a paragraph in the left of it. */
+/* The card is as wide as the prose it holds. */
 .des-about { max-width: 96ch; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin: 0 0 14px; }
-/* Capped, not cut: Apple's summary is fourteen hundred characters and
-   at a readable measure that is seventeen lines -- a whole screen of
-   prose above the fields, on the panel whose job is the fields. Six
-   lines and a scroll keeps every word and gives the page back. */
+/* Capped, not cut: six lines and a scroll keeps every word. */
 .des-about p {
   margin: 0;
   max-width: 90ch;
@@ -520,9 +504,7 @@ table[aria-label="watchlist"] .strip-symbol button { color: var(--accent); backg
   font: 12.5px/1.6 var(--font-ui);
   white-space: pre-wrap;
 }
-/* Which exchange a search hit is on. Apple is a dozen rows -- AAPL,
-   AAPL.MX, AAPL.BA -- and without this they are a dozen identical
-   lines. */
+/* Which exchange a search hit is on: one name lists on many exchanges. */
 .palette-where { color: var(--muted); }
 
 /* Terminal hierarchy: distinct section bars and restrained data emphasis. */

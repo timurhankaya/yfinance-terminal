@@ -125,11 +125,6 @@ export function NumberArg(props: {
   );
 }
 
-/** A free-text argument: a filter value, a filing type, a query.
- *
- *  Also committed on Enter or blur. An empty box means "no filter" and
- *  removes the argument rather than sending an empty one, which the API
- *  would refuse. */
 export function TextArg(props: {
   label: string;
   value: string;

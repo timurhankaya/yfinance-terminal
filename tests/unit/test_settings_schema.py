@@ -20,7 +20,7 @@ def test_env_only_fields_are_NOT_in_the_schema() -> None:
     assert not keys & {"db_host", "db_password", "yf_proxy_secret_key", "log_level"}
 
 
-def test_min_max_Field_kisitlarindan_TURETILIR() -> None:
+def test_min_max_are_DERIVED_from_the_Field_constraints() -> None:
     """If written by hand, `ge=1` could become `ge=2` one day and the panel
     would validate against a stale range."""
     by_key = {i.key: i for i in settings_schema()}

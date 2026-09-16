@@ -1,4 +1,4 @@
-"""fast_info dataset'i (S6.3 #9) -> ticker_fast_info(+_history)."""
+"""fast_info dataset -> ticker_fast_info(+_history)."""
 
 from __future__ import annotations
 

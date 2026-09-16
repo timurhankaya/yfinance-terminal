@@ -79,14 +79,9 @@ describe("Workspace", () => {
     expect(await screen.findByText("AAPL row 0")).toBeInTheDocument();
   });
 
-  it("says so when the code is not a panel, and where a retired one went", async () => {
+  it("says so when the code is not a panel", async () => {
     draw([seed("p1", "NOPE", null)]);
-    expect(await screen.findByText(/NOPE is no longer a function\./)).toBeInTheDocument();
-    cleanup();
-    // A saved page or a shared link outlives the code it names: GIP was
-    // merged into GP, and the panel it lands in says so.
-    draw([seed("p1", "GIP", null)]);
-    expect(await screen.findByText(/GIP is no longer a function\. Use GP 5m/)).toBeInTheDocument();
+    expect(await screen.findByText(/NOPE is not a function\./)).toBeInTheDocument();
   });
 
   it("gives j to the focused panel only", async () => {

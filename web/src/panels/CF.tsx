@@ -17,7 +17,6 @@ import { edgarUrl } from "./links";
 type Row = ApiRow;
 
 export const CF_ARGS = "CF [filing type]";
-export const CF_USAGE = `Usage: ${CF_ARGS}`;
 
 interface Filings {
   filings: Row[];
@@ -115,8 +114,8 @@ function FilingList(props: {
       >
         {filings.map((row, index) => {
           const id = String(row.filing_id ?? index);
-          // Yahoo's archived filing page (edgar_url) answers 404 today; the
-          // SEC's own folder for the accession number is the durable link.
+          // Yahoo's archived filing page (edgar_url) is dead; the SEC folder
+          // for the accession number is the durable link.
           const edgar = edgarUrl(row.filing_id, row.edgar_url);
           return (
             <li

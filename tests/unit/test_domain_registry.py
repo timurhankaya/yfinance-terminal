@@ -79,3 +79,4 @@ def test_expected_cell_count_matches_the_spec_for_one_region() -> None:
     from helpers import expected_domain_cell_count as expected_cell_count
 
     assert expected_cell_count(1) == 1239
+    assert expected_cell_count(1, industry_count=0) == 2 + 44 + 33

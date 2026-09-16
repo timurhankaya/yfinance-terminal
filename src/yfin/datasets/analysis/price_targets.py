@@ -54,7 +54,7 @@ class AnalystPriceTargetsDataset(AsOfDataset[AsOfMappingPayload]):
 
         unmapped = sorted(k for k in payload if k not in VALUE_COLUMNS)
         if unmapped:
-            log.warning("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
+            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
 
         row: dict[str, Any] = {
             "symbol": symbol,

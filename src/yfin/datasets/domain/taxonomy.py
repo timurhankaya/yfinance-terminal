@@ -28,12 +28,10 @@ from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
 
-# Identical for every domain symbol; these fields are absent from the
-# sector/industry response.
+# Identical for every domain symbol. Currency and timezone are absent
+# from the sector/industry response and stay NULL.
 DOMAIN_QUOTE_TYPE = "INDEX"
 DOMAIN_EXCHANGE = "YHD"
-DOMAIN_CURRENCY = "USD"
-DOMAIN_TIMEZONE = "America/New_York"
 
 # `is_active` and `unknown_streak` are outside update_columns: if a user
 # manually activates `^YH311`, the next domain sync will not deactivate it
@@ -74,8 +72,7 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
         region = ctx.fetch_region
         sectors: dict[str, dict[str, Any]] = {}
         for key in SECTOR_KEYS:
-            # `partial` is more honest than binding the loop variable to a
-            # lambda default, and mypy can resolve it too.
+            # `partial`: a lambda default would capture the loop variable.
             sectors[key] = ctx.cached(
                 f"raw:{key}:{region}", partial(fetch_domain, key, "sector", region)
             )
@@ -96,7 +93,7 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
             if sector_symbol is None or sector_name is None:
                 # `symbol` is UNIQUE NOT NULL, `name` is NOT NULL: if missing,
                 # the row hits a NOT NULL violation (23502) and drops the whole pass.
-                log.warning("the sector identity field is missing", domain_key=sector_key)
+                log.debug("the sector identity field is missing", domain_key=sector_key)
                 continue
 
             symbol_rows.append(_symbol_row(sector_symbol, sector_name, fetched_at))
@@ -126,7 +123,7 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
                 industry_symbol = text_of(row, "symbol", 32)
                 industry_name = text_of(row, "name", 64)
                 if industry_symbol is None or industry_name is None:
-                    log.warning("the industry identity field is missing", domain_key=industry_key)
+                    log.debug("the industry identity field is missing", domain_key=industry_key)
                     continue
                 symbol_rows.append(_symbol_row(industry_symbol, industry_name, fetched_at))
                 domain_rows.append(
@@ -177,8 +174,8 @@ def _symbol_row(symbol: str, name: str, fetched_at: Any) -> dict[str, Any]:
         "short_name": name[:128],
         "quote_type": DOMAIN_QUOTE_TYPE,
         "exchange": DOMAIN_EXCHANGE,
-        "currency": DOMAIN_CURRENCY,
-        "timezone": DOMAIN_TIMEZONE,
+        "currency": None,
+        "timezone": None,
         "is_active": False,
         "last_seen_at": fetched_at,
     }

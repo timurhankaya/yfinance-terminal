@@ -105,9 +105,7 @@ def config_list(
             continue
         if changed and state.value == defaults[key]:
             continue
-        # `*` = no row. Must be marked: after migration the `.env` layer is
-        # effectively empty, so a keyless entry falls straight to the model
-        # default.
+        # `*` = no row: a keyless entry falls straight to the model default.
         mark = " " if state.has_row else "*"
         typer.echo(f"{mark} {key:<34} {state.value:<28} {state.source.value:<8} {groups[key]}")
         shown += 1

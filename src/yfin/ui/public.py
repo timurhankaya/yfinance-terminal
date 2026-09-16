@@ -42,10 +42,9 @@ def ui_principal(request: Request) -> Principal:
 
 
 #: Everything the browser page calls, the mirror and the UI-only routes
-#: alike. Installed on the outer app, because the UI-only routes
-#: (`/ui/api/symbols/{s}/news`, later `/ticks` and `/gaps`) are registered
-#: outside the mount and a brake inside it would never see them: an
-#: unmetered, unbraked database query a page away.
+#: alike. Installed on the outer app, because the UI-only routes (news,
+#: ticks, gaps) are registered outside the mount and a brake inside it
+#: would never see them: an unmetered, unbraked database query a page away.
 BRAKE_PREFIX = "/ui/api"
 
 

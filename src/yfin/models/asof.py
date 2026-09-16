@@ -34,7 +34,7 @@ class AsOfState(Base):
     # For audit only; the gate decision looks at the hash alone, not this.
     row_count: Mapped[int] = mapped_column(Integer, nullable=False)
     # Written on first INSERT and never updated again -- kept out of
-    # update_columns, or ON DUPLICATE KEY UPDATE would overwrite it.
+    # update_columns, or the conflict branch would overwrite it.
     first_seen_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     # Last verification time: updated even when the hash is unchanged
     # (hash_gated.py's policy), so "when was this symbol last checked"

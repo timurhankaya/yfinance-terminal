@@ -36,7 +36,7 @@ class RunScope(enum.StrEnum):
     SYMBOLS = "symbols"
     MARKET = "market"
     # Sector / industry type. A third axis, neither a symbol nor a region
-    # loop -- 156 keys, each its own HTTP request.
+    # loop -- each key is its own HTTP request.
     DOMAIN = "domain"
 
 
@@ -149,7 +149,7 @@ class SyncRunItem(Base):
     error_kind: Mapped[str | None] = mapped_column(AsciiKeyType(16))
     # Region axis for domain cells; NULL for symbol and market runs.
     # `symbol` holds the domain SYMBOL (`^YH31130020`), not the key: the
-    # column is VARCHAR(32) and five industry keys exceed that (longest 37).
+    # column is VARCHAR(32) and industry keys can exceed that.
     region: Mapped[str | None] = mapped_column(RegionType())
 
     shard_index: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")

@@ -110,7 +110,7 @@ def test_rotation_LEAVES_THE_OLD_CREDENTIAL_working(session: Session) -> None:
 
 def test_rotation_puts_an_EXPIRY_on_the_old_credential(session: Session) -> None:
     created = _create(session)
-    repo.rotate_secret(session, created.client_id, grace=timedelta(days=3))
+    repo.rotate_secret(session, created.client_id)
     session.commit()
 
     rows = session.scalars(

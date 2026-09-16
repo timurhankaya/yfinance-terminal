@@ -263,7 +263,11 @@ function Roster({ name, symbol, args }: { name: string; symbol: string | null; a
         key: "change_percent",
         label: "%",
         align: "right",
-        format: (r) => <span className={Number(r.change_percent) > 0 ? "up" : Number(r.change_percent) < 0 ? "down" : "muted"}>{Number(r.change_percent) > 0 ? "+" : ""}{percent(r.change_percent)}</span>,
+        format: (r) => {
+          const change = asNumber(r.change_percent);
+          const tone = change === null || change === 0 ? "muted" : change > 0 ? "up" : "down";
+          return <span className={tone}>{change !== null && change > 0 ? "+" : ""}{percent(r.change_percent)}</span>;
+        },
       },
       {
         key: "volume",

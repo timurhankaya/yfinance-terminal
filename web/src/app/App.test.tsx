@@ -637,9 +637,7 @@ describe("saved pages", () => {
 
   it("leaves the page alone when the link is not one", async () => {
     stubApi();
-    const user = userEvent.setup();
     mount("/ui/w/-?l=not-a-page");
     expect(await screen.findByText(/does not carry a page/)).toBeInTheDocument();
-    expect(user).toBeDefined();
   });
 });

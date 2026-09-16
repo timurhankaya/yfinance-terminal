@@ -260,8 +260,7 @@ export function Shell() {
       setPage((current) => ({
         ...current,
         panels: current.panels.map((panel) =>
-          // A panel keeps its letter when its content changes: `GIP` in a
-          // group-B panel is still B's.
+          // A panel keeps its letter when its content changes.
           panel.id === current.activeId ? { id: panel.id, group: panel.group, ...next } : panel,
         ),
       }));
@@ -311,9 +310,9 @@ export function Shell() {
         name: pageName,
         panels: carried,
         groups: {},
-        // The new panel has the keyboard, not the one that was split
-        // (Karar 6): opening does not enter history, moving the focus
-        // does, and this entry is the new panel's.
+        // The new panel has the keyboard, not the one that was split:
+        // opening does not enter history, moving the focus does, and
+        // this entry is the new panel's.
         activeId: carried[carried.length - 1]?.id ?? null,
         epoch: epoch.current,
       });

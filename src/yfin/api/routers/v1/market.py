@@ -36,6 +36,7 @@ from yfin.api.storage.session import session_scope
 from yfin.core import normalize as nz
 from yfin.core.families import DataFamily
 from yfin.models import ReadableInterval
+from yfin.models.financials import StatementFreq, StatementKind
 
 router = APIRouter(prefix="/v1", tags=["market"])
 
@@ -319,8 +320,7 @@ def list_bars(
     code = nz.normalize_symbol(symbol)
 
     # No membership check: the annotation is the check, and it is what puts
-    # the list in the document. The hand-rolled version refused the same
-    # values while leaving the contract saying `interval` was any string.
+    # the list in the document.
     is_intraday = limits.span_class(interval) == "intraday"
     if session_kind is not None and not is_intraday:
         raise ApiProblem(
@@ -440,10 +440,7 @@ def list_actions(
         end=limits.to_utc(end),
         now=datetime.now(UTC),
     )
-    # The same mapping as bars. It raised `range_too_large` unconditionally
-    # here, including for an inverted range -- a type this operation's
-    # published schema does not admit, so a generated client would fail to
-    # deserialise its own error.
+    # The same mapping as bars.
     _refuse_window(limits.window_error("1mo", window_start, window_end))
 
     if not reads.symbol_exists(session, code):
@@ -477,7 +474,7 @@ def list_actions(
                     symbol=row["symbol"],
                     action_date=row["action_date"],
                     action_type=row["action_type"],
-                    action_value=paging.to_number(row["action_value"]) or "0",
+                    action_value=format(row["action_value"], "f"),
                 )
                 for row in page.rows
             ],
@@ -523,6 +520,13 @@ def list_financials(
     (symbol, statement, freq, period_end, item_key), so without them the
     query cannot use the leading columns of its own primary key.
     """
+    if statement not in StatementKind or freq not in StatementFreq:
+        raise ApiProblem(
+            422,
+            TYPE_INVALID_PARAMETER,
+            "Unknown statement or frequency",
+            detail="statement and freq must match the values the pipeline stores",
+        )
     limits.apply_statement_timeout(session)
     code = nz.normalize_symbol(symbol)
 
@@ -539,22 +543,14 @@ def list_financials(
     }
     after = paging.decode_cursor(cursor, query=identity, arity=2)
 
-    try:
-        page = reads.list_financials(
-            session,
-            symbol=code,
-            statement_kind=statement,
-            freq=freq,
-            limit=size,
-            after=after,
-        )
-    except Exception as exc:  # noqa: BLE001 - an unknown enum value is the caller's
-        raise ApiProblem(
-            422,
-            TYPE_INVALID_PARAMETER,
-            "Unknown statement or frequency",
-            detail="statement and freq must match the values the pipeline stores",
-        ) from exc
+    page = reads.list_financials(
+        session,
+        symbol=code,
+        statement_kind=statement,
+        freq=freq,
+        limit=size,
+        after=after,
+    )
 
     as_of = reads.financials_as_of(session, code, statement, freq)
     return _respond(
@@ -565,7 +561,7 @@ def list_financials(
                 FinancialFactOut(
                     period_end=row["period_end"],
                     item_key=row["item_key"],
-                    value=paging.to_number(row["value"]) or "0",
+                    value=format(row["value"], "f"),
                     currency=row.get("currency"),
                 )
                 for row in page.rows

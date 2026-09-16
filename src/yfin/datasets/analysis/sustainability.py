@@ -32,7 +32,7 @@ class SustainabilityDataset(Dataset[AsOfFramePayload]):
         frame = raw.frame
         if not nz.is_empty_result(frame):
             assert frame is not None
-            log.warning(
+            log.debug(
                 "sustainability now returns data",
                 symbol=symbol,
                 shape=str(getattr(frame, "shape", None)),

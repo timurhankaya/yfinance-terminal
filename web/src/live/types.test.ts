@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CHANNEL_PREFIX, GENERATED_FIELDS, TICK_WIRE, WireKind, socketUrl } from "./types";
+import table from "./tick-fields.json";
+import { TICK_WIRE, WireKind, socketUrl } from "./types";
 
 describe("the wire shape agrees with Python", () => {
   it("has exactly the keys the field table declares", () => {
@@ -7,19 +8,19 @@ describe("the wire shape agrees with Python", () => {
     // `stream/publish.py`. A key renamed on one side only would arrive
     // here as `undefined` on a chart that still drew.
     expect(Object.keys(TICK_WIRE).sort()).toEqual(
-      GENERATED_FIELDS.map((field) => field.key).sort(),
+      table.fields.map((field) => field.key).sort(),
     );
   });
 
   it("encodes each key the same way", () => {
     const generated = Object.fromEntries(
-      GENERATED_FIELDS.map((field) => [field.key, field.kind]),
+      table.fields.map((field) => [field.key, field.kind]),
     );
     expect(TICK_WIRE).toEqual(generated);
   });
 
   it("keeps the four fields a price cannot be drawn without", () => {
-    const required = GENERATED_FIELDS.filter((field) => field.required).map((f) => f.key);
+    const required = table.fields.filter((field) => field.required).map((f) => f.key);
     expect(required.sort()).toEqual(["mh", "p", "s", "t"]);
   });
 
@@ -36,7 +37,7 @@ describe("the wire shape agrees with Python", () => {
   });
 
   it("names channels the way the publisher does", () => {
-    expect(CHANNEL_PREFIX).toBe("yfin:tick:");
+    expect(table.channelPrefix).toBe("yfin:tick:");
   });
 });
 

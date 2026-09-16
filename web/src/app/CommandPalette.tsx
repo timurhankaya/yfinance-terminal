@@ -136,7 +136,7 @@ export function CommandPalette({ open, query, onQuery, onPick, onClose, canSplit
                 {results.map((r) => (
                   <Command.Item key={r.symbol} value={`symbol:${r.symbol}`} aria-label={`${r.symbol} — ${r.long_name ?? r.short_name ?? r.symbol}${r.exchange ? ` · ${r.exchange}` : ""}`} onSelect={() => pick(r.symbol, "symbol")}>
                     <span className="palette-code">{r.symbol}</span>
-                    <span className="palette-name">{r.long_name ?? r.short_name ?? "Name unavailable"}<span className="palette-type">{r.quote_type ?? "Security"}</span></span>
+                    <span className="palette-name">{r.long_name ?? r.short_name ?? "Name unavailable"}{r.quote_type !== null && r.quote_type !== undefined && <span className="palette-type">{r.quote_type}</span>}</span>
                     <span className="palette-badge">{r.exchange ?? "—"}</span>
                   </Command.Item>
                 ))}

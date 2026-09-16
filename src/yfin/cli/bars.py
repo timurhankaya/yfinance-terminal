@@ -1,8 +1,4 @@
-"""price_bars CLI commands: scope, gaps, maintenance, rescaling.
-
-Kept SEPARATE from `cli.py`: that file was 630 lines and none of these
-commands share state with the existing ones.
-"""
+"""price_bars CLI commands: scope, gaps, maintenance, rescaling."""
 
 from __future__ import annotations
 

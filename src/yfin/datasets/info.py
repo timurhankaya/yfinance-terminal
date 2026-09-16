@@ -44,8 +44,8 @@ def _officer_rows(symbol: str, officers: Any) -> list[dict[str, Any]]:
         name = nz.to_str(raw_name, 255)
         if name is None:
             continue
-        # Source has double spaces ("Mr. Kevan  Parekh"); without
-        # normalizing, a Yahoo whitespace change would produce a duplicate row.
+        # Source has double spaces; without normalizing, a Yahoo whitespace
+        # change would produce a duplicate row.
         name = nz.normalize_person_name(name)
         if name in seen:
             continue
@@ -106,8 +106,8 @@ class InfoDataset(SnapshotDataset[InfoPayload]):
             return NormalizedResult()
 
         payload = dict(info)
-        # Field set varies by symbol (AAPL 187, BTC-USD 91); raw data stays
-        # in raw_json so nothing is lost, the log is only a signal to investigate.
+        # Field set varies by symbol; raw data stays in raw_json so nothing
+        # is lost, the log is only a signal to investigate.
         warn_unmapped(payload, INFO_FIELDS, dataset="info", ignore=_IGNORE_FOR_WARNING)
         nz.warn_unmapped_epoch_like(payload, nz.EPOCH_SEC_FIELDS | nz.EPOCH_MS_FIELDS)
 

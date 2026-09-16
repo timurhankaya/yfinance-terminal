@@ -3,8 +3,6 @@ Imported only when `YFAPI_UI_ENABLED` is on; `create_app` guards it."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import FastAPI
 
 from yfin.api.core.config import ApiSettings
@@ -13,7 +11,7 @@ from yfin.core.logging_setup import get_logger
 log = get_logger(__name__)
 
 
-def install(app: FastAPI, settings: ApiSettings, dist_dir: Path | None = None) -> None:
+def install(app: FastAPI, settings: ApiSettings) -> None:
     """Mounts the UI. Registration order matters: the terminal's own /ui/api
     routes, then the `/v1` mirror mount (which would swallow them), then
     the pages, so /ui/api/* never falls through to index.html. `/ui/ws` is
@@ -36,7 +34,7 @@ def install(app: FastAPI, settings: ApiSettings, dist_dir: Path | None = None) -
     # resolves the client address itself (see RequestBrake).
     app.add_middleware(public.RequestBrake, settings=settings)
 
-    dist = dist_dir if dist_dir is not None else pages.default_dist_dir()
+    dist = pages.default_dist_dir()
     # Both halves, because StaticFiles raises in its constructor when the
     # directory is absent: a build with index.html but no assets/ would
     # otherwise take the API down at startup.

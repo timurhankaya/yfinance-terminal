@@ -129,7 +129,7 @@ class FinancialFact(Base):
             ondelete="CASCADE",
             name="fk_financial_facts_period",
         ),
-        # Without this, WHERE period_end=? does a full scan (148ms on 600k rows).
+        # Without this, WHERE period_end=? does a full scan.
         Index("ix_financial_facts_period_item", "period_end", "item_key"),
         # "TotalRevenue across all symbols".
         Index("ix_financial_facts_item_period", "item_key", "period_end"),

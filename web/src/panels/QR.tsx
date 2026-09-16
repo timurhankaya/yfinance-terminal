@@ -110,8 +110,6 @@ export function QR({ symbol, args }: PanelProps) {
   const items = useMemo(() => mergeTape(tape, history, breaks), [tape, history, breaks]);
 
   if (symbol === null) return null;
-  // The controls are the panel's, not its ready state's: an interval
-  // with no bars is exactly when a reader needs to pick another one.
   const controls = (
     <Controls>
       <NumberArg

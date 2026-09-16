@@ -61,7 +61,7 @@ def resolve_symbol(
         result = bootstrap.normalize(raw, ctx.symbol)
     except Exception as exc:  # noqa: BLE001 - this is the error boundary
         kind = classify_error(exc)
-        log.warning("symbol resolve failed", symbol=ctx.symbol, kind=kind.value, error=str(exc))
+        log.debug("symbol resolve failed", symbol=ctx.symbol, kind=kind.value, error=str(exc))
         return None, f"{type(exc).__name__}: {exc}", kind
     if result.is_empty:
         # An empty result is not a network error; don't penalize the proxy.
@@ -128,7 +128,7 @@ def _worker(
             continue
         except Exception as exc:  # noqa: BLE001 - error boundary per (symbol, dataset)
             kind = classify_error(exc)
-            log.warning(
+            log.debug(
                 "dataset failed",
                 symbol=symbol,
                 dataset=dataset.name,
@@ -265,7 +265,7 @@ def run_shard(
                 futures = [pool.submit(worker_loop) for _ in range(cfg.yf_max_workers)]
                 for future in futures:
                     future.result()
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             log.error("producer crashed", error=f"{type(exc).__name__}: {exc}")
         finally:
             # The sentinel must always be written; otherwise, if the

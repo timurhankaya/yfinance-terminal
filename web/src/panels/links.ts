@@ -53,8 +53,8 @@ const ACCESSION_RE = /^\d{10}-\d{2}-\d{6}$/;
 
 /** The filing's folder on EDGAR. The accession number is `filing_id`;
  *  the company's CIK is the `_<cik>` tail of the archive's `edgar_url`
- *  (Yahoo's copy of the page, which answers 404 now), so the source of
- *  record is linked instead. Without a CIK there is no folder to link. */
+ *  (Yahoo's copy of the page, which is dead), so the SEC folder is the
+ *  durable link. Without a CIK there is no folder to link. */
 export function edgarUrl(filingId: unknown, edgar: unknown): string | null {
   if (typeof filingId !== "string") return null;
   const [accession, idCik] = filingId.split("_");

@@ -21,8 +21,7 @@ class GrowthEstimatesDataset(PeriodFrameDataset):
     api_method = "get_growth_estimates"
     columns = (
         Column("stockTrend", "stock_trend", nz.to_decimal),
-        # Every symbol returns the SAME value (a market index trend);
-        # storing it denormalized per symbol is deliberate.
+        # Every symbol returns the SAME value (a market index trend).
         Column("indexTrend", "index_trend", nz.to_decimal),
         Column("industryTrend", "industry_trend", nz.to_decimal),
         Column("sectorTrend", "sector_trend", nz.to_decimal),

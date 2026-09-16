@@ -165,6 +165,7 @@ module = [
     "pandas.*",
     "numpy.*",
     "curl_cffi.*",
+    "google.protobuf.*",
     "scipy.*",
     "sklearn.*",
     "apscheduler.*",

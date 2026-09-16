@@ -238,10 +238,9 @@ def read_sparklines(session: Session, symbols: Sequence[str], points: int) -> Sp
         series.append(
             SparklineSeries(
                 symbol=symbol,
-                # `to_number` like every other row of the API: a NUMERIC
-                # serialised as a JSON number would stop being exact at
-                # the boundary where it is least visible.
-                closes=[to_number(close) or "0" for _, close in rows],
+                # A string, like every NUMERIC the API serves: a JSON
+                # number would stop being exact at the boundary.
+                closes=[format(close, "f") for _, close in rows],
                 first_date=rows[0][0],
                 last_date=rows[-1][0],
             )

@@ -50,8 +50,7 @@ def supervisor_config(settings: Settings) -> SupervisorConfig:
 def canary_symbols(settings: Settings) -> tuple[str, ...]:
     """The 24/7 symbols appended to every subscription.
 
-    They occupy quota like anything else, which is why the per-connection
-    size is 95 rather than 100.
+    They occupy quota like anything else.
     """
     return tuple(comma_list(settings.yf_stream_canary_symbols, upper=True))
 
@@ -138,13 +137,7 @@ async def _run_async(
     )
 
 
-def run_stream(
-    engine: Engine,
-    settings: Settings,
-    *,
-    stop: threading.Event | None = None,
-    install_signals: bool = True,
-) -> StreamRun:
+def run_stream(engine: Engine, settings: Settings) -> StreamRun:
     """Runs the stream until stopped. Returns an exit code.
 
     Holds `yfin_stream`, not `yfin_sync`: the two write different tables
@@ -155,7 +148,7 @@ def run_stream(
             "yf_stream_enabled is off; enable it with `yfin config set yf_stream_enabled true`"
         )
 
-    stop = stop or threading.Event()
+    stop = threading.Event()
     factory = session_factory(engine)
     repository = StreamRepository(factory)
 
@@ -174,7 +167,7 @@ def run_stream(
 
         writer_failed = False
         try:
-            with _install_signal_handlers(stop) if install_signals else _null_context():
+            with _install_signal_handlers(stop):
                 writer_failed = asyncio.run(_run_async(supervisor, writer, stop))
         finally:
             # Order matters: the supervisor has already stopped producing,
@@ -192,11 +185,6 @@ def run_stream(
         rows_written=writer.rows_written,
         session_id=supervisor._session_id,
     )
-
-
-@contextmanager
-def _null_context() -> Iterator[None]:
-    yield
 
 
 def build_repository(engine: Engine) -> StreamRepository:

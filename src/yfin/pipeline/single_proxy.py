@@ -28,7 +28,7 @@ def setup_single_proxy(
     decryptable; these runners have no `require_proxy` flag.
     """
     with factory() as session:
-        for plan in build_plans(session, select_eligible(session, limit=1), settings):
+        for plan in build_plans(select_eligible(session, limit=1), settings):
             configure_yfinance(
                 plan.dsn, proxy_key=f"proxy-{plan.proxy_id}", settings=settings
             )

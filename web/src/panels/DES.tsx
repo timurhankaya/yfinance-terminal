@@ -14,9 +14,7 @@ import { group } from "./des/info";
 import { FieldTab, TrendRange, firstFilled, isFieldTab, isTrendRange, tabsOf } from "./des/layout";
 import { Overview } from "./des/Overview";
 
-//: The pure half, re-exported: `formatInfo` and `group` are what the
-//: rest of the terminal and the tests reach for, and moving them into
-//: `des/` must not make every caller learn a new path.
+//: Re-exported: the rest of the terminal and the tests import these from here.
 export { SECTIONS, formatInfo, group, label } from "./des/info";
 
 //: The default window: a month is the shortest one whose shape is a

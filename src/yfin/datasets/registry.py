@@ -229,13 +229,9 @@ SYMBOL_DATASETS: Registry[Dataset[Any]] = Registry(
         "intraday": tuple(f"bars_{i}" for i in INTRADAY_INTERVALS),
         # `recommendations_summary` is an ALIAS, not a registration: in the
         # source its body is `return self.get_recommendations(as_dict=as_dict)`
-        # (base.py:220).
+        # (base.py).
         "recommendations_summary": ("recommendations",),
-        # `analysis`, `holders` and `financials` are GROUPS now, declared
-        # at each dataset's registration site rather than listed here.
-        # `sustainability` simply declares none: it is a monitoring dataset
-        # with no table, and its exclusion is now visible where it is
-        # registered instead of by its absence from a list in this file.
+        # `sustainability` declares no group: it has no table.
         "funds": ("funds_data",),
         # `valuation` is a SEPARATE alias, NOT part of `financials`: it does
         # not appear under the source docs' Financials section and is a
@@ -259,8 +255,7 @@ MARKET_DATASETS: Registry[GlobalDataset[Any]] = Registry(
 )
 
 
-# Third registry. `Registry` itself is UNCHANGED: the `Registrable`
-# protocol needs `name` + `depends_on`, and `DomainDataset` carries both.
+# `Registrable` needs only `name` + `depends_on`, which `DomainDataset` carries.
 DOMAIN_DATASETS: Registry[DomainDataset[Any]] = Registry(
     bootstrap="domain_taxonomy",
     aliases={

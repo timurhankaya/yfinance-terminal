@@ -50,8 +50,7 @@ class _HolderListDataset(AsOfDataset[AsOfFramePayload]):
         as_of = raw.fetched_at.date()
         # Scope values are produced HERE, not from the rows, so that dropping
         # one holder from the source doesn't leave its stale row out of
-        # scope. The source going entirely empty is a separate case; see the
-        # module docstring's "KNOWN LIMITATION" note.
+        # scope.
         scope_values = (
             {"symbol": symbol, "as_of_date": as_of, "holder_type": self.holder_type.value},
         )
@@ -63,7 +62,7 @@ class _HolderListDataset(AsOfDataset[AsOfFramePayload]):
 
         unmapped = sorted(str(c) for c in frame.columns if str(c) not in MAPPED_SOURCES)
         if unmapped:
-            log.warning("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
+            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
 
         rows: dict[str, dict[str, Any]] = {}
         for _, record in frame.iterrows():

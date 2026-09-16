@@ -25,7 +25,6 @@ from yfin.storage.contracts import WriteStats
 
 log = get_logger(__name__)
 
-# Exit codes.
 EXIT_OK = 0
 EXIT_NO_SYMBOL_RESOLVED = 1
 EXIT_PARTIAL = 2

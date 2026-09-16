@@ -57,11 +57,6 @@ ALL_TYPES: tuple[str, ...] = (
     TYPE_INTERNAL,
 )
 
-#: The one path whose errors are not problem documents. Kept here rather
-#: than imported from the router: this module decides the format, and
-#: importing the router would make the error layer depend on the routing
-#: layer it exists to serve.
-TOKEN_ENDPOINT_PATH = "/oauth/token"
 
 #: Which RFC 6749 error each status carries when a generic handler, not
 #: the token endpoint's own code, is what refused the request.
@@ -128,7 +123,7 @@ def problem_response(
     # shape still counts. Every refusal passes through here.
     inc("yfin_api_problems_total", type=problem_type)
 
-    if request.url.path == TOKEN_ENDPOINT_PATH:
+    if request.url.path == "/oauth/token":
         # Generic handlers (validation, unhandled, cancelled query) must not
         # hand an OAuth2 client a problem document with no `error` field.
         return _oauth_shaped(status, title, detail=detail, headers=headers)

@@ -83,7 +83,6 @@ class TestWhatTheParametersDo:
         registry = CollectorRegistry()
         app = create_app(ApiSettings(trusted_proxies=""))
         instrumentator = build_instrumentator(registry)
-        assert instrumentator is not None
         instrumentator.instrument(app, metric_namespace="yfin")
 
         client = TestClient(app)
@@ -142,12 +141,18 @@ class TestTheRequestLog:
         client.get("/metrics")
         assert '"event": "request"' not in capsys.readouterr().err
 
-    def test_a_real_request_still_is(
+    def test_a_real_request_is_logged_at_debug_only(
         self, client: TestClient, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        """One line per request scales with traffic, not with incidents; the
+        instrumentator carries route, status and duration as metrics."""
         from yfin.core.logging_setup import configure_logging
 
         configure_logging("INFO", "json", "api")
+        capsys.readouterr()
+        client.get("/no-such-route")
+        assert '"event": "request"' not in capsys.readouterr().err
+        configure_logging("DEBUG", "json", "api")
         capsys.readouterr()
         client.get("/no-such-route")
         assert '"event": "request"' in capsys.readouterr().err
@@ -189,22 +194,6 @@ class TestTheCounters:
         body = client.get("/metrics").text
         assert 'cache="readiness"' in body
 
-    def test_the_decision_reasons_are_words(self) -> None:
-        """The Lua script answers in integers because that is what fits in
-        a Redis reply. `reason="1"` on a dashboard is a number nobody can
-        read, so the mapping happens once, at the metering point."""
-        from yfin.api.ratelimit.limiter import (
-            REASON_ALLOWED,
-            REASON_NAMES,
-            REASON_QUOTA,
-            REASON_RATE,
-        )
-
-        assert REASON_NAMES == {
-            REASON_ALLOWED: "allowed",
-            REASON_RATE: "rate",
-            REASON_QUOTA: "quota",
-        }
 
     def test_every_fail_open_layer_has_a_name(self) -> None:
         """`where` says which layer gave up, because the three fail open

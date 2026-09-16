@@ -102,7 +102,7 @@ class SecFilingsDataset(Dataset[SecFilingsPayload]):
                 # A filing missing a required field is SKIPPED; writing it
                 # would raise a NOT NULL violation (23502) and drop the
                 # symbol's ENTIRE transaction.
-                log.warning(
+                log.debug(
                     "sec filing missing required field", symbol=symbol, entry=str(entry)[:120]
                 )
                 continue

@@ -86,7 +86,7 @@ class InsiderRosterDataset(AsOfDataset[AsOfFramePayload]):
 
         unmapped = sorted(str(c) for c in frame.columns if str(c) not in MAPPED_SOURCES)
         if unmapped:
-            log.warning("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
+            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
 
         as_of = raw.fetched_at.date()
         rows: dict[str, dict[str, Any]] = {}

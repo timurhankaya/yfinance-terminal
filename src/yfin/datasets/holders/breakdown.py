@@ -58,13 +58,13 @@ class MajorHoldersDataset(AsOfDataset[AsOfFramePayload]):
             return NormalizedResult()
         assert isinstance(frame, pd.DataFrame)
         if VALUE_COLUMN not in frame.columns:
-            log.warning("major holders frame has no Value column", symbol=symbol)
+            log.debug("major holders frame has no Value column", symbol=symbol)
             return NormalizedResult()
 
         values = {str(index): value for index, value in frame[VALUE_COLUMN].items()}
         unmapped = sorted(set(values) - {src for src, _ in FIELDS} - {COUNT_SOURCE})
         if unmapped:
-            log.warning("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
+            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
 
         row: dict[str, Any] = {
             "symbol": symbol,

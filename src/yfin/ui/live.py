@@ -173,7 +173,7 @@ class LiveSession:
             client = connect_bus(url)
             await client.ping()
         except Exception as error:  # noqa: BLE001 - fail-open, like the publisher
-            log.warning(
+            log.error(
                 "live bus unreachable; the terminal falls back to snapshots",
                 error=str(error),
                 request_id=self._request_id,
@@ -192,7 +192,7 @@ class LiveSession:
         if not self._bus_ok:
             return
         self._bus_ok = False
-        log.warning(
+        log.error(
             "live bus lost; the terminal falls back to snapshots",
             error=str(error),
             request_id=self._request_id,
@@ -344,7 +344,7 @@ class LiveSession:
         try:
             return await run_in_threadpool(read)
         except Exception as error:  # noqa: BLE001 - a missing snapshot is not fatal
-            log.warning(
+            log.error(
                 "snapshot read failed", error=str(error), request_id=self._request_id
             )
             return []
@@ -396,12 +396,12 @@ def _refusal(websocket: WebSocket, settings: ApiSettings, request_id: str) -> Ws
     # cache here would be a second place `trusted_proxies` is resolved.
     client_ip = resolve_client_ip(websocket, trusted_networks(settings))
     if not _handshakes.allow(client_ip, settings.ui_ws_connections_per_minute):
-        log.warning("ui_ws_handshake_limited", client_ip=client_ip, request_id=request_id)
+        log.debug("ui_ws_handshake_limited", client_ip=client_ip, request_id=request_id)
         return WsClose.TooBusy
     if _open_sessions >= settings.ui_ws_max_connections:
         # The casualty of an exhausted threadpool or database pool is not
         # this free terminal but `/v1`, in the same worker.
-        log.warning("ui_ws_at_capacity", open_sessions=_open_sessions, request_id=request_id)
+        log.debug("ui_ws_at_capacity", open_sessions=_open_sessions, request_id=request_id)
         return WsClose.TooBusy
     return None
 

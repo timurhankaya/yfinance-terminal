@@ -242,6 +242,15 @@ _SHARD_COUNTERS: dict[str, MetricSpec] = _declare(
         labelnames=("kind",),
     ),
     MetricSpec(
+        name="yfin_sync_normalize_notes_total",
+        documentation=(
+            "Provider values the normalisers set aside, by kind: keys with no "
+            "column, values outside a column's range, key fields empty or too long."
+        ),
+        kind="counter",
+        labelnames=("kind",),
+    ),
+    MetricSpec(
         name="yfin_sync_cache_ops_total",
         documentation="In-process cache hits and misses.",
         kind="counter",
@@ -605,10 +614,8 @@ class Accumulator:
 
 
 #: The accumulator this process counts into, if it is the kind of process
-#: that cannot be scraped. A module-level handle rather than a parameter
-#: threaded through five layers: `storage/contracts.apply_write` counts rows
-#: and has no business knowing what a shard is, and `core/config` is exactly
-#: the dependency `storage/persistence.py` states it does not have.
+#: that cannot be scraped. Module-level: `storage/contracts.apply_write`
+#: counts rows and must not import config.
 _accumulator: Accumulator | None = None
 
 

@@ -1,6 +1,6 @@
 // The typed table every dataset panel renders through. Cell format comes
 // from the catalogue's wire type, not from the panel: a decimal is a
-// decimal whichever of the 56 datasets it sits in. Nothing is dropped:
+// decimal whichever dataset it sits in. Nothing is dropped:
 // the one column the grid hides (raw_json, a blob the width of the page)
 // is in the row detail, along with every other field of the row.
 import { useEffect, useRef, useState, useMemo } from "react";
@@ -164,10 +164,7 @@ function Field({ name, type, value }: { name: string; type: WireType; value: unk
     ? rawDecimal(value)
     : formatCell(value, type, name);
   return (
-    // From the RAW value, not the formatted one: `formatCell` wraps text
-    // over forty characters in a `<span title>` for the grid's ellipsis,
-    // so what comes back for a business summary is an element and every
-    // length test on it was false.
+    // From the RAW value: `formatCell` may return an element.
     <div className={isProse(value) ? "field field-prose" : "field"}>
       <dt className="field-key" title={name}>{name}</dt>
       {/* The tooltip only where the cell is text: `formatCell` returns
@@ -206,10 +203,6 @@ export interface DatasetTableProps {
   onLoadMore?: () => void;
   loadingMore?: boolean;
   pageControl?: ReactNode;
-  /** Columns the panel adds beside the catalogue's own -- a sparkline
-   *  drawn from a second read, say. The engine's own `Column<Row>`, not
-   *  a second column type: a cell is a cell whichever read filled it. */
-  extra?: Column<Row>[];
 }
 
 /** Rows containing the text, anywhere in any column the reader can see.
@@ -228,7 +221,7 @@ function narrow(rows: Row[], query: string): Row[] {
 
 /** A dataset as a grid with j/k/Enter and click opening the row detail. */
 export function DatasetTable(props: DatasetTableProps): ReactElement {
-  const { columns, rows: given, grid, reverse = false, truncated = false, links = [], onLoadMore, loadingMore = false, extra = [], pageControl } = props;
+  const { columns, rows: given, grid, reverse = false, truncated = false, links = [], onLoadMore, loadingMore = false, pageControl } = props;
   const ordered = reverse ? [...given].reverse() : given;
   const [query, setQuery] = useState("");
   // Narrowing before ordering, and both before j/k and the row detail
@@ -274,7 +267,6 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
   }));
   // After the catalogue's, so the grid's own columns keep the order the
   // dataset declares them in.
-  gridColumns.push(...extra);
   if (links.length > 0) {
     // First, not last: a wide grid scrolls sideways and the links would be off-screen.
     gridColumns.unshift({ key: "__links", label: "open", format: (row) => <Links row={row} rules={links} /> });

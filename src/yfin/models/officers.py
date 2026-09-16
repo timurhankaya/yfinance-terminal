@@ -22,7 +22,6 @@ class CompanyOfficer(Base):
     __tablename__ = "company_officers"
 
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
-    # 'Tim Cook' != 'TIM COOK' olmali -> COLLATE "C" (S5.1)
     name: Mapped[str] = mapped_column(PersonNameType(), primary_key=True)
 
     title: Mapped[str | None] = mapped_column(String(255, collation="C"))

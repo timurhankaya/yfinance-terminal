@@ -172,7 +172,7 @@ class GapReconciler:
             )
             session.commit()
             stats.gaps_closed += 1
-            log.info(
+            log.debug(
                 "gap closed from ticks",
                 symbol=gap.symbol,
                 reason=gap.reason,

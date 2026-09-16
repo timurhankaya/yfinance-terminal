@@ -94,7 +94,7 @@ def symbols_exchanges(
             Symbol.exchange,
             Symbol.full_exchange_name,
             Symbol.quote_type,
-            func.count().label("adet"),
+            func.count().label("count"),
         )
         .group_by(Symbol.exchange, Symbol.full_exchange_name, Symbol.quote_type)
         .order_by(func.count().desc())
@@ -107,7 +107,7 @@ def symbols_exchanges(
         typer.echo("no symbols")
         return
     for exchange, full_name, quote_type, count in rows:
-        code = exchange or "NULL (cozulmemis)"
+        code = exchange or "NULL (unresolved)"
         typer.echo(f"{code:<20} {quote_type or '-':<16} {full_name or '':<32} {count}")
 
 

@@ -39,8 +39,7 @@ def _f(source: str, column: str, kind: Kind) -> Field:
 
 
 # --- ticker_info / ticker_info_history ------------------------------------
-# Scope chosen from the field intersection of 4 reference symbols. Any
-# unmapped key stays in raw_json and triggers the unmapped-key warning.
+# Any unmapped key stays in raw_json and triggers the unmapped-key warning.
 
 INFO_FIELDS: tuple[Field, ...] = (
     # identity
@@ -248,9 +247,8 @@ INFO_FIELDS: tuple[Field, ...] = (
 )
 
 # --- ticker_fast_info / _history ------------------------------------------
-# Hardcoded 20 keys at the source (quote.py:_public_keys), identical
-# across 5 markets. All nullable: marketCap/shares return None for ETFs,
-# crypto, FX, and indices.
+# Hardcoded 20 keys at the source (quote.py:_public_keys). All nullable:
+# marketCap/shares return None for ETFs, crypto, FX, and indices.
 
 FAST_INFO_FIELDS: tuple[Field, ...] = (
     _f("currency", "currency", "str32"),
@@ -276,8 +274,8 @@ FAST_INFO_FIELDS: tuple[Field, ...] = (
 )
 
 # --- history_metadata -----------------------------------------------------
-# Source has 30-32 keys; keys with a space or question mark, like
-# 'YF repair?', are kept only in raw_json.
+# Keys with a space or question mark, like 'YF repair?', are kept only in
+# raw_json.
 
 HISTORY_METADATA_FIELDS: tuple[Field, ...] = (
     _f("currency", "currency", "str32"),

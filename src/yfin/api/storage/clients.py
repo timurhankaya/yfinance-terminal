@@ -130,12 +130,7 @@ def create_client(
     return CreatedClient(client_id=client.client_id, secret=secret)
 
 
-def rotate_secret(
-    session: Session,
-    client_id: str,
-    *,
-    grace: timedelta = DEFAULT_ROTATION_GRACE,
-) -> str:
+def rotate_secret(session: Session, client_id: str) -> str:
     """Issues a new secret and puts the current one on a deadline. Refuses
     when two are already live: that is an unfinished rotation."""
     client = _get(session, client_id)
@@ -146,7 +141,7 @@ def rotate_secret(
     secret = new_secret()
     session.add(ApiClientSecret(client_id=client_id, secret_hash=hash_secret(secret)))
 
-    deadline = _now() + grace
+    deadline = _now() + DEFAULT_ROTATION_GRACE
     for row in existing:
         if row.expires_at is None or row.expires_at > deadline:
             row.expires_at = deadline

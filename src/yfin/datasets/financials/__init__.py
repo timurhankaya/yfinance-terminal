@@ -1,4 +1,4 @@
-"""Financials dataset ailesi (S6.5)."""
+"""Financial statement, calendar, earnings-date and SEC-filing datasets."""
 
 from __future__ import annotations
 

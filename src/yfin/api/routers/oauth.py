@@ -230,7 +230,7 @@ def issue_token(
 
     if record is None or credential_id is None or not record.is_active:
         limiter.record_failure(settings, client_id)
-        log.info("token_denied", client_ip=client_ip)
+        log.debug("token_denied", client_ip=client_ip)
         return _invalid_client()
 
     granted = record.scopes

@@ -90,7 +90,7 @@ class Exporter:
             except Exception as exc:  # noqa: BLE001 - one blind query, not a dead exporter
                 failed += 1
                 count_exception(exc)
-                log.warning(
+                log.error(
                     "exporter query failed; keeping the previous values",
                     query=query.name,
                     error=str(exc),
@@ -112,7 +112,7 @@ class Exporter:
             except Exception as exc:  # noqa: BLE001 - same rule as a query
                 failed += 1
                 count_exception(exc)
-                log.warning("job gauges failed", error=str(exc))
+                log.error("job gauges failed", error=str(exc))
 
         if failed == 0:
             set_gauge("yfin_exporter_last_success_timestamp", time.time())

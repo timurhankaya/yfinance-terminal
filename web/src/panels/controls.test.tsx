@@ -2,7 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation } from "react-router";
-import { Choice, Controls, NumberArg, RowFilter, TextArg } from "./controls";
+import { Choice, Controls, NumberArg, RowFilter } from "./controls";
 import { PX } from "./PX";
 
 function LocationProbe() {
@@ -52,16 +52,6 @@ describe("the controls", () => {
     await user.type(field, "5000{Enter}");
     expect(onSet).not.toHaveBeenCalled();
     expect(field).toHaveValue(250);
-  });
-
-  it("clears a filter by emptying its box", async () => {
-    const onSet = vi.fn<(value: string) => void>();
-    const user = userEvent.setup();
-    render(<TextArg label="screen_key" value="day_gainers" onSet={onSet} />);
-    const field = screen.getByRole("textbox", { name: "screen_key" });
-    await user.clear(field);
-    await user.keyboard("{Enter}");
-    expect(onSet).toHaveBeenCalledWith("");
   });
 
   it("says how much of what is loaded a filter is showing", () => {

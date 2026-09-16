@@ -148,9 +148,7 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
             (ALL_TYPE, d) for d in dict_items(block, "documents")
         ]
 
-        # If `lookupTotals.all` exceeds the threshold, `all` is clipped. The
-        # threshold is kept below the observed `all` cap (~1,000) so the
-        # typed branch kicks in before clipping starts.
+        # Above the threshold `all` is clipped, so the typed branch runs.
         if totals.get(ALL_TYPE, 0) > cfg.yf_lookup_all_threshold:
             log.info(
                 "lookup all was truncated, switching to the typed branch",
@@ -266,6 +264,5 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
 
 
 # Opt-in: registered but excluded from the `all` expansion.
-# `yfin sync --datasets lookup` runs it; a bare `yfin sync` does not fetch
-# it, so its cost is unchanged.
+# `yfin sync --datasets lookup` runs it; a bare `yfin sync` does not fetch it.
 register(LookupDataset(), opt_in=True)
