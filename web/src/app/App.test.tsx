@@ -1,9 +1,9 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { AppRoutes } from "./App";
-import { clearRegistry, registerPanel } from "../commands/registry";
+import { registerPanel } from "../commands/registry";
 import { Layout } from "../commands/types";
 import { registerAll } from "../panels";
 import { PAGE_KEYS, readStore, savePage } from "../workspace/store";
@@ -44,29 +44,26 @@ function mount(path: string) {
   );
 }
 
-beforeEach(() => {
-  clearRegistry();
-  registerAll();
-  registerPanel({
-    code: "FAKEFA",
-    title: "Fake",
-    needsSymbol: true,
-    layout: Layout.Single,
-    parseArgs: () => ({}),
-    component: () => <p>fake FA panel</p>,
-  });
-  registerPanel({
-    code: "GIP",
-    title: "Intraday",
-    needsSymbol: true,
-    layout: Layout.Headed,
-    parseArgs: (t) => {
-      const i = (t[0] ?? "5m").toLowerCase();
-      if (!["1m", "5m", "15m", "60m"].includes(i)) throw new Error(`Unknown interval ${t[0]}`);
-      return { interval: i };
-    },
-    component: () => null,
-  });
+registerAll();
+registerPanel({
+  code: "FAKEFA",
+  title: "Fake",
+  needsSymbol: true,
+  layout: Layout.Single,
+  parseArgs: () => ({}),
+  component: () => <p>fake FA panel</p>,
+});
+registerPanel({
+  code: "GIP",
+  title: "Intraday",
+  needsSymbol: true,
+  layout: Layout.Headed,
+  parseArgs: (t) => {
+    const i = (t[0] ?? "5m").toLowerCase();
+    if (!["1m", "5m", "15m", "60m"].includes(i)) throw new Error(`Unknown interval ${t[0]}`);
+    return { interval: i };
+  },
+  component: () => null,
 });
 
 afterEach(() => {

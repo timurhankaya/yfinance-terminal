@@ -277,16 +277,3 @@ def _with_occurred_at(payload: str, occurred_at: datetime) -> str:
     window between the timestamp and the COPY; `_append` writes the field as null.
     """
     return payload.replace('"occurred_at":null', f'"occurred_at":"{occurred_at.isoformat()}"')
-
-
-__all__ = [
-    "ENVELOPE_VERSION",
-    "OUTBOX_COLUMNS",
-    "ChangeCollector",
-    "ChangeContext",
-    "ChangeEvent",
-    "ChangeOp",
-    "context_for",
-    "BARS_INTERVAL_TABLES",
-    "BARS_TIME_COLUMN",
-]

@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { AppRoutes } from "../app/App";
 import { registerAll } from "./index";
 import { WLA, WLA_MAX, WLA_PANEL, WLA_USAGE, parseSymbols } from "./WLA";
-import { handleFrame, resetLive, setSocketFactory, useLive } from "../live/store";
+import { handleFrame, resetLive, useLive } from "../live/store";
 import type { SocketLike } from "../live/socket";
 import { LinkState, MarketHours, Op } from "../live/types";
 import type { Tick } from "../live/types";
@@ -50,14 +50,13 @@ beforeEach(() => {
     return frames.length;
   });
   vi.stubGlobal("cancelAnimationFrame", () => {});
-  setSocketFactory(() => new DeadSocket());
+  vi.stubGlobal("WebSocket", DeadSocket);
   resetLive();
 });
 
 afterEach(() => {
   cleanup();
   resetLive();
-  setSocketFactory(null);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

@@ -17,7 +17,6 @@ from yfin.core import metrics, tracing
 from yfin.core.logging_setup import get_logger
 from yfin.outbox.cursor import Lag, Position, cursor_for
 from yfin.outbox.kafka import (
-    KafkaUnavailable,
     OutboxMessage,
     Producer,
     build_producer,
@@ -213,13 +212,3 @@ def relay_lag(
     with session_factory() as session:
         cursor = cursor_for(spec)
         return cursor.lag(session, spec, cursor.read(session, spec))
-
-
-__all__ = [
-    "KafkaUnavailable",
-    "OutboxRelay",
-    "RelayConfig",
-    "Lag",
-    "RelayStats",
-    "relay_lag",
-]

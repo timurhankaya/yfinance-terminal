@@ -3,9 +3,9 @@
 // not be given one.
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SymbolBand } from "./SymbolBand";
-import { clearRegistry, registerPanel } from "../commands/registry";
+import { registerPanel } from "../commands/registry";
 import { Layout } from "../commands/types";
 import type { Command } from "../commands/types";
 import { FrameProvider } from "../workspace/frame";
@@ -21,12 +21,9 @@ function panel(code: string, needsSymbol: boolean, layout = Layout.Single) {
   });
 }
 
-beforeEach(() => {
-  clearRegistry();
-  panel("DES", true, Layout.Headed);
-  panel("ANR", true);
-  panel("HEAT", false);
-});
+panel("DES", true, Layout.Headed);
+panel("ANR", true);
+panel("HEAT", false);
 
 afterEach(() => {
   cleanup();

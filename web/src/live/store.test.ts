@@ -5,13 +5,14 @@ import {
   release,
   resetLive,
   retain,
-  setSocketFactory,
   setTape,
   useLive,
 } from "./store";
 import type { SocketLike } from "./socket";
 import { MarketHours, Op, WsErrorCode } from "./types";
 import type { Tick } from "./types";
+
+let opened: FakeSocket[] = [];
 
 class FakeSocket implements SocketLike {
   sent: string[] = [];
@@ -20,14 +21,18 @@ class FakeSocket implements SocketLike {
   onerror: ((event: unknown) => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
 
+  constructor() {
+    opened.push(this);
+    // The store's socket subscribes on open; the fake is open at once.
+    queueMicrotask(() => this.onopen?.({}));
+  }
+
   send(data: string): void {
     this.sent.push(data);
   }
 
   close(): void {}
 }
-
-let opened: FakeSocket[] = [];
 let frames: Array<() => void> = [];
 
 function sent(): unknown[] {
@@ -53,19 +58,12 @@ beforeEach(() => {
     return frames.length;
   });
   vi.stubGlobal("cancelAnimationFrame", () => {});
-  setSocketFactory(() => {
-    const socket = new FakeSocket();
-    opened.push(socket);
-    // The store's socket subscribes on open; the fake is open at once.
-    queueMicrotask(() => socket.onopen?.({}));
-    return socket;
-  });
+  vi.stubGlobal("WebSocket", FakeSocket);
   resetLive();
 });
 
 afterEach(() => {
   resetLive();
-  setSocketFactory(null);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

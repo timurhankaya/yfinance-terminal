@@ -93,7 +93,7 @@ class TestPagingParameters:
 
 
 class TestMissingTotal:
-    def test_a_page_without_total_is_refused_not_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_a_page_without_total_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """`screen_runs.total` is NOT NULL and a count Yahoo did not send is not 0."""
         page = _page(3, 3, meta=True)
         del page["total"]

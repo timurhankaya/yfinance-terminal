@@ -706,14 +706,3 @@ def install_settings(settings: Settings, overrides: Mapping[str, str] | None = N
     with _lock:
         _settings = settings
         _overrides = dict(overrides or {})
-
-
-def reset_settings() -> None:
-    """Clear the singleton (for tests and the `yfin config` write path).
-
-    Without a reset, repo tests would run against the previous test's singleton
-    and `load_overrides` would never be called."""
-    global _settings, _overrides
-    with _lock:
-        _settings = None
-        _overrides = {}

@@ -249,6 +249,3 @@ class XidCursor:
 
 def cursor_for(spec: OutboxSpec) -> Cursor:
     return XidCursor() if spec.cursor == "xid" else IdCursor()
-
-
-__all__ = ["CLEANUP_LAG_HOURS", "Cursor", "IdCursor", "Lag", "Position", "XidCursor", "cursor_for"]

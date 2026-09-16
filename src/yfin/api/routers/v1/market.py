@@ -158,6 +158,13 @@ def _refuse_window(problem: tuple[limits.WindowProblem, str] | None) -> None:
     "/symbols",
     response_model=Collection[SymbolSummary],
     summary="List symbols",
+    description=(
+        "Symbols in the universe, ordered by symbol.\n"
+        "\n"
+        "`active` defaults to true: an inactive row is one discovery found but\n"
+        "an operator never activated, so the pipeline does not fetch it and it\n"
+        "is close to empty."
+    ),
     openapi_extra=CONTRACT,
 )
 def list_symbols(
@@ -194,12 +201,6 @@ def list_symbols(
     limit: LimitQuery = None,
     cursor: CursorQuery = None,
 ) -> Collection[SymbolSummary] | Response:
-    """Symbols in the universe, ordered by symbol.
-
-    `active` defaults to true: an inactive row is one discovery found but
-    an operator never activated, so the pipeline does not fetch it and it
-    is close to empty.
-    """
     limits.apply_statement_timeout(session)
     size = paging.page_size(request, limit)
     identity = {
@@ -276,6 +277,15 @@ def get_symbol(
     "/symbols/{symbol}/bars",
     response_model=Collection[Bar],
     summary="Price bars",
+    description=(
+        "Bars for one symbol, oldest first.\n"
+        "\n"
+        "`session` applies to intraday intervals only, and defaults to\n"
+        "`regular`. That default is accident prevention: extended-hours bars\n"
+        "mixed into a regular series corrupt every indicator computed from it,\n"
+        "invisibly. Above daily the flag has no meaning, so passing it there is\n"
+        "rejected rather than ignored."
+    ),
     openapi_extra=CONTRACT,
 )
 def list_bars(
@@ -308,14 +318,6 @@ def list_bars(
     limit: LimitQuery = None,
     cursor: CursorQuery = None,
 ) -> Collection[Bar] | Response:
-    """Bars for one symbol, oldest first.
-
-    `session` applies to intraday intervals only, and defaults to
-    `regular`. That default is accident prevention: extended-hours bars
-    mixed into a regular series corrupt every indicator computed from it,
-    invisibly. Above daily the flag has no meaning, so passing it there is
-    rejected rather than ignored.
-    """
     limits.apply_statement_timeout(session)
     code = nz.normalize_symbol(symbol)
 
@@ -412,6 +414,13 @@ def _bar(row: dict[str, Any]) -> Bar:
     "/symbols/{symbol}/actions",
     response_model=Collection[Action],
     summary="Dividends, splits and capital gains",
+    description=(
+        "Dividends, splits and capital gains for one symbol, OLDEST FIRST.\n"
+        "\n"
+        "Ranges are half-open and capped like a monthly series; the action\n"
+        "value's meaning depends on `action_type` -- a cash amount for a\n"
+        "dividend, a ratio for a split."
+    ),
     openapi_extra=CONTRACT,
 )
 def list_actions(
@@ -425,12 +434,6 @@ def list_actions(
     limit: LimitQuery = None,
     cursor: CursorQuery = None,
 ) -> Collection[Action] | Response:
-    """Dividends, splits and capital gains for one symbol, OLDEST FIRST.
-
-    Ranges are half-open and capped like a monthly series; the action
-    value's meaning depends on `action_type` -- a cash amount for a
-    dividend, a ratio for a split.
-    """
     limits.apply_statement_timeout(session)
     code = nz.normalize_symbol(symbol)
 
@@ -495,6 +498,14 @@ def list_actions(
     "/symbols/{symbol}/financials",
     response_model=Collection[FinancialFactOut],
     summary="Financial statement line items",
+    description=(
+        "Line items for one statement, newest period first.\n"
+        "\n"
+        "`statement` and `freq` are both required, and that is a performance\n"
+        "contract rather than a stylistic choice: `financial_facts` is keyed on\n"
+        "(symbol, statement, freq, period_end, item_key), so without them the\n"
+        "query cannot use the leading columns of its own primary key."
+    ),
     openapi_extra=CONTRACT,
 )
 def list_financials(
@@ -513,13 +524,6 @@ def list_financials(
     limit: LimitQuery = None,
     cursor: CursorQuery = None,
 ) -> Collection[FinancialFactOut] | Response:
-    """Line items for one statement, newest period first.
-
-    `statement` and `freq` are both required, and that is a performance
-    contract rather than a stylistic choice: `financial_facts` is keyed on
-    (symbol, statement, freq, period_end, item_key), so without them the
-    query cannot use the leading columns of its own primary key.
-    """
     if statement not in StatementKind or freq not in StatementFreq:
         raise ApiProblem(
             422,

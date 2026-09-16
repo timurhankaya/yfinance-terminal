@@ -3,8 +3,6 @@ unauthenticated endpoint, and its counters increment where the decision is made.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -14,11 +12,9 @@ from yfin.core.metrics import METRICS
 
 
 @pytest.fixture(autouse=True)
-def _fresh_window() -> Iterator[None]:
+def _fresh_window(monkeypatch: pytest.MonkeyPatch) -> None:
     """A minute is process state; no test inherits another's."""
-    window.reset()
-    yield
-    window.reset()
+    monkeypatch.setattr(window, "_windows", {})
 
 
 @pytest.fixture

@@ -110,14 +110,6 @@ class Registry[D: Registrable]:
                 members.append(ds.name)
         return ds
 
-    def is_opt_in(self, name: str) -> bool:
-        return name in self._opt_in
-
-    def unregister(self, name: str) -> None:
-        """Test-only; an unregistered name is silently ignored."""
-        self._items.pop(name, None)
-        self._opt_in.discard(name)
-
     # Collection protocol: `name in registry`, `registry[name]`,
     # `len(registry)`, `for name in registry`. A separate names()/values()
     # would just open a second face onto the same data.

@@ -7,12 +7,10 @@ import {
   apiFetch,
   getActions,
   getBars,
-  getCatalog,
   getDataset,
   getDatasetPage,
   getFinancials,
   getSymbol,
-  resetCatalogCache,
   searchSymbols,
 } from "./client";
 
@@ -141,12 +139,17 @@ describe("endpoints", () => {
 });
 
 describe("catalogue and dataset rows", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-    resetCatalogCache();
-  });
+  afterEach(() => vi.restoreAllMocks());
+
+  /** The catalogue is cached for the life of the module, so each test of
+   *  the cache runs on its own instance. */
+  async function freshClient() {
+    vi.resetModules();
+    return import("./client");
+  }
 
   it("getCatalog fetches once and caches the entries", async () => {
+    const { getCatalog } = await freshClient();
     const entry = { name: "major_holders", family: "holders", symbol_scoped: true, filters: [], columns: [] };
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond(200, { data: [entry], next_cursor: null }));
     const first = await getCatalog();
@@ -158,6 +161,7 @@ describe("catalogue and dataset rows", () => {
   });
 
   it("getCatalog does not cache a failure", async () => {
+    const { ApiError, getCatalog } = await freshClient();
     const spy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(respond(500, { type: "internal" }, "application/problem+json"))

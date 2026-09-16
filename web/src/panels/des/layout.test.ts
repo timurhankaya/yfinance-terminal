@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { OTHER, SECTIONS, group } from "./info";
 import {
-  CLAIMED,
   FieldTab,
+  MEMBERS,
   STAT_CARDS,
   analystRange,
   firstFilled,
@@ -21,8 +21,9 @@ describe("the tabs and the sections", () => {
   // grouped and then shown nowhere.
   it("claims every section exactly once, and claims nothing that does not exist", () => {
     const titles = [...SECTIONS.map(([title]) => title), OTHER];
-    expect([...CLAIMED].sort()).toEqual([...titles].sort());
-    expect(new Set(CLAIMED).size).toBe(CLAIMED.length);
+    const claimed = MEMBERS.flatMap(([, , sections]) => sections);
+    expect([...claimed].sort()).toEqual([...titles].sort());
+    expect(new Set(claimed).size).toBe(claimed.length);
   });
 
   it("puts each filled section under its tab and counts the fields", () => {

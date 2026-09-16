@@ -68,7 +68,7 @@ def test_the_child_ISSUES_NO_SELECT_and_uses_the_right_value(
     monkeypatch.setattr(config_mod, "bootstrap_settings", lambda: store_settings)
     spec = _spec(settings_overrides={"yf_max_shards": "9"})
 
-    config_mod.reset_settings()
+    monkeypatch.setattr(config_mod, "_settings", None)
     monkeypatch.setattr(
         settings_store, "fetch_rows", lambda s: pytest.fail("child issued a SELECT to the DB")
     )

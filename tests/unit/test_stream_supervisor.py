@@ -73,6 +73,10 @@ def _supervisor(
     return StreamSupervisor(repository, config=config)  # type: ignore[arg-type]
 
 
+def _connection_keys(supervisor: StreamSupervisor) -> list[str]:
+    return sorted(supervisor._running)
+
+
 # --- last-value box --------------------------------------------------------
 
 
@@ -258,7 +262,7 @@ async def test_run_opens_a_session_and_starts_connections() -> None:
     supervisor._connector = never_connect  # type: ignore[assignment]
     task = asyncio.create_task(supervisor.run())
     await asyncio.sleep(0.05)
-    keys = supervisor.connection_keys
+    keys = _connection_keys(supervisor)
     supervisor.stop()
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
@@ -280,7 +284,7 @@ async def test_stop_closes_every_connection() -> None:
     supervisor.stop()
     async with asyncio.timeout(2.0):
         await task
-    assert supervisor.connection_keys == []
+    assert _connection_keys(supervisor) == []
 
 
 async def test_rescan_opens_a_connection_for_a_new_exchange() -> None:
@@ -295,7 +299,7 @@ async def test_rescan_opens_a_connection_for_a_new_exchange() -> None:
     await asyncio.sleep(0.05)
     repository.scope = [_entry("AAPL"), _entry("XU100", "IST")]
     await asyncio.sleep(0.1)
-    keys = supervisor.connection_keys
+    keys = _connection_keys(supervisor)
     supervisor.stop()
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
@@ -335,7 +339,7 @@ async def test_a_bad_plan_does_not_kill_the_run() -> None:
     await asyncio.sleep(0.05)
     repository.scope = [_entry("AAPL"), _entry("XU100", "IST"), _entry("X", "ASE")]
     await asyncio.sleep(0.1)
-    alive = supervisor.connection_keys
+    alive = _connection_keys(supervisor)
     supervisor.stop()
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)

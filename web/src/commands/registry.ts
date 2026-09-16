@@ -39,9 +39,3 @@ export function isMnemonic(token: string): boolean {
   const code = token.toUpperCase();
   return panels.has(code) || actions.has(code);
 }
-
-/** Tests register their own minimal panels. */
-export function clearRegistry(): void {
-  panels.clear();
-  actions.clear();
-}

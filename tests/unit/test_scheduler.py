@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 import pytest
 
 from yfin.core.config import SETTING_GROUPS, Settings
-from yfin.scheduler.jobs import JOBS, JOBS_BY_NAME, interval_seconds
+from yfin.scheduler.jobs import JOBS, interval_seconds
 from yfin.scheduler.runs import result_for
 
 NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
@@ -34,7 +34,7 @@ class TestTheJobTable:
             assert extra["group"] == "scheduler", job.name
 
     def test_names_are_unique(self) -> None:
-        assert len(JOBS_BY_NAME) == len(JOBS)
+        assert len({job.name for job in JOBS}) == len(JOBS)
 
     def test_everything_that_touches_yahoo_shares_one_queue(self) -> None:
         """A single-threaded executor is the only thing stopping two jobs
@@ -173,8 +173,9 @@ class TestTheJobGauges:
 
         service = SchedulerService.__new__(SchedulerService)
         service._scheduler = None  # type: ignore[attr-defined]
+        sync = next(job for job in JOBS if job.name == "sync")
         service._states = {  # type: ignore[attr-defined]
-            "sync": JobState(job=JOBS_BY_NAME["sync"], cron="0 2 * * *", **state)  # type: ignore[arg-type]
+            "sync": JobState(job=sync, cron="0 2 * * *", **state)  # type: ignore[arg-type]
         }
         return service
 

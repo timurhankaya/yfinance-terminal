@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { PG, PG_PANEL, normalizeName, pagePath } from "./PG";
 import { Layout } from "../commands/types";
-import { PAGE_KEYS, readStore, resetStorageBlocked, savePage } from "./store";
+import { PAGE_KEYS, readStore, savePage } from "./store";
 import type { Page } from "./page";
 
 function page(name: string, panels: Record<string, unknown> = {}): Page {
@@ -21,12 +21,12 @@ function Where() {
   return <span data-testid="where">{pathname}</span>;
 }
 
-function draw() {
+function draw(Panel: typeof PG = PG) {
   return render(
     <MemoryRouter initialEntries={["/ui/m/PG"]}>
       <Where />
       <Routes>
-        <Route path="/ui/m/:code" element={<PG symbol={null} args={{}} />} />
+        <Route path="/ui/m/:code" element={<Panel symbol={null} args={{}} />} />
         <Route path="*" element={<p>elsewhere</p>} />
       </Routes>
     </MemoryRouter>,
@@ -35,7 +35,6 @@ function draw() {
 
 beforeEach(() => {
   window.localStorage.clear();
-  resetStorageBlocked();
 });
 
 afterEach(() => {
@@ -124,11 +123,16 @@ describe("PG", () => {
     expect(readStore().order).toEqual(["trading"]);
   });
 
-  it("says so when the browser will not store anything", () => {
+  it("says so when the browser will not store anything", async () => {
+    // The refusal is remembered for the life of the store module, so the
+    // panel is drawn from a fresh module graph rather than marking the
+    // shared one for the tests after this.
+    vi.resetModules();
+    const fresh = await import("./PG");
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new DOMException("blocked");
     });
-    draw();
+    draw(fresh.PG);
     expect(screen.getByText(/will not let the terminal store anything/)).toBeInTheDocument();
   });
 });

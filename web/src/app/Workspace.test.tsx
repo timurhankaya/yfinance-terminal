@@ -4,20 +4,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { Workspace } from "./Workspace";
 import type { PanelSeed, WorkspaceProps } from "./Workspace";
-import { clearRegistry, registerPanel } from "../commands/registry";
+import { registerPanel } from "../commands/registry";
 import { Layout } from "../commands/types";
 import type { Command } from "../commands/types";
 import { useListKeys } from "../panels/common";
 import { usePanelRun } from "../workspace/frame";
 import { Group } from "../workspace/groups";
 import { useQuote } from "../live/hooks";
-import { handleFrame, resetLive, setSocketFactory } from "../live/store";
+import { handleFrame, resetLive } from "../live/store";
 import type { SocketLike } from "../live/socket";
 import { MarketHours, Op } from "../live/types";
 
 afterEach(() => {
   cleanup();
-  clearRegistry();
 });
 
 /** A panel that does the two things the frame is about: it moves a
@@ -251,7 +250,7 @@ describe("a tick on a page of panels", () => {
       return frames.length;
     });
     vi.stubGlobal("cancelAnimationFrame", () => {});
-    setSocketFactory(() => new DeadSocket());
+    vi.stubGlobal("WebSocket", DeadSocket);
     resetLive();
     registerPanel({
       code: "Q",
@@ -285,7 +284,6 @@ describe("a tick on a page of panels", () => {
     expect(renders.get("MSFT")).toBe(before.get("MSFT"));
 
     resetLive();
-    setSocketFactory(null);
     vi.unstubAllGlobals();
   });
 });

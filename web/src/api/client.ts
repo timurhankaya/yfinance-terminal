@@ -195,11 +195,6 @@ export function getCatalog(): Promise<CatalogEntry[]> {
   return catalogCache;
 }
 
-/** Tests only: forget the cached catalogue. */
-export function resetCatalogCache(): void {
-  catalogCache = null;
-}
-
 //: The UI principal's page cap; asking for more is a 422.
 export const PAGE_LIMIT = 1000;
 //: Pages followed per request. 5000 rows is more than any panel can show

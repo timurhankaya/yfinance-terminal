@@ -62,10 +62,6 @@ class _TtlCache:
         with self._lock:
             self._entries[key] = (time.monotonic() + self._ttl, value)
 
-    def clear(self) -> None:
-        with self._lock:
-            self._entries.clear()
-
 
 _cache = _TtlCache(CACHE_TTL_SECONDS)
 
@@ -104,8 +100,3 @@ def limits_for_client(client_id: str) -> PlanLimits:
 
     _cache.put(client_id, limits)
     return limits
-
-
-def clear_cache() -> None:
-    """Drops the cache. For tests and for an operator who cannot wait."""
-    _cache.clear()

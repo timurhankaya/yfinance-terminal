@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from yfin.proxy.check import CHECK_CHART_URL, CHECK_CRUMB_URL, CheckResult, check_endpoint
+from yfin.proxy.check import CheckResult, check_endpoint
 from yfin.proxy.crypto import (
     PasswordUndecryptable,
     SecretKeyMissing,
@@ -29,8 +29,6 @@ from yfin.proxy.repository import (
 )
 
 __all__ = [
-    "CHECK_CHART_URL",
-    "CHECK_CRUMB_URL",
     "CheckResult",
     "HealthEvent",
     "PasswordUndecryptable",

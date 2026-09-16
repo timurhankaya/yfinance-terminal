@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resetCatalogCache, WireType } from "../api/client";
+import { WireType } from "../api/client";
 import { DS, DS_PANEL, DS_USAGE } from "./DS";
 
 function json(status: number, body: unknown): Response {
@@ -58,7 +58,6 @@ function mockApi(rows: Record<string, unknown>[], seen: string[] = []) {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
-  resetCatalogCache();
 });
 
 describe("DS parseArgs", () => {

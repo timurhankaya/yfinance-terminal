@@ -164,6 +164,3 @@ INFRASTRUCTURE_TABLES: Final[frozenset[str]] = (
     )
     | GATE_TABLES
 )
-
-
-__all__ = ["GATE_TABLES", "INFRASTRUCTURE_TABLES", "ROUTES", "Route"]

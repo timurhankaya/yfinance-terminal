@@ -6,7 +6,7 @@ import os
 
 # Must run before any `yfin` import: `load_overrides` binds to the production
 # schema at import time, before any fixture. `setdefault` lets repo tests lift
-# the guard via `monkeypatch.delenv` + `config.reset_settings()`.
+# the guard via `monkeypatch.delenv` + patching `config._settings` to None.
 os.environ.setdefault("YF_SETTINGS_SOURCE", "env")
 
 from collections.abc import Iterator  # noqa: E402

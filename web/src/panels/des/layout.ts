@@ -25,7 +25,7 @@ export function isFieldTab(value: string): value is FieldTab {
 //: appears exactly once across the four, and `info.test.ts` asserts it:
 //: a section named here but not there would silently show nothing, and
 //: one named there but not here would vanish from the panel.
-const MEMBERS: ReadonlyArray<[FieldTab, label: string, titles: string[]]> = [
+export const MEMBERS: ReadonlyArray<[FieldTab, label: string, titles: string[]]> = [
   [FieldTab.Price, "Price", ["Price & volume"]],
   [FieldTab.Fundamentals, "Fundamentals", [
     "Valuation", "Income & cash flow", "Balance sheet", "Margins & returns", "Analyst view",
@@ -33,10 +33,6 @@ const MEMBERS: ReadonlyArray<[FieldTab, label: string, titles: string[]]> = [
   [FieldTab.Ownership, "Ownership", ["Share statistics", "Dividends & splits"]],
   [FieldTab.Reference, "Reference", ["Identity", "Contact", "Key dates", "Fund", "Crypto", OTHER]],
 ];
-
-/** Every section title the tabs claim, for the test that keeps the two
- *  lists joined. */
-export const CLAIMED: readonly string[] = MEMBERS.flatMap(([, , titles]) => titles);
 
 export interface TabView {
   key: FieldTab;
