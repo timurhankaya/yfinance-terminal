@@ -130,12 +130,12 @@ export function trimDecimal(value: unknown): string {
 }
 
 export function toMarkers(actions: Row[], candles: Candle[]): ActionMarker[] {
-  if (candles.length === 0) return [];
   const times = candles.map((candle) => candle.time);
   // An action before the first candle belongs to a session this window
   // does not show; snapping it onto the first bar would put every
   // dividend of the last decade on one candle.
-  const first = times[0] ?? 0;
+  const first = times[0];
+  if (first === undefined) return [];
   const markers: ActionMarker[] = [];
   for (const action of actions) {
     const raw = action.action_date;
@@ -181,11 +181,11 @@ export const GAP_SLOT_LIMIT = 3000;
  *  the charted window are dropped so the axis is not stretched. */
 export function gapBands(gaps: Gap[], intervalSeconds: number, candles: Candle[]): GapBands {
   const whitespace: Whitespace[] = [];
-  if (candles.length === 0 || intervalSeconds <= 0) {
+  const first = candles[0]?.time;
+  const last = candles[candles.length - 1]?.time;
+  if (first === undefined || last === undefined || intervalSeconds <= 0) {
     return { whitespace, band: [], truncated: false };
   }
-  const first = candles[0]?.time ?? 0;
-  const last = candles[candles.length - 1]?.time ?? 0;
   const known = new Set(candles.map((candle) => candle.time));
   let truncated = false;
   for (const gap of gaps) {
@@ -308,21 +308,21 @@ export function toComparison(symbol: string, rows: Row[]): ComparisonSeries | nu
     if (time === null || close === null) continue;
     byTime.set(time, close);
   }
-  const times = [...byTime.keys()].sort((a, b) => a - b);
-  if (times.length < 2) return null;
-  const closes = times.map((time) => byTime.get(time) ?? 0);
-  const base = closes[0] ?? 0;
+  const sorted = [...byTime.entries()].sort((a, b) => a[0] - b[0]);
+  const head = sorted[0];
+  if (sorted.length < 2 || head === undefined) return null;
+  const [baseTime, base] = head;
   // A first close of zero has no ratio to take. `normalize100` throws on
   // it rather than returning Infinity, so the series is refused here
   // instead and the panel lists the symbol as having no usable bars.
   if (base === 0) return null;
-  const indexed = normalize100(closes);
-  const last = indexed[indexed.length - 1] ?? 100;
-  return {
-    symbol,
-    points: times.map((time, i) => ({ time, value: indexed[i] ?? 100 })),
-    base,
-    baseTime: times[0] ?? 0,
-    changePercent: last - 100,
-  };
+  const indexed = normalize100(sorted.map(([, close]) => close));
+  const points: LinePoint[] = [];
+  sorted.forEach(([time], i) => {
+    const value = indexed[i];
+    if (value !== undefined) points.push({ time, value });
+  });
+  const last = points[points.length - 1];
+  if (last === undefined) return null;
+  return { symbol, points, base, baseTime, changePercent: last.value - 100 };
 }

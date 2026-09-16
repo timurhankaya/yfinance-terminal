@@ -28,7 +28,9 @@ const PAD = 2;
 
 function SparklineBase({ values, label, area = false }: SparklineProps): ReactElement | null {
   const points = values.filter((value) => Number.isFinite(value));
-  if (points.length < 2) return null;
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (points.length < 2 || first === undefined || last === undefined) return null;
   const span = extent(points);
   if (span === null) return null;
 
@@ -36,8 +38,6 @@ function SparklineBase({ values, label, area = false }: SparklineProps): ReactEl
   const y = linearScale(span, { min: HEIGHT - PAD, max: PAD });
   const line = points.map((value, index) => `${x(index).toFixed(2)},${y(value).toFixed(2)}`);
   const path = `M${line.join("L")}`;
-  const first = points[0] ?? 0;
-  const last = points[points.length - 1] ?? 0;
   const colour = directionColor(last - first);
 
   return (

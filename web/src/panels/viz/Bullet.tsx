@@ -34,16 +34,9 @@ export function Bullet(props: BulletProps): ReactElement | null {
   // Clipped, not dropped. A price above the highest target is exactly the
   // situation worth seeing, and a marker drawn off the track would be
   // invisible; it sits on the end and the label says which side.
-  const outside = actual === null || !Number.isFinite(actual)
-    ? null
-    : actual < low
-      ? "below"
-      : actual > high
-        ? "above"
-        : null;
-  const marker = actual === null || !Number.isFinite(actual)
-    ? null
-    : Math.min(WIDTH - PAD, Math.max(PAD, x(actual)));
+  const known = actual !== null && Number.isFinite(actual) ? actual : null;
+  const outside = known === null ? null : known < low ? "below" : known > high ? "above" : null;
+  const marker = known === null ? null : Math.min(WIDTH - PAD, Math.max(PAD, x(known)));
 
   return (
     <figure className="viz-figure" ref={ref}>
@@ -89,10 +82,10 @@ export function Bullet(props: BulletProps): ReactElement | null {
           {format(mean)}
         </text>
       </svg>
-      {outside !== null && (
+      {known !== null && outside !== null && (
         <figcaption className="viz-legend">
           <span className="muted">
-            {format(actual ?? 0)} is {outside} the range; the marker sits on the end.
+            {format(known)} is {outside} the range; the marker sits on the end.
           </span>
         </figcaption>
       )}
