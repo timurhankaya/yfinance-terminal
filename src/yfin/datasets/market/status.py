@@ -12,6 +12,7 @@ from yfin.core import normalize as nz
 from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult, mark_known_in
+from yfin.datasets.common import note_unmapped
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.market.base import MarketContext, MarketScope, SnapshotGlobalDataset
 from yfin.datasets.payloads import MarketStatusPayload, MarketSummaryPayload
@@ -201,12 +202,7 @@ class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
             quote_map = nz.as_mapping(quote)
             unmapped = sorted(set(quote_map) - _MAPPED_SUMMARY_KEYS)
             if unmapped:
-                log.debug(
-                    "unmapped market summary keys",
-                    region=raw.region,
-                    board=board_code,
-                    keys=unmapped[:10],
-                )
+                note_unmapped("market_summary", unmapped[:10], region=raw.region, board=board_code)
             symbol = nz.to_str(quote_map.get("symbol"), max_len=32)
             if symbol:
                 symbol = nz.normalize_symbol(symbol)

@@ -16,7 +16,7 @@ from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext, mark_known_in
-from yfin.datasets.common import key_value, to_fact_value
+from yfin.datasets.common import key_value, note_unmapped, to_fact_value
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import FundsPayload
 from yfin.datasets.registry import register
@@ -272,9 +272,7 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
             for position, label in enumerate(operations.index):
                 mapping = OPERATIONS.get(str(label))
                 if mapping is None:
-                    log.debug(
-                        "unmapped keys", dataset=self.name, symbol=symbol, keys=[str(label)]
-                    )
+                    note_unmapped(self.name, [str(label)], symbol=symbol)
                     continue
                 value_column, average_column = mapping
                 row[value_column] = nz.to_decimal(own.iloc[position])

@@ -125,58 +125,6 @@ export function NumberArg(props: {
   );
 }
 
-export function TextArg(props: {
-  label: string;
-  value: string;
-  onSet: (value: string) => void;
-  placeholder?: string;
-  type?: "text" | "date";
-}): ReactElement {
-  const { label, value, onSet, placeholder, type = "text" } = props;
-  const id = useId();
-  const [draft, setDraft] = useState(value);
-  const sent = useRef(value);
-  useEffect(() => {
-    setDraft(value);
-    sent.current = value;
-  }, [value]);
-
-  const commit = () => {
-    const next = draft.trim();
-    // Enter commits and blurs, and blur commits: without this a single
-    // Enter would send the same value twice.
-    if (next === value || next === sent.current) return;
-    sent.current = next;
-    onSet(next);
-  };
-
-  return (
-    <span className="control control-field">
-      <label className="control-label" htmlFor={id}>
-        {label}
-      </label>
-      <input
-        id={id}
-        className={type === "date" ? "control-date" : "control-text"}
-        type={type}
-        value={draft}
-        placeholder={placeholder}
-        aria-label={label}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            event.stopPropagation();
-            commit();
-            event.currentTarget.blur();
-          }
-        }}
-      />
-    </span>
-  );
-}
-
 /** Narrows what is already on screen. Unlike the others this is NOT an
  *  argument: it filters the rows the panel has loaded rather than asking
  *  for different ones, and it says so, because a reader who thinks they

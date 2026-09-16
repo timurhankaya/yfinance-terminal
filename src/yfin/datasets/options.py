@@ -19,7 +19,7 @@ from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext
-from yfin.datasets.common import key_value
+from yfin.datasets.common import key_value, note_unmapped
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.registry import register
 from yfin.ingest.client import call_optional
@@ -204,7 +204,7 @@ class OptionsDataset(AsOfDataset[OptionsPayload]):
         assert isinstance(frame, pd.DataFrame)
         unmapped = sorted(str(c) for c in frame.columns if str(c) not in COLUMN_MAP)
         if unmapped:
-            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
+            note_unmapped(self.name, unmapped, symbol=symbol)
 
         rows: dict[str, dict[str, Any]] = {}
         for _, record in frame.iterrows():

@@ -100,7 +100,7 @@ class ScreenPage:
     """A single `yf.screen` response."""
 
     quotes: list[dict[str, Any]]
-    total: int | None
+    total: int
     # Populated only on the FIRST predefined page (GET); the POST response
     # carries 5 keys and includes none of these.
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -112,7 +112,7 @@ class ScreenPayload:
     as_of_date: date
     fetched_at: datetime
     quotes: list[dict[str, Any]]
-    total: int | None
+    total: int
     page_count: int
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -145,9 +145,13 @@ def _fetch_page(
             what=f"screen:{spec.key}:@{offset}",
         )
     body = expect_dict(raw, what="screen")
+    total = nz.to_int(body.get("total"))
+    if total is None:
+        # `screen_runs.total` is NOT NULL: a count Yahoo did not send is not 0.
+        raise ValueError(f"screen {spec.key} response carries no `total`")
     return ScreenPage(
         quotes=dict_items(body, "quotes"),
-        total=nz.to_int(body.get("total")),
+        total=total,
         metadata={k: v for k, v in body.items() if k != "quotes"},
     )
 
@@ -244,7 +248,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
 
         quotes: list[dict[str, Any]] = []
         metadata: dict[str, Any] = {}
-        total: int | None = None
+        total = 0
         offset = 0
         pages = 0
 
@@ -265,7 +269,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
             if not page.quotes:
                 break
             offset += len(page.quotes)
-            if page.total is not None and offset >= page.total:
+            if offset >= page.total:
                 break
 
         return ScreenPayload(

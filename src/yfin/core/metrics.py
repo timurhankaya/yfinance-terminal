@@ -129,6 +129,15 @@ _SERVICE_COUNTERS: dict[str, MetricSpec] = _declare(
         labelnames=("type",),
     ),
     MetricSpec(
+        name="yfin_ui_ws_refusals_total",
+        documentation=(
+            "Terminal WebSocket handshakes refused, by reason: the per-address "
+            "window (`rate`) or the worker's session cap (`capacity`)."
+        ),
+        kind="counter",
+        labelnames=("reason",),
+    ),
+    MetricSpec(
         name="yfin_cache_ops_total",
         documentation="In-process cache hits and misses in a long-lived service.",
         kind="counter",

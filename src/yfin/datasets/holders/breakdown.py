@@ -14,6 +14,7 @@ from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext
+from yfin.datasets.common import note_unmapped
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import AsOfFramePayload
 from yfin.datasets.registry import register
@@ -64,7 +65,7 @@ class MajorHoldersDataset(AsOfDataset[AsOfFramePayload]):
         values = {str(index): value for index, value in frame[VALUE_COLUMN].items()}
         unmapped = sorted(set(values) - {src for src, _ in FIELDS} - {COUNT_SOURCE})
         if unmapped:
-            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
+            note_unmapped(self.name, unmapped, symbol=symbol)
 
         row: dict[str, Any] = {
             "symbol": symbol,

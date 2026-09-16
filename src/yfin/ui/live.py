@@ -21,6 +21,7 @@ from yfin.api.core.middleware import resolve_client_ip, trusted_networks
 from yfin.api.core.origin import origin_allowed
 from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.api.storage import session as api_session
+from yfin.core import metrics
 from yfin.core.config import get_settings
 from yfin.core.logging_setup import get_logger
 from yfin.core.normalize import normalize_symbol
@@ -396,11 +397,13 @@ def _refusal(websocket: WebSocket, settings: ApiSettings, request_id: str) -> Ws
     # cache here would be a second place `trusted_proxies` is resolved.
     client_ip = resolve_client_ip(websocket, trusted_networks(settings))
     if not _handshakes.allow(client_ip, settings.ui_ws_connections_per_minute):
+        metrics.inc("yfin_ui_ws_refusals_total", reason="rate")
         log.debug("ui_ws_handshake_limited", client_ip=client_ip, request_id=request_id)
         return WsClose.TooBusy
     if _open_sessions >= settings.ui_ws_max_connections:
         # The casualty of an exhausted threadpool or database pool is not
         # this free terminal but `/v1`, in the same worker.
+        metrics.inc("yfin_ui_ws_refusals_total", reason="capacity")
         log.debug("ui_ws_at_capacity", open_sessions=_open_sessions, request_id=request_id)
         return WsClose.TooBusy
     return None

@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from yfin.core import normalize as nz
 from yfin.core.logging_setup import get_logger
+from yfin.datasets.common import note_unmapped
 from yfin.ingest.client import call_yahoo
 
 log = get_logger(__name__)
@@ -238,9 +239,7 @@ def warn_unmapped(
             if name not in known:
                 extra[str(name)] = None
     if extra:
-        log.debug(
-            "unmapped keys", dataset=dataset, domain_key=key, block=block, keys=sorted(extra)
-        )
+        note_unmapped(dataset, sorted(extra), domain_key=key, block=block)
     return sorted(extra)
 
 

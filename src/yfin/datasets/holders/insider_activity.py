@@ -16,7 +16,7 @@ from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext
-from yfin.datasets.common import to_big_value
+from yfin.datasets.common import note_unmapped, to_big_value
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import AsOfFramePayload
 from yfin.datasets.registry import register
@@ -112,7 +112,7 @@ class InsiderPurchasesDataset(AsOfDataset[AsOfFramePayload]):
                 unknown.append(key)
 
         if unknown:
-            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=sorted(unknown))
+            note_unmapped(self.name, sorted(unknown), symbol=symbol)
 
         row["fetched_at"] = raw.fetched_at
         return NormalizedResult(

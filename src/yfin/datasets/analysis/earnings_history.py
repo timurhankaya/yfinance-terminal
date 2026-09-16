@@ -14,7 +14,7 @@ from yfin.core import normalize as nz
 from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import Dataset, NormalizedResult, SyncContext
-from yfin.datasets.common import in_range
+from yfin.datasets.common import in_range, note_unmapped
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import RangedFramePayload
 from yfin.datasets.registry import register
@@ -68,7 +68,7 @@ class EarningsHistoryDataset(Dataset[RangedFramePayload]):
             str(column) for column in frame.columns if str(column) not in MAPPED_SOURCES
         )
         if unmapped:
-            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
+            note_unmapped(self.name, unmapped, symbol=symbol)
 
         ranged = raw.start is not None or raw.end is not None
         rows: dict[Any, dict[str, Any]] = {}

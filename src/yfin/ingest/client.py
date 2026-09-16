@@ -16,8 +16,9 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
+from yfin.core import metrics
 from yfin.core.config import Settings, get_settings
-from yfin.core.errors import is_absent_data, is_retryable
+from yfin.core.errors import classify_error, is_absent_data, is_retryable
 from yfin.core.logging_setup import bridge_yfinance_logging, get_logger
 
 log = get_logger(__name__)
@@ -64,6 +65,8 @@ def get_rate_limiter() -> TokenBucket:
 
 
 def _log_retry(state: RetryCallState) -> None:
+    exc = state.outcome.exception() if state.outcome else None
+    metrics.inc("yfin_sync_retries_total", kind=classify_error(exc).value if exc else "unknown")
     log.debug(
         "yahoo retry",
         attempt=state.attempt_number,

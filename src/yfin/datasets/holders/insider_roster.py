@@ -15,7 +15,13 @@ from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext
-from yfin.datasets.common import blank_to_none, key_value, to_big_value, to_datetime_value
+from yfin.datasets.common import (
+    blank_to_none,
+    key_value,
+    note_unmapped,
+    to_big_value,
+    to_datetime_value,
+)
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import AsOfFramePayload
 from yfin.datasets.registry import register
@@ -86,7 +92,7 @@ class InsiderRosterDataset(AsOfDataset[AsOfFramePayload]):
 
         unmapped = sorted(str(c) for c in frame.columns if str(c) not in MAPPED_SOURCES)
         if unmapped:
-            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
+            note_unmapped(self.name, unmapped, symbol=symbol)
 
         as_of = raw.fetched_at.date()
         rows: dict[str, dict[str, Any]] = {}

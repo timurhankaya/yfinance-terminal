@@ -39,6 +39,12 @@ def project_fields(payload: Mapping[str, Any], fields: tuple[Field, ...]) -> dic
     return row
 
 
+def note_unmapped(dataset: str, keys: Sequence[str], **context: object) -> None:
+    """Counts provider keys with no column and keeps the detail at debug."""
+    metrics.inc("yfin_sync_normalize_notes_total", kind="unmapped_keys")
+    log.debug("unmapped keys", dataset=dataset, keys=list(keys), **context)
+
+
 def warn_unmapped(
     payload: Mapping[str, Any],
     fields: tuple[Field, ...],
@@ -51,8 +57,7 @@ def warn_unmapped(
     mapped = {f.source for f in fields}
     unmapped = sorted(k for k in payload if k not in mapped and k not in ignore)
     if unmapped:
-        metrics.inc("yfin_sync_normalize_notes_total", kind="unmapped_keys")
-        log.debug("unmapped keys", dataset=dataset, keys=unmapped)
+        note_unmapped(dataset, unmapped)
     return unmapped
 
 

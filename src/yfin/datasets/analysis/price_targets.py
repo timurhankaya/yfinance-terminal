@@ -13,6 +13,7 @@ from yfin.core.families import DataFamily
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.asof_base import AsOfDataset, asof_produces
 from yfin.datasets.base import NormalizedResult, SyncContext
+from yfin.datasets.common import note_unmapped
 from yfin.datasets.exposure import ApiExposure
 from yfin.datasets.payloads import AsOfMappingPayload
 from yfin.datasets.registry import register
@@ -54,7 +55,7 @@ class AnalystPriceTargetsDataset(AsOfDataset[AsOfMappingPayload]):
 
         unmapped = sorted(k for k in payload if k not in VALUE_COLUMNS)
         if unmapped:
-            log.debug("unmapped keys", dataset=self.name, symbol=symbol, keys=unmapped)
+            note_unmapped(self.name, unmapped, symbol=symbol)
 
         row: dict[str, Any] = {
             "symbol": symbol,
