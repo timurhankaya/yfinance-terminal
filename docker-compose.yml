@@ -184,9 +184,9 @@ services:
       start_period: 30s
 
   # --- the processes that keep the data fresh --------------------------------
-  # `scheduler` and `stream` carry no profile. The two relays do: each exits
-  # while its feature flag is off, which under `restart: unless-stopped`
-  # would be a crash loop.
+  # `scheduler` carries no profile. `stream` and the two relays do: each
+  # exits while its feature flag is off, which under
+  # `restart: unless-stopped` is a crash loop.
 
   scheduler:
     build:
@@ -236,6 +236,7 @@ services:
     healthcheck:
       disable: true
     command: ["yfin", "stream", "run"]
+    profiles: ["stream"]
     environment:
       <<: *yfin-db
       # The publishing half of the same bus the API subscribes to. The

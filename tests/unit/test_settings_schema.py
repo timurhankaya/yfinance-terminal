@@ -13,7 +13,7 @@ def test_record_count_and_ordering() -> None:
 
 
 def test_env_only_fields_are_NOT_in_the_schema() -> None:
-    """The 8 env-only fields cannot be managed from the panel; if they
+    """The env-only fields cannot be managed from the panel; if they
     appeared in the schema, the panel would render a form field for them
     and a write attempt would be rejected."""
     keys = {i.key for i in settings_schema()}

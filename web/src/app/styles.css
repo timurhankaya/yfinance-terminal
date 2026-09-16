@@ -1,12 +1,7 @@
 :root { color-scheme: dark; --bg: #080b10; --fg: #e2e8f0; --muted: #9aa9bc; --line: #2a3748; --accent: #ffc247; }
-/* Surfaces, and the two type roles. The terminal was one plane and one
-   font: every panel painted straight onto `--bg` and every glyph was
-   monospace, so nothing on a symbol page could be said to sit ON
-   anything else. Two raised surfaces and a proportional face for prose
-   give a card an edge to have; NUMBERS stay monospace and tabular,
-   because a column of prices that does not line up is worse than a
-   column that is plain. `--surface` is the palette's own background, so
-   this is not a new colour -- it is the one already in the file, named. */
+/* Surfaces and the two type roles: prose is proportional, numbers stay
+   monospace and tabular so columns line up. `--surface` is the palette's
+   own background, named. */
 :root {
   --surface: #101722;
   --surface-2: #172335;
@@ -26,12 +21,9 @@
    tables, the strip and every SVG primitive read these, so a change
    here moves all of them together. */
 :root { --up: #3ce5a0; --down: #ff6275; }
-/* Identity, seven of them: the group letters a page can be split into,
-   and the series colours of a comparison. Okabe-Ito, chosen because it
-   is designed to stay distinguishable under the common colour-vision
-   deficiencies -- a group letter that two readers cannot tell apart is
-   not an identity. Ordered so that consecutive assignments are far
-   apart on the wheel, since a two-series chart uses a and b. */
+/* Seven identity colours (group letters, comparison series): Okabe-Ito,
+   distinguishable under common colour-vision deficiencies, ordered so
+   consecutive assignments are far apart on the wheel. */
 :root {
   --group-a: #56b4e9; --group-b: #e69f00; --group-c: #009e73; --group-d: #cc79a7;
   --group-e: #f0e442; --group-f: #0072b2; --group-g: #d55e00;
@@ -54,12 +46,8 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 var(--
 a { color: var(--accent); }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 40%); gap: 12px; height: 100%; }
 .split-list { overflow: auto; min-height: 0; }
-/* The detail stays put while the list scrolls past it. A row's fields
-   are what the reader is comparing the NEXT rows against, and a detail
-   that scrolled away with the row it came from could only be read by
-   scrolling back to where it started.
-   `top` clears the symbol band, which is sticky above it; the height is
-   what is left of the panel under that band. */
+/* The detail stays put while the list scrolls past it. `top` clears the
+   sticky symbol band; the height is what is left under that band. */
 .split-detail {
   position: sticky;
   top: var(--band-height);
@@ -312,12 +300,8 @@ table[aria-label="watchlist"] .strip-symbol button { color: var(--accent); backg
    of `.dock-panel` padding, undone) and sticks to the top of that
    panel's scroll -- a reader forty fields down a snapshot can still see
    which symbol they are in and click their way out of it. */
-/* A FIXED height, and that is what makes the sticky detail pane below
-   it possible: `--band-height` is the offset that pane sticks at, and a
-   band that grew by a line would have hidden the pane's own heading
-   behind it. Nothing wraps inside it -- the price row and the function
-   row each scroll sideways instead -- so the number stays true at any
-   panel width. */
+/* A fixed height: `--band-height` is the offset the sticky detail pane
+   below sticks at. Nothing wraps inside; the rows scroll sideways. */
 :root { --band-height: 60px; }
 .band {
   position: sticky;
@@ -386,16 +370,10 @@ table[aria-label="watchlist"] .strip-symbol button { color: var(--accent); backg
 
 /* The pictures, each in its own card so a symbol missing one leaves a
    gap the grid closes rather than a hole. */
-/* Columns, not a grid, and two of them at most.
-   Two, because the primitives draw into a 640-wide viewBox: a card
-   narrower than that scales their tick text down with everything else,
-   and at four across a 1440 window the axis labels came out under seven
-   pixels.
-   Columns rather than grid rows, because the four cards have nothing
-   like the same height -- a bullet is 56 pixels tall and a bar chart is
-   260. On a row-aligned grid the short card beside the tall one was four
-   fifths empty; flowing them down a balanced column packs the three
-   short ones beside the tall one instead. */
+/* Columns, not a grid, and two at most: the primitives draw into a
+   640-wide viewBox and scale their tick text down below that, and the
+   cards differ so much in height that a row-aligned grid leaves the
+   short ones mostly empty. */
 .des-viz { columns: 2 460px; column-gap: 10px; margin: 0 0 12px; }
 .des-viz .viz-card { break-inside: avoid; margin: 0 0 10px; }
 /* A bar chart is 640x260, so at a full column it wants 280 pixels of
@@ -462,13 +440,9 @@ table[aria-label="watchlist"] .strip-symbol button { color: var(--accent); backg
   border-bottom: 1px solid var(--line-soft);
   min-width: 0;
 }
-/* The LABEL gives way, not the value. Both were allowed to shrink and
-   the value lost: `America/New_York` broke after "New_Yor" and a
-   timestamp wrapped onto two lines, in a column where the label beside
-   it had a tooltip carrying its full text and the value had nothing.
-   So the key takes the slack (it ellipsises, and its `title` is the raw
-   key), and the value wraps only once the key is down to three
-   characters. */
+/* The label gives way, not the value: the key ellipsises (its `title`
+   carries the raw key) and the value wraps only once the key is down to
+   three characters. */
 .field-key {
   flex: 1 1 auto;
   min-width: 3em;
@@ -496,11 +470,9 @@ table[aria-label="watchlist"] .strip-symbol button { color: var(--accent); backg
 .range .chip { padding: 1px 6px; font-size: 10px; letter-spacing: .04em; border-radius: 3px; }
 
 /* --- the row detail: a view of a row, not a footnote to it ----------------
-   A wide dataset now draws six or seven of its columns in the grid
-   (`panels/grid.ts`), so this is where the other ninety-nine are read.
-   Same field grid as DES's snapshot tabs -- one pattern for "many small
-   facts about one thing", and in a 400-pixel pane it falls to a single
-   clean column on its own. */
+   Where the columns the grid does not draw (`panels/grid.ts`) are read.
+   Same field grid as DES's snapshot tabs; in a narrow pane it falls to
+   one column. */
 .detail { padding: 0; border: 0; }
 .detail-head {
   display: flex;

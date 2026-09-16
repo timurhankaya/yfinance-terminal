@@ -219,13 +219,13 @@ class TestTheAlertRules:
 
 
 class TestTheComposeWiring:
-    def test_the_scheduler_and_the_stream_are_not_profiled(
-        self, compose: dict[str, Any]
-    ) -> None:
-        """They are what keeps the data fresh, not part of the stack that
-        watches it: `docker compose up -d` has to bring them up."""
-        for name in ("scheduler", "stream"):
-            assert "profiles" not in compose["services"][name], name
+    def test_the_scheduler_is_not_profiled(self, compose: dict[str, Any]) -> None:
+        """`docker compose up -d` has to bring it up."""
+        assert "profiles" not in compose["services"]["scheduler"]
+
+    def test_the_stream_is_profiled(self, compose: dict[str, Any]) -> None:
+        """It exits while `yf_stream_enabled` is off, which is the default."""
+        assert compose["services"]["stream"]["profiles"] == ["stream"]
 
     def test_they_restart_unless_stopped(self, compose: dict[str, Any]) -> None:
         """The whole point of putting them in Docker: the pipeline runs for

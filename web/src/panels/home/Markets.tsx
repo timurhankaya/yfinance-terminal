@@ -1,8 +1,7 @@
 // Every market the archive watches, not a slice of them.
 //
-// `market_summary` is 25 rows -- every region and board Yahoo quotes for
-// this deployment -- so the page shows all of them and the reader sorts.
-// The old home read `market_status` instead, which holds one row.
+// `market_summary` holds every region and board Yahoo quotes, so the page
+// shows all of them and the reader sorts.
 import { PAGE_LIMIT, getDatasetPage } from "../../api/client";
 import type { Row } from "../../api/client";
 import { DataTable, LoadState, usePanelData, useSortedRows, type Column } from "../common";

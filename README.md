@@ -9,6 +9,12 @@ software, not Yahoo Finance data — see
 supported way to run it; [hosted operation](#hosted-operation) means
 someone running *your* instance, not a shared Yahoo feed.
 
+![The web terminal: AAPL daily chart with corporate actions, security overview and annual income statement side by side, live after-hours price on the symbol band](docs/images/terminal.png)
+
+*`/ui/w/-` after `AAPL GP`, `+`, `AAPL DES` and `AAPL FA` with
+Ctrl+Enter — six symbols synced, the stream on. See
+[Web terminal](#web-terminal).*
+
 ---
 
 ## Name
@@ -75,18 +81,17 @@ git clone <repo> && cd yfin
 uv sync --extra dev --extra api --extra scheduler   # same resolver and lock as CI and the image
 
 cp .env.example .env        # set DB_PASSWORD at minimum
-# Six services: PostgreSQL 18.6 + TimescaleDB 2.29.2, Redis (API rate
+# Five services: PostgreSQL 18.6 + TimescaleDB 2.29.2, Redis (API rate
 # limit and quota counters), the API, a single-node Kafka broker for the
-# relays, and the two processes that keep the archive current — the
-# `scheduler` (replaces cron) and the live `stream`. Both carry
-# `restart: unless-stopped`, so the pipeline runs for as long as Docker
+# relays, and the `scheduler` (replaces cron), which carries
+# `restart: unless-stopped` so the pipeline runs for as long as Docker
 # does. `docker compose up -d timescaledb` is enough if you only want a
 # database to sync into by hand.
 docker compose up -d
 
-# The two Kafka relays are opt-in, because both refuse to start while
-# their feature is off:
-#   docker compose --profile kafka up -d
+# The live `stream` and the two Kafka relays are opt-in, because each
+# refuses to start while its feature flag is off:
+#   docker compose --profile stream --profile kafka up -d
 
 uv run yfin db create
 uv run yfin db upgrade head
@@ -312,12 +317,12 @@ audit. When Yahoo breaks something, the fix usually belongs upstream.
 | PostgreSQL 18 | **Stable** | `postgresql+psycopg` (psycopg 3) |
 | TimescaleDB 2.29 | **Stable** | Hypertables for `price_bars` and `price_history` |
 | Alembic migrations | **Stable** | Single squashed baseline; `revision --autogenerate` must produce an empty diff |
-| Docker Compose | **Stable** | Six services by default (database, Redis, API, Kafka, scheduler, stream) plus the two relays under the `kafka` profile; every image pinned, tuned `max_connections`. The scheduler and stream disable the image's API healthcheck and get a probe on their own `/metrics` port from the observability override. |
+| Docker Compose | **Stable** | Five services by default (database, Redis, API, Kafka, scheduler), the `stream` under its own profile and the two relays under the `kafka` profile; every image pinned, tuned `max_connections`. The scheduler and stream disable the image's API healthcheck and get a probe on their own `/metrics` port from the observability override. |
 | Proxy pool | **Stable** | HTTP/HTTPS/SOCKS5, Fernet-encrypted credentials, health & cooldown. One OS process per proxy, so a full pass over the universe divides by the pool size — the measured 176 symbols/hour on a single IP is what makes this the lever for freshness at scale. |
 | Scheduler | **Stable** | `yfin scheduler run` replaces cron: seven jobs, two executors (a single-threaded `yahoo` queue so nothing splits one IP's rate budget), per-job misfire grace derived from the cron's own cadence, and a `scheduler_runs` row per firing — including the ones that never became a subprocess. Exit codes map to `ok`/`partial`/`locked`/`failed`, so a job that merely collided with another is not reported as a failure. |
 | Metrics, logs, traces | **Stable** | Prometheus + Grafana + Loki + Tempo + Alloy under `--profile observability`. A daemon thread in the scheduler turns nine database queries into gauges every five minutes so a scrape never touches a connection; every process renders one JSON log line through one redacting chain; four hand-drawn spans cover the boundaries the automatic instrumentation cannot see. Costs are measured in [`docs/measurements/observability.md`](docs/measurements/observability.md). |
 | Sharded parallel sync | **Stable** | Process-per-shard, advisory-lock guarded |
-| Settings in database | **Stable** | 73 settings overridable at runtime across 14 groups; `yfin config`. Ten more are env-only, because they are read before a database exists. |
+| Settings in database | **Stable** | 73 settings overridable at runtime across 14 groups; `yfin config`. Eleven more are env-only, because they are read before a database exists. |
 | CI | **Stable** | GitHub Actions: ruff, `mypy --strict`, pytest, an OpenAPI contract diff, a change-event schema diff, a live tick-field diff, and `promtool` / `alloy fmt` / `docker compose config` over the deploy files through their pinned images; a second job runs `-m repo` and `alembic check` against a pinned PostgreSQL 18 + TimescaleDB service; a third builds the web terminal |
 | Compression / retention policies | **Not enabled** | Deliberate: the rescale path rewrites historical rows. Needs measurement first. |
 | Continuous aggregates | **Not enabled** | Out of scope so far |
@@ -466,7 +471,8 @@ docker compose exec api yfin db upgrade head
 docker compose exec api yfin config seed        # config/settings.seed.json
 docker compose exec api yfin symbols add AAPL MSFT
 docker compose exec api yfin stream scope add AAPL MSFT
-docker compose exec api yfin config set yf_stream_enabled true   # else `stream` exits and restarts
+docker compose exec api yfin config set yf_stream_enabled true
+docker compose --profile stream up -d                    # the stream exits while the flag is off
 docker compose exec api yfin api client create --name <name> --owner-email <email>
 curl -fsS http://localhost:8000/health/ready     # {"status":"ok","database":"ok","redis":"ok"}
 ```

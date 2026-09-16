@@ -102,7 +102,7 @@ describe("the home page", () => {
     stub({ markets });
     draw();
     const table = await screen.findByRole("table");
-    // 25 rows and a heading row: the old page read a table that holds one.
+    // 25 rows and a heading row.
     expect(within(table).getAllByRole("row")).toHaveLength(26);
   });
 

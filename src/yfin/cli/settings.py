@@ -287,8 +287,8 @@ def config_schema(
     from yfin.storage.settings_store import serialize
 
     note = (
-        "Note: the 10 env-only fields (db_*, yf_proxy_secret_key, "
-        "log_level, log_format, metrics_port) "
+        "Note: the env-only fields (db_*, yf_proxy_secret_key, log_level, "
+        "log_format, metrics_port, yf_stream_publish_redis_url) "
         "are NOT listed here; they stay in .env."
     )
     items = settings_schema()

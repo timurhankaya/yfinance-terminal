@@ -269,8 +269,8 @@ class Settings(BaseSettings):
         ge=1,
         le=99,
     )
-    # Not a safety valve but a capacity: 10,000 symbols need ~106
-    # connections. Exceeding it raises rather than dropping symbols.
+    # A capacity, not a safety valve: exceeding it raises rather than
+    # dropping symbols.
     yf_stream_max_connections: int = _cfg(
         "stream", "Ceiling on upstream connections; exceeding it is an error.",
         default=256, ge=1,

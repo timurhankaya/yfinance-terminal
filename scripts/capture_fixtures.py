@@ -334,8 +334,7 @@ DISCOVERY_LOOKUP_FIXTURES = (
     # narrow term: `all` returns the full set, 9-type lookupTotals,
     # includes privateCompany
     ("BTC", "all", "lookup_BTC_all"),
-    # broad term: `all` truncates around 1,000 (996 documents / 7,261
-    # total) -- proves the adaptive branch
+    # broad term: `all` truncates, which exercises the adaptive branch
     ("GOLD", "all", "lookup_GOLD_all"),
     # typed call for the same term: industryLink/industryName appear only
     # here
