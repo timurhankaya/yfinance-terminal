@@ -255,15 +255,11 @@ shading the chart draws a continuous line across a hole.
 | | |
 |---|---|
 | ![Sector heat map](docs/images/heat.png) `HEAT` — sectors by market capitalisation, coloured by the day's move | ![Indexed comparison](docs/images/comp.png) `COMP AAPL MSFT NVDA` — one year, each line indexed to 100 at its own first session |
-| ![Analyst ratings](docs/images/anr.png) `ANR` — price targets and the recommendation trend | ![Institutional holders](docs/images/hds-inst.png) `HDS inst` — the largest holders as a share of the float, then the rows |
-| ![Screener results](docs/images/eqs-gainers.png) `EQS day_gainers` — a screen's members in its own order, with a trend per row | ![Intraday chart](docs/images/gp5m.png) `GP 5m` — nine days of 5-minute candles; open gaps in the archive would be shaded |
-| ![Earnings calendar](docs/images/cal.png) `CAL` — the market-wide earnings, economic, IPO and split calendars | ![Live watchlist](docs/images/wla.png) `WLA` — a watchlist that is its URL; live where the stream publishes, archived close elsewhere |
-| ![Dataset catalogue](docs/images/ds.png) `DS` — every dataset in the archive, its scope, its keys and its column count | ![Admin console](docs/images/admin.png) `/admin` — the settings table, the proxy pool, the screens and the API clients |
 
-The read API documents itself at `/docs` (`openapi.json` is the committed
-contract):
+![Analyst ratings](docs/images/anr.png)
 
-![API reference](docs/images/docs.png)
+`ANR` — price targets and the recommendation trend. The read API documents
+itself at `/docs`; `openapi.json` is the committed contract.
 
 ### Live prices in the browser
 
