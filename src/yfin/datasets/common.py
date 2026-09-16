@@ -40,7 +40,7 @@ def project_fields(payload: Mapping[str, Any], fields: tuple[Field, ...]) -> dic
 
 
 def note_unmapped(dataset: str, keys: Sequence[str], **context: object) -> None:
-    """Counts provider keys with no column and keeps the detail at debug."""
+    """Counts one occurrence of provider keys with no column; detail at debug."""
     metrics.inc("yfin_sync_normalize_notes_total", kind="unmapped_keys")
     log.debug("unmapped keys", dataset=dataset, keys=list(keys), **context)
 

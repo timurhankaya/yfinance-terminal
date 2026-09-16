@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 
+from yfin.core import metrics
 from yfin.core import normalize as nz
 from yfin.core.logging_setup import get_logger
 from yfin.datasets.base import NormalizedResult, SyncContext
@@ -131,6 +132,7 @@ class StatementDataset(HashGatedDataset[StatementPayload]):
                     # at max 60 chars; this path is a safety valve against
                     # library upgrades. The cell stays `ok`, data lives in
                     # raw_json.
+                    metrics.inc("yfin_sync_normalize_notes_total", kind="key_too_long")
                     log.debug(
                         "item_key too long",
                         symbol=symbol,

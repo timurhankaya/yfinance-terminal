@@ -391,6 +391,7 @@ def _refusal(websocket: WebSocket, settings: ApiSettings, request_id: str) -> Ws
     if not origin_allowed(
         websocket.headers.get("origin"), websocket.headers.get("host"), settings
     ):
+        metrics.inc("yfin_ui_ws_refusals_total", reason="origin")
         return WsClose.BadOrigin
     # The networks are parsed per connection rather than cached: it is a
     # handful of `ip_network` calls against the cost of a socket, and a

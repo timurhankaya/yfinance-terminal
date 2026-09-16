@@ -131,8 +131,8 @@ _SERVICE_COUNTERS: dict[str, MetricSpec] = _declare(
     MetricSpec(
         name="yfin_ui_ws_refusals_total",
         documentation=(
-            "Terminal WebSocket handshakes refused, by reason: the per-address "
-            "window (`rate`) or the worker's session cap (`capacity`)."
+            "Terminal WebSocket handshakes refused, by reason: a disallowed "
+            "`origin`, the per-address window (`rate`) or the session cap (`capacity`)."
         ),
         kind="counter",
         labelnames=("reason",),

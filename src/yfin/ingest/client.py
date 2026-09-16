@@ -65,13 +65,11 @@ def get_rate_limiter() -> TokenBucket:
 
 
 def _log_retry(state: RetryCallState) -> None:
-    exc = state.outcome.exception() if state.outcome else None
-    metrics.inc("yfin_sync_retries_total", kind=classify_error(exc).value if exc else "unknown")
-    log.debug(
-        "yahoo retry",
-        attempt=state.attempt_number,
-        error=str(state.outcome.exception()) if state.outcome else None,
-    )
+    assert state.outcome is not None  # tenacity sleeps only after a failed attempt
+    exc = state.outcome.exception()
+    assert exc is not None
+    metrics.inc("yfin_sync_retries_total", kind=classify_error(exc).value)
+    log.debug("yahoo retry", attempt=state.attempt_number, error=str(exc))
 
 
 def call_optional[T](fn: Callable[[], T], *, what: str) -> T | None:

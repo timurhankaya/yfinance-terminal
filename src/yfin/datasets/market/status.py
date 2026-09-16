@@ -202,7 +202,7 @@ class MarketSummaryDataset(SnapshotGlobalDataset[MarketSummaryPayload]):
             quote_map = nz.as_mapping(quote)
             unmapped = sorted(set(quote_map) - _MAPPED_SUMMARY_KEYS)
             if unmapped:
-                note_unmapped("market_summary", unmapped[:10], region=raw.region, board=board_code)
+                note_unmapped(self.name, unmapped[:10], region=raw.region, board=board_code)
             symbol = nz.to_str(quote_map.get("symbol"), max_len=32)
             if symbol:
                 symbol = nz.normalize_symbol(symbol)

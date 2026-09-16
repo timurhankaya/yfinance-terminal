@@ -269,10 +269,12 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
             average = (
                 operations[CATEGORY_AVERAGE] if CATEGORY_AVERAGE in operations.columns else None
             )
+            unknown_labels = [str(lbl) for lbl in operations.index if str(lbl) not in OPERATIONS]
+            if unknown_labels:
+                note_unmapped(self.name, unknown_labels, symbol=symbol)
             for position, label in enumerate(operations.index):
                 mapping = OPERATIONS.get(str(label))
                 if mapping is None:
-                    note_unmapped(self.name, [str(label)], symbol=symbol)
                     continue
                 value_column, average_column = mapping
                 row[value_column] = nz.to_decimal(own.iloc[position])
