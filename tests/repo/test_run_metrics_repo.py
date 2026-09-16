@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import Engine, func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from yfin.core.metrics import Accumulator
@@ -125,3 +125,26 @@ def test_the_counters_go_when_the_run_does(
     db_session.delete(db_session.get(SyncRun, run_id))
     db_session.flush()
     assert _rows(db_session) == {}
+
+
+def test_a_no_proxy_run_flushes_its_counters(
+    test_engine: Engine, monkeypatch: pytest.MonkeyPatch, cleanup_tables: list[str]
+) -> None:
+    """The in-process single shard is shard 0; without a flush the exporter
+    would see nothing from the default `yfin sync`."""
+    from yfin.core import metrics
+    from yfin.pipeline import shard
+
+    cleanup_tables.extend(["run_metrics", "sync_run_items", "sync_runs"])
+
+    def fake_run_shard(*args: object, **kwargs: object) -> None:
+        metrics.inc("yfin_sync_yahoo_requests_total", dataset="info", outcome="ok")
+
+    monkeypatch.setattr(shard, "run_shard", fake_run_shard)
+    tally = shard.run_sharded(test_engine, ["AAPL"], ["info"], no_proxy=True)
+
+    with test_engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT name FROM run_metrics WHERE run_id = :r"), {"r": tally.run_id}
+        ).scalars().all()
+    assert rows == ["yfin_sync_yahoo_requests_total"]

@@ -243,18 +243,23 @@ def run_sharded(
 
         if not specs_source:
             # Single shard, no proxy: no separate process needed. yfinance
-            # config must still be set up in this process.
+            # config must still be set up in this process, and this process
+            # is shard 0 for the counters the exporter republishes.
             configure_yfinance(None, proxy_key="direct", settings=cfg)
-            run_shard(
-                engine,
-                list_source(list(symbols)),
-                SYMBOL_DATASETS.resolve(list(dataset_names)),
-                run_id=run_id,
-                settings=cfg,
-                full_refresh=full_refresh,
-                start=start,
-                end=end,
-            )
+            use_accumulator(Accumulator())
+            try:
+                run_shard(
+                    engine,
+                    list_source(list(symbols)),
+                    SYMBOL_DATASETS.resolve(list(dataset_names)),
+                    run_id=run_id,
+                    settings=cfg,
+                    full_refresh=full_refresh,
+                    start=start,
+                    end=end,
+                )
+            finally:
+                run_metrics.flush(factory, run_id, shard_index=0)
             return finalize_run(
                 factory,
                 run_id,
