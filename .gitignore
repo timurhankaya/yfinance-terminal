@@ -29,10 +29,10 @@ deploy/observability/.env
 web/test-results/
 web/playwright-report/
 
-# Agent workflow scratch: task briefs, review diffs and reports written
-# by the SDD tooling. Per run, not per project -- the decisions that
-# survive a run are in docs/superpowers/, which IS committed.
+# Agent planning artifacts: local, never committed.
 .superpowers/
+docs/superpowers/specs/
+docs/superpowers/plans/
 
 # Vitest caches here when a bench is run from the repo root.
 node_modules/

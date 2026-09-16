@@ -240,6 +240,10 @@ class TestPersistEvent:
 class TestRunAggregation:
     """Totals and the exit code are computed from the DB."""
 
+    @pytest.fixture(autouse=True)
+    def _clean_runs(self, cleanup_tables: list[str]) -> None:
+        cleanup_tables.extend(["sync_run_items", "sync_runs"])
+
     def test_not_attempted_prevents_exit_zero(self, test_engine: Engine) -> None:
         from sqlalchemy.orm import sessionmaker
 

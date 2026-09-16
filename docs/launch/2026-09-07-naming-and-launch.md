@@ -323,8 +323,8 @@ what they tell you before Tier 2.
 ### Tier 3 — compounding, slow (ongoing)
 
 - **A technical blog post per subsystem**, each of which is its own
-  submission to Tier 1 and 2. You already have four written as design
-  documents in `docs/superpowers/specs/` and `docs/measurements/`:
+  submission to Tier 1 and 2. You already have four written up in
+  `docs/measurements/`:
   the transactional outbox, the `xid8` relay cursor, the 29-day intraday
   race, the dataset/storage boundary test. These are the posts that get
   syndicated; the launch post is not.

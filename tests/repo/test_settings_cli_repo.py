@@ -1,9 +1,7 @@
 """Round-trip of `yfin config` commands. Real DB.
 
-Commands connect via `bootstrap_settings()`; tests point it at the test
-schema. The patch is deliberately on `cli_config`: functions in
-`settings_store` take `settings` as a parameter from the command, so which
-Settings the command passes is also under test.
+The patch is on `cli_config`: `settings_store` functions take `settings` from
+the command, so which Settings the command passes is also under test.
 """
 
 from __future__ import annotations
@@ -125,13 +123,9 @@ def test_export_by_default_returns_ONLY_KEYS_WITH_A_ROW(cli: CliRunner) -> None:
 
 
 def test_schema_DOES_NOT_TOUCH_THE_DB(cli: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A pure schema dump runs with no network and no DB.
-
-    Patched on `settings_store`, its home, rather than on the CLI module:
-    the CLI imports it inside the command body now (so that `yfin --help`
-    does not load the ORM), and a name patched on the importer would be
-    the wrong object by the time the command runs. Patching the source
-    also catches the call whichever module makes it."""
+    """Patched on `settings_store`, its home: the CLI imports it inside the
+    command body, so a name patched on the importer would be the wrong object
+    by the time the command runs."""
     from yfin.storage import settings_store
 
     monkeypatch.setattr(
@@ -156,8 +150,11 @@ def test_with_source_env_list_WARNS_and_shows_the_EFFECTIVE_value(
     result = cli.invoke(config_app, ["list", "--group", "shard"])
     assert result.exit_code == 0
     assert "DB layer OFF" in result.stderr
-    assert "* yf_max_shards" in result.stdout
-    assert "default" in result.stdout
+    line = next(row for row in result.stdout.splitlines() if "yf_max_shards" in row)
+    mark, _key, value, source, _group = line.split()
+    assert mark == "*"
+    assert value != "9"
+    assert source in {"env", "default"}
 
 
 def test_with_source_env_set_STILL_WRITES(cli: CliRunner, test_engine: Engine,

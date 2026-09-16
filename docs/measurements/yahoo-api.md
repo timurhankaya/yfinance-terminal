@@ -147,7 +147,7 @@ each dataset as well (`datasets/shares_full.py`,
 
 **The third surface WAS an oversight and is now collected.**
 `Ticker.options` and `Ticker.option_chain()` are alive upstream, and the
-`options` dataset writes both (`docs/superpowers/specs/2026-09-08-options-design.md`).
+`options` dataset writes both.
 Its cost is the thing to know: one request returns the expiry LIST plus
 the FIRST expiry's chain, and every expiry after that is another request.
 A symbol carries ten to twenty of them, so the dataset is opt-in and

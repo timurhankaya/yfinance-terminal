@@ -103,9 +103,7 @@ no measurement of its own yet.
 
 The terminal's first piece of state outside the URL, and the question is
 whether it can be as simple as it looks: a whole page, `JSON.stringify`d,
-written on a debounce and read back in one go
-(`docs/superpowers/specs/2026-09-08-web-terminal-faz2a-layout-design.md`,
-"Kalıcılık"). A page of eight panels is the realistic ceiling — eight is
+written on a debounce and read back in one go. A page of eight panels is the realistic ceiling — eight is
 more than the seven group letters can fill.
 
 Reading a page back (`JSON.parse` of the store plus `seedsFromDock`,

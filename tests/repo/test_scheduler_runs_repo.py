@@ -147,7 +147,9 @@ class TestOrphans:
 
         runs.close_orphans(factory)
         assert runs.close_orphan_sync_runs(factory) == 1
-        row = db_session.execute(select(SyncRun)).scalar_one()
+        row = db_session.execute(
+            select(SyncRun).where(SyncRun.job_run_id == scheduler_run_id)
+        ).scalar_one()
         assert row.status == RunStatus.FAILED
         assert row.finished_at is not None
 

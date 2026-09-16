@@ -72,7 +72,7 @@ Design decisions are backed by measurements, not guesses — see
 
 ```bash
 git clone <repo> && cd yfin
-python -m venv .venv && .venv/bin/pip install -e ".[dev]"
+uv sync --extra dev --extra api --extra scheduler   # same resolver and lock as CI and the image
 
 cp .env.example .env        # set DB_PASSWORD at minimum
 # Six services: PostgreSQL 18.6 + TimescaleDB 2.29.2, Redis (API rate
@@ -88,11 +88,11 @@ docker compose up -d
 # their feature is off:
 #   docker compose --profile kafka up -d
 
-.venv/bin/yfin db create
-.venv/bin/yfin db upgrade head
+uv run yfin db create
+uv run yfin db upgrade head
 
-.venv/bin/yfin symbols add AAPL MSFT
-.venv/bin/yfin sync --symbols AAPL
+uv run yfin symbols add AAPL MSFT
+uv run yfin sync --symbols AAPL
 ```
 
 A single-symbol full sync of AAPL wrote 37,295 verified rows across 36
@@ -317,8 +317,8 @@ audit. When Yahoo breaks something, the fix usually belongs upstream.
 | Scheduler | **Stable** | `yfin scheduler run` replaces cron: seven jobs, two executors (a single-threaded `yahoo` queue so nothing splits one IP's rate budget), per-job misfire grace derived from the cron's own cadence, and a `scheduler_runs` row per firing — including the ones that never became a subprocess. Exit codes map to `ok`/`partial`/`locked`/`failed`, so a job that merely collided with another is not reported as a failure. |
 | Metrics, logs, traces | **Stable** | Prometheus + Grafana + Loki + Tempo + Alloy under `--profile observability`. A daemon thread in the scheduler turns nine database queries into gauges every five minutes so a scrape never touches a connection; every process renders one JSON log line through one redacting chain; four hand-drawn spans cover the boundaries the automatic instrumentation cannot see. Costs are measured in [`docs/measurements/observability.md`](docs/measurements/observability.md). |
 | Sharded parallel sync | **Stable** | Process-per-shard, advisory-lock guarded |
-| Settings in database | **Stable** | 71 settings overridable at runtime across 14 groups; `yfin config`. Ten more are env-only, because they are read before a database exists. |
-| CI | **Stable** | GitHub Actions: ruff, `mypy --strict`, pytest, an OpenAPI contract diff, a change-event schema diff, and `promtool` / `alloy fmt` / `docker compose config` over the deploy files through their pinned images; a second job runs `-m repo` and `alembic check` against a pinned PostgreSQL 18 + TimescaleDB service; a third builds the web terminal |
+| Settings in database | **Stable** | 73 settings overridable at runtime across 14 groups; `yfin config`. Ten more are env-only, because they are read before a database exists. |
+| CI | **Stable** | GitHub Actions: ruff, `mypy --strict`, pytest, an OpenAPI contract diff, a change-event schema diff, a live tick-field diff, and `promtool` / `alloy fmt` / `docker compose config` over the deploy files through their pinned images; a second job runs `-m repo` and `alembic check` against a pinned PostgreSQL 18 + TimescaleDB service; a third builds the web terminal |
 | Compression / retention policies | **Not enabled** | Deliberate: the rescale path rewrites historical rows. Needs measurement first. |
 | Continuous aggregates | **Not enabled** | Out of scope so far |
 
@@ -329,7 +329,7 @@ audit. When Yahoo breaks something, the fix usually belongs upstream.
 | **Read-only HTTP API** | **In progress** | FastAPI, OAuth2 `client_credentials`, scopes derived from data families, rate limiting and quota metering. Client management via `yfin api client`. Self-service signup and billing are separate subsystems and out of scope for now. |
 | **Kafka producer** | **In progress** | Live ticks publish through a transactional outbox: `stream_outbox` is written inside the tick transaction, and `yfin stream relay` drains it to Kafka in `id` order, advancing `stream_relay_offset` only after every delivery is acknowledged. **Topic per exchange, partition key per symbol** — a topic per symbol would take the broker's metadata down, a single topic would give up per-exchange isolation, and keying on the symbol is what makes ordering per-symbol. The contract is at-least-once; consumers dedupe on `live_ticks`' primary key. Off by default (`yf_kafka_enabled`), and `confluent-kafka` is an extra (`pip install "yfin[kafka]"`). Publishing *pipeline* writes — as opposed to ticks — is not started. |
 | **WebSocket streaming** | **In progress** | Ingest side is complete and driven from `yfin stream`: `run` (single asyncio loop, 100 symbols per connection), `relay`, `status`, `reconcile`, and `yfin stream scope add/disable/list`. `src/yfin/stream/` holds connection, protocol, supervisor, topology, writer, repository, reconcile, relay and kafka; 8 tables (`live_ticks`, `live_quotes`, `stream_scope`, `stream_outbox`, `stream_relay_offset`, `stream_rejects`, `stream_sessions`, `stream_connection_health`), with measurements in [`docs/measurements/websocket.md`](docs/measurements/websocket.md). `yfin stream reconcile` fills open 1m bar gaps from the tick archive, which matters most for `retention_expired` windows Yahoo can no longer serve. The outbound socket is started for the browser terminal: `stream/publish.py` fans committed ticks out over Redis pub/sub and `/ui/ws` subscribes an open page to the symbols it is looking at. A public `/v1` socket for API clients is not started. |
-| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default. Every dataset in the archive is readable: `DS` browses the whole catalogue, `DES`/`FA`/`ANR`/`N`/`CF`/`CA`/`PX` and the tabbed `HDS`/`ERN`/`FUND`/`CAL`/`MKT`/`SCR`/`SRCH`/`DOM`/`REF` panels cover it by family; `GP`/`GIP` chart it, `QR` is the tape, live over a WebSocket when the stream is publishing, `EQS` reads the screeners and `WLA` is a live watchlist (`docs/superpowers/specs/2026-09-07-web-terminal-design.md`). |
+| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default. Every dataset in the archive is readable: `DS` browses the whole catalogue, `DES`/`FA`/`ANR`/`N`/`CF`/`CA`/`PX` and the tabbed `HDS`/`ERN`/`FUND`/`CAL`/`MKT`/`SCR`/`SRCH`/`DOM`/`REF` panels cover it by family; `GP`/`GIP` chart it, `QR` is the tape, live over a WebSocket when the stream is publishing, `EQS` reads the screeners and `WLA` is a live watchlist. |
 
 ---
 
@@ -394,11 +394,11 @@ scope map somewhere else.
 ## Development
 
 ```bash
-.venv/bin/ruff check src tests scripts migrations
-.venv/bin/mypy --strict
-.venv/bin/pytest                 # unit tests, no database, no network
-.venv/bin/pytest -m repo         # against a real PostgreSQL + TimescaleDB
-.venv/bin/pytest -m live         # against the real Yahoo API
+uv run ruff check .
+uv run mypy                      # --strict, from pyproject.toml
+uv run pytest                    # unit tests, no database, no network
+uv run pytest -m repo            # against a real PostgreSQL + TimescaleDB
+uv run pytest -m live            # against the real Yahoo API
 ```
 
 Unit tests reach nothing outside the process, and that is enforced
@@ -406,9 +406,11 @@ rather than assumed: `tests/unit/conftest.py` fails any test that opens a
 non-loopback connection. `-m repo` tests create a schema per process, so
 parallel runs cannot collide.
 
-CI runs ruff, `mypy --strict` and pytest on every push and pull request,
-and diffs the committed `openapi.json` against the generated one so the
-API contract cannot drift silently.
+CI (`.github/workflows/ci.yml`) runs the same commands on every push and
+pull request, then the three contract locks (`scripts/dump_openapi.py`,
+`scripts/dump_change_schema.py`, `scripts/dump_tick_fields.py --check`),
+the observability config checks, `-m repo` plus `alembic check` against a
+pinned TimescaleDB service, and the web `check`/`lint`/`test`/`build`.
 
 **Conventions**
 
