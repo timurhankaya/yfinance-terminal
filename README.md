@@ -9,11 +9,15 @@ software, not Yahoo Finance data — see
 supported way to run it; [hosted operation](#hosted-operation) means
 someone running *your* instance, not a shared Yahoo feed.
 
-![The web terminal: AAPL daily chart with corporate actions, security overview and annual income statement side by side, live after-hours price on the symbol band](docs/images/terminal.png)
+![The web terminal home page: market summary with sparklines, sector treemap, latest news, day gainers and losers](docs/images/home.png)
 
-*`/ui/w/-` after `AAPL GP`, `+`, `AAPL DES` and `AAPL FA` with
-Ctrl+Enter — six symbols synced, the stream on. See
-[Web terminal](#web-terminal).*
+*`/ui` after `yfin sync`, `market sync`, `screen sync` and `domain sync`
+against the compose stack.*
+
+![A workspace: AAPL daily chart with corporate actions, security overview and annual income statement side by side, live after-hours price on the symbol band](docs/images/terminal.png)
+
+*`/ui/w/-` after `AAPL GP`, `+`, then `AAPL DES` and `AAPL FA` with
+Ctrl+Enter — the stream on. See [Web terminal](#web-terminal).*
 
 ---
 
