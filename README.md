@@ -160,7 +160,10 @@ base file so the pipeline runs without the monitoring stack, but their
 `METRICS_PORT` and `LOG_FORMAT` come from the override; started with one
 `-f` they run fine and publish nothing. Setting
 `COMPOSE_FILE=docker-compose.yml:docker-compose.observability.yml` in
-`.env` makes both the default.
+`.env` makes both the default. Add `--profile stream` (and
+`--profile kafka` if the relays run) to this command as well: a service
+outside the requested profiles is left as it is, so the stream would
+keep running without a metrics port.
 
 Retention is a requirement here, not a nicety: the freshness query the
 exporter runs every five minutes costs 2.35 s over three nights of audit
@@ -212,7 +215,7 @@ URL says which is which -- a screener is not a property of a symbol:
 |---|---|---|
 | `/ui` | the home | |
 | `/ui/m/{FUNCTION}` | market-wide, no symbol in the address | `/ui/m/EQS`, `/ui/m/WLA?symbols=AAPL,MSFT` |
-| `/ui/t/{SYMBOL}/{FUNCTION}` | one symbol's detail | `/ui/t/AAPL/GIP?interval=5m` |
+| `/ui/t/{SYMBOL}/{FUNCTION}` | one symbol's detail | `/ui/t/AAPL/GP?interval=5m` |
 
 The strip's symbol still follows you across a market page -- `AAPL`,
 then `EQS`, then `FA` lands back on Apple -- but it rides in the history
@@ -230,7 +233,7 @@ ANR                   # analyst ratings on the current symbol
 N                     # news; j/k to move, Enter to open
 CF 10-K               # SEC filings of one type; Enter expands exhibits
 GP                    # daily candles, two years, dividends and splits marked
-GIP 5m                # intraday candles; the archive's gaps are shaded
+GP 5m                 # intraday candles; the archive's gaps are shaded
 QR                    # time and sales: the last ticks, then live
 WLA AAPL MSFT NVDA    # a live watchlist; the list is the URL, so it is shareable
 EQS                   # every screen this deployment runs; Enter opens one
@@ -242,10 +245,25 @@ Times are UTC everywhere -- axes, tooltips, tables and the strip -- and
 labelled as such. The archive keys everything by UTC, so a terminal in
 another city reads the same numbers.
 
-`GIP` shades the windows the archive knows it is missing. An hour with
+An intraday `GP` shades the windows the archive knows it is missing. An hour with
 no candles otherwise means two very different things, a closed market or
 a missed fetch, and only `bar_gaps` can tell them apart; without the
 shading the chart draws a continuous line across a hole.
+
+**Screens**
+
+| | |
+|---|---|
+| ![Sector heat map](docs/images/heat.png) `HEAT` — sectors by market capitalisation, coloured by the day's move | ![Indexed comparison](docs/images/comp.png) `COMP AAPL MSFT NVDA` — one year, each line indexed to 100 at its own first session |
+| ![Analyst ratings](docs/images/anr.png) `ANR` — price targets and the recommendation trend | ![Institutional holders](docs/images/hds-inst.png) `HDS inst` — the largest holders as a share of the float, then the rows |
+| ![Screener results](docs/images/eqs-gainers.png) `EQS day_gainers` — a screen's members in its own order, with a trend per row | ![Intraday chart](docs/images/gp5m.png) `GP 5m` — nine days of 5-minute candles; open gaps in the archive would be shaded |
+| ![Earnings calendar](docs/images/cal.png) `CAL` — the market-wide earnings, economic, IPO and split calendars | ![Live watchlist](docs/images/wla.png) `WLA` — a watchlist that is its URL; live where the stream publishes, archived close elsewhere |
+| ![Dataset catalogue](docs/images/ds.png) `DS` — every dataset in the archive, its scope, its keys and its column count | ![Admin console](docs/images/admin.png) `/admin` — the settings table, the proxy pool, the screens and the API clients |
+
+The read API documents itself at `/docs` (`openapi.json` is the committed
+contract):
+
+![API reference](docs/images/docs.png)
 
 ### Live prices in the browser
 
@@ -338,7 +356,7 @@ audit. When Yahoo breaks something, the fix usually belongs upstream.
 | **Read-only HTTP API** | **In progress** | FastAPI, OAuth2 `client_credentials`, scopes derived from data families, rate limiting and quota metering. Client management via `yfin api client`. Self-service signup and billing are separate subsystems and out of scope for now. |
 | **Kafka producer** | **In progress** | Live ticks publish through a transactional outbox: `stream_outbox` is written inside the tick transaction, and `yfin stream relay` drains it to Kafka in `id` order, advancing `stream_relay_offset` only after every delivery is acknowledged. **Topic per exchange, partition key per symbol** — a topic per symbol would take the broker's metadata down, a single topic would give up per-exchange isolation, and keying on the symbol is what makes ordering per-symbol. The contract is at-least-once; consumers dedupe on `live_ticks`' primary key. Off by default (`yf_kafka_enabled`), and `confluent-kafka` is an extra (`pip install "yfin[kafka]"`). Publishing *pipeline* writes — as opposed to ticks — is not started. |
 | **WebSocket streaming** | **In progress** | Ingest side is complete and driven from `yfin stream`: `run` (single asyncio loop, 100 symbols per connection), `relay`, `status`, `reconcile`, and `yfin stream scope add/disable/list`. `src/yfin/stream/` holds connection, protocol, supervisor, topology, writer, repository, reconcile, relay and kafka; 8 tables (`live_ticks`, `live_quotes`, `stream_scope`, `stream_outbox`, `stream_relay_offset`, `stream_rejects`, `stream_sessions`, `stream_connection_health`), with measurements in [`docs/measurements/websocket.md`](docs/measurements/websocket.md). `yfin stream reconcile` fills open 1m bar gaps from the tick archive, which matters most for `retention_expired` windows Yahoo can no longer serve. The outbound socket is started for the browser terminal: `stream/publish.py` fans committed ticks out over Redis pub/sub and `/ui/ws` subscribes an open page to the symbols it is looking at. A public `/v1` socket for API clients is not started. |
-| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default. Every dataset in the archive is readable: `DS` browses the whole catalogue, `DES`/`FA`/`ANR`/`N`/`CF`/`CA`/`PX` and the tabbed `HDS`/`ERN`/`FUND`/`CAL`/`MKT`/`SCR`/`SRCH`/`DOM`/`REF` panels cover it by family; `GP`/`GIP` chart it, `QR` is the tape, live over a WebSocket when the stream is publishing, `EQS` reads the screeners and `WLA` is a live watchlist. |
+| **Web terminal** | **In progress** | Keyboard-first browser UI under `/ui`, served by the API process. Public by default. Every dataset in the archive is readable: `DS` browses the whole catalogue, `DES`/`FA`/`ANR`/`N`/`CF`/`CA`/`PX` and the tabbed `HDS`/`ERN`/`FUND`/`CAL`/`MKT`/`DOM`/`REF` panels cover it by family; `GP` charts it at any interval, `COMP` and `HEAT` compare, `QR` is the tape, live over a WebSocket when the stream is publishing, `EQS` reads the screeners and `WLA` is a live watchlist. |
 
 ---
 
@@ -483,8 +501,11 @@ curl -fsS http://localhost:8000/health/ready     # {"status":"ok","database":"ok
 
 Monitoring is the `observability` profile with `deploy/observability/.env`
 filled in (see "Monitoring"). Upgrades are `git pull`, the same
-`up -d --build`, and `yfin db upgrade head`; take the backup below
-first, because a rolled-back image does not roll back the schema. The
+`up -d --build` **with every profile that runs here** (`--profile
+stream`, `--profile kafka`; compose leaves a service outside the given
+profiles untouched, still on the old image), and `yfin db upgrade head`;
+take the backup below first, because a rolled-back image does not roll
+back the schema. `stop` and `down` need the same profiles. The
 archive lives in the `yfin-pgdata` volume — back it up
 with `docker compose exec timescaledb pg_dump -U yfin -d yfinance -Fc`.
 Terminate TLS in front of the API; nothing in the stack serves it.
