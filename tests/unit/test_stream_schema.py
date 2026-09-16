@@ -1,10 +1,6 @@
-"""The stream schema against the decoder that fills it.
-
-`protocol.py` produces a dict; `models/stream.py` declares the columns it
-lands in. Nothing in Python links the two, so without these tests a
-renamed column would only fail at write time -- against a real database,
-in production, at the end of a batch.
-"""
+"""The stream schema against the decoder that fills it: nothing in Python links
+`protocol.py`'s dict to `models/stream.py`'s columns, so a renamed column would otherwise
+fail only at write time."""
 
 from __future__ import annotations
 
@@ -50,12 +46,8 @@ def test_live_quotes_carries_the_same_measurement_as_live_ticks() -> None:
 
 
 def test_reject_reasons_match_the_decoder_constants() -> None:
-    """The enum is the storage side of rejects.py's REJECT_* constants.
-
-    Read off `rejects` rather than `protocol`: protocol imports the ones
-    it raises, so scanning its namespace would silently stop covering a
-    constant the decoder does not happen to use.
-    """
+    """The enum is the storage side of rejects.py's REJECT_* constants. Read off `rejects`
+    rather than `protocol`, which imports only the ones it raises."""
     from yfin.stream import rejects as rj
 
     declared = {
@@ -103,22 +95,14 @@ def test_hypertable_keys_contain_the_partitioning_column() -> None:
 
 @pytest.mark.parametrize("column", ["quote_type_code", "market_hours_code"])
 def test_enum_code_columns_are_not_null(column: str) -> None:
-    """The exception to the presence rule has to hold in the schema too.
-
-    market_hours 0 is PRE_MARKET. If this column were nullable the
-    decoder's exception would be pointless and price_bars.is_extended
-    (NOT NULL) could not be derived for pre-market rows.
-    """
+    """market_hours 0 is PRE_MARKET; a nullable column would defeat the decoder's exception
+    and price_bars.is_extended (NOT NULL) could not be derived for pre-market rows."""
     assert LiveTick.__table__.c[column].nullable is False
 
 
 def test_small_code_columns_are_wide_enough() -> None:
-    """options_type/mini_option/price_hint are sint64 upstream.
-
-    SMALLINT would let one out-of-range value abort a whole batch with a
-    DataError; the point of INTEGER here is that a batch never dies over
-    one odd field.
-    """
+    """options_type/mini_option/price_hint are sint64 upstream; SMALLINT would let one
+    out-of-range value abort a whole batch with a DataError."""
     for name in ("options_type_code", "mini_option_code", "price_hint_code"):
         column_type = LiveTick.__table__.c[name].type
         assert isinstance(column_type, Integer)

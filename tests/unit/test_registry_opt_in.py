@@ -1,19 +1,7 @@
-"""`opt_in` -- a dataset that is registered but excluded from `all`.
-
-This concept closes a trap in the original design. There, `search`/`lookup`
-registration was gated behind a setting (the `sustainability` pattern),
-which had two flaws:
-
-  1. With the setting off, `--datasets search` also failed: the dataset
-     didn't exist in the registry at all, and the user saw "unknown dataset".
-  2. The moment the setting was turned on, a bare `yfin sync` started
-     fetching them too -- +9,000 requests/day across 4,500 symbols. So the
-     flag didn't solve the trap, it only postponed it until the user
-     flipped it on.
-
-`opt_in` solves both and is the exact inverse of `bootstrap`: `bootstrap`
-is added to every resolution, `opt_in` is excluded from `all`.
-"""
+"""`opt_in`: a dataset that is registered but excluded from `all`. Gating registration
+behind a setting made `--datasets search` fail ("unknown dataset") with the setting off and
+made a bare `yfin sync` fetch everything with it on. `opt_in` is the exact inverse of
+`bootstrap`: one is added to every resolution, the other excluded from `all`."""
 
 from __future__ import annotations
 
@@ -102,8 +90,8 @@ class TestRegistrationHygiene:
 
 class TestRealRegistries:
     def test_bare_sync_excludes_discovery(self) -> None:
-        """Measured trap: if these two datasets were in `all`, that would
-        add +9,000 requests/day across 4,500 symbols."""
+        """Discovery datasets cost extra requests per symbol, so `all`
+        must not include them."""
         from yfin.datasets.registry import SYMBOL_DATASETS
 
         names = _names(SYMBOL_DATASETS.resolve(None))

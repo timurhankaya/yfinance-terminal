@@ -1,10 +1,5 @@
-"""Verifies the queue limit is actually binding.
-
-Collecting results on the main thread via future.result() gives no such
-guarantee: pool.submit() accepts every symbol immediately, and completed
-payloads pile up inside Future objects. The tests below show the queue
-actually blocks the worker.
-"""
+"""The queue limit must actually block the worker: `pool.submit()` accepts every symbol
+immediately, so collecting via `future.result()` would bound nothing."""
 
 from __future__ import annotations
 

@@ -1,11 +1,6 @@
-"""Paging and serialisation rules shared by every v1 route.
-
-These lived in both routers as identical copies, which is exactly how a
-page-size cap or a cursor rule ends up meaning two different things
-depending on which endpoint you ask. There is one copy now, and it is in
-the router layer because refusing a request is an HTTP decision -- the
-storage layer stays free of it.
-"""
+"""Paging and serialisation rules shared by every v1 route. In the router
+layer because refusing a request is an HTTP decision; the storage layer
+stays free of it."""
 
 from __future__ import annotations
 
@@ -53,12 +48,8 @@ def decode_cursor(
 
 
 def to_number(value: Decimal | None) -> str | None:
-    """Decimals cross the wire as strings.
-
-    Prices are Numeric(28,12) and large counts Numeric(38,0) precisely so
-    they are not floats. Serialising them as JSON numbers would undo that
-    at the API boundary, where it is least visible and most permanent.
-    """
+    """Decimals cross the wire as strings; a JSON number would turn the exact
+    Numeric back into a float at the boundary."""
     return None if value is None else format(value, "f")
 
 

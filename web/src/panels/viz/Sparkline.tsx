@@ -1,15 +1,8 @@
-// A price series in a table cell: no axes, no labels, no ticks.
-//
-// What a sparkline says is the SHAPE of the last N sessions, next to the
-// number that says where it ended. It is not normalised (spec,
-// "Sıralama ve biçim"): each one is scaled to its own extent, so a cell
-// in dollars and a cell in yen sit side by side without pretending to be
-// comparable.
-//
-// Memoised, and that is not decoration. `WLA` holds two hundred of these
-// while every row re-renders on its own tick; without `memo` a symbol
-// ticking would redraw its sparkline from a `values` array that had not
-// changed. Asserted in `Sparkline.test.tsx`.
+// A price series in a table cell: no axes, no labels, no ticks. Not
+// normalised: each is scaled to its own extent, so cells in different
+// currencies sit side by side without pretending to be comparable.
+// Memoised because `WLA` holds two hundred of these while every row
+// re-renders on its own tick.
 import { memo } from "react";
 import type { ReactElement } from "react";
 import { directionColor } from "./colors";

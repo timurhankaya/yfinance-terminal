@@ -1,15 +1,6 @@
-"""price_bars normalization and is_extended.
-
-Runs against real fixtures; no network, no database. Each symbol is proof
-of its own edge case -- measured distribution in the fixtures:
-
-    AAPL      849 bars, 522 extended   (hasPrePost=True)
-    SHEL.L    503 bars,   5 extended   (hasPrePost=FALSE)
-    VWCE.DE   504 bars,   8 extended   (hasPrePost=FALSE)
-    THYAO.IS  479 bars,   0            (pre/post degenerate)
-    BTC-USD  1322 bars,   0            (24/7)
-    GC=F     1232 bars,   0            (bar opens at 18:10)
-"""
+"""price_bars normalization and is_extended, against real fixtures. No network, no database.
+Each fixture symbol covers one edge case: hasPrePost true/false, degenerate pre/post, 24/7,
+and a session that opens in the evening."""
 
 from __future__ import annotations
 
@@ -55,14 +46,8 @@ def test_extended_bar_counts_match_the_measured_fixtures(
 
 
 def test_shell_l_regression_extended_bars_despite_has_prepost_false() -> None:
-    """Prevents a removed early exit from coming back.
-
-    SHEL.L reports hasPrePostMarketData=False but still returns 16:30/16:35
-    bars (regular session is 08:00-16:30). An early exit based on
-    has_pre_post_market_data would count these as regular session and let
-    them into v_price_bars_regular -- exactly the corruption that view
-    exists to prevent.
-    """
+    """SHEL.L reports hasPrePostMarketData=False but still returns post-close bars; an
+    early exit on that flag would let them into v_price_bars_regular."""
     rows = _rows("SHEL.L")
     extended = [r for r in rows if r["is_extended"]]
 
@@ -71,12 +56,8 @@ def test_shell_l_regression_extended_bars_despite_has_prepost_false() -> None:
 
 
 def test_thyao_degenerate_pre_post_columns_do_not_mark_everything_extended() -> None:
-    """For THYAO, the pre_*/post_* columns degenerate, not start/end.
-
-    tradingPeriods: pre=09:30-09:30, reg=09:30-18:00, post=18:00-18:00.
-    The rule only looks at start/end, so all bars land in the regular
-    session.
-    """
+    """For THYAO the pre_*/post_* periods are zero-length; the rule only looks at
+    start/end, so every bar lands in the regular session."""
     rows = _rows("THYAO.IS")
 
     assert not any(r["is_extended"] for r in rows)
@@ -84,13 +65,8 @@ def test_thyao_degenerate_pre_post_columns_do_not_mark_everything_extended() -> 
 
 
 def test_multiday_intervals_carry_no_extended_column() -> None:
-    """The concept is meaningless for 1wk/1mo.
-
-    These rows used to carry `is_extended=False`. Now they carry no such
-    column at all: bars above daily go to `periodic_bars`, which has no
-    such column. Instead of "fill a meaningless field with False", the
-    field is not created -- the concept does not exist in the schema either.
-    """
+    """is_extended is meaningless above daily: those bars go to `periodic_bars`, which has
+    no such column, so the field is not created rather than filled with False."""
     for dataset, interval in (("bars_1wk", "1wk"), ("bars_1mo", "1mo")):
         rows = _rows("AAPL", dataset, interval)
         assert rows
@@ -129,13 +105,8 @@ def test_trading_periods_without_pre_post_columns_is_accepted() -> None:
 
 
 def test_local_date_is_the_local_calendar_day_not_the_utc_day() -> None:
-    """GC=F's session opens in the evening and crosses UTC midnight.
-
-    Since America/New_York is -04:00, a local 20:00 bar falls on the next
-    UTC day. Deriving local_date from ts_utc would shift that bar's day
-    forward by one; the source index already carries the local tz, so the
-    date is taken from there instead.
-    """
+    """GC=F's session crosses UTC midnight, so local_date is taken from the source index's
+    local tz; deriving it from ts_utc would shift evening bars a day forward."""
     rows = _rows("GC=F")
     shifted = [r for r in rows if r["local_date"] != r["ts_utc"].date()]
 

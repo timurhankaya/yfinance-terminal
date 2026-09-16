@@ -2,8 +2,7 @@
 
 Revision ID: 62259f494923
 Revises: 412c593b5a20
-Create Date: 2026-09-07 07:53:34.819399+00:00
-"""
+Create Date: 2026-09-07 07:53:34.819399+00:00"""
 from __future__ import annotations
 
 from collections.abc import Sequence

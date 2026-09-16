@@ -1,14 +1,5 @@
-"""`.env.example` is documentation that can go stale silently.
-
-It went stale: it carried `YF_PROBE_SUSTAINABILITY=0` long after the
-setting was deliberately removed (`core/config.py`, "There is no
-YF_PROBE_SUSTAINABILITY key"). Copying the file and setting that value
-did nothing, and nothing failed. A setup file that lies is worse than a
-missing one, because the reader trusts it.
-
-These tests read the file rather than a copy of its contents, so they
-fail when the file drifts, not when someone forgets to update a fixture.
-"""
+"""`.env.example` is documentation that goes stale silently. These tests read the file
+itself, so they fail when it drifts rather than when someone forgets a fixture."""
 
 from __future__ import annotations
 
@@ -32,13 +23,7 @@ def _declared_keys() -> set[str]:
 
 
 def _setting_names() -> set[str]:
-    """Every key that reaches a settings object, from BOTH of them.
-
-    `ApiSettings` was missing here, and the gap was not academic: all
-    twelve `YFAPI_*` keys were absent from the file, `YFAPI_JWT_SIGNING_KEY`
-    among them -- without which the API refuses to sign a token -- and no
-    test could notice, because this function only knew about `Settings`.
-    """
+    """Every key that reaches a settings object, from BOTH `Settings` and `ApiSettings`."""
     prefix = ApiSettings.model_config["env_prefix"]
     return {name.upper() for name in Settings.model_fields} | {
         f"{prefix}{name}".upper() for name in ApiSettings.model_fields
@@ -55,27 +40,15 @@ def test_every_key_is_a_real_setting() -> None:
 
 
 def test_every_env_only_setting_is_documented() -> None:
-    """The env-only fields have no other way in.
-
-    Everything else is DB-managed and reachable through `yfin config`, so
-    its absence here is a choice. These eight cannot be set any other
-    way, so leaving one out means an operator cannot configure it without
-    reading the source.
-    """
+    """The env-only fields have no other way in: everything else is DB-managed and reachable
+    through `yfin config`; one of these left out cannot be configured without the source."""
     missing = sorted({name.upper() for name in ENV_ONLY_FIELDS} - _declared_keys())
     assert not missing, f"env-only settings missing from .env.example: {', '.join(missing)}"
 
 
 def test_every_api_setting_is_documented() -> None:
-    """`ApiSettings` is env-only in its entirety.
-
-    It has no `settings` table behind it and no `yfin config` command --
-    that separation is the point of the class (`api/core/config.py`: an
-    operator changing `yf_max_shards` has no business changing the JWT
-    audience). So the file a new operator copies is the ONLY place these
-    twelve can be learned from, and an omission here is not documentation
-    drift, it is a key nobody can find.
-    """
+    """`ApiSettings` is env-only in its entirety: no `settings` table, no `yfin config`
+    command, so the file a new operator copies is the only place these keys can be found."""
     prefix = ApiSettings.model_config["env_prefix"]
     expected = {f"{prefix}{name}".upper() for name in ApiSettings.model_fields}
     missing = sorted(expected - _declared_keys())

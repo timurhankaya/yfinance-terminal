@@ -1,12 +1,6 @@
-"""SyncContext.watermark's `where` parameter.
-
-A single MAX(ts_utc) on price_bars gives the wrong answer: 1m can be
-up-to-date while 60m is two years behind. Without splitting per interval,
-bars_60m would be assumed "current" and its first fill would never run.
-
-Existing calls (history, shares_full) pass no `where` and their behavior
-must not change; this file verifies both.
-"""
+"""SyncContext.watermark's `where` parameter: a single MAX(ts_utc) on price_bars is wrong
+when 1m is current and 60m is years behind, so the watermark is split per interval. Calls
+that pass no `where` must not change."""
 
 from __future__ import annotations
 

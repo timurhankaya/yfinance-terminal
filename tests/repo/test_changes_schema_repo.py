@@ -1,9 +1,7 @@
 """The change outbox against a real database.
 
-`Xid8Type` exists because neither side of the driver handles `xid8` alone,
-and both halves of that claim need a server to be true or false. The unit
-tests cover the compiled SQL; these cover what PostgreSQL and psycopg
-actually do with it.
+`Xid8Type` exists because neither side of the driver handles `xid8` alone; the
+unit tests cover the compiled SQL, these cover what the server and psycopg do.
 """
 
 from __future__ import annotations

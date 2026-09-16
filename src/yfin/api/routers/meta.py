@@ -1,15 +1,7 @@
-"""Liveness and readiness.
-
-Both are unauthenticated, and that makes `/health/ready` the cheapest
-attack surface in the API: it touches PostgreSQL and Redis on every call.
-Left uncapped, a few thousand requests a second would drain the
-connection pool and take real traffic down with it. So the result is
-cached for a few seconds and the endpoint carries its own per-IP limit.
-
-That limit is in-process on purpose. A readiness probe that needs Redis
-in order to report that Redis is down would be useless exactly when it
-matters.
-"""
+"""Liveness and readiness. `/health/ready` is unauthenticated and touches
+PostgreSQL and Redis, so the result is cached for a few seconds and the
+endpoint carries its own in-process per-IP limit (a probe that needed
+Redis to report Redis down would be useless)."""
 
 from __future__ import annotations
 

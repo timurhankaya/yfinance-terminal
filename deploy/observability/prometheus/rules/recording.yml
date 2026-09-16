@@ -1,9 +1,5 @@
-# Recording rules only. Alerts live in Grafana's provisioning, so there is
-# one place to look for "what fires and who hears it" rather than two.
-#
-# These exist because the expressions are used by several dashboard panels
-# each, and a ratio recomputed four different ways eventually disagrees
-# with itself.
+# Recording rules only; alerts live in Grafana's provisioning. Each
+# expression here is shared by several dashboard panels.
 
 groups:
   - name: yfin-freshness

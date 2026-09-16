@@ -1,9 +1,7 @@
 """`yfin db` -- schema creation and migration.
 
-Alembic and `Base.metadata` are imported inside the command bodies, not at
-module level: `yfin --help` used to pull the whole model package in through
-this group even though nothing but these three commands ever needs it.
-"""
+Alembic and `Base.metadata` are imported inside the command bodies so that
+`yfin --help` does not pull the whole model package in through this group."""
 
 from __future__ import annotations
 
@@ -38,15 +36,8 @@ def db_upgrade(
 def _warn_missing_settings_rows() -> None:
     """Warns in one line about DB-managed keys that have no settings row.
 
-    After migrating to the DB-backed layer, the `.env` layer is effectively
-    empty; if `yfin config seed` is not run for a field newly added to
-    `Settings`, its value falls through to the model default instead of
-    `.env`. `seed` is therefore a standard step after every `upgrade`, and
-    this command reminds the operator of that.
-
-    This reads `Settings.model_fields` from a command, not a migration, so it
-    does not violate the rule against migrations importing application code.
-    """
+    A `Settings` field without a row falls through to the model default, so
+    `yfin config seed` is a standard step after every `upgrade`."""
     from yfin.core.config import DB_MANAGED_FIELDS, bootstrap_settings, source_is_env
     from yfin.storage.settings_store import fetch_rows
 
@@ -75,11 +66,8 @@ def _warn_missing_settings_rows() -> None:
 def db_create() -> None:
     """Creates the database if it does not exist.
 
-    Never touches the DB-backed configuration layer: the command that creates
-    the database cannot connect to a database that does not exist yet, but
-    `get_settings()` would try to connect to exactly that database to read
-    the `settings` table.
-    """
+    Never touches the DB-backed configuration layer: `get_settings()` would try
+    to read the `settings` table from the database being created."""
     from sqlalchemy import create_engine, text
 
     from yfin.core.config import bootstrap_settings
@@ -115,12 +103,9 @@ def db_create() -> None:
 def db_revision(message: Annotated[str, typer.Option("-m", "--message")]) -> None:
     """Generates a new migration from the models.
 
-    Disables the DB-backed configuration layer. `migrations/env.py` calls
-    `get_settings()`; a `revision` run before the schema exists would
-    otherwise fail looking for the `settings` table. The env var has to be
-    set directly, since the key that disables the layer cannot itself be
-    read from the layer (chicken-and-egg).
-    """
+    Forces the env settings source: `migrations/env.py` calls `get_settings()`,
+    which would look for a `settings` table that may not exist yet. The env var
+    is set directly because the key that disables the layer cannot come from it."""
     import os
 
     from alembic import command
@@ -143,23 +128,9 @@ def db_monitor_role(
 ) -> None:
     """Creates the read-only role the metrics exporters log in as.
 
-    A COMMAND rather than a migration, for four reasons that each rule it
-    out on their own: a role is cluster-wide while migrations run against a
-    database, the repo tests run migrations in parallel per-process schemas,
-    a password written into a migration lands in `log_statement`, and
-    rotating one would need a new revision forever.
-
-    Idempotent, so it can be re-run to rotate the password: `CREATE ROLE`
-    has no `IF NOT EXISTS`, so existence is checked in a `DO $$` block and
-    the password is set either way.
-
-    `pg_monitor` and nothing else. It is enough for Alloy's default
-    postgres collectors -- `pg_stat_*`, sizes, replication -- and it grants
-    no `SELECT` on any data table. The exporter is meant to see how the
-    database is doing, not what is in it; when a custom query eventually
-    needs a table, that grant should be visible in a diff rather than
-    already in place.
-    """
+    A command, not a migration: a role is cluster-wide, and a password in a
+    migration would land in `log_statement` and the repository. Idempotent, so
+    re-running it rotates the password. Grants `pg_monitor` and nothing else."""
     import os
 
     from sqlalchemy import text
@@ -173,19 +144,10 @@ def db_monitor_role(
 
     db = engine()
     with db.connect() as conn:
-        # Role names and passwords cannot be bind parameters: CREATE ROLE and
-        # ALTER ROLE are utility statements and PostgreSQL rejects a
-        # placeholder in them. So POSTGRESQL does the quoting, through
-        # `quote_ident` and `quote_literal` in ordinary SELECTs that do take
-        # parameters, and only the already-quoted text is interpolated.
-        # Quoting either by hand here would be an injection waiting for a
-        # password with an apostrophe in it.
-        #
-        # The password does end up in the text of the statement that sets it,
-        # and `log_statement = all` would record it. That is unavoidable for
-        # ALTER ROLE, and it is one more reason this is an operator command
-        # run once rather than a migration -- which would keep the password
-        # in the repository and replay it on every deployment.
+        # Role names and passwords cannot be bind parameters in CREATE/ALTER
+        # ROLE, so PostgreSQL does the quoting via `quote_ident`/`quote_literal`
+        # and only the already-quoted text is interpolated. The password still
+        # lands in the statement text, which `log_statement = all` records.
         ident = conn.execute(text("SELECT quote_ident(:r)"), {"r": role}).scalar_one()
         secret = conn.execute(
             text("SELECT quote_literal(:p)"), {"p": password}

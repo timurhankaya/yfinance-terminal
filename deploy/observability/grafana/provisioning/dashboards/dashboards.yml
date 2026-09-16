@@ -1,9 +1,5 @@
-# The repository is the source of the dashboards.
-#
-# `allowUiUpdates: false` is deliberate and occasionally annoying: a panel
-# fixed in the browser at 3am is a panel that is un-fixed by the next
-# `docker compose up`. Editing the JSON is the only way the fix survives,
-# and it is also the only way anybody else gets it.
+# The repository is the source of the dashboards: `allowUiUpdates: false`,
+# so a fix survives only if it is made in the JSON.
 
 apiVersion: 1
 

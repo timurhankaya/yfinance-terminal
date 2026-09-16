@@ -81,8 +81,8 @@ describe("sorting a table", () => {
 
   it("puts a numeric heading over its own column", () => {
     render(<SortedTable columns={COLUMNS} rows={ROWS} rowKey={(row) => row.symbol} />);
-    // The alignment used to be on the cells alone, so a right-aligned
-    // number sat under the next column's left-aligned label.
+    // Alignment must be on the heading too, or a right-aligned number sits
+    // under the next column's left-aligned label.
     expect(screen.getByRole("columnheader", { name: /Price/ })).toHaveClass("num");
   });
 });

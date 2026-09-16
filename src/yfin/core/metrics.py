@@ -1,33 +1,8 @@
 """Counters, and the two very different processes that keep them.
 
-A long-lived service -- the API, `stream run`, either relay, the scheduler
--- serves `/metrics` and Prometheus scrapes it. A sync shard cannot: it is a
-short-lived process that exits long before any scrape reaches it, and a
-Pushgateway would keep its series forever, has no `up`, and is one more
-thing to lose. So a shard accumulates its counters in memory and flushes
-them into `run_metrics` on the way out, and the exporter reads the database.
-
-Both are the same call at the point of instrumentation. `readers.py`
-counting a cache hit has no business knowing which kind of process it is in.
-
-Two rules the whole namespace obeys, and both are enforced below rather than
-asked for in a review:
-
-**No `symbol` label, ever.** Ten thousand symbols times forty-nine datasets
-is a series explosion that would cost more than the pipeline it measures.
-Symbol-level detail lives in the database and in the logs.
-
-**Every metric is declared.** A counter created at its call site has no
-documentation and no label contract, and a typo in a label name becomes a
-second series that looks like data. `METRICS` is the declaration; the
-accumulator refuses anything it does not know.
-
-`prometheus_client` is imported LAZILY and never at module level.
-`prometheus_client` picks its value class from `PROMETHEUS_MULTIPROC_DIR` at
-IMPORT time, process-wide, so importing it before the environment is final
-would decide multiprocess mode for a process that is not the API. It is also
-an extra, and a missing extra must not stop a sync.
-"""
+A long-lived service serves `/metrics`; a sync shard accumulates in memory and
+flushes into `run_metrics` on exit. No `symbol` label, ever. Every metric is
+declared in `METRICS`. `prometheus_client` is imported lazily (multiprocess mode)."""
 
 from __future__ import annotations
 
@@ -53,12 +28,8 @@ ALLOWED_LABELS: frozenset[str] = frozenset(
         "interval",
         "reason",
         "state",
-        # `job_name`, NOT `job`. `job` and `instance` are RESERVED: a
-        # scrape stamps them from the scrape config, and a metric that
-        # carries its own `job` has it renamed to `exported_job` while
-        # `job` becomes the scrape job's name. Measured on the running
-        # stack -- every `by (job)` in a dashboard was silently grouping
-        # by a label with one value.
+        # `job_name`, NOT `job`: `job` and `instance` are reserved, and a metric
+        # carrying its own `job` has it renamed to `exported_job` by the scrape.
         "job_name",
         "result",
         "handler",
@@ -125,12 +96,8 @@ _PROCESS_METRICS: dict[str, MetricSpec] = _declare(
 )
 
 
-#: What a long-lived SERVICE counts about the work it does.
-#:
-#: Real Prometheus counters, incremented where the decision is made. They
-#: are not in `_SHARD_COUNTERS` because nothing here runs in a process that
-#: exits before a scrape: the API, `stream run` and the two relays are all
-#: scraped where they stand.
+#: What a long-lived SERVICE counts about the work it does: real Prometheus
+#: counters, since nothing here runs in a process that exits before a scrape.
 _SERVICE_COUNTERS: dict[str, MetricSpec] = _declare(
     MetricSpec(
         name="yfin_api_ratelimit_decisions_total",
@@ -168,12 +135,9 @@ _SERVICE_COUNTERS: dict[str, MetricSpec] = _declare(
         labelnames=("cache", "result"),
     ),
     # --- `stream run` -----------------------------------------------------
-    #
-    # These four have gauge counterparts the exporter reads from
-    # `stream_sessions` and `stream_connection_health`, and the pair is
-    # deliberate: the table says what the CURRENT session has seen, these
-    # say what this process has seen since it started. A reconnect storm
-    # that ends in a new session shows here and nowhere else.
+    # These four also have exporter gauges read from the stream tables: the
+    # table says what the CURRENT session has seen, these say what this process
+    # has seen since it started.
     MetricSpec(
         name="yfin_stream_messages_total",
         documentation="Messages decoded from the upstream socket.",
@@ -304,13 +268,8 @@ _SHARD_COUNTERS: dict[str, MetricSpec] = _declare(
 def exported_name(counter: str) -> str:
     """The gauge the exporter republishes a shard counter under.
 
-    `yfin_sync_retries_total` -> `yfin_sync_retries`. The suffix goes
-    because the published value is not a monotonic total of the scheduler
-    process at all -- it is the latest run's count, summed over that run's
-    shards, and it drops back when the next run does less work. Keeping
-    `_total` would also register one name twice with two label sets, since
-    the exported gauge carries `scope` and the counter does not.
-    """
+    `_total` goes: the published value is the latest run's count, not a
+    monotonic total, and keeping it would register one name with two label sets."""
     return counter.removesuffix("_total")
 
 
@@ -575,12 +534,9 @@ _EXPORTER_GAUGES: dict[str, MetricSpec] = _declare(
 )
 
 
-#: Everything this codebase counts.
-#:
-#: The `yfin_sync_` prefix marks a counter a SHARD accumulates and the
-#: exporter republishes from `run_metrics`; `yfin_audit_` marks a gauge the
-#: exporter reads from the audit tables. The two prefixes are separate so no
-#: name is ever registered twice with two different label sets.
+#: Everything this codebase counts. `yfin_sync_` marks a counter a SHARD
+#: accumulates and the exporter republishes; `yfin_audit_` marks a gauge read
+#: from the audit tables. Separate prefixes, so no name gets two label sets.
 METRICS: dict[str, MetricSpec] = {
     **_PROCESS_METRICS,
     **_SERVICE_COUNTERS,
@@ -593,12 +549,8 @@ METRICS: dict[str, MetricSpec] = {
 def label_key(labels: dict[str, str]) -> str:
     """Labels as one string, canonically.
 
-    This is a PRIMARY KEY component on `run_metrics`, so two increments of
-    the same counter have to produce the same bytes whatever order the
-    keywords were written in. Sorted keys and compact separators; `{}` for
-    no labels, because the column is NOT NULL and an empty string would read
-    as something forgotten rather than as "this counter has none".
-    """
+    A PRIMARY KEY component on `run_metrics`, so two increments of the same
+    counter must produce the same bytes whatever the keyword order."""
     return json.dumps(labels, sort_keys=True, separators=(",", ":"))
 
 
@@ -626,13 +578,9 @@ class CounterRow:
 class Accumulator:
     """Counters for a process that will not be scraped.
 
-    A sync shard fills one of these and flushes it into `run_metrics` in its
-    own short transaction just before it exits -- outside the symbol
-    transactions, so a metrics failure can never roll back data.
-
-    Locked, because worker threads count Yahoo requests concurrently. A lost
-    increment is a silently wrong number, which is worse than no number.
-    """
+    A sync shard flushes this into `run_metrics` in its own transaction before
+    exit, so a metrics failure never rolls back data. Locked: worker threads
+    count concurrently."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -667,10 +615,7 @@ _accumulator: Accumulator | None = None
 def use_accumulator(accumulator: Accumulator | None) -> None:
     """Routes `inc` into this accumulator for the rest of the process.
 
-    Called once by a shard, or by the single-process path, right after the
-    settings are known. `None` puts the process back on the Prometheus
-    counters, which is what a long-lived service uses.
-    """
+    `None` puts the process back on the Prometheus counters."""
     global _accumulator  # noqa: PLW0603 - one handle per process, by design
     _accumulator = accumulator
 
@@ -682,14 +627,7 @@ def current_accumulator() -> Accumulator | None:
 def inc(name: str, amount: int = 1, **labels: str) -> None:
     """Counts one thing, wherever this process keeps its counters.
 
-    The same call in a shard and in the API. A shard accumulates in memory
-    and flushes to `run_metrics` on the way out; a long-lived service
-    increments a Prometheus counter that a scrape will read.
-
-    Never raises. Instrumentation that can fail is instrumentation that
-    turns a working sync into a broken one, and the numbers are worth less
-    than the run.
-    """
+    Never raises: instrumentation must not turn a working sync into a broken one."""
     accumulator = _accumulator
     if accumulator is not None:
         with suppress(Exception):
@@ -703,10 +641,7 @@ def inc(name: str, amount: int = 1, **labels: str) -> None:
 def _object(name: str) -> Any:
     """The Prometheus object for a declared metric, created on first use.
 
-    Raises when the extra is not installed -- every caller here is already
-    inside a `suppress`, because metrics are optional everywhere and a
-    missing extra must not stop a run.
-    """
+    Raises when the extra is not installed; every caller is inside a `suppress`."""
     existing = _OBJECTS.get(name)
     if existing is not None:
         return existing
@@ -732,16 +667,10 @@ def _object(name: str) -> Any:
 
 
 def observe(name: str, value: float, **labels: str) -> None:
-    """Records one measurement in a histogram.
+    """Records one measurement in a histogram. Never raises, like `inc`.
 
-    Never raises, like `inc`. A batch that failed to be timed is still a
-    batch that was written, and the timing is worth less than the write.
-
-    There is no accumulator branch: `run_metrics` stores integers keyed by
-    name and labels, which is a counter's shape and not a histogram's. A
-    shard that needs a duration puts it in `sync_run_items.duration_ms`,
-    where it already goes.
-    """
+    No accumulator branch: `run_metrics` stores integers, a counter's shape;
+    a shard's durations go to `sync_run_items.duration_ms`."""
     with suppress(Exception):
         _validate(name, labels)
         histogram = _object(name)
@@ -750,12 +679,8 @@ def observe(name: str, value: float, **labels: str) -> None:
 
 @contextmanager
 def timed(name: str, **labels: str) -> Iterator[None]:
-    """Times the block and records it. Records even when the block raises.
-
-    A pass that failed is still a pass that took time, and dropping its
-    duration would make the histogram flatter exactly when something is
-    going wrong.
-    """
+    """Times the block and records it, even when the block raises: dropping a
+    failed pass would flatten the histogram exactly when something is wrong."""
     started = time.monotonic()
     try:
         yield
@@ -764,15 +689,10 @@ def timed(name: str, **labels: str) -> Iterator[None]:
 
 
 def set_gauge(name: str, value: float, **labels: str) -> None:
-    """Sets a gauge the exporter read out of the database.
+    """Sets a gauge the exporter read out of the database. Never raises.
 
-    Never raises, for the same reason `inc` does not: this runs on the
-    scheduler's exporter thread, and the scheduler is the process that runs
-    the jobs. A number nobody could publish is worth less than the work.
-
-    There is no accumulator branch. A gauge is a value read from a table by
-    a long-lived process; a shard has nothing to put in one.
-    """
+    No accumulator branch: a gauge is read from a table by a long-lived
+    process, and a shard has nothing to put in one."""
     with suppress(Exception):
         _validate(name, labels)
         gauge = _object(name)
@@ -782,13 +702,9 @@ def set_gauge(name: str, value: float, **labels: str) -> None:
 def clear_gauge(name: str) -> None:
     """Drops every label combination a gauge currently carries.
 
-    Called by the exporter before it republishes a query's gauges, and only
-    when that query SUCCEEDED. Without it a cell that left the universe, a
-    proxy that was deleted or a stream connection that closed would keep the
-    last value it ever had, on a dashboard, forever. With it, a query that
-    fails does not clear -- so the previous refresh's numbers stand and
-    `yfin_exporter_last_success_timestamp` is what goes stale.
-    """
+    Called by the exporter only when a query SUCCEEDED, so a deleted row does
+    not keep its last value forever while a failed query leaves the previous
+    numbers standing."""
     with suppress(Exception):
         _object(name).clear()
 
@@ -803,17 +719,10 @@ def set_build_info(version: str) -> None:
 
 
 def serve_metrics(port: int, addr: str = "0.0.0.0") -> bool:  # noqa: S104
-    """Starts the `/metrics` endpoint in a daemon thread. Returns whether it
-    is listening.
+    """Starts the `/metrics` endpoint in a daemon thread; returns whether it listens.
 
-    `port = 0` means off, which is the default: `METRICS_PORT` is env-only
-    because one value in the settings table would bind five services to one
-    port.
-
-    Every failure here is a WARNING and never an exception. A metrics port
-    already in use, or the extra not installed, must not stop a sync -- the
-    whole point of the port is to observe the work, not to gate it.
-    """
+    `port = 0` means off. Every failure is a WARNING, never an exception: a
+    port in use or a missing extra must not stop a sync."""
     if not port:
         return False
     try:
@@ -830,12 +739,8 @@ def serve_metrics(port: int, addr: str = "0.0.0.0") -> bool:  # noqa: S104
 def count_exception(exc: BaseException) -> None:
     """Increments `yfin_exceptions_total{type}` with the exception's class.
 
-    `prometheus_client.count_exceptions` cannot label by type, and the type
-    is the only thing that makes the counter worth reading.
-
-    It runs inside exception handlers, so it swallows its own failures: a
-    metric that raised there would replace the real error with itself.
-    """
+    `prometheus_client.count_exceptions` cannot label by type. Runs inside
+    exception handlers, so it swallows its own failures."""
     inc("yfin_exceptions_total", type=type(exc).__name__)
 
 

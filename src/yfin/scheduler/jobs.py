@@ -1,13 +1,7 @@
 """What the scheduler can run, and which queue each job waits in.
 
-The SET of jobs is fixed here; only their timing is configurable. That split
-is deliberate: an operator retimes a run without a deployment, but cannot
-invent a job that no command implements, and cannot quietly point one at a
-different command.
-
-Every job is a SUBPROCESS. The scheduler replaces cron, not the runner --
-sharding, advisory locks, per-proxy cache directories and exit codes all
-stay exactly as they are, and a job that crashes takes nothing with it.
+The set of jobs is fixed here; only their timing is configurable. Every
+job is a subprocess: the scheduler replaces cron, not the runner.
 """
 
 from __future__ import annotations
@@ -105,23 +99,10 @@ _INTERVAL_SAMPLE_DAYS = 400
 
 
 def interval_seconds(trigger: Any, *, now: datetime | None = None) -> float:
-    """The cron's MEAN period, in seconds.
+    """The cron's MEAN period in seconds: first-to-last firing span over the gap count.
 
-    Not "the gap to the next firing": for `0 4 1 * *` that would be anywhere
-    from one day to thirty-one depending on when it was asked, and the two
-    things it feeds -- the per-job misfire grace and the freshness factor --
-    would both swing with it.
-
-    Measured as the span between the FIRST and LAST firing in the sample
-    window, divided by the number of GAPS between them. Dividing the window
-    by the number of firings instead looks equivalent and is not: a
-    400-day window holds 13 or 14 monthly firings depending on where in the
-    month it starts, which put a 7.7 % swing on a number that must not have
-    one.
-
-    Returns 0.0 when fewer than two firings fall in the window -- a cadence
-    longer than the sample cannot be measured from it, and the callers read
-    0 as "no cadence" rather than dividing by it.
+    Dividing the window by the firing count instead would swing with where
+    the window starts. 0.0 when fewer than two firings fall in the window.
     """
     start = now or datetime.now(trigger.timezone)
     end = start + timedelta(days=_INTERVAL_SAMPLE_DAYS)

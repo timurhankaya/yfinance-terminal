@@ -1,22 +1,8 @@
-"""`yfin api client` command group.
+"""`yfin api client` command group: thin wrappers over `api/storage/clients.py`.
 
-Thin wrappers over `api/storage/clients.py`, for the same reason
-`yfin config` is a thin wrapper over `settings_store`: the self-service
-portal will call that module directly, and any rule buried in a command
-would be a rule the portal silently bypasses.
-
-Two behaviours are worth stating outright.
-
-A secret is printed exactly once, to stdout, and never stored in the
-clear. There is no command to recover it -- if it is lost, rotate.
-
-`disable` and `revoke` are not done when the database row is written.
-Token verification does not read the database, so the change only takes
-effect once Redis carries it. If that write fails, the command exits
-non-zero and says so: an operator who believes they have cut off a
-misbehaving client, but has not, is worse off than one who knows the
-command failed.
-"""
+Rules live in that module because the self-service portal calls it directly.
+Secrets are printed once and never stored. Token checks read Redis, not the
+database, so `disable`/`revoke` exit non-zero when propagation to Redis fails."""
 
 from __future__ import annotations
 
@@ -49,12 +35,9 @@ def _session_factory() -> sessionmaker[Session]:
 def _scope_values() -> list[str]:
     """The scope names, derived the same way `ApiScope` derives them.
 
-    Not read off `ApiScope` itself, which lives in the ORM module: this
-    function is called while the command decorators are being evaluated,
-    so importing it here made `yfin --help` load the whole model package.
-    `api/models/clients.py` builds the enum from exactly this pair, and
-    `test_api_clients.py` asserts the two lists stay equal.
-    """
+    Not read off `ApiScope`: it lives in the ORM module and this runs while the
+    command decorators are evaluated, so importing it made `yfin --help` load
+    every model. `test_api_clients.py` asserts the two lists stay equal."""
     return [scope_for(family) for family in DataFamily]
 
 
@@ -67,10 +50,8 @@ def _propagate(
 ) -> bool:
     """Publishes an authorisation change to Redis so live tokens stop.
 
-    Returns False instead of raising: the database change is already
-    committed, so the honest report is a partial success, not a failure
-    of the whole operation.
-    """
+    Returns False instead of raising: the database change is already committed,
+    so the honest report is a partial success."""
     from yfin.api.core.config import get_api_settings
     from yfin.api.ratelimit.revocation import WrongRedis, publish_revocation
 
@@ -190,14 +171,7 @@ def client_revoke(
     client_id: Annotated[str, typer.Argument(help="Client id the secret belongs to")],
     secret_id: Annotated[int, typer.Argument(help="Secret id, from `client list`")],
 ) -> None:
-    """Kills ONE secret now, leaving the client and its other secret alive.
-
-    The gap this fills: `rotate` refuses a third live secret and says
-    "revoke the old one first", and this module's own documentation
-    described a `revoke` command -- but there was none, so the only way to
-    cut off a leaked secret was to disable the whole client, which stops
-    the traffic that is still legitimate.
-    """
+    """Kills ONE secret now, leaving the client and its other secret alive."""
     from yfin.api.storage import clients as repo
 
     factory = _session_factory()
@@ -234,10 +208,8 @@ def client_set_scopes(
 ) -> None:
     """REPLACES the client's scopes; it does not add to them.
 
-    Replacement rather than add/remove because narrowing is the case that
-    matters, and an operator who has to think in deltas will eventually
-    leave a scope behind.
-    """
+    Narrowing is the case that matters, and an operator who has to think in
+    deltas will eventually leave a scope behind."""
     from yfin.api.storage import clients as repo
 
     unknown = sorted(set(scopes) - set(_scope_values()))
@@ -285,13 +257,10 @@ def client_set_plan(
 
 
 def _warn_if_not_propagated(client_id: str, epoch: int, what: str) -> None:
-    """Both changes have to bite before the current token expires.
+    """Exits non-zero when the change did not reach Redis.
 
-    A widened scope is harmless if it lags; a NARROWED one is not, and
-    neither is a downgraded plan -- the client would keep the old limits
-    for the life of an already-issued token. So this exits non-zero for
-    the same reason `disable` does.
-    """
+    A narrowed scope or downgraded plan that lags leaves the client with the
+    old limits for the life of an already-issued token."""
     if _propagate(client_id, epoch):
         return
     typer.echo(
@@ -353,10 +322,8 @@ def usage_flush(
 ) -> None:
     """Moves buffered request counters into api_usage_daily.
 
-    Meant to run on a schedule. Today's bucket is skipped by default: it
-    is still being written to, and a flush that took it would lose
-    whatever landed between the read and the delete.
-    """
+    Today's bucket is skipped by default: it is still being written to, and a
+    flush would lose whatever lands between the read and the delete."""
     from yfin.api.core.config import get_api_settings
     from yfin.api.ratelimit import usage
 

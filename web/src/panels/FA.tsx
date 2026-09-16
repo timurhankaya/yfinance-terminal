@@ -127,14 +127,9 @@ export interface IncomeChart {
   margin: Array<number | null>;
 }
 
-/** Revenue and net income per period, oldest first, or null when the
- *  statement does not carry both.
- *
- *  Oldest first, unlike the table beside it: a table is read down from
- *  the newest row, and a time axis is read left to right. Null when
- *  either item is absent -- a balance sheet has no revenue, and half a
- *  chart is worse than none.
- */
+/** Revenue and net income per period, oldest first (a time axis reads
+ *  left to right), or null when the statement does not carry both -- a
+ *  balance sheet has no revenue, and half a chart is worse than none. */
 export function incomeChart(table: Pivot, freq: Freq): IncomeChart | null {
   const revenueRow = table.rows.find((row) => row.item === REVENUE_ITEM);
   const incomeRow = table.rows.find((row) => row.item === INCOME_ITEM);
@@ -238,7 +233,7 @@ export function FA({ symbol, args }: PanelProps) {
             {table.currency ? ` · ${table.currency}` : ""}
           </p>
           {/* Above the table, never instead of it: the one thing a chart
-              cannot show is the exact figure (spec, "Kararlar" 3). */}
+              cannot show is the exact figure. */}
           {chart !== null && (
             <Bars
               label={`${symbol} revenue and net income, ${FREQ_LABEL.get(freq)?.toLowerCase()}`}

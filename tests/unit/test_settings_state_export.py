@@ -1,10 +1,4 @@
-"""`settings_state()` and `export_values()` are pure functions. No DB.
-
-Both used to depend on a DB (`settings_state` took a `Settings` it never
-used, `export_values` was embedded inside a CLI command), so they could
-only be tested with a real database in a repo test. Splitting them out
-made this file possible.
-"""
+"""`settings_state()` and `export_values()` are pure functions. No DB."""
 
 from __future__ import annotations
 
@@ -95,12 +89,8 @@ def test_classify_unknown_keys(key: str) -> None:
 
 
 def test_the_read_and_write_paths_make_the_SAME_decision() -> None:
-    """Proof that the policy comes from a single source.
-
-    If it were coded in two places, a category missed on the read path
-    would breach the security boundary (an applied row containing
-    `db_host`).
-    """
+    """The policy comes from a single source: coded in two places, a category missed on the
+    read path would breach the security boundary (an applied row containing `db_host`)."""
     from yfin.storage.settings_store import SettingRejected, filter_overrides, validate_pair
 
     for key in sorted(ENV_ONLY_FIELDS | {"no_such_key"}):

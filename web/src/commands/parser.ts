@@ -1,9 +1,8 @@
-// The command grammar: [SYMBOL] [CODE] [ARGS...]. Deterministic on purpose —
-// no fuzzy matching, no guessing. Symbols and codes are compared upper-case;
-// argument tokens reach parseArgs exactly as typed, because "15m" is an
-// interval and "15M" is not. The one ambiguity (a ticker that is also a
-// mnemonic, like CF) is settled by position: two leading mnemonics mean the
-// first is the symbol.
+// The command grammar: [SYMBOL] [CODE] [ARGS...]. Deterministic: no fuzzy
+// matching. Symbols and codes compare upper-case; argument tokens reach
+// parseArgs exactly as typed ("15m" is an interval and "15M" is not). A
+// ticker that is also a mnemonic (CF) is settled by position: two leading
+// mnemonics mean the first is the symbol.
 import { getAction, getPanel, isMnemonic } from "./registry";
 import type { Command, PanelArgs } from "./types";
 
@@ -14,23 +13,11 @@ export const SYMBOL_RE = /^[A-Z0-9.^=-]+$/;
 export const NO_SYMBOL = "-";
 export const DEFAULT_CODE = "DES";
 
-/** The two roots, and why there are two.
- *
- *  A screener is not a property of a symbol. Serving `EQS` from
- *  `/ui/t/AAPL/EQS` made every market-wide page read as though it
- *  belonged to whatever symbol happened to be on the strip, and made
- *  `/ui/t/-/EQS` -- a placeholder standing in for a slot the page has no
- *  use for -- the shape of a shareable link.
- *
- *  So the URL now says which kind of page it is. `/ui/t/{SYMBOL}/{CODE}`
- *  is a symbol's detail, where the symbol is part of the identity;
- *  `/ui/m/{CODE}` is a market-wide page, where it is not.
- *
- *  The strip's symbol still follows the reader across a market page --
- *  `AAPL DES` then `EQS` then `FA` lands back on AAPL -- but it rides in
- *  the history entry rather than the path (`Shell`). That is what makes
- *  a shared `/ui/m/EQS` carry no one's symbol, which is the correct
- *  thing for it to carry. */
+/** The two roots. `/ui/t/{SYMBOL}/{CODE}` is a symbol's detail, where the
+ *  symbol is part of the identity; `/ui/m/{CODE}` is a market-wide page,
+ *  where it is not. The strip's symbol follows the reader across a market
+ *  page in the history entry (`Shell`), so a shared `/ui/m/EQS` carries
+ *  no one's symbol. */
 export const SYMBOL_ROOT = "/ui/t";
 export const MARKET_ROOT = "/ui/m";
 
@@ -120,12 +107,9 @@ export function symbolCommand(symbol: string, ctxCode: string): ParseResult {
   return build(symbol, code, []);
 }
 
-/** True when the code names a page that is not about one symbol.
- *
- *  Read from the registry rather than from a list here: `needsSymbol` is
- *  already the panel's own declaration, and a second list would drift
- *  the first time a panel changed its mind. An unregistered code is
- *  treated as symbol-scoped, which is what `DES` -- the default -- is. */
+/** True when the code names a page that is not about one symbol. Read
+ *  from the registry's `needsSymbol` rather than a second list here. An
+ *  unregistered code is treated as symbol-scoped, like `DES`. */
 export function isMarketCode(code: string): boolean {
   const spec = getPanel(code);
   return spec !== undefined && !spec.needsSymbol;

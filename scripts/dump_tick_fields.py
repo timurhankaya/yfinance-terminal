@@ -1,19 +1,7 @@
-"""Writes the tick field table for the browser, or checks the committed copy.
+"""Writes the tick field table for the browser, or checks the committed copy (--check).
 
-`stream/publish.py` owns the wire shape of a tick. The page has to know
-the same table to type it, and a TypeScript interface written by hand
-next to a Python tuple is two sources of truth that agree until the day
-they do not -- a renamed key would reach production as an undefined
-price, silently, on a chart that still drew.
-
-So the table is generated here and committed, the same arrangement
-`openapi.json` has: CI runs `--check`, and a key that moved shows up as a
-failing build with a diff rather than as a blank field.
-
-Usage:
-    python scripts/dump_tick_fields.py            # write the JSON
-    python scripts/dump_tick_fields.py --check    # exit 1 if it is stale
-"""
+`stream/publish.py` owns the wire shape of a tick; generating the browser's
+copy from it keeps a renamed key from reaching production as an undefined field."""
 
 from __future__ import annotations
 

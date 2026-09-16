@@ -308,14 +308,9 @@ def test_a_symbol_keyed_dataset_without_that_opt_in_still_refuses(
 def test_a_refused_dataset_request_is_still_METERED(
     client: TestClient, redis: fakeredis.FakeRedis
 ) -> None:
-    """The 403 and 404 paths were the only unmetered surface in the API.
-
-    A token holder could drive them at any rate they liked: no rate limit,
-    no concurrency slot, nothing counted against the monthly quota -- while
-    each request still cost a signature check, a Redis read and a worker
-    thread. They are metered under `meta`, the family reserved for a
-    surface that belongs to no data family.
-    """
+    """403 and 404 are metered under `meta`, the family for surface that belongs
+    to no data family; otherwise they would be the one path a token holder
+    could drive at any rate."""
     # The counters are what matters here, not the headers: a problem
     # response carries only what the raiser attached, which is what the
     # published contract says -- rate headers appear on 200, 304 and 429.

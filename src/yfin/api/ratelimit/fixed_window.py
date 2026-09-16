@@ -1,16 +1,6 @@
-"""An in-process fixed-window counter.
-
-Two byte-identical copies of this existed -- `meta._FixedWindow`, which
-keeps a flood off `/health/ready`, and `token_endpoint._ProcessLimiter`,
-the fallback that takes over when Redis is gone. They differed only in
-that one hard-coded the sixty and the other named it, and only one of
-them had `reset()`.
-
-Deliberately tiny, and deliberately NOT the API's rate limiter: that is
-`limiter.py`, which is a token bucket in Redis because a fixed window
-admits twice the rate across a window boundary. Both users here want a
-crude brake on one endpoint, not a fair one.
-"""
+"""An in-process fixed-window counter: a crude brake on one endpoint, not
+the API's rate limiter (`limiter.py`, a token bucket in Redis, because a
+fixed window admits twice the rate across a boundary)."""
 
 from __future__ import annotations
 
@@ -19,12 +9,9 @@ import time
 
 
 class FixedWindow:
-    """Per-key counter, reset when the window rolls.
-
-    The whole dict is dropped on a roll rather than aged per entry: that
-    is what keeps a long uptime from growing it without bound, and it is
-    why `_window` is compared rather than each entry carrying a timestamp.
-    """
+    """Per-key counter, reset when the window rolls. The whole dict is dropped
+    on a roll rather than aged per entry, so a long uptime cannot grow it
+    without bound."""
 
     def __init__(self, window_seconds: int = 60) -> None:
         self._window_seconds = window_seconds
@@ -43,15 +30,9 @@ class FixedWindow:
             return count <= limit
 
     def over(self, key: str, limit: int) -> bool:
-        """Whether the key has already spent its limit, WITHOUT charging
-        the window.
-
-        `allow` asks "may this one through, and count it". A caller that
-        counts only SOME of what it sees -- the admin login, which charges
-        failures and lets a correct credential through free -- needs the
-        two halves apart, or every request it waves through would still
-        push the key towards the ceiling.
-        """
+        """Whether the key has already spent its limit, WITHOUT charging the
+        window. A caller that counts only some of what it sees (the admin
+        login charges failures only) needs this apart from `allow`."""
         window = int(time.time() // self._window_seconds)
         with self._lock:
             # A rolled window is empty, and saying so is enough: the drop

@@ -1,14 +1,7 @@
 // The first screen of a symbol: who it is, six numbers, three pictures.
-//
-// It answers the question a reader arrives with -- what is this and what
-// is it doing -- before the snapshot's hundred and fifty fields get a
-// chance to. The fields are not gone; they are one tab down.
-//
-// Everything here except the trend line comes out of the SAME `info`
-// object the panel already loaded. That is the whole reason the pictures
-// are affordable: a bullet of the 52-week range costs no request, and
-// `Bars` of the four margins costs no request. The trend line costs one,
-// and it is the batched sparkline route rather than a chart.
+// Everything except the trend line comes out of the SAME `info` object
+// the panel already loaded, so the pictures cost no request; the trend
+// line costs one.
 import type { ReactElement, ReactNode } from "react";
 import { daysAgo, getBarsWindow, type SymbolDetail } from "../../api/client";
 import { LoadState, usePanelData } from "../common";
@@ -72,13 +65,9 @@ function RangeCard({ title, range }: { title: string; range: RangeMark | null })
   );
 }
 
-/** The trend, over the window the reader picked.
- *
- *  Bars rather than the batched sparkline route: that one is daily
- *  closes by design and refuses an interval outright (`ui/data.py`), and
- *  two of these four windows are intraday. It is still a Sparkline and
- *  not a `Chart` -- a glance, with `GP` one click away in the
- *  band for everything a glance cannot do. */
+/** The trend, over the window the reader picked. Bars rather than the
+ *  batched sparkline route: that one is daily closes only and refuses an
+ *  interval (`ui/data.py`), and two of the four windows are intraday. */
 function TrendCard({ symbol, range, onRange }: {
   symbol: string;
   range: TrendRange;

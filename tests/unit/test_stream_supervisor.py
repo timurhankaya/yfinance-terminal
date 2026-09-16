@@ -161,12 +161,8 @@ def test_full_queue_drops_and_counts() -> None:
 
 
 def test_quotes_survive_a_full_queue() -> None:
-    """The reason the box is not downstream of the queue.
-
-    An earlier design claimed quotes were preserved on overflow while the
-    queue was the only channel to the writer -- which made the claim
-    impossible.
-    """
+    """The box is not downstream of the queue: quotes could not be preserved on overflow if
+    the queue were the only channel to the writer."""
     supervisor = _supervisor(FakeRepository(), queue_maxsize=1)
     supervisor._archived = {"AAPL"}
     for i in range(5):
@@ -187,13 +183,9 @@ def test_full_reject_queue_does_not_raise() -> None:
 
 
 def test_health_is_boxed_rather_than_written() -> None:
-    """The event loop records health; the writer thread puts it on disk.
-
-    The canary ticks on every connection around the clock, so a
-    synchronous INSERT here would be a database round trip inside the
-    read loop -- which is what `_offer` refuses to do for ticks, for the
-    same reason: block the loop and ping/pong goes unanswered.
-    """
+    """The event loop records health; the writer thread puts it on disk. The canary ticks
+    on every connection around the clock, and a synchronous INSERT in the read loop would
+    leave ping/pong unanswered, which is why `_offer` refuses it for ticks too."""
     repository = FakeRepository()
     supervisor = _supervisor(repository)
     supervisor._session_id = 1

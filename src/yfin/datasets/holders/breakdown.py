@@ -1,8 +1,6 @@
 """major_holders dataset -> holder_breakdown.
 
-Source turns the `majorHoldersBreakdown` dict into a single-column ('Value')
-frame (holders.py:139-146); the index holds KEY names. The same four keys
-were measured across 19/19 symbols, so typed columns are used instead of EAV.
+Source is a single-column ('Value') frame whose index holds the key names.
 """
 
 from __future__ import annotations

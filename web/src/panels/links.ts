@@ -1,7 +1,6 @@
 // Links a row implies but does not carry: a research report is a page on
 // Yahoo keyed by report_id, a sector has a page keyed by its domain_key,
-// any symbol has a quote page. The URL patterns were checked against the
-// live site on 2026-09-07; a pattern Yahoo retires turns into a dead
+// any symbol has a quote page. A pattern Yahoo retires turns into a dead
 // link, not a wrong number.
 import type { Row } from "../api/client";
 

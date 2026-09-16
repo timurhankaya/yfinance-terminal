@@ -1,48 +1,8 @@
-"""`/ui/ws` -- the browser's end of the live tick path.
-
-The stream process publishes a committed tick to `yfin:tick:{SYMBOL}`
-(`stream/publish.py`); this subscribes an open page to the symbols it is
-looking at. One `redis.asyncio` pub/sub per connection: the synchronous
-client the rate limiter uses is untouched, and a page watching two
-symbols does not read the other nine thousand.
-
-No identity. The terminal is public, so what guards this is an Origin
-check -- a socket opened from another site would otherwise read this
-archive with the visitor's own network access -- plus this module's own
-limits, because `RequestBrake` is a `BaseHTTPMiddleware` and a WebSocket
-never passes through one.
-
-**Close codes are the protocol's other half.** The socket is accepted
-before it is closed precisely so the browser is handed a code, and each
-one means a different thing to the page:
-
-- `4403` (`WsClose.BadOrigin`): the Origin is not this deployment. This
-  will never work -- a wrong `public_base_url`, or a proxy rewriting
-  `Host` -- so the page must NOT reconnect; it should surface the
-  misconfiguration instead of retrying forever behind "connecting".
-- `4429` (`WsClose.TooBusy`): this process is at its socket ceiling, or
-  this address opened too many too fast. Temporary: reconnect, with
-  backoff.
-
-Anything else (a normal `1000`, `1006` from a dropped connection) is an
-ordinary outage and reconnects as before.
-
-Three things here are ordering decisions rather than plumbing:
-
-**`sub` subscribes BEFORE it snapshots.** The other order has a window
-between reading `live_quotes` and joining the channel, and a tick that
-lands in it is lost -- the chart would sit on a stale price until the
-next one. Subscribing first can only duplicate, and the page drops a
-tick older than its snapshot.
-
-**Only the sender task writes to the socket.** Frames are queued from
-the read loop and from the bus reader; two tasks calling `send_json`
-concurrently interleave into a frame no client can parse.
-
-**A full queue drops the OLDEST tick.** A page that has fallen behind
-wants the current price, not the one from four seconds ago, and the
-`dropped` frame tells it how many it did not see.
-"""
+"""`/ui/ws`: subscribes an open page to `yfin:tick:{SYMBOL}` via its own
+`redis.asyncio` pub/sub. No identity; an Origin check and this module's
+own connection limits guard it (a WebSocket never passes `RequestBrake`).
+Invariants: `sub` subscribes before it snapshots (a tick in between would
+be lost); only the sender task writes; a full queue drops the OLDEST."""
 
 from __future__ import annotations
 
@@ -82,17 +42,8 @@ WS_PATH: Final = "/ui/ws"
 #: Yahoo. It exists so one tab cannot ask the API to hold ten thousand.
 MAX_SYMBOLS: Final = 200
 
-#: An ESTIMATE, not a measurement: roughly 40 seconds of one busy symbol
-#: IF a busy symbol ticks about twice a second. The tick rate for US
-#: equities is one of the numbers `docs/measurements/websocket.md` marks
-#: as not measured -- the stream capture was taken on a Sunday -- and it
-#: "must be repeated during open market hours before any capacity claim
-#: about equities is made". This constant is that claim, so it stands as
-#: an estimate pending that run.
-#:
-#: What does not depend on the rate: deeper does not help. A page minutes
-#: behind has a problem no buffer fixes, and the `dropped` frame is the
-#: honest answer.
+#: Deeper does not help: a page minutes behind has a problem no buffer
+#: fixes, and the `dropped` frame is the honest answer.
 QUEUE_MAXSIZE: Final = 1000
 
 #: How long the bus reader blocks on a read before yielding the lock a
@@ -123,14 +74,8 @@ class WsError(StrEnum):
 
 
 class WsClose(IntEnum):
-    """Application close codes, in the 4000-4999 private range.
-
-    4000-4999 is what a browser hands back to the page unchanged;
-    anything below is reserved and some browsers rewrite it. The module
-    docstring says what each one asks the page to do -- the point of a
-    code is that "never retry" and "retry later" are different states,
-    and a page that cannot tell them apart shows "connecting" forever.
-    """
+    """Application close codes. 4000-4999 is what a browser hands back to the
+    page unchanged; the page must tell "never retry" from "retry later"."""
 
     #: The Origin is not this deployment. Permanent: do not reconnect.
     BadOrigin = 4403
@@ -139,28 +84,18 @@ class WsClose(IntEnum):
     TooBusy = 4429
 
 
-#: New sockets per address per minute, and how many are open right now.
-#: Both are per PROCESS and in-process, the same kind of crude brake
-#: `RequestBrake` is rather than a cluster-wide limit: what they protect
-#: is this worker's threadpool and database pool, which are also `/v1`'s.
-#:
-#: A plain int is enough for the count: every socket is admitted, run and
-#: released on the one event loop, and the check and the increment happen
-#: with no await between them, so two handshakes cannot both pass a
-#: ceiling that only one of them fits under.
+#: New sockets per address per minute, and how many are open right now;
+#: both per process, protecting this worker's threadpool and database
+#: pool. A plain int suffices: check and increment happen on the one
+#: event loop with no await between them.
 _handshakes = FixedWindow()
 _open_sessions = 0
 
 
 def connect_bus(url: str) -> redis.asyncio.Redis:
-    """The pub/sub client for one connection.
-
-    A function of its own because it is the seam a test replaces: a
-    fakeredis server can stand in for the bus, and everything above --
-    the subscribe order, the queue, the frames -- is then exercised for
-    real. Imported here rather than at module scope so a deployment with
-    the UI off never loads `redis.asyncio`.
-    """
+    """The pub/sub client for one connection; the seam a test replaces with
+    fakeredis. Imported here so a deployment with the UI off never loads
+    `redis.asyncio`."""
     import redis.asyncio as aioredis
 
     return aioredis.Redis.from_url(
@@ -172,12 +107,8 @@ def connect_bus(url: str) -> redis.asyncio.Redis:
 
 
 def _valid_symbol(token: str) -> str | None:
-    """The normalised symbol, or None when it is not one.
-
-    Not a database check: `sub` for a symbol nobody streams is simply a
-    channel that stays quiet, and asking the database per token would put
-    a query behind an unauthenticated frame.
-    """
+    """The normalised symbol, or None when it is not one. Not a database
+    check: that would put a query behind an unauthenticated frame."""
     code = normalize_symbol(token)
     if not code or len(code) > 32:
         return None
@@ -231,14 +162,9 @@ class LiveSession:
             await self._close_bus()
 
     async def _open_bus(self) -> bool:
-        """True when ticks can actually flow.
-
-        Two conditions, and the page is told which state it is in rather
-        than left to infer it from silence: the stream has to be
-        publishing (`yf_stream_publish_enabled`, with a URL to publish
-        to), and this process has to be able to reach that Redis. Either
-        one missing leaves `snap` working and the archive readable.
-        """
+        """True when ticks can actually flow: the stream is publishing and
+        this process can reach that Redis. Either missing leaves `snap`
+        working, and the page is told rather than left to infer it."""
         settings = get_settings()
         url = settings.yf_stream_publish_redis_url
         if not settings.yf_stream_publish_enabled or not url:
@@ -259,20 +185,10 @@ class LiveSession:
         return True
 
     def _go_dark(self, error: Exception) -> None:
-        """The bus failed mid-session: say so, and stop using it.
-
-        Fail-open is the rule on every layer of the live path -- the
-        publisher applies it, and open time applies it -- and this is the
-        third place it has to hold. Without it the page keeps the
-        `live.enabled=true` it was told when the socket opened, keeps
-        showing the last tick it received, and never falls back to the
-        periodic `snap` refresh: a price that stopped moving looks
-        exactly like a quiet market.
-
-        Synchronous, because it is called from inside the pub/sub lock
-        and must not await there. The connection is closed once, in
-        `_close_bus`.
-        """
+        """The bus failed mid-session: say so, or the page keeps
+        `live.enabled=true` and never falls back to `snap` refreshes.
+        Synchronous because it is called inside the pub/sub lock; the
+        connection is closed once, in `_close_bus`."""
         if not self._bus_ok:
             return
         self._bus_ok = False
@@ -314,15 +230,9 @@ class LiveSession:
         self._out.put_nowait(frame)
 
     def _take_dropped(self) -> int:
-        """The drop count, zeroed in the same breath.
-
-        Its own method because read-and-reset must not straddle an
-        `await`: a drop that lands while the `dropped` frame is being
-        sent belongs to the NEXT report, and if the reset happened after
-        the send it would be lost instead. Nothing here awaits, so the
-        two halves cannot be separated by a later edit without deleting
-        this paragraph.
-        """
+        """The drop count, zeroed in the same breath. Read-and-reset must not
+        straddle an `await`: a drop landing mid-send belongs to the next
+        report."""
         count, self._dropped = self._dropped, 0
         return count
 
@@ -399,10 +309,8 @@ class LiveSession:
                 try:
                     await self._pubsub.subscribe(*(channel(code) for code in fresh))
                 except Exception as error:  # noqa: BLE001 - fail-open, like the publisher
-                    # Redis went away since `_open_bus`. Unguarded, this
-                    # left `_handle` and `run`'s handler catches only
-                    # WebSocketDisconnect and RuntimeError, so it killed
-                    # the socket -- taking the archive down with the bus.
+                    # Redis went away since `_open_bus`; the socket must
+                    # outlive the bus so the archive stays readable.
                     self._go_dark(error)
         self._symbols |= set(fresh)
         # After the subscribe, so no tick can land in the gap between the
@@ -457,9 +365,8 @@ class LiveSession:
                             ignore_subscribe_messages=True, timeout=BUS_POLL_SECONDS
                         )
                     except Exception as error:  # noqa: BLE001 - the page keeps its snapshot
-                        # Returning quietly used to leave the page
-                        # believing `live.enabled=true` with no reader
-                        # behind it; the frame is what lets it fall back.
+                        # The frame is what lets the page fall back to
+                        # snapshots instead of trusting a dead feed.
                         self._go_dark(error)
                         return
             if message is None:
@@ -478,13 +385,8 @@ class LiveSession:
 
 def _refusal(websocket: WebSocket, settings: ApiSettings, request_id: str) -> WsClose | None:
     """The close code this socket is refused with, or None to serve it.
-
-    The Origin check answers "may this page read the archive"; the two
-    limits answer "can this process afford another socket". Origin is
-    not a limit on its own -- a client that sends no Origin is admitted
-    by design, so a loop of them would otherwise be admitted without
-    end.
-    """
+    Origin alone is not a limit: a client sending none is admitted by
+    design, so the connection limits are what bound a loop of them."""
     if not origin_allowed(
         websocket.headers.get("origin"), websocket.headers.get("host"), settings
     ):

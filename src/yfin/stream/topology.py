@@ -1,27 +1,7 @@
 """Which symbol is listened to on which connection.
 
-Pure functions over a symbol list: no sockets, no database, no clock.
-That is deliberate -- the quota rule below is the single place where
-silent data loss can enter this subsystem, so it has to be testable
-without any of that.
-
-The rule it enforces was measured, not assumed. Yahoo subscribes a
-connection to **exactly 100 symbols** and silently discards the rest:
-101 symbols means one of them never arrives, with no error frame, no
-close, and no acknowledgement. A client can believe it is watching 10,000
-symbols while receiving 100.
-
-Everything here follows from that:
-
-  * connections are sized, not balanced -- an exchange with 5 symbols and
-    one with 698 both stay under the quota, and that is the only property
-    that matters;
-  * the ordering is deterministic, because the server keeps the first 100
-    entries and drops the tail, so *which* symbols survive must not
-    depend on set iteration order or PYTHONHASHSEED;
-  * exceeding the connection ceiling raises instead of dropping symbols.
-    Silently trimming here would repeat, on our side, exactly the
-    mistake that makes Yahoo's behaviour dangerous.
+Pure functions, no I/O. Yahoo keeps the first 100 symbols and silently
+drops the rest, so ordering is deterministic and overflow raises, never trims.
 """
 
 from __future__ import annotations
@@ -32,9 +12,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Final
 
-#: Measured ceiling: a connection is subscribed to the first 100 symbols
-#: of whatever it sends, and the remainder is discarded without notice.
-#: See docs/measurements/websocket.md.
+#: A connection is subscribed to the first 100 symbols it sends; the
+#: remainder is discarded without notice.
 YAHOO_SUBSCRIPTION_LIMIT: Final = 100
 
 #: Bucket for symbols whose exchange is unknown. The same label is used
@@ -44,55 +23,33 @@ UNKNOWN_EXCHANGE: Final = "unknown"
 
 
 class QuotaExceeded(RuntimeError):
-    """The plan would need more connections than the ceiling allows.
-
-    Raised rather than trimmed. The alternative -- dropping the symbols
-    that do not fit -- would be indistinguishable from working correctly
-    until someone noticed a missing series weeks later.
-    """
+    """The plan would need more connections than the ceiling allows; never trimmed."""
 
 
 @dataclass(frozen=True)
 class ConnectionPlan:
-    """One upstream connection: its key, its exchange and its symbols.
-
-    `symbols` excludes the canary. The canary is appended at send time by
-    the connection itself, because it is an instrument rather than data:
-    it is never archived and never appears in `stream_scope`.
-    """
+    """One upstream connection. `symbols` excludes the canary, appended at send time."""
 
     key: str
     exchange: str
     symbols: tuple[str, ...]
 
     def subscription(self, canary: Sequence[str] = ()) -> tuple[str, ...]:
-        """What actually goes on the wire, canary last.
+        """What goes on the wire, canary last.
 
-        Last, not first, and this is the whole point: Yahoo truncates
-        from the front, so a canary at the head would survive any
-        overflow and report health while the tail of the list was being
-        discarded. At the end it goes silent exactly when symbols start
-        being dropped.
+        Yahoo keeps the head of the list, so a canary at the end goes
+        silent exactly when symbols start being dropped.
         """
         return (*self.symbols, *canary)
 
 
 def effective_capacity(canary_count: int, limit: int = YAHOO_SUBSCRIPTION_LIMIT) -> int:
-    """How many real symbols fit once the canary has taken its slot.
-
-    The canary consumes quota like any other symbol -- measured: invalid
-    and unknown tickers occupy slots too, so nothing about it is free.
-    """
+    """How many real symbols fit once the canary has taken its quota slot."""
     return limit - canary_count
 
 
 def normalise_exchange(exchange: str | None) -> str:
-    """`symbols.exchange` -> a grouping key.
-
-    NULL is a real state here: `yfin symbols add` writes only the symbol
-    and is_active, so exchange stays NULL until the first sync. Those
-    symbols still have to be streamed, they just group together.
-    """
+    """`symbols.exchange` -> a grouping key; NULL (unsynced) symbols group together."""
     if exchange is None:
         return UNKNOWN_EXCHANGE
     cleaned = exchange.strip().upper()
@@ -108,16 +65,8 @@ def plan_connections(
 ) -> list[ConnectionPlan]:
     """Groups symbols into connections that respect Yahoo's quota.
 
-    `symbols_by_exchange` is (symbol, exchange) as read from the scope
-    join. Order of the input does not matter; the output is sorted so two
-    processes given the same universe produce byte-identical
-    subscriptions.
-
-    One connection never carries two exchanges. Packing small exchanges
-    together would use fewer connections, but it would also mean a
-    failure on one exchange takes down symbols from another -- and the
-    Kafka topic layout is per-exchange, so the boundary has to survive
-    anyway.
+    Output is sorted so the same universe yields identical subscriptions.
+    One connection never carries two exchanges (Kafka topics are per-exchange).
     """
     if max_symbols_per_connection <= 0:
         raise ValueError("max_symbols_per_connection must be positive")
@@ -167,11 +116,7 @@ def plan_diff(
     """What changed between two plans.
 
     Returns (connections to open, keys to close, per-key add/remove sets).
-
-    Rebalancing is surgical on purpose: a scope edit must not restart
-    connections whose membership did not change. Every reconnect is a
-    gap in the archive, and re-sending a subscription re-applies Yahoo's
-    truncation.
+    Connections whose membership did not change are left alone.
     """
     current_by_key = {plan.key: plan for plan in current}
     desired_by_key = {plan.key: plan for plan in desired}

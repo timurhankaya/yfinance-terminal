@@ -50,12 +50,8 @@ def test_empty_configuration_is_rejected() -> None:
 
 
 def test_xx_alone_is_still_probed_against_us() -> None:
-    """The BASELINE IS ALWAYS US.
-
-    If the primary region were used as the baseline, `YF_DOMAIN_REGIONS=XX`
-    would validate against itself and US data would get written under the
-    XX label.
-    """
+    """The baseline is always US: a primary-region baseline would let `YF_DOMAIN_REGIONS=XX`
+    validate against itself and write US data under the XX label."""
     fetch = Recorder({US: _US_TOP, "XX": _US_TOP})
     with pytest.raises(RegionValidationError, match="is not supported by Yahoo"):
         domain_regions(_settings("XX"), fetch=fetch)
@@ -71,12 +67,8 @@ def test_supported_region_passes() -> None:
 
 
 def test_a_drifted_but_different_list_still_passes() -> None:
-    """PROOF THAT EQUALITY IS NOT USED.
-
-    A list whose order and set have both shifted still passes as long as it
-    does not overlap US; if equality were used, the natural drift between two
-    consecutive requests would wrongly REJECT this region.
-    """
+    """Equality is not used: a list whose order and set have drifted still passes as long
+    as it does not overlap US, since consecutive requests naturally drift."""
     fetch = Recorder({US: _US_TOP, "GB": _GB_DRIFTED})
     assert domain_regions(_settings("US,GB"), fetch=fetch) == ["US", "GB"]
 

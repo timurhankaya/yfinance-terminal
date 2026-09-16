@@ -1,8 +1,7 @@
 """Closing bar_gaps from ticks, against a real database.
 
-Every test here corresponds to a way this could quietly corrupt the bar
-archive: overwriting real bars, inventing volume, filing a bar under the
-wrong calendar day, or skipping the very gaps it exists to fill.
+Each test is a way this could corrupt the bar archive: overwriting real bars,
+inventing volume, filing a bar under the wrong day, or skipping gaps.
 """
 
 from __future__ import annotations
@@ -117,12 +116,9 @@ def _bars(session: Session, symbol: str = "AAPL") -> list[tuple[object, ...]]:
 def test_retention_expired_gaps_are_filled(
     reconciler: GapReconciler, db_session: Session
 ) -> None:
-    """These are the reason the module exists.
-
-    Yahoo drops 1m data after 29 days, so a retention_expired window can
-    never be fetched again -- the tick archive is the only thing left that
-    knows what happened. An earlier draft filtered them out, which meant
-    the reconciliation skipped exactly the gaps that needed it.
+    """Yahoo drops 1m data after 29 days, so a retention_expired window can
+    never be fetched again; the tick archive is the only source left, and
+    these gaps must not be filtered out.
     """
     _symbol(db_session)
     _gap(db_session, reason=GAP_RETENTION_EXPIRED)

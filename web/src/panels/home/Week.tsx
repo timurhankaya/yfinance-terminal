@@ -1,23 +1,16 @@
-// What the archive says is coming, across all four calendars.
-//
-// Each calendar is keyed DESCENDING by its own date column, so the first
-// page is the furthest future rather than the nearest -- but each of them
-// fits in one page (measured 2026-09-08: 519, 534, 536 and 26 rows), so
-// the whole calendar is read and the next events are picked here. A page
-// that comes back full says so rather than pretending it is everything.
+// What the archive says is coming, across all four calendars. Each is
+// keyed DESCENDING by its own date column, so the first page is the
+// furthest future; each fits in one page, so the whole calendar is read
+// and the next events picked here. A full page says so.
 import { PAGE_LIMIT, getDatasetPage } from "../../api/client";
 import type { Row } from "../../api/client";
 import { LoadState, usePanelData } from "../common";
 import { Bars } from "../viz";
 import { Block, Failed, Waiting } from "./Block";
 
-/** The four calendars and the column each one dates its events by.
- *
- *  The names are the CATALOGUE's, and all four were wrong -- written
- *  `calendar_earnings` where the archive calls it `earnings_calendar`.
- *  Every one 404'd, so this block had been quietly empty: a dataset the
- *  catalogue does not have is a failed read, and four failed reads out
- *  of four is an empty week rather than an error anybody saw. */
+/** The four calendars and the column each one dates its events by. The
+ *  names are the CATALOGUE's: a dataset it does not have is a failed
+ *  read, and four failed reads are a quietly empty week. */
 const CALENDARS: ReadonlyArray<{ name: string; when: string; kind: string; who: string }> = [
   { name: "earnings_calendar", when: "event_start_ts_utc", kind: "earnings", who: "symbol" },
   { name: "economic_calendar", when: "event_time_utc", kind: "economic", who: "event_name" },

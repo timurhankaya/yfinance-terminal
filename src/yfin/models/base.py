@@ -29,11 +29,8 @@ class Base(DeclarativeBase):
 # --- string types ----------------------------------------------------------
 #
 # Every string column uses COLLATE "C": byte-ordered, case-sensitive, and
-# usable by an index for LIKE without text_pattern_ops (measured: "C"
-# column gets an Index Scan where an en_US.utf8 column falls back to Seq
-# Scan). Case-insensitive matching, where the domain needs it, happens on
-# the write path instead -- see datasets/symbols.py and
-# scripts/seed_proxies.py.
+# index-usable for LIKE without text_pattern_ops. Case-insensitive matching,
+# where the domain needs it, happens on the write path instead.
 
 # Shared width for symbols and symbol-like keys. It must be a single
 # constant: audit rows write the same value into `sync_run_items.symbol`,
@@ -78,14 +75,9 @@ def ShortHashType() -> VARCHAR:  # noqa: N802
 def BarIntervalType() -> VARCHAR:  # noqa: N802
     """Bar interval code: '1m', '5m', '15m', '60m', '1wk', '1mo'.
 
-    Not an ENUM: the valid set lives in BAR_INTERVALS (models/bars.py) and
-    duplicating it in the schema creates a second source of truth that can
-    drift.
-
-    The column is named `bar_interval`, not `interval`: INTERVAL is a type
-    name in PostgreSQL. SQLAlchemy quotes its own SQL, but view
-    definitions and the rescale UPDATE are raw strings.
-    """
+    Not an ENUM: the valid set lives in BAR_INTERVALS. The column is named
+    `bar_interval`, not `interval`: INTERVAL is a PostgreSQL type name and
+    the view definitions and rescale UPDATE are raw strings."""
     return VARCHAR(4, collation="C")
 
 
@@ -117,9 +109,7 @@ def HostType() -> VARCHAR:  # noqa: N802
     """Proxy hostname or IP.
 
     Hostnames are case-insensitive (RFC 4343), and uq_proxies_endpoint
-    relies on that. The normalisation happens on write (`.lower()`), not
-    in the collation.
-    """
+    relies on that; normalisation happens on write (`.lower()`)."""
     return VARCHAR(255, collation="C")
 
 
@@ -140,13 +130,9 @@ def PriceType() -> Numeric[Decimal]:  # noqa: N802
 def FactValueType() -> Numeric[Decimal]:  # noqa: N802
     """Financial statement line item.
 
-    One column holds both 1.06e14 (7203.T total assets) and 0.156
-    (TaxRateForCalcs), so NUMERIC(38,0) would destroy the ratios.
-
-    PostgreSQL rounds the 11th decimal silently (measured: numeric(5,2)
-    given 1.239 stores 1.24, no warning), so rounding is done explicitly
-    in Python with quantize. An overflowing integer part does raise.
-    """
+    One column holds both huge totals and small ratios, so scale matters.
+    PostgreSQL rounds excess decimals silently, so rounding is done
+    explicitly in Python with quantize; an overflowing integer part raises."""
     return Numeric(FACT_PRECISION, FACT_SCALE, asdecimal=True)
 
 
@@ -162,52 +148,25 @@ def TsType() -> TIMESTAMP:  # noqa: N802
     """All timestamps are TIMESTAMP(6) WITH TIME ZONE.
 
     The dialect type is required: generic sqlalchemy.TIMESTAMP rejects
-    `precision`.
-
-    Six digits are mandatory. ticker_info_history is keyed on
-    (symbol, fetched_at), so second precision would collide within the
-    same second -- and PostgreSQL rounds the fraction rather than
-    truncating it.
-    """
+    `precision`. Six digits are mandatory: ticker_info_history is keyed on
+    (symbol, fetched_at), and PostgreSQL rounds the fraction, not truncates."""
     return TIMESTAMP(timezone=True, precision=6)
 
 
 def RawJsonType() -> Text:  # noqa: N802
     """raw_json is TEXT, never JSON/JSONB.
 
-    jsonb reorders keys (so content_hash could not be recomputed),
-    rejects NaN bodies, and normalises numbers (0.001870 -> 0.00187).
-    `json` still validates syntax and rejects NaN. TEXT is byte-faithful,
-    which content_hash depends on.
-    """
+    jsonb reorders keys and normalises numbers, and both json types reject
+    NaN; content_hash depends on the byte-faithful body."""
     return Text()
 
 
 class Xid8Type(UserDefinedType[int]):
-    """PostgreSQL's 64-bit transaction id, as a column type.
-
-    The pipeline outbox stores the transaction that wrote each row, because
-    its relay walks transaction ids rather than row ids: symbol transactions
-    commit concurrently, so `id` order is not commit order and an
-    `id`-ordered walk would skip the rows of a transaction that took its ids
-    early and committed late.
-
-    `xid8` needs help on both sides of the driver, which is why this is a
-    type rather than a raw `TEXT` column plus casts at every call site:
-
-    * PostgreSQL offers no implicit `bigint -> xid8` cast, so a bound
-      parameter has to be cast in the SQL. `bind_expression` wraps every
-      parameter in `CAST(... AS xid8)`.
-    * psycopg 3 has no loader for it, so the value arrives as text and goes
-      back out as text. The processors convert on the Python side, so the
-      relay compares and orders integers -- as text, '9' sorts after '10'.
-
-    Not `xid`: the 32-bit type wraps around, and a cursor that wraps is a
-    cursor that silently republishes or silently skips. `xid8` is monotonic
-    for the life of the cluster and has a btree opclass, which the relay's
-    `(xid, id)` ordering needs. PostgreSQL 13+ provides all of it; the
-    project pins 18.
-    """
+    """PostgreSQL's 64-bit transaction id, as a column type (not `xid`,
+    which wraps). PostgreSQL has no implicit `bigint -> xid8` cast, so
+    `bind_expression` casts every parameter; psycopg 3 has no loader for
+    it, so the processors convert between text and int on the Python side
+    and the relay can order `(xid, id)` numerically."""
 
     cache_ok = True
 

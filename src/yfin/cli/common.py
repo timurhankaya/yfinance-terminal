@@ -1,15 +1,7 @@
 """Helpers the command modules share.
 
-Split out when `cli/app.py` was broken up: these eight were private names
-in that module, and four other command modules were already reaching into
-it for them through a deferred import to dodge the circular dependency
-(`from yfin.cli.app import _session_factory` inside a function body). A
-shared module is what that import was asking for, so the names lost their
-underscore -- they are the module's interface now, not its internals.
-
 Nothing here imports the pipeline, the datasets or the models package, so
-importing it costs nothing at startup.
-"""
+importing it costs nothing at startup."""
 
 from __future__ import annotations
 
@@ -27,10 +19,8 @@ from yfin.core.logging_setup import configure_logging
 def parse_date(value: str | None) -> datetime | None:
     """YYYY-MM-DD -> UTC-aware datetime.
 
-    Columns are timestamptz. A naive bound would be interpreted by psycopg using
-    the connection's timezone -- the value comes out correct but compares at a
-    different awareness level than the column.
-    """
+    Columns are timestamptz; a naive bound would be interpreted by psycopg in
+    the connection's timezone."""
     return datetime.strptime(value.strip(), "%Y-%m-%d").replace(tzinfo=UTC) if value else None
 
 
@@ -56,10 +46,8 @@ def selector(
 ) -> str | None:
     """Records the run's symbol universe and date range in human-readable form.
 
-    The `scope` column only carries the symbols/market split; without this,
-    which universe a given run covered would be unknowable in retrospect and
-    any completeness claim would be unverifiable.
-    """
+    The `scope` column only carries the symbols/market split; without this the
+    universe a run covered would be unknowable in retrospect."""
     parts: list[str] = []
     if exchange:
         parts.append(f"exchange={','.join(exchange)}")
@@ -77,10 +65,8 @@ def selector(
 def normalize_filter_values(values: list[str]) -> list[str]:
     """Converts --exchange / --quote-type input to match the write path's casing.
 
-    `datasets/symbols.py` writes these two columns with `.upper()`; if the
-    filter did not match that casing, `--exchange nms` would silently return
-    an empty result.
-    """
+    `datasets/symbols.py` writes these columns with `.upper()`; a filter in
+    another casing would silently return an empty result."""
     return [v.strip().upper() for v in values]
 
 
@@ -94,15 +80,9 @@ def filtered_symbols(
 ) -> list[str]:
     """--exchange / --quote-type / --suffix filters, AND-ed together.
 
-    Input is normalized with `.upper()`. Columns are COLLATE "C" (case
-    sensitive) and the write path also upper-cases (datasets/symbols.py), so
-    both sides meet in the same casing.
-
-    `func.upper` is still avoided, though the reason changed: it used to be
-    unnecessary because the column was case-insensitive; now wrapping the
-    column in a function would make the `ix_symbols_exchange` index unusable.
-    Normalization happens on the input, not the column.
-    """
+    Columns are COLLATE "C" and the write path upper-cases, so the input is
+    upper-cased rather than the column: `func.upper` on the column would make
+    the `ix_symbols_exchange` index unusable."""
     from yfin.models import Symbol
 
     stmt = base_stmt

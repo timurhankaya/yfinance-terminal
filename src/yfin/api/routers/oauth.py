@@ -1,21 +1,8 @@
-"""`POST /oauth/token` -- the OAuth2 client credentials grant.
-
-This endpoint is the single exception to the API's error format, and the
-exception is not cosmetic. RFC 6749 §5.2 defines its own error body, and
-that is what every OAuth2 client library parses: authlib,
-requests-oauthlib, Go's clientcredentials, the Authorize button in
-`/docs`. Hand them an RFC 9457 problem document and they find no `error`
-field, cannot tell `invalid_client` from `invalid_scope`, and typically
-raise "unknown error" or retry forever. Worse, a contract test would not
-catch it, because the document would match the schema we published.
-
-Everything else here follows from one fact: at the moment this code runs,
-`client_id` is unverified text supplied by whoever is calling. So the
-rate limit is keyed on the address (`ratelimit/token_endpoint.py`), the
-work done is the same whether the client exists or not, and every failure
-mode -- unknown client, wrong credential, revoked credential, disabled
-client -- produces the identical status, body and headers.
-"""
+"""`POST /oauth/token`, the OAuth2 client credentials grant. The one
+exception to the API's error format: errors are RFC 6749 §5.2 bodies,
+which is what OAuth2 client libraries parse. `client_id` is unverified
+text here, so the rate limit is keyed on the address and every failure
+mode produces the identical status, body and headers."""
 
 from __future__ import annotations
 
@@ -138,14 +125,8 @@ def _invalid_client() -> JSONResponse:
 
 
 def _parse_basic(header: str) -> tuple[str, str] | None:
-    """Decodes a Basic header per RFC 6749 §2.3.1.
-
-    The percent-decoding step is easy to skip and would appear to work,
-    because our own credentials are URL-safe base64 and survive it
-    unchanged. It is here for the client that does follow the spec:
-    without it, a credential containing an encoded character would fail
-    authentication for no visible reason.
-    """
+    """Decodes a Basic header per RFC 6749 §2.3.1, including the
+    percent-decoding step our own URL-safe credentials would not need."""
     if not header.lower().startswith("basic "):
         return None
     try:

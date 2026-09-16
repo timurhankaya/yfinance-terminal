@@ -1,11 +1,6 @@
-// The arithmetic every primitive in this directory shares.
-//
-// Separate from the components on purpose: a layout is a function of
-// numbers, and a function of numbers can be tested without a DOM. What
-// is left in the components is the SVG.
-//
-// No d3-scale: three functions is not a dependency, and the ones here
-// are deliberately not clamped -- `Bullet` needs to SEE a value fall
+// The arithmetic every primitive in this directory shares, kept out of
+// the components so it is testable without a DOM. No d3-scale, and the
+// scales are deliberately not clamped: `Bullet` needs to SEE a value fall
 // outside its range so it can say so.
 
 /** A closed interval. Both a domain and a range are one. */

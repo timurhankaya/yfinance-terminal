@@ -1,22 +1,8 @@
 """Application configuration.
 
-Two layers:
-
-  1. `.env` + model default -- pydantic-settings' own resolution.
-  2. `settings` TABLE -- a DB override for the 71 fields declared with
-     `_cfg`. A field without `_cfg` (the `db_*` connection fields, the
-     proxy secret key) is environment-only on purpose.
-
-Precedence `CLI flag > settings table > .env > model default` falls out
-for free: passing init kwargs to `Settings(**overrides)` overrides pydantic's
-env values (verified live). No separate precedence logic is written -- one
-would risk silently diverging from pydantic's own.
-
-Metadata (type / default / range / description / group) lives HERE, not in
-the `settings` table: duplicating it would let `Field(ge=1)` drift to `ge=2`
-while the table's copy went stale. The admin panel form is drawn from here
-via `settings_schema()`.
-"""
+Two layers: `.env` + model default (pydantic-settings), and the `settings` table as
+a DB override for the fields declared with `_cfg`. Init kwargs beat env values in
+pydantic, so `CLI flag > table > .env > default` falls out without extra logic."""
 
 from __future__ import annotations
 
@@ -75,11 +61,8 @@ _SCHEDULE_FIELDS = (
 def _cfg(group: str, description: str, **kwargs: Any) -> Any:
     """`Field` plus panel metadata.
 
-    `group` goes into `json_schema_extra` because pydantic's `FieldInfo`
-    rejects arbitrary keys. A separate module-level dict would let the field
-    and its group live in two places and drift apart; here it sits on the
-    same line as the field definition.
-    """
+    `group` goes into `json_schema_extra` because `FieldInfo` rejects arbitrary
+    keys; keeping it on the field line keeps it from drifting."""
     return Field(description=description, json_schema_extra={"group": group}, **kwargs)
 
 
@@ -113,13 +96,8 @@ class Settings(BaseSettings):
     yf_retry_max_sec: float = _cfg(
         "client", "Backoff wait cap (seconds).", default=16.0, ge=0
     )
-    # Expiries fetched per symbol. The cost lives here and nowhere else:
-    # the first request returns the expiry LIST plus the first chain, and
-    # every expiry after that is one more request. A symbol has 10-20 of
-    # them, so "all" would multiply a run by fifteen; four covers a month
-    # of weeklies or a quarter of monthlies, and one alone is not a term
-    # structure. The dataset is opt-in regardless, so this only binds an
-    # operator who has asked for it.
+    # Each expiry after the first is one more request per symbol, so "all"
+    # would multiply a run by the expiry count.
     yf_option_expiries: int = _cfg(
         "datasets", "Expiries fetched per symbol; each one is a request.", default=4, ge=1, le=24
     )
@@ -187,17 +165,6 @@ class Settings(BaseSettings):
     yf_earnings_dates_max_pages: int = _cfg(
         "datasets", "Page cap for earnings_dates.", default=3, ge=1
     )
-    # There is no YF_PROBE_SUSTAINABILITY key, deliberately removed. The
-    # original spec left it DB-managed, but the same spec later moved the
-    # dataset to `register(..., opt_in=True)`, after which nothing read the
-    # flag. A setting with no effect, in a layer that exists purely to feed
-    # an admin panel, is the worst kind of noise: a control that looks live
-    # but does nothing. Same call as for `yf_discovery_enabled` and
-    # YF_BAR_INTERVALS (YAGNI).
-    #
-    # The need it served is already met: the dataset is invisible in the
-    # `all` expansion and runs when requested by name via
-    # `--datasets sustainability`.
     yf_market_regions: str = _cfg(
         "market",
         "Market summary regions (comma-separated).",
@@ -219,12 +186,6 @@ class Settings(BaseSettings):
     # --- sector / industry ------------------------------------------------
     # ISO 3166-1 alpha-2, comma-separated. THE FIRST IS PRIMARY: region-less
     # datasets use its response, and the validation probe uses it as baseline.
-    #
-    # TWO SETTINGS, NOT THREE. An early draft had a
-    # `yf_domain_include_reports` flag; removed because nothing read it, and
-    # reading it would have made the profile dataset's `produces` CONDITIONAL,
-    # tying the audit's cell count to configuration. A user who doesn't want
-    # reports can just ask for `--datasets sector_rankings,industry_rankings`.
     yf_domain_regions: str = _cfg(
         "domain", "Sector/industry regions (comma-separated, FIRST IS PRIMARY).", default="US"
     )
@@ -234,16 +195,6 @@ class Settings(BaseSettings):
     )
 
     # --- discovery: Search / Lookup / Screener ----------------------------
-    # There is no YF_DISCOVERY_ENABLED key, deliberately removed. The
-    # original design gated `search`/`lookup` registration behind a flag
-    # (the `sustainability` pattern). In practice this had two flaws:
-    #   1. With the flag off, `--datasets search` also didn't work -- the
-    #      dataset wasn't in the registry at all.
-    #   2. The moment the flag was turned on, a BARE `yfin sync` started
-    #      pulling them too: +9,000 requests/day. So the flag didn't solve
-    #      the problem, it only postponed it until the user flipped it.
-    # Fixed by moving to the registry: `register(..., opt_in=True)` -- runs
-    # when requested by name, never appears in the `all` expansion.
     yf_search_max_results: int = _cfg(
         "discovery", "Search: number of quotes returned.", default=10, ge=1
     )
@@ -253,17 +204,13 @@ class Settings(BaseSettings):
     yf_search_lists_count: int = _cfg(
         "discovery", "Search: number of lists returned.", default=10, ge=0
     )
-    # Measured document cap for `all` is ~1,000; requesting 1000 gets
-    # everything up to that cap. Requesting 250 would truncate even narrow
-    # terms (BTC: count=250 -> 248 docs, though total is 503).
+    # Yahoo caps `all` documents at roughly this; asking for fewer truncates
+    # even narrow terms.
     yf_lookup_count: int = _cfg(
         "discovery", "Lookup: documents requested per call.", default=1000, ge=1
     )
-    # If `lookupTotals.all` exceeds this value, the `all` call was truncated
-    # and the code falls back to the per-type branch. Measured: BTC 503 ->
-    # `all` is the full set; GOLD 7,273 -> `all` returns only 995 docs, the
-    # typed union returns 3,313. The threshold is kept BELOW the observed
-    # `all` cap (~1,000) so the fallback triggers before truncation starts.
+    # Above this `lookupTotals.all`, the `all` call is truncated and the code
+    # falls back to the per-type branch; kept below Yahoo's `all` cap.
     yf_lookup_all_threshold: int = _cfg(
         "discovery", "Above this, fall back to the per-type branch instead of `all`.",
         default=500, ge=1
@@ -274,10 +221,8 @@ class Settings(BaseSettings):
     yf_screen_size: int = _cfg(
         "discovery", "Screener page size; Yahoo caps at 250.", default=250, ge=1, le=250
     )
-    # Page cap per screen. 19 predefined screens: unlimited is 49 requests,
-    # cap=4 is 32. The most expensive screen is `most_shorted_stocks` (total
-    # 4,022, 17 pages). A screen hitting the cap is visible from the gap
-    # between `screen_runs.total` and `fetched_rows`.
+    # A screen hitting the cap shows as a gap between `screen_runs.total` and
+    # `fetched_rows`.
     yf_screen_max_pages: int = _cfg(
         "discovery", "Page cap per screen.", default=4, ge=1
     )
@@ -287,27 +232,15 @@ class Settings(BaseSettings):
     )
 
     # --- price_bars ---------------------------------------------------------
-    # There is no YF_BAR_INTERVALS key, deliberately not added. It was in the
-    # spec; the audit found nothing reading it, so it was dropped (YAGNI).
-    # Two reasons:
-    #   1. It would create a second source of truth: "which intervals run"
-    #      would be answered by both the registry alias and .env, and the
-    #      two could silently diverge.
-    #   2. The need it served is already met: a user can write
-    #      `--datasets bars_5m,bars_15m` or use the `intraday` alias.
-    # Whether to write extended-hours bars. Extended bars aren't limited to
-    # US stocks -- SHEL.L and VWCE.DE report hasPrePostMarketData=False and
-    # still return 5 and 8 extended bars (measured). Turning this off means
-    # PERMANENTLY losing those bars.
+    # Extended bars are not limited to US stocks, and turning this off means
+    # PERMANENTLY losing them.
     yf_bar_prepost: bool = _cfg(
         "bars",
         "Also write extended-hours bars (turning this off loses them permanently).",
         default=True,
     )
-    # Lookback overlap in the incremental window. The overlap is idempotent
-    # (measured: no value differences across 78 overlapping bars); the cost is
-    # a few hundred redundant upserts, the benefit is not missing a bar at the
-    # session boundary.
+    # The overlap is idempotent; the cost is redundant upserts, the benefit is
+    # not missing a bar at the session boundary.
     yf_bar_overlap_days: int = _cfg(
         "bars", "Lookback overlap for the incremental bar window (days).", default=2, ge=0
     )
@@ -327,10 +260,8 @@ class Settings(BaseSettings):
     yf_stream_enabled: bool = _cfg(
         "stream", "Master switch for the live tick stream; defaults to OFF.", default=False
     )
-    # Yahoo subscribes a connection to exactly 100 symbols and discards the
-    # rest with no error (measured). 95 leaves room for the canary plus a
-    # margin for a scope edit landing mid-rebalance; the penalty for
-    # exceeding the quota is silent data loss, so the margin is cheap.
+    # Yahoo silently discards symbols past 100 per connection; 95 leaves room
+    # for the canary and a scope edit landing mid-rebalance.
     yf_stream_max_symbols_per_connection: int = _cfg(
         "stream",
         "Symbols per upstream connection. Yahoo's hard limit is 100 including the canary.",
@@ -355,16 +286,15 @@ class Settings(BaseSettings):
         "stream", "Bounded tick queue; overflow drops ticks and counts them.",
         default=10_000, ge=100,
     )
-    # 500 rows: going to 5,000 buys 6% (measured), and a smaller batch keeps
-    # latency down and narrows what a crash can lose.
+    # A smaller batch keeps latency down and narrows what a crash can lose.
     yf_stream_batch_size: int = _cfg(
         "stream", "Rows per write batch.", default=500, ge=1
     )
     yf_stream_batch_interval_ms: int = _cfg(
         "stream", "Flush a partial batch after this long.", default=250, ge=10
     )
-    # live_quotes is the most expensive part of the batch (34% measured), and
-    # it is a derived view -- a few hundred ms of staleness costs nothing.
+    # live_quotes is the most expensive part of the batch and a derived view;
+    # a few hundred ms of staleness costs nothing.
     yf_stream_quotes_every_n_batches: int = _cfg(
         "stream", "Write live_quotes every Nth batch.", default=4, ge=1
     )
@@ -384,12 +314,8 @@ class Settings(BaseSettings):
     )
 
     # --- browser publish path (Redis pub/sub) ------------------------------
-    #
-    # The web terminal's live prices. Separate from the Kafka path below and
-    # from it in kind: Kafka is durable and consumed by other systems, this
-    # is at-most-once fan-out to open browser tabs. Losing a message here
-    # costs one repainted price; the archive is the writer's commit, which
-    # has already happened by the time anything is published.
+    # At-most-once fan-out to open browser tabs, unlike the durable Kafka path:
+    # losing a message costs one repainted price; the archive is already committed.
     yf_stream_publish_enabled: bool = _cfg(
         "stream", "Publish committed ticks to Redis for the web terminal.", default=False
     )
@@ -420,11 +346,8 @@ class Settings(BaseSettings):
         "stream", "Outbox rows read per relay pass.", default=1000, ge=1
     )
 
-    # Publishing PIPELINE writes, as opposed to ticks. Off by default, and
-    # off means the writer emits exactly the statements it emitted before
-    # this existed: no collector is created, so no predicate, no
-    # `RETURNING *`, no outbox row. The second write path costs zero until
-    # someone turns it on.
+    # Publishing PIPELINE writes, as opposed to ticks. Off means no collector
+    # is created: no predicate, no `RETURNING *`, no outbox row.
     yf_changes_enabled: bool = _cfg(
         "stream",
         "Publish pipeline row changes to Kafka through the pipeline outbox.",
@@ -437,9 +360,8 @@ class Settings(BaseSettings):
         "Change topic name pattern; {family} is substituted.",
         default="yfin.changes.{family}",
     )
-    # Above this many inserted rows, a write to a bars table publishes one
-    # span instead of one event per bar. A first sync writes ~20,000 bars
-    # per symbol; steady-state daily writes are ~390 and stay row-level.
+    # Above this many inserted rows, a write to a bars table publishes one span
+    # instead of one event per bar; a first sync crosses it, daily writes do not.
     yf_changes_range_threshold: int = _cfg(
         "stream",
         "Bar inserts above this count publish as one range event.",
@@ -448,14 +370,9 @@ class Settings(BaseSettings):
     )
 
     # --- scheduler ---------------------------------------------------------
-    #
-    # Job definitions are SETTINGS, not code: an operator retimes a run with
-    # `yfin config set` and the scheduler picks it up on its next reload,
-    # with no deployment. The SET of jobs is fixed in code -- each one maps
-    # to a command -- so what is configurable is when, not what.
-    #
-    # An empty expression means the job is not registered at all. That is
-    # how `prune` ships: off, because a deleted row cannot be recovered.
+    # Job definitions are SETTINGS: an operator retimes a run with `yfin config
+    # set` and the scheduler reloads it. The set of jobs is fixed in code, so
+    # what is configurable is when, not what. An empty expression unregisters the job.
     yf_schedule_sync: str = _cfg(
         "scheduler", "Cron for `yfin sync`. Empty disables the job.", default="0 2 * * *"
     )
@@ -543,18 +460,9 @@ class Settings(BaseSettings):
     def _validate_cron(cls, value: str) -> str:
         """Rejects a bad cron expression where the operator can see it.
 
-        A `field_validator` rather than a check in the scheduler, because
-        `validate_pair` builds a `Settings` from the candidate: this is what
-        makes `yfin config set yf_schedule_sync "not a cron"` fail at the
-        command instead of at the scheduler's next reload, hours later and
-        in a different process's logs.
-
-        APScheduler is imported LAZILY and inside the function. `core/config`
-        is imported by everything, and a module-level import would make the
-        whole CLI depend on the `[scheduler]` extra. Without the extra the
-        check falls back to counting fields, which catches the typo that
-        actually happens and is honest about what it cannot catch.
-        """
+        A validator rather than a scheduler check so `yfin config set` fails at
+        the command, not at the next reload. APScheduler is imported lazily: a
+        module-level import would make the whole CLI depend on `[scheduler]`."""
         expression = value.strip()
         if not expression:
             # Empty is how a job is switched off, and `prune` ships that way.
@@ -588,17 +496,10 @@ class Settings(BaseSettings):
         )
 
     def bootstrap_url(self) -> URL:
-        """Maintenance-database connection, for `CREATE DATABASE`.
+        """Maintenance-database (`postgres`) connection, for `CREATE DATABASE` only.
 
-        PostgreSQL requires connecting to SOME database, so the maintenance
-        connection uses `postgres`.
-
-        This URL is ONLY for `CREATE DATABASE`. `information_schema` and
-        `pg_namespace` are DATABASE-SCOPED: a connection opened here cannot
-        see schemas inside `yfinance_test`. Schema creation, deletion, and
-        stale-schema cleanup must use `db_url(db_test_name)` -- otherwise
-        cleanup silently does nothing and schemas accumulate forever.
-        """
+        `information_schema` and `pg_namespace` are database-scoped, so schema
+        creation and cleanup must use `db_url(db_test_name)` instead."""
         return self.db_url(database="postgres")
 
 
@@ -649,20 +550,16 @@ _settings: Settings | None = None
 # Raw overrides the loader APPLIED. The shard parent carries these to the
 # child via `ShardSpec`; the child never re-reads them.
 _overrides: dict[str, str] = {}
-# Being unlocked today would be harmless (~1 ms). Combined with a DB read,
-# two worker threads could produce TWO SEPARATE `Settings` objects, silently
-# breaking test patches that rely on object identity (test_client.py).
+# Two worker threads must not produce two separate `Settings` objects: test
+# patches rely on object identity.
 _lock = threading.Lock()
 
 
 def source_is_env() -> bool:
     """`YF_SETTINGS_SOURCE=env` means the DB layer is never read.
 
-    Compared via `strip().lower()`; any non-empty value other than `env`
-    logs a WARNING. A recovery switch silently doing nothing because of a
-    typo is not acceptable -- the operator would think the DB layer was off
-    while it stayed on.
-    """
+    Any other non-empty value logs a WARNING: a recovery switch silently doing
+    nothing because of a typo would leave the operator believing it was off."""
     raw = os.getenv(SETTINGS_SOURCE_VAR)
     if raw is None:
         return False
@@ -681,11 +578,8 @@ def source_is_env() -> bool:
 def bootstrap_settings() -> Settings:
     """A `Settings` instance that never touches the DB layer.
 
-    Needed in three places: (a) the loader itself, (b) commands that run
-    before the database EXISTS YET, like `yfin db create` / `yfin db
-    revision`, (c) `seed --adopt-env` -- so reading the effective value
-    doesn't feed back the rows it just wrote.
-    """
+    For the loader itself, commands that run before the database exists, and
+    `seed --adopt-env`, which must not read back the rows it just wrote."""
     return Settings()
 
 
@@ -723,10 +617,8 @@ def _load() -> Settings:
 class FieldSchema:
     """Everything the admin panel needs to draw the form.
 
-    `min` / `max` are NOT written by hand: they're derived from `Field`
-    constraints (`Ge`, `Le`, `Gt`, `Lt`). Duplicating them would let `ge=1`
-    drift to `ge=2` while the panel kept validating against a stale range.
-    """
+    `min` / `max` are derived from `Field` constraints, never written by hand,
+    so the panel cannot validate against a stale range."""
 
     key: str
     group: str
@@ -760,10 +652,8 @@ def _bounds(metadata: list[Any]) -> tuple[float | None, float | None]:
 def settings_schema() -> list[FieldSchema]:
     """Machine-readable schema of DB-managed fields. Pure: never touches the DB.
 
-    Schema and state are deliberately separate: the schema is constant for
-    the process lifetime, `value` can change on every read. Combining them
-    would make the pure schema untestable without a DB and uncacheable.
-    """
+    Schema and state are separate: the schema is constant for the process
+    lifetime, `value` can change on every read."""
     out: list[FieldSchema] = []
     for key in sorted(DB_MANAGED_FIELDS):
         info = Settings.model_fields[key]
@@ -787,12 +677,8 @@ def settings_schema() -> list[FieldSchema]:
 def settings_from_overrides(overrides: Mapping[str, str]) -> Settings:
     """Build `Settings` from raw TEXT overrides.
 
-    `type: ignore` is required and not temporary: fields are TYPED as `int` /
-    `float` / `bool`, but both `.env` and the `settings` table hand back
-    every value as text, and pydantic does the conversion. Funneling this
-    through one spot keeps the suppression from spreading across the
-    codebase.
-    """
+    Both `.env` and the `settings` table hand back text and pydantic converts,
+    so the `type: ignore` is funnelled through this one spot."""
     return Settings(**overrides)  # type: ignore[arg-type]
 
 
@@ -817,20 +703,9 @@ def applied_overrides() -> dict[str, str]:
 def install_settings(settings: Settings, overrides: Mapping[str, str] | None = None) -> None:
     """Install a resolved `Settings` into the process; the loader never runs again.
 
-    `overrides` is installed alongside it. Without that, `applied_overrides()`
-    would come back EMPTY in the child -- nothing calls it today, but a
-    singleton installed with empty overrides would silently produce a wrong
-    answer; passing both values through the same door avoids that trap
-    entirely.
-
-    For shard children: the parent's resolved value is carried via
-    `ShardSpec` and the child never looks at the DB. If the child called its
-    own `get_settings()`, an intervening `yfin config set` could make
-    shard-0 and shard-3 run with DIFFERENT configuration; worse, the child
-    connects using `settings.db_name` but does its actual work in
-    `spec.database` -- i.e. it would read settings from a schema it isn't
-    even routed to.
-    """
+    Shard children get the parent's resolved value via `ShardSpec` and never
+    read the DB: an intervening `yfin config set` would otherwise give shards
+    different configuration. `overrides` is installed alongside for the same reason."""
     global _settings, _overrides
     with _lock:
         _settings = settings
@@ -840,10 +715,8 @@ def install_settings(settings: Settings, overrides: Mapping[str, str] | None = N
 def reset_settings() -> None:
     """Clear the singleton (for tests and the `yfin config` write path).
 
-    Without a reset, repo tests would run against a singleton left over from
-    the previous test, `load_overrides` would never be called, and tests
-    would stay green FOR THE WRONG REASON.
-    """
+    Without a reset, repo tests would run against the previous test's singleton
+    and `load_overrides` would never be called."""
     global _settings, _overrides
     with _lock:
         _settings = None

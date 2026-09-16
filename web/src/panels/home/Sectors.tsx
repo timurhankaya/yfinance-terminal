@@ -1,8 +1,7 @@
 // The sector map, at home.
 //
 // The same read and the same treemap `HEAT` draws: `loadSectors` is
-// exported from there rather than copied here, so a change to how a
-// sector's worth is measured moves both.
+// exported from there rather than copied here.
 import { HeatPeriod, loadSectors } from "../HEAT";
 import type { TreemapItem } from "../viz";
 import { Treemap } from "../viz";

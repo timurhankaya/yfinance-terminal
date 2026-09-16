@@ -1,17 +1,8 @@
-"""api client model
-
-The five tables the read API authenticates and meters against, plus the
-three plan rows.
-
-The plans are seeded here rather than left to an operator because
-`api_clients.plan` is a foreign key into them: without rows, the very
-first `yfin api client create` would fail. Limits are meant to be edited
-afterwards -- that is why they are a table and not constants.
+"""api client model; plans are seeded because `api_clients.plan` is an FK into them.
 
 Revision ID: a84dcb55b264
 Revises: e658b870d8f3
-Create Date: 2026-09-06 11:02:02.311245+00:00
-"""
+Create Date: 2026-09-06 11:02:02.311245+00:00"""
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -88,12 +79,10 @@ def upgrade() -> None:
     _seed_plans()
 
 
-# Starting values, not final ones: an operator changes them with an UPDATE
-# and the API picks the change up within its cache TTL, no deploy.
-#
+# Starting values, not final ones: an operator changes them with an UPDATE.
 # `burst` is never below `requests_per_second` (a CHECK enforces it): a
-# bucket that cannot hold one second of tokens would make the advertised
-# rate unreachable.
+# bucket that cannot hold one second of tokens makes the advertised rate
+# unreachable.
 PLAN_SEED = (
     # plan, rps, burst, monthly_quota, max_page_size, max_concurrency
     ("free", 2, 10, 50_000, 100, 2),

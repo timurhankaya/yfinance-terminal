@@ -1,9 +1,5 @@
-"""What the collector records, and what it refuses to.
-
-No database: `flush` is the only method that needs one, and what it hands
-the COPY is a string these tests can read. Everything else here is the
-decision of what becomes an event at all.
-"""
+"""What the collector records, and what it refuses to. No database: `flush` is the only
+method that needs one, and what it hands the COPY is a readable string."""
 
 from __future__ import annotations
 

@@ -1,9 +1,5 @@
-"""`settings_schema()` must be pure. No network, no DB.
-
-Schema and state are deliberately split: the schema is fixed for the
-process's lifetime, while `value` can change on every read. Merged
-together, this file could not run without a DB connection.
-"""
+"""`settings_schema()` must be pure. No network, no DB: the schema is fixed for the
+process's lifetime, while `value` can change on every read."""
 
 from __future__ import annotations
 

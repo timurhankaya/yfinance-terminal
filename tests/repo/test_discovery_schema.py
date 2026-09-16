@@ -53,13 +53,9 @@ def test_primary_keys(db_session: Session) -> None:
 
 
 def test_discovery_gate_has_no_foreign_key(db_session: Session) -> None:
-    """This is why the table exists at all.
-
-    `asof_state.symbol` carries an FK to `symbols.symbol`; a free-text search
-    term isn't there, so the gate row would fail with `ERROR 1452`. If
-    someone adds an FK here later "for consistency", `yfin discover term`
-    breaks loudly, not silently -- and this test goes red first.
-    """
+    """A free-text search term is not in `symbols`, so an FK here would make
+    every `yfin discover term` gate row fail; this test goes red first if
+    someone adds one."""
     assert _inspector(db_session).get_foreign_keys("discovery_asof_state") == []
 
 
@@ -147,13 +143,9 @@ def test_symbols_discovery_columns(db_session: Session) -> None:
 
 
 def test_ascii_key_columns_use_binary_collation(db_session: Session) -> None:
-    """Key columns must be case-sensitive.
-
-    Under a case-insensitive collation, 'AAPL' = 'aapl' would collapse two
-    different symbols into one row. MySQL enforced this with `ascii_bin`;
-    the PostgreSQL equivalent is COLLATE "C", applied uniformly to all
-    string columns.
-    """
+    """Key columns must be case-sensitive: under a case-insensitive collation
+    'AAPL' = 'aapl' would collapse two symbols into one row. COLLATE "C" is
+    applied uniformly to all string columns."""
     rows = db_session.execute(
         __import__("sqlalchemy").text(
             "SELECT table_name, column_name, collation_name "

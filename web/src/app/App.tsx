@@ -6,16 +6,9 @@ import { dockviewEnabled } from "./config";
 export function AppRoutes() {
   return (
     <Routes>
-      {/* Two shapes, because there are two kinds of page. A market page
-          has no symbol in its address -- a screener is not a property of
-          a symbol -- and a symbol's detail does. `Shell` tells them apart
-          by whether the `symbol` param is present.
-
-          `/ui` is the home rather than a redirect. It used to send a
-          returning reader to whatever `localStorage` said they last
-          looked at, which was the terminal's only piece of state outside
-          the URL; with a real landing page that redirect has nothing
-          left to do, and the storage went with it. */}
+      {/* Two shapes: a market page has no symbol in its address, a
+          symbol's detail does. `Shell` tells them apart by whether the
+          `symbol` param is present. `/ui` is the home, not a redirect. */}
       <Route path="/ui" element={<Shell />} />
       <Route path="/ui/m/:code" element={<Shell />} />
       <Route path="/ui/t/:symbol" element={<Shell />} />

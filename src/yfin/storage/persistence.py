@@ -1,8 +1,7 @@
 """PostgreSQL write mechanics.
 
-Separate from the dataset contract (datasets/base.py): the contract says
-what goes where, this says how to write it. Datasets depend on the
-RowWriter protocol, not on SQLAlchemy.
+The dataset contract says what goes where; this says how to write it.
+Datasets depend on the RowWriter protocol, not on SQLAlchemy.
 """
 
 from __future__ import annotations
@@ -39,23 +38,13 @@ from yfin.storage.routing import INFRASTRUCTURE_TABLES
 # The IN list for multi-column verification can get very long.
 VERIFY_CHUNK = 500
 
-# Max rows per INSERT. bars_1m produces ~20,000 rows per symbol on the
-# first backfill. Not about packet size -- PostgreSQL has no such limit.
-# Two real reasons: one huge INSERT holds locks longer across shards, and
-# a partial failure would roll back all 20,000 rows instead of leaving
-# the completed chunks behind.
-#
-# Deliberately not a .env key: persistence imports nothing from
-# yfin.core.config and should not gain a configuration dependency.
+# Max rows per INSERT. Not a wire limit: one huge INSERT holds locks
+# longer across shards, and a partial failure would roll back every row.
+# Not a .env key: persistence must not import yfin.core.config.
 INSERT_CHUNK = 2000
 
 # PostgreSQL's wire protocol carries at most 65535 bind parameters per
-# statement, and a multi-row INSERT binds one per column per row. This is
-# a HARD limit, unlike INSERT_CHUNK: exceeding it raises
-# psycopg.OperationalError "number of parameters must be between 0 and
-# 65535" and the whole dataset fails. Measured: screen_quotes has 107
-# columns, so 2000 rows asked for 214,000 parameters and every screener
-# run died.
+# statement (one per column per row); exceeding it fails the whole dataset.
 MAX_BIND_PARAMS = 65535
 
 
@@ -87,26 +76,10 @@ def dedupe_rows(
     monotonic_columns: tuple[str, ...],
     guard_column: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Keeps one row per key; the last one wins.
+    """Keeps one row per key, in first-seen order; the last one wins.
 
-    Required: ON CONFLICT DO UPDATE cannot touch the same row twice in
-    one statement (21000, "cannot affect row a second time"). Most
-    datasets make no in-batch uniqueness guarantee -- only four of the 57
-    TableWrite call sites deduplicate on their own.
-
-    monotonic_columns are the exception and take the group maximum.
-    GREATEST only compares the incoming row against the row already in
-    the database, never two rows of the same batch, so plain last-wins
-    would let a monotonic column regress within a chunk.
-
-    guard_column is a second exception, and it decides between whole rows
-    rather than merging them: the row with the highest guard value wins
-    outright. Last-wins would not do, because the database guard only
-    sees the row this function hands it -- an out-of-order tick arriving
-    later in the same batch would be the one compared, and the newer
-    value would already be gone.
-
-    First-seen order is preserved.
+    ON CONFLICT cannot touch the same row twice (21000). Monotonic columns
+    take the group maximum; with a guard column the highest guard wins whole.
     """
     if len(rows) < 2:
         return rows
@@ -147,17 +120,8 @@ INSERTED_FLAG = "inserted"
 def _returning_row(statement: Any) -> Any:
     """`RETURNING *, xmax = 0 AS inserted`.
 
-    `*` rather than a column list, so what the consumer receives is the row
-    as the DATABASE has it: columns outside the update map, `GREATEST`-merged
-    columns and server defaults included, rather than what the pipeline
-    proposed.
-
-    `xmax` is a system column and is not in `Base.metadata`, so it can only
-    be spelled as a literal -- `table.c.xmax` raises `AttributeError`. A
-    tuple written by the INSERT branch has `xmax = 0`; one rewritten by
-    `DO UPDATE` carries the updating transaction's id. Measured on a plain
-    table, a hypertable chunk and a same-transaction re-upsert; see
-    docs/measurements/database.md.
+    `*` so the consumer gets the row as the database has it. `xmax` is a
+    system column, spelled as a literal; it is 0 for a freshly inserted tuple.
     """
     return statement.returning(
         literal_column("*"), literal_column("xmax = 0").label(INSERTED_FLAG)
@@ -167,12 +131,8 @@ def _returning_row(statement: Any) -> Any:
 class PostgresRowWriter:
     """PostgreSQL implementation of RowWriter.
 
-    With no collector -- which is every call site until the runners are
-    wired up, and every call site forever when `yf_changes_enabled` is off
-    -- the statements it emits are byte-for-byte what they have always been.
-    `tests/unit/test_insert_statement.py` compares them as text, because
-    this one statement writes 68 tables and a silent change to it is the
-    most expensive kind this codebase can make.
+    With no collector the emitted statements must stay byte-for-byte
+    unchanged; `tests/unit/test_insert_statement.py` compares them as text.
     """
 
     def __init__(
@@ -188,10 +148,8 @@ class PostgresRowWriter:
     def _collecting(self, table_name: str) -> bool:
         """Whether this write produces events.
 
-        Infrastructure tables are excluded HERE rather than inside the
-        collector, because the difference has to reach the statement: the
-        gate rows carry `GATE_UPDATE_COLUMNS`, and a predicate plus a
-        `RETURNING *` for a row nobody receives is pure cost.
+        Infrastructure tables are excluded here, not in the collector, so
+        their statements carry no predicate and no `RETURNING *`.
         """
         return self._collector is not None and table_name not in INFRASTRUCTURE_TABLES
 
@@ -206,13 +164,9 @@ class PostgresRowWriter:
         if not write.rows:
             return 0
 
-        # Both of these run over the whole list, before chunking.
-        # Aligning afterwards would give each chunk its own column set and
-        # its own update map, so a column present in the first chunk would
-        # silently drop out of the second one's update scope. Deduping
-        # afterwards would not raise 21000, but two rows with the same key
-        # landing in different chunks means the second overwrites the
-        # first -- silent data loss.
+        # Both run over the whole list, before chunking: per-chunk column
+        # sets would drop columns from later chunks' update scope, and a
+        # key split across chunks would silently overwrite.
         rows = align_rows(write.rows)
         rows = dedupe_rows(
             rows, write.key_columns, write.monotonic_columns, write.guard_column
@@ -224,14 +178,8 @@ class PostgresRowWriter:
             result = self._session.execute(
                 self._insert_stmt(table, chunk_rows, write, present)
             )
-            # `_collecting` is not enough. A write whose update map is
-            # ENTIRELY volatile gets no predicate and therefore no
-            # `RETURNING` -- the hash gate's `UNCHANGED_UPDATE_COLUMNS =
-            # ("fetched_at",)` write is exactly that, on a data table, so it
-            # is collected in principle and returns nothing in practice.
-            # Reading it raises `ResourceClosedError` and takes the whole
-            # symbol transaction with it. `returns_rows` is the statement
-            # asked whether it has a RETURNING clause, which is the question.
+            # A write whose update map is entirely volatile gets no predicate
+            # and no RETURNING; reading that result raises `ResourceClosedError`.
             if self._collecting(write.table) and returns_rows(result):
                 self._collect(table, write, chunk_rows, result, present)
 
@@ -242,24 +190,10 @@ class PostgresRowWriter:
     def _effective_update_columns(
         self, table: Table, write: TableWrite, present: set[str]
     ) -> list[str]:
-        """Which columns the conflict branch writes, and whether `present`
-        narrows them.
+        """Which columns the conflict branch writes.
 
-        Normally the declared `update_columns`, narrowed to what the rows
-        actually carry: the column set varies per symbol (a non-fund has no
-        'Capital Gains').
-
-        A COLLECTED `replace_scope` write widens instead, to every non-key
-        column minus the volatile ones, INDEPENDENT of `present`. That is
-        not a preference, it is what makes the diff equivalent to the
-        delete-plus-insert it replaces: the declared `update_columns` on
-        these tables are partial (`financial_facts` updates `("value",)`,
-        `sec_filing_exhibits` `("url",)`), so a plain upsert would leave
-        every other column at the value the deleted row had. A column the
-        rows omit entirely takes the table default through `excluded.col`,
-        and one `align_rows` had to fill takes the explicit NULL it was
-        filled with -- both exactly what delete-plus-insert produces,
-        server defaults such as `first_seen_at` resetting included.
+        A COLLECTED `replace_scope` write widens to every non-key, non-volatile
+        column so the diff is equivalent to the delete-plus-insert it replaces.
         """
         if not (self._collecting(write.table) and write.mode == "replace_scope"):
             return [col for col in write.update_columns if col in present]
@@ -292,26 +226,8 @@ class PostgresRowWriter:
     ) -> Any | None:
         """`DO UPDATE ... WHERE <the row actually moved>`, or None.
 
-        This is what makes "a row came back" mean "the row changed", with no
-        second read to find out: a `DO UPDATE ... WHERE` whose predicate is
-        false returns nothing at all (measured --
-        docs/measurements/database.md).
-
-        Two kinds of term. Comparable columns are compared row-wise, which is
-        one `IS DISTINCT FROM` rather than one per column and gives NULL the
-        same treatment the rest of the codebase gives it. Monotonic columns
-        get their own term, because `GREATEST` is what decides whether they
-        move: comparing them directly would fire on every downward report the
-        source makes, which is exactly what `GREATEST` exists to absorb.
-
-        Volatile columns are in neither set. A row whose only difference is
-        `fetched_at` did not change, and publishing it would have every
-        consumer rewrite its mirror daily. They are still written -- see
-        `_touch_volatile`.
-
-        Returns None when both sets are empty, which is precisely the hash
-        gate's `UNCHANGED_UPDATE_COLUMNS = ("fetched_at",)` write. No
-        predicate, no `RETURNING`, no event: the statement is today's.
+        A false predicate returns nothing, so "a row came back" means "it
+        changed". Volatile columns are in neither term (see `_touch_volatile`).
         """
         monotonic = [c for c in update_map if c in write.monotonic_columns]
         comparable = [
@@ -343,14 +259,8 @@ class PostgresRowWriter:
     ) -> Any:
         """INSERT ... ON CONFLICT for one chunk.
 
-        `present` is derived from all rows and passed in; computing it
-        per chunk would undo what align_rows just did.
-
-        index_elements must match a unique constraint exactly as a set --
-        a subset and a superset both raise "there is no unique or
-        exclusion constraint matching the ON CONFLICT specification"
-        (order does not matter). test_persistence_contract keeps
-        key_columns honest.
+        `present` comes from all rows, not the chunk. index_elements must
+        match a unique constraint exactly as a set (order does not matter).
         """
         collecting = self._collecting(write.table)
         if collecting and write.guard_column is not None:
@@ -414,10 +324,8 @@ class PostgresRowWriter:
     ) -> None:
         """Turns one chunk's returned rows into events, then touches the rest.
 
-        What came back is exactly what changed: the predicate suppresses the
-        rows that did not, and `DO NOTHING` returns only what it inserted.
-        There is no matching back against the proposed rows and no second
-        read.
+        What came back is exactly what changed: the predicate suppresses
+        the rest, and `DO NOTHING` returns only what it inserted.
         """
         assert self._collector is not None  # guaranteed by `_collecting`
         returned = [dict(row) for row in result.mappings()]
@@ -452,10 +360,8 @@ class PostgresRowWriter:
     def _coalesces(self, table_name: str, inserts: list[dict[str, Any]]) -> bool:
         """Whether this many bar inserts become spans instead of rows.
 
-        A first sync or `--full-refresh` writes ~20,000 bars per symbol;
-        across a 4,500-symbol universe that is on the order of 10^8 row
-        events to say "the history is here". Steady-state daily writes
-        (~390 one-minute bars) stay row-level, and so do repairs.
+        A full history is far too many row events; steady-state daily
+        writes and repairs stay row-level.
         """
         assert self._collector is not None
         return (
@@ -495,25 +401,10 @@ class PostgresRowWriter:
         returned: list[dict[str, Any]],
         present: set[str],
     ) -> None:
-        """Writes the volatile columns the predicate stopped the upsert from writing.
+        """Writes the volatile columns the predicate kept the upsert from writing.
 
-        Without this they would freeze. The predicate means a row whose
-        comparable columns are unchanged is not updated AT ALL, so
-        `fetched_at` -- which `HashGate` reads as "last verified at" -- and
-        `as_of_date` -- which `prune_asof` reads -- would keep the value they
-        had on the first write, and both readers would draw the wrong
-        conclusion from it.
-
-        Only the rows the `RETURNING` did NOT report need it: the ones it did
-        report were updated, volatile columns included. Each row is given its
-        OWN proposed values, which is why this is `FROM (VALUES ...)` and not
-        one UPDATE per distinct value.
-
-        It emits no event, which is the whole point: the row did not change.
-
-        Skipped entirely when a volatile column is part of the key -- the
-        `*_history` snapshots, where `fetched_at` identifies the row rather
-        than dating it, so touching it would move the row instead.
+        Otherwise `fetched_at` and `as_of_date` would freeze on unchanged rows.
+        No event is emitted. Skipped when a volatile column is part of the key.
         """
         assert self._collector is not None
         volatile = [
@@ -562,11 +453,8 @@ class PostgresRowWriter:
     def _scope_predicate(self, table: Table, write: TableWrite) -> Any | None:
         """WHERE clause for the replace_scope scope, or None if it is empty.
 
-        `scope_columns` defines it, defaulting to ("symbol",):
-        `company_officers` works per symbol, `financial_facts` per
-        (symbol, statement, freq, period_end). `scope_values` is used when
-        the write gives it -- the hash-gated datasets do, because their rows
-        can be empty while the scope is not.
+        `scope_values` is used when the write gives it: hash-gated datasets
+        can have empty rows while the scope is not.
         """
         cols = [table.c[name] for name in write.scope_columns]
         if write.scope_values is not None:
@@ -590,14 +478,8 @@ class PostgresRowWriter:
     def _delete_scope(self, table: Table, write: TableWrite) -> None:
         """Clears the replace_scope scope.
 
-        Without a collector this is one DELETE, exactly as it has always
-        been: the scope goes, the incoming rows are inserted, and which rows
-        survived is nobody's question.
-
-        With one it becomes a diff, because "delete everything and insert it
-        back" would publish every row of every `replace_scope` table as an
-        insert on every sync -- ten dataset modules, and the whole point of
-        the predicate on the upsert path is not to do that.
+        Without a collector one DELETE; with one a key diff, or every row
+        of every `replace_scope` table would publish as an insert each sync.
         """
         predicate = self._scope_predicate(table, write)
         if predicate is None:
@@ -612,11 +494,6 @@ class PostgresRowWriter:
 
         `scope_columns` is a primary-key prefix on every `replace_scope`
         table, so reading the scope back is an index scan.
-
-        With no incoming rows `incoming` is empty and the whole scope is
-        deleted, which is what today's single DELETE does. A key that is
-        removed and re-added in one write cannot happen: it is in
-        `incoming`, so it is never in the delete set.
         """
         assert self._collector is not None
         key_columns = list(write.key_columns)
@@ -642,13 +519,10 @@ class PostgresRowWriter:
                 self._collector.record(write.table, "delete", dict(row), None)
 
     def _verify(self, write: TableWrite) -> int:
-        """Key-existence query.
+        """Key-existence query, as an independent read after the write.
 
-        The affected-row count is not usable for verification: ON
-        CONFLICT DO NOTHING does not count rows it skipped (measured:
-        INSERT 0 0). This asks the stronger question -- how many of the
-        requested keys are actually in the table -- as an independent
-        read after the write.
+        The affected-row count is not usable: ON CONFLICT DO NOTHING does
+        not count rows it skipped.
         """
         table = self._table(write.table)
         cols = [table.c[name] for name in write.key_columns]
@@ -658,14 +532,9 @@ class PostgresRowWriter:
             stmt = select(func.count()).select_from(table).where(cols[0].in_(values))
             return int(self._session.execute(stmt).scalar_one())
 
-        # Row-constructor IN: markedly faster than OR/AND blocks and
-        # still uses the primary key index.
-        #
-        # The key list MUST be deduplicated. It is chunked, and one IN
-        # list collapses its own duplicates while two chunks do not: the
-        # same key appearing in both chunks was counted twice, inflating
-        # `verified` back up to `attempted` and reporting `ok` for a write
-        # that stored fewer rows than it claimed.
+        # Row-constructor IN: uses the primary key index. The key list MUST
+        # be deduplicated: the chunks are separate IN lists, so a key in two
+        # chunks would be counted twice and inflate `verified`.
         keys = list(
             dict.fromkeys(tuple(row[name] for name in write.key_columns) for row in write.rows)
         )

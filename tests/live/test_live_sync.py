@@ -34,12 +34,8 @@ def live_run(test_engine: Engine):  # type: ignore[no-untyped-def]
                 {"s": symbol},
             )
         session.commit()
-    # Opt-in datasets are added explicitly. `resolve(None)` deliberately
-    # excludes them, to avoid adding two requests per symbol to a plain
-    # `yfin sync`. This live coverage test should see every registered
-    # dataset, so the right bridge is widening scope, not weakening the
-    # assertion. `"all"` is only magic when passed alone (registry.py);
-    # here every registered name is given explicitly.
+    # `resolve(None)` excludes opt-in datasets; this coverage test must see
+    # every registered one, so each name is passed explicitly.
     summary = run_sync(test_engine, list(SYMBOLS), SYMBOL_DATASETS.resolve(list(SYMBOL_DATASETS)))
     return summary
 
@@ -69,11 +65,7 @@ def test_run_succeeds(test_engine: Engine, live_run) -> None:  # type: ignore[no
 
 
 def test_every_registered_dataset_is_covered(test_engine: Engine, live_run) -> None:  # type: ignore[no-untyped-def]
-    """Coverage is tied to the registry, not a fixed count.
-
-    A previous version hardcoded 11 and broke when financials/market were
-    added; the test must grow as the registry grows.
-    """
+    """Coverage is tied to the registry, not a fixed count, so it grows with it."""
     with Session(test_engine) as session:
         datasets = set(
             session.execute(

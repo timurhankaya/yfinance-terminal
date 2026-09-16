@@ -1,10 +1,6 @@
-"""The scheduler's decisions, without starting one.
-
-What is testable here is everything that decides WHETHER and HOW a job runs:
-the job table, the cadence a cron implies, the misfire grace derived from
-it, and the mapping from an exit code to a word. The subprocess and the
-signal handling need a real process and live in the repo tests.
-"""
+"""The scheduler's decisions, without starting one: the job table, the cadence a cron
+implies, the misfire grace derived from it, and exit code to word. The subprocess and
+signal handling live in the repo tests."""
 
 from __future__ import annotations
 
@@ -64,12 +60,8 @@ class TestTheJobTable:
 
 
 class TestInterval:
-    """The mean period, not the gap to the next firing.
-
-    For `0 4 1 * *` the gap is anywhere from one day to thirty-one depending
-    on when you ask, and both the misfire grace and the freshness factor are
-    derived from it.
-    """
+    """The mean period, not the gap to the next firing: for `0 4 1 * *` the gap is anywhere
+    from one to thirty-one days, and misfire grace and freshness factor derive from it."""
 
     @pytest.mark.parametrize(
         ("cron", "expected_hours"),
@@ -173,12 +165,8 @@ class TestCrons:
 
 
 class TestTheJobGauges:
-    """What the exporter publishes on the scheduler's behalf.
-
-    These numbers are in this process's memory and in no table -- which is
-    why the exporter takes a callable rather than querying for them, and why
-    the rules about what is ABSENT matter as much as the values.
-    """
+    """What the exporter publishes on the scheduler's behalf. These numbers live in process
+    memory, not a table, which is why the exporter takes a callable and absence matters."""
 
     def _service(self, **state: object) -> object:
         from yfin.scheduler.service import JobState, SchedulerService
@@ -253,17 +241,9 @@ class TestTheJobGauges:
 
 
 class TestEveryScheduledCommandMapsTheLock:
-    """A job that collided with another must be `locked`, not `failed`.
-
-    `scheduler_runs.result` distinguishes them and the alerts read the
-    difference: `locked` is the advisory lock doing its job, `failed` is
-    something to look at. A command that lets `LockNotAcquired` reach the
-    generic handler exits 1, is recorded as `failed`, and fires SyncFailed
-    and JobPartial for what is a normal overlap.
-
-    Found on the running stack: an hourly `stream_reconcile` behind a
-    33-hour backfill recorded `failed` every hour.
-    """
+    """A job that collided with another must be `locked`, not `failed`: the alerts read the
+    difference, and letting `LockNotAcquired` reach the generic handler would fire
+    SyncFailed and JobPartial for a normal overlap."""
 
     def test_the_mapping_reserves_a_code_for_it(self) -> None:
         from yfin.pipeline.audit import EXIT_LOCK_NOT_ACQUIRED

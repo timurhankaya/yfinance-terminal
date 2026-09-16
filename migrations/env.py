@@ -37,15 +37,9 @@ EXPRESSION_INDEXES = frozenset(
 def include_object(obj, name, type_, reflected, compare_to):  # type: ignore[no-untyped-def]
     """Exclude only the expression-based indexes.
 
-    No `_timescaledb` schema filter is added here, deliberately.
-    `include_schemas` stays at its default (False), so Alembic only looks
-    at the first schema on search_path; TimescaleDB's internal schema
-    (`_timescaledb_internal`) chunk tables never appear in autogenerate
-    output (verified). Such a filter would be not just unnecessary but
-    would hide the real issue: `create_hypertable`'s default index lives
-    in the `public` schema and would not be caught by the filter anyway
-    -- hence `create_default_indexes=False` is used instead.
-    """
+    No `_timescaledb` schema filter: `include_schemas` is False, so chunk tables
+    never appear, and `create_hypertable`'s default index lives in `public`
+    anyway, which is why `create_default_indexes=False` is used instead."""
     return not (type_ == "index" and name in EXPRESSION_INDEXES)
 
 

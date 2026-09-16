@@ -1,10 +1,7 @@
 """earnings_dates dataset.
 
-Pagination needs a FRESH Ticker: `TickerBase._earnings_dates`'s dict is keyed
-only on `limit` (`base.py:637`); `offset` never enters the cache key. Reusing
-the same Ticker with offset=100 returns the first page itself (`a is b` ->
-True) and pagination silently no-ops. This is the second exception to the
-ctx.cached rule, after `news`.
+Pagination needs a FRESH Ticker per page: yfinance caches `_earnings_dates`
+by `limit` only, so a reused Ticker returns the first page for every offset.
 """
 
 from __future__ import annotations
@@ -43,9 +40,7 @@ UPDATE_COLUMNS = (
 def _fetch_pages(symbol: str, max_pages: int) -> tuple[pd.DataFrame | None, bool]:
     """The pages, and whether paging ran out of data rather than pages.
 
-    The second value decides whether the result may REPLACE what is
-    stored. A truncated history that replaced would delete exactly the
-    rows the cap cut off.
+    The second value decides whether the result may REPLACE what is stored.
     """
     frames: list[pd.DataFrame] = []
     complete = False
@@ -80,12 +75,8 @@ class MissingTimezoneError(ValueError):
 def _index_tz(index: Any) -> str:
     """Index tz; for an object-dtype index (fixtures) read from the first element.
 
-    Never DEFAULTS to "UTC" when tz is missing. Measured 100% of symbols
-    tz-aware, returning `America/New_York` (including THYAO.IS and 7203.T);
-    a tz-naive index means the library's behavior changed. Assuming "UTC"
-    would shift both `tz_name` and `earnings_ts_utc` by 4-5 hours and write
-    wrong data as if correct -- a silent corruption. The cell becomes
-    `failed` instead (wrong data is worse than missing data).
+    Never defaults to "UTC": a tz-naive index means the library changed,
+    and a guessed tz would write shifted timestamps as if correct.
     """
     tz = getattr(index, "tz", None)
     if tz is None and len(index):
@@ -140,10 +131,9 @@ class EarningsDatesDataset(Dataset[EarningsDatesPayload]):
                 "reported_eps": nz.to_decimal(record.get("Reported EPS")),
                 "surprise_pct": nz.to_decimal(record.get("Surprise(%)")),
             }
-            # fact_hash feeds the PK: for AAPL's 2002-07-16 timestamp, two rows
-            # differ ONLY in Surprise(%); both EPS fields are NaN. Canonical
-            # JSON turns NaN into null, so without this the two rows would hash
-            # identically and one would silently disappear.
+            # fact_hash feeds the PK: two rows on one timestamp can differ only
+            # in Surprise(%) with both EPS fields NaN. Canonical JSON turns NaN
+            # into null, so they are stringified to keep the hashes distinct.
             digest = nz.content_hash(
                 {k: (str(v) if v is not None else None) for k, v in values.items()}
             )
@@ -156,8 +146,8 @@ class EarningsDatesDataset(Dataset[EarningsDatesPayload]):
                 **values,
                 "fetched_at": raw.fetched_at,
             }
-            # Overlap across pages was measured (1 row): without dedup on the
-            # PK, rows_verified < rows_attempted would wrongly produce `failed`.
+            # Pages can overlap: without dedup on the PK,
+            # rows_verified < rows_attempted would wrongly produce `failed`.
             rows[(ts_utc, row["fact_hash"])] = row
 
         if not rows:
@@ -169,18 +159,10 @@ class EarningsDatesDataset(Dataset[EarningsDatesPayload]):
                     rows=list(rows.values()),
                     key_columns=KEY_COLUMNS,
                     update_columns=UPDATE_COLUMNS,
-                    # Replace the symbol's history, not merge into it.
-                    # `fact_hash` is part of the key precisely because one
-                    # timestamp can carry two genuinely different rows --
-                    # but it also changes when a quarter's ESTIMATE becomes
-                    # a REPORTED result, and a plain upsert then left the
-                    # superseded estimate in place forever. Two contradictory
-                    # rows for one earnings event, with nothing to say which
-                    # is current.
-                    #
-                    # Only when the fetch reached the end of the history: a
-                    # truncated page run must not delete what it could not
-                    # re-read.
+                    # Replace, not merge: `fact_hash` is in the key, so an
+                    # estimate turning into a reported result would otherwise
+                    # leave the superseded row behind. Only when the fetch
+                    # reached the end of the history.
                     mode="replace_scope" if raw.complete else "upsert",
                 )
             ]

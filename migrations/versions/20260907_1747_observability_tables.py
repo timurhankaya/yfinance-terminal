@@ -1,22 +1,8 @@
-"""observability tables
-
-The scheduler's own log and the place a sync shard leaves its counters, plus
-the two audit columns and the index the freshness query needs. Design:
-docs/superpowers/specs/2026-09-07-observability-design.md
-
-Nothing is added to `sync_runs` or `sync_run_items` that is NOT NULL: both
-tables have history, and a scheduled run is a thing that starts happening
-later rather than something every past row was.
-
-`ix_sync_run_items_cell_run` is the one index here that earns its keep by
-itself. The freshness query walks one cell -- (symbol, region, dataset) --
-backwards to its latest run, every five minutes, over a table that grows by
-symbols x datasets every night.
+"""observability tables: scheduler log, shard counters, audit columns, freshness index.
 
 Revision ID: 5e7eda819cc6
 Revises: 84048dfed821
-Create Date: 2026-09-07 17:47:36.985029+00:00
-"""
+Create Date: 2026-09-07 17:47:36.985029+00:00"""
 from __future__ import annotations
 
 from collections.abc import Sequence

@@ -1,28 +1,7 @@
 """Closing bar_gaps from the tick archive.
 
-The one place the live stream is allowed to write into `price_bars`, and
-it is deliberately narrow: only minutes that have no bar at all, only
-inside a gap that is still open, and only for symbols whose timezone is
-known.
-
-Why it exists: Yahoo drops 1-minute data after 29 days. A window missed
-inside that period can never be fetched again -- so a `retention_expired`
-gap is permanent, and the tick archive is the only thing that can still
-answer what happened there. Those gaps are the point of this module. A
-`fetch_failed` gap is also filled, but only because it is cheaper than a
-refetch; that one was never lost.
-
-What this module refuses to do is as important as what it does:
-
-  * it never overwrites an existing bar. A derived bar has no volume, and
-    a blanket upsert would blank the volume of real bars that happen to
-    sit inside the same gap window;
-  * it never invents volume. `day_volume` is cumulative and the stream is
-    a ~1s snapshot, not a tick feed, so per-minute volume cannot be
-    recovered from it;
-  * it never guesses a local date. `price_bars.local_date` is the
-    exchange's calendar day, and deriving it from UTC shifts it a day for
-    positive-offset exchanges.
+The one place the stream writes `price_bars`: only minutes with no bar,
+inside an open gap, with a known timezone. Volume is never invented.
 """
 
 from __future__ import annotations
@@ -75,13 +54,7 @@ class OpenGap:
 
 
 def local_date_for(ts_utc: datetime, timezone_name: str) -> Any:
-    """The exchange's calendar day for a UTC instant.
-
-    Converting to UTC and taking the date is what must NOT happen: for a
-    positive-offset exchange (BIST, Tokyo) it lands a day early. The
-    conversion goes the other way -- into the exchange's zone, then take
-    the date.
-    """
+    """The exchange's calendar day; the UTC date lands a day early for positive offsets."""
     return ts_utc.astimezone(ZoneInfo(timezone_name)).date()
 
 
@@ -106,13 +79,7 @@ class GapReconciler:
     # --- reading -----------------------------------------------------------
 
     def _open_gaps(self, limit: int | None) -> list[OpenGap]:
-        """Open 1m gaps, `retention_expired` included.
-
-        Including them is the whole point. An earlier draft filtered them
-        out, which left only the gaps Yahoo can still serve -- that is,
-        the reconciliation skipped exactly the windows that need it and
-        did the ones that did not.
-        """
+        """Open 1m gaps, `retention_expired` included: those can never be refetched."""
         sql = (
             "SELECT g.symbol, g.gap_start_utc, g.gap_end_utc, g.reason, s.timezone "
             "  FROM bar_gaps g "
@@ -134,9 +101,8 @@ class GapReconciler:
     def _existing_minutes(self, session: Session, gap: OpenGap) -> set[datetime]:
         """Minutes inside the window that already have a bar.
 
-        `fetch_failed` gaps are recorded at day granularity, so a single
-        gap row can span days and contain plenty of real bars. Writing
-        over those would replace a correct volume with NULL.
+        A gap row can span days and contain real bars; overwriting them
+        would replace a correct volume with NULL.
         """
         rows = session.execute(
             text(
@@ -149,12 +115,7 @@ class GapReconciler:
         return set(rows)
 
     def _ticks(self, session: Session, gap: OpenGap) -> list[tuple[datetime, Decimal, int]]:
-        """Ticks in the window that carry a usable price.
-
-        `price IS NOT NULL` is a real filter, not defensive noise: a tick
-        can legitimately arrive with only bid/ask set, and
-        `price_bars.close` is NOT NULL.
-        """
+        """Ticks in the window with a price; a tick may carry only bid/ask."""
         rows = session.execute(
             text(
                 "SELECT ts_utc, price, market_hours_code FROM live_ticks "

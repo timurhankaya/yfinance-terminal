@@ -1,11 +1,7 @@
 """Dataset registry and resolver.
 
-Alias expansion, order-preserving dedup, topological sort, cycle and
-unknown-name checks all live in one `Registry` class. Three instances are
-created: symbol-scoped (`SYMBOL_DATASETS`), market-scoped
-(`MARKET_DATASETS`), and sector/industry-scoped (`DOMAIN_DATASETS`)
-datasets. All three share the same contract; the only difference is
-whether a bootstrap dataset exists.
+One `Registry` class, three instances (symbol, market, domain); the only
+difference between them is whether a bootstrap dataset exists.
 """
 
 from __future__ import annotations
@@ -25,21 +21,8 @@ if TYPE_CHECKING:
 class Registrable(Protocol):
     """The only interface the registry sees.
 
-    All four fields, because the registry reads all four. It used to
-    declare two and reach for the other two with `getattr(ds, ..., ())`,
-    on the argument that market and domain datasets were registrable
-    without being exposable. That stopped being true: five of seven market
-    datasets and four of five domain ones declare `api`.
-
-    Declaring them buys one thing, and it is worth being exact about
-    which: every reader now names the field, so the catalogue builder can
-    be read without knowing which datasets happen to carry it. It does
-    NOT catch a misspelled declaration. `api` has a class-level default of
-    `()` on all three bases, so `apis = (...)` still resolves `ds.api` to
-    `()` and still leaves the resource out of the catalogue silently --
-    extra class attributes are not a mypy error. Closing that would take
-    an `__init_subclass__` check on the bases; until one exists, this
-    protocol should not be read as promising it.
+    Declaring `api` here does not catch a misspelled declaration: the
+    bases default it to `()`, so `apis = (...)` silently resolves to `()`.
     """
 
     name: str
@@ -63,10 +46,8 @@ class DependencyCycleError(ValueError):
 class Registry[D: Registrable]:
     """Name -> dataset map and resolver.
 
-    If `bootstrap` is given, that dataset is always prepended to every
-    resolution even if the user doesn't select it (`symbols` on the symbol
-    side). `bootstrap=None` is for the market side: there is no mandatory
-    prerequisite dataset.
+    `bootstrap`, when given, is prepended to every resolution whether or
+    not the user selected it.
     """
 
     def __init__(
@@ -104,35 +85,10 @@ class Registry[D: Registrable]:
         }
 
     def register(self, ds: D, *, opt_in: bool = False, group: str | None = None) -> D:
-        """Both flags are declared here, at the registration site.
+        """Both flags are declared at the registration site, not in a list here.
 
-        `group="financials"` puts the dataset in the `--datasets financials`
-        group. It is deliberately NOT called `family`: `DataFamily`
-        (`core/families.py`) is the authorisation unit the API derives its
-        scopes from, and this is a CLI convenience with no relation to it.
-        The two were both spelled `family` and sat ten lines apart in
-        `holders/institutional.py`, meaning different things.
-        Declared here rather than listed in this module, for the
-        reason the `bars` alias already gives: a hand-written list that
-        misses a new member registers it and then silently skips it. `bars`
-        derived its members and three neighbouring families did not, so
-        adding a ninth statement would have registered it, made it reachable
-        by name, included it in `all`, and left `--datasets financials`
-        quietly without it -- no error, no log.
-
-        `opt_in=True`: registered but NOT INCLUDED in the `all` expansion.
-        The reasoning is a measured trap. `search` and `lookup` each add one
-        request per symbol; across 4,500 symbols that's +9,000 requests/day.
-        If registered unconditionally, a bare `yfin sync` would pull them too.
-
-        The FIRST FIX WAS WRONG: gating registration behind a setting (the
-        `sustainability` pattern). That also made the dataset unreachable
-        via `--datasets search`, and flipping the setting on made a bare run
-        expensive again -- it didn't solve the trap, just postponed it.
-
-        `opt_in` solves both: it runs when named, and is INVISIBLE in the
-        `all` expansion. The declaration stays at the dataset's
-        REGISTRATION SITE, not in a name list embedded in the registry.
+        `group` names a `--datasets` alias (unrelated to `DataFamily`). `opt_in`
+        keeps the dataset out of the `all` expansion; it still runs when named.
         """
         for exposure in ds.api:
             # Validated here, at import time. A misdeclared dataset should
@@ -202,11 +158,8 @@ class Registry[D: Registrable]:
             if not name:
                 continue
             if name == ALL:
-                # An ordinary expansion, not a special case. It used to be
-                # recognised only when it stood alone, so `--datasets
-                # all,search` -- the natural way to add an opt-in dataset to
-                # the usual set -- failed as an unknown name, and the list
-                # of valid names in the error did not contain `all` either.
+                # An ordinary expansion, so `--datasets all,search` adds an
+                # opt-in dataset to the usual set.
                 for target in self._default_set():
                     out[target] = None
                 continue
@@ -220,9 +173,8 @@ class Registry[D: Registrable]:
     def resolve(self, names: Sequence[str] | None) -> list[D]:
         """None, empty list, or 'all' -> everything that is NOT opt-in.
 
-        Expands aliases, deduplicates preserving order, topologically sorts
-        by depends_on, rejects unknown names, catches cycles. If bootstrap
-        is defined, it is always prepended.
+        Expands aliases, dedups in order, sorts by depends_on, rejects
+        unknown names and cycles; bootstrap is always prepended.
         """
         selected = self._default_set() if not names else self._expand(names)
 

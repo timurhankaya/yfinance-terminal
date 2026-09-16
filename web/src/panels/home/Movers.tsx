@@ -1,10 +1,7 @@
-// What moved, from the screens this deployment runs.
-//
-// The screen keys are a deployment's choice, not ours: a terminal that
-// hard-coded `day_gainers` would show an error card wherever that screen
-// is off. The block asks which screens exist, takes the two that name
-// themselves gainers and losers, and says what it found when it finds
-// neither.
+// What moved, from the screens this deployment runs. The screen keys
+// are a deployment's choice, so the block asks which screens exist,
+// takes the two that name themselves gainers and losers, and says so
+// when it finds neither.
 import { getScreen, getScreens } from "../../api/client";
 import type { ScreenRow, ScreenSummary } from "../../api/client";
 import { LoadState, usePanelData } from "../common";

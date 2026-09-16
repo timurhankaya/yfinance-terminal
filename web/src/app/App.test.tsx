@@ -193,9 +193,6 @@ describe("AppRoutes", () => {
   });
 
   it("opens /ui on the home rather than an empty symbol page", async () => {
-    // It used to redirect to whatever `localStorage` said was last
-    // visited, which was the terminal's only state outside the URL. With
-    // a landing page that redirect has nothing left to do.
     mockFetch(() => json(200, { data: [], next_cursor: null }));
     mount("/ui");
     expect(await screen.findByText(/Type a symbol to open its detail/)).toBeInTheDocument();
@@ -523,12 +520,9 @@ describe("saved pages", () => {
     expect(await screen.findByText("panel AAA")).toBeInTheDocument();
   });
 
-  /** Builds a page through the UI and hands back what was stored.
-   *
-   *  A layout fixture cannot be hand-written: only dockview can produce
-   *  a document dockview will load, and a hand-made one is refused --
-   *  which is a real behaviour, tested elsewhere, and a useless fixture
-   *  here. */
+  /** Builds a page through the UI and hands back what was stored: only
+   *  dockview can produce a layout document dockview will load, so a
+   *  hand-written fixture is refused. */
   async function buildPage(name: string, code: string): Promise<Page> {
     const user = userEvent.setup();
     const view = mount("/ui/w/-");

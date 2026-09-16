@@ -1,26 +1,8 @@
-"""How long the freshness query takes on a full-size audit table.
-
-The exporter runs it every 300 seconds inside the scheduler process. If it
-took minutes, the exporter would be a second workload competing with the
-pipeline for the same database -- so the acceptance criterion is 5 seconds,
-and above it the next design is a materialised watermark table rather than a
-bigger machine.
-
-The table is synthesised rather than borrowed from a real install: the
-question is what the query costs at the size this project is BUILT for --
-10,000 symbols across 49 symbol datasets -- and no development database is
-that size yet. `--runs` is the axis that actually stresses
-`ix_sync_run_items_cell_run`: the query walks each cell backwards to its
-latest run, and to its latest GOOD one, so history is what it pays for.
+"""How long the freshness query takes on a full-size, synthesised audit table.
 
 Everything is created in a throwaway schema and dropped at the end, so this
-never touches the real audit tables.
-
-    uv run python scripts/measure_freshness_query.py
-    uv run python scripts/measure_freshness_query.py --runs 7 --explain
-
-The numbers go into docs/measurements/observability.md.
-"""
+never touches the real audit tables. `--runs` is the axis that stresses the
+cell/run index. Usage: measure_freshness_query.py [--runs 7] [--explain]"""
 
 from __future__ import annotations
 
@@ -77,10 +59,8 @@ THRESHOLDS = {
 def _engine() -> Engine:
     """An engine whose every connection lives in the throwaway schema.
 
-    Set on the connection rather than by qualifying the SQL: the query
-    under measurement is the production one, unqualified, and rewriting it
-    to point somewhere else would measure a different statement.
-    """
+    Set on the connection rather than by qualifying the SQL: the query under
+    measurement is the production one, unqualified."""
     settings = get_settings()
     return create_engine(
         settings.db_url(),
@@ -97,18 +77,9 @@ def _create_schema(admin: Engine) -> None:
 def _create_tables(engine: Engine) -> None:
     """Only the two audit tables, with their own indexes and enum types.
 
-    The rest of the schema has nothing to do with this query, and creating
-    it -- hypertables included -- would take longer than every measurement
-    in this file put together.
-
-    `checkfirst=False` is the load-bearing argument, and it is here because
-    the default cost a live database 2,000 synthetic rows: `search_path`
-    ends in `public`, so `checkfirst` FOUND the production `sync_run_items`
-    through it, created nothing, and every unqualified INSERT below then
-    resolved to that same table. `_assert_isolated` is the second half of
-    the fix -- an assumption this important should not rest on remembering
-    an argument.
-    """
+    `checkfirst=False` is load-bearing: `search_path` ends in `public`, so
+    `checkfirst` would find the production table, create nothing, and every
+    unqualified INSERT below would land in it."""
     tables = [Base.metadata.tables[name] for name in TABLES]
     with engine.begin() as conn:
         Base.metadata.create_all(conn, tables=tables, checkfirst=False)
@@ -117,10 +88,8 @@ def _create_tables(engine: Engine) -> None:
 def _assert_isolated(engine: Engine) -> None:
     """Refuses to go on unless the unqualified names land in the schema.
 
-    Every statement in this script is unqualified on purpose -- the query
-    being measured is the production one -- so where those names RESOLVE is
-    the whole safety story, and it is checked rather than assumed.
-    """
+    Every statement here is unqualified on purpose, so where those names
+    RESOLVE is the whole safety story."""
     # The SCHEMA the name resolves to, not `to_regclass`'s text: that
     # renders unqualified precisely when the table IS first on the
     # search_path, so comparing it against "schema.table" would reject the
@@ -144,10 +113,8 @@ def _assert_isolated(engine: Engine) -> None:
 def _seed(session: Session, *, symbols: int, datasets: int, runs: int, now: datetime) -> int:
     """One run per night, every cell touched in each. Returns the row count.
 
-    `generate_series` rather than a Python loop: a million and a half rows
-    through the ORM would dominate the wall clock, and the read is what is
-    being measured.
-    """
+    `generate_series` rather than a Python loop: the ORM would dominate the
+    wall clock, and the read is what is being measured."""
     total = 0
     for index in range(runs):
         started = now - timedelta(days=runs - index)
@@ -189,11 +156,8 @@ ORDER BY 1
 def _seed_asof(session: Session, *, symbols: int, datasets: int, now: datetime) -> int:
     """One row per (symbol, dataset), which is what `asof_state` already is.
 
-    No run history: the table keeps the LATEST verification per cell and
-    nothing else. That is the whole reason it might be cheaper, and the
-    whole reason it cannot answer the same question -- see the note in
-    `docs/measurements/observability.md`.
-    """
+    No run history: the table keeps the LATEST verification per cell, which
+    is why it might be cheaper and why it cannot answer the same question."""
     session.execute(
         text(
             "INSERT INTO symbols (symbol, is_active) "

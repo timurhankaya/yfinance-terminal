@@ -1,26 +1,15 @@
-// Where saved pages live: `localStorage`, and nowhere else.
-//
-// This is the terminal's first piece of state outside the URL, and it is
-// a deliberate step back. The parent design said local storage was for
-// the entry redirect and "not a second source of state", then removed
-// even that. A layout is the case that argument did not cover: it does
-// not fit in an address, and a reader who arranges four panels expects
-// them to still be there tomorrow.
-//
-// The blast radius is one module. Phase 2b moves pages to the database
-// for a signed-in reader, and the only thing that has to change is what
+// Where saved pages live: `localStorage`, and nowhere else. A layout is
+// the one piece of state that does not fit in an address. The blast
+// radius is one module: moving pages to the database only changes what
 // is behind these functions.
 import { emptyStore, isPageStore } from "./page";
 import type { Page, PageStore } from "./page";
 
 export const STORE_KEY = "yfin.ui.pages";
 
-/** The keys a page can be reached by, in order.
- *
- *  F5, F11 and F12 are missing because a browser will not let a page
- *  cancel them (reload, full screen, developer tools), and F6 goes to
- *  the address bar. Eight pages is more than seven group letters can
- *  fill. */
+/** The keys a page can be reached by, in order. F5, F11 and F12 are
+ *  missing because a browser will not let a page cancel them, and F6
+ *  goes to the address bar. */
 export const PAGE_KEYS: readonly string[] = [
   "F1",
   "F2",
@@ -46,12 +35,9 @@ export function resetStorageBlocked(): void {
   blocked = false;
 }
 
-/** What is in storage, or an empty store.
- *
- *  Store-level damage resets everything: an envelope that will not parse,
- *  or a version this build does not know, is not something to guess at.
- *  Page-level damage is a different question and is answered where a
- *  page actually fails to load (`dropPage`). */
+/** What is in storage, or an empty store. Store-level damage -- an
+ *  envelope that will not parse, or an unknown version -- resets
+ *  everything; page-level damage is answered in `dropPage`. */
 export function readStore(): PageStore {
   let raw: string | null = null;
   try {

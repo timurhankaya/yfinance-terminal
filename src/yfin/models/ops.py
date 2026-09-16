@@ -1,19 +1,8 @@
 """What the pipeline records about running itself.
 
-Two tables, one per kind of process, and both exist because the process that
-knows the number is not the process anyone can ask.
-
-`scheduler_runs` is the scheduler's own log: a row per firing, opened before
-the subprocess starts and closed when it exits. Without it "did last night's
-sync run at all" is answerable only from the sync's own audit -- which says
-nothing about a job that never started, misfired, or was killed.
-
-`run_metrics` is where a sync shard leaves its counters. A shard is a
-short-lived process; it exits long before any scrape could reach it, so
-`core/metrics.py` accumulates in memory and flushes here on the way out, and
-the exporter turns the table into gauges. Written OUTSIDE the symbol
-transactions, so a metrics failure can never roll back data.
-"""
+`scheduler_runs` logs each firing, including jobs that never started or
+were killed. `run_metrics` holds a shard's counters, flushed on exit
+outside the symbol transactions so a metrics failure never rolls back data."""
 
 from __future__ import annotations
 
@@ -44,12 +33,9 @@ SCHEDULER_RESULTS = ("ok", "partial", "locked", "failed", "misfired", "skipped",
 class SchedulerRun(Base):
     """One firing of one scheduled job.
 
-    A row is INSERTED before the subprocess starts, so a process that dies
-    between fork and exit still leaves a record. On start-up the scheduler
-    closes any row with `finished_at IS NULL` as `terminated`; if the
-    subprocess is somehow still alive, the advisory lock makes the next run
-    `locked`, which is visible rather than a silent overlap.
-    """
+    Inserted before the subprocess starts, so a process that dies between
+    fork and exit still leaves a record. On start-up the scheduler closes
+    any row with `finished_at IS NULL` as `terminated`."""
 
     __tablename__ = "scheduler_runs"
     # The Freshness dashboard asks "when did this job last succeed" and
@@ -84,16 +70,9 @@ class SchedulerRun(Base):
 class RunMetric(Base):
     """One counter, from one shard, for one run.
 
-    Per SHARD, not per run. Shards are separate processes started with
-    `spawn`, so the parent cannot see a child's memory; each flushes its own
-    rows and the exporter sums them. `finalize_run` only closes the run.
-
-    The key is (run_id, shard_index, name, labels) because that is what
-    identifies a counter: the same metric appears once per label
-    combination, and `labels` is canonical JSON so two increments written by
-    different code paths land on one row rather than two
-    (`core/metrics.label_key`).
-    """
+    Per shard: shards are `spawn`ed processes, so each flushes its own rows
+    and the exporter sums them. `labels` is canonical JSON so increments
+    from different code paths land on one row (`core/metrics.label_key`)."""
 
     __tablename__ = "run_metrics"
 

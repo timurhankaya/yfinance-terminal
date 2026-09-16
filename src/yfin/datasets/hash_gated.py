@@ -1,16 +1,7 @@
 """Hash-gated dataset base.
 
-`SnapshotDataset` CANNOT be used for this: there, the table compared
-(`snapshot_table`) and the table written (`history_table`) are DIFFERENT,
-and what gets skipped is rows of the history table. Here the compared table
-and the written table are the SAME (`financial_periods`), and what gets
-skipped is the CHILD table (`financial_facts`).
-
-Rule:
-1. The hash query runs before anything else.
-2. If the hash matches, child rows are never written -> skipped.
-3. The header row is ALWAYS written; if the hash matches, only fetched_at
-   is updated. So fetched_at means "last verified at".
+Compared and written table are the same; the hash skips the child table. The
+header row is always written; unchanged, only fetched_at ("last verified").
 """
 
 from __future__ import annotations
@@ -28,16 +19,8 @@ UNCHANGED_UPDATE_COLUMNS = ("fetched_at",)
 class HashGate:
     """Hash gate -- a mixin INDEPENDENT of the `Dataset` hierarchy.
 
-    Same reasoning as splitting out `AsOfGate`: the gate logic is independent
-    of the fetch/normalize signature, but not of the class hierarchy.
-    `HashGatedDataset` sits under `Dataset[RawT]` with the
-    `fetch(SyncContext)` / `normalize(raw, symbol)` signature; the screener
-    side is `GlobalDataset` with `fetch(MarketContext)` / `normalize(raw)`.
-    The two hierarchies CANNOT be merged.
-
-    The mixin touches neither signature; it only provides `upsert`.
-    Behavior is IDENTICAL to before the split -- the existing
-    `financial_statements` tests carry this.
+    Shared by `HashGatedDataset` and the screener's `GlobalDataset`, whose
+    fetch/normalize signatures differ; the mixin only provides `upsert`.
     """
 
     gate_table: str

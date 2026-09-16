@@ -112,9 +112,9 @@ const TREND_COLUMNS: Column<Row>[] = [
 
 // --- the two pictures --------------------------------------------------------
 //
-// Both sit ABOVE their table rather than instead of it (spec,
-// "Kararlar" 3): a chart's one weakness is the exact figure, and an
-// analyst's exact figure is the point of the section.
+// Both sit ABOVE their table rather than instead of it: a chart's one
+// weakness is the exact figure, and an analyst's exact figure is the
+// point of the section.
 
 export interface TargetRange {
   low: number;
@@ -154,12 +154,8 @@ export interface RecommendationBars {
   series: BarSeries[];
 }
 
-/** The newest snapshot's recommendation counts, one group per period.
- *
- *  Three or four periods, because that is what the source carries (`0m`
- *  back to `-3m`) -- the chart has exactly as many groups as the table
- *  has rows. Oldest first: the axis is time, and the interesting thing
- *  is which way the counts moved. */
+/** The newest snapshot's recommendation counts, one group per period,
+ *  oldest first: the axis is time. */
 export function recommendationBars(rows: Row[]): RecommendationBars | null {
   const snapshot = newestOnly(rows);
   const ordered = [...snapshot].sort((a, b) => monthsAgo(a) - monthsAgo(b));

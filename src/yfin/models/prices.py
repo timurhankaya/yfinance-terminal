@@ -79,12 +79,9 @@ class CapitalGain(Base):
 
 
 class SharesFull(Base):
-    """'shares' is part of the PK.
-
-    The source returns different values for the same date (17 dates for
-    AAPL). With just (symbol, as_of_date), which value wins would depend
-    on run order.
-    """
+    """'shares' is part of the PK: the source returns different values for
+    the same date, and with (symbol, as_of_date) alone which value wins
+    would depend on run order."""
 
     __tablename__ = "shares_full"
     __table_args__ = (Index("ix_shares_full_as_of_date", "as_of_date"),)

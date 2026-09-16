@@ -284,10 +284,8 @@ HISTORY_METADATA_FIELDS: tuple[Field, ...] = (
     _f("exchangeName", "exchange_name", "str32"),
     _f("fullExchangeName", "full_exchange_name", "str64"),
     _f("instrumentType", "instrument_type", "str32"),
-    # `timezone` is not an IANA name: measured, it returns DST-dependent
-    # abbreviations like "EDT"/"TRT" that cannot be passed to ZoneInfo.
-    # The IANA name is a separate field and is required for rescale to
-    # align a split's day to local 00:00.
+    # `timezone` is not an IANA name but a DST-dependent abbreviation that
+    # cannot be passed to ZoneInfo; the IANA name is a separate field.
     _f("timezone", "timezone", "str64"),
     _f("exchangeTimezoneName", "exchange_timezone_name", "str64"),
     _f("gmtoffset", "gmt_offset", "int"),
@@ -315,15 +313,9 @@ INFO_NESTED_KEYS: frozenset[str] = frozenset(
 )
 
 # --- screen_quotes ---------------------------------------------------------
-# 75 of the measured 104 fields carry the same source key as INFO_FIELDS
-# and inherit their column name + kind from there. Re-declaring them
-# instead of inheriting would let the two tables drift apart, silently
-# breaking the JOIN-free comparison between `ticker_info` and
-# `screen_quotes`.
-#
-# Two of the remaining 29 do not become columns: `symbol` is the PK
-# (defined separately on the table), and `corporateActions` is a list
-# and stays in raw_json.
+# Fields sharing a source key with INFO_FIELDS inherit column name + kind
+# from there, so `ticker_info` and `screen_quotes` cannot drift apart.
+# `symbol` (the PK) and `corporateActions` (a list) do not become columns.
 SCREENER_SHARED_SOURCES: frozenset[str] = frozenset(
     {
         "ask",
@@ -422,11 +414,8 @@ SCREENER_EXTRA_FIELDS: tuple[Field, ...] = (
     _f("fiftyTwoWeekLowChangePercent", "fifty_two_week_low_change_percent", "dec"),
     _f("twoHundredDayAverageChange", "two_hundred_day_average_change", "dec"),
     _f("twoHundredDayAverageChangePercent", "two_hundred_day_average_change_percent", "dec"),
-    # INFO_FIELDS has preMarket* but not postMarket* -- this surfaced
     _f("postMarketPrice", "post_market_price", "dec"),
-    # once after-hours measurement was done. Column names still follow
     _f("postMarketChange", "post_market_change", "dec"),
-    # the existing pre_market_* pattern symmetrically.
     _f("postMarketChangePercent", "post_market_change_percent", "dec"),
     _f("postMarketTime", "post_market_time", "epoch_s"),
     _f("peTTM", "pe_ttm", "dec"),
@@ -437,9 +426,8 @@ SCREENER_EXTRA_FIELDS: tuple[Field, ...] = (
     _f("annualReturnNavY5", "annual_return_nav_y5", "dec"),
     _f("lastClosePriceToNNWCPerShare", "last_close_price_to_nnwc_per_share", "dec"),
     _f("lastCloseTevEbitLtm", "last_close_tev_ebit_ltm", "dec"),
-    # Measured value set: HIGH, LOW.
     _f("customPriceAlertConfidence", "custom_price_alert_confidence", "str16"),
-    # Measured leading whitespace (' LiveWire Group, Inc.'); nz.to_str trims it.
+    # Can carry leading whitespace; nz.to_str trims it.
     _f("prevName", "prev_name", "str255"),
     # ISO date text, not epoch. `epoch_s` here would silently NULL it;
     _f("ipoExpectedDate", "ipo_expected_date", "dt"),

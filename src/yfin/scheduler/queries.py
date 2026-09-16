@@ -1,21 +1,7 @@
 """What the exporter asks the database, and what it makes of the answers.
 
-Every function here takes a `Context` and returns a list of `Sample`. None of
-them touch Prometheus: a query that also published would be a query no test
-could read, and the whole point of separating the two is that the arithmetic
--- which cell is stale, which gap is about to expire -- is checkable against
-rows without a registry in the picture.
-
-The SQL is written out rather than built with the ORM. These are reporting
-queries over eight tables with window functions, `DISTINCT ON` and `FILTER`;
-the Core expression for the freshness query alone would be longer than the
-statement and harder to compare against an `EXPLAIN`.
-
-One rule the whole module obeys: **a query returns rows or raises**. It never
-publishes a partial answer. The exporter catches, keeps the previous gauges
-and lets `yfin_exporter_last_success_timestamp` go stale, which is the
-signal `ExporterStale` alerts on -- half a refresh silently mixed with the
-last one would not be.
+Every query takes a `Context` and returns `Sample`s; none touches
+Prometheus. A query returns rows or raises, never a partial answer.
 """
 
 from __future__ import annotations
@@ -42,17 +28,10 @@ SCOPE_JOBS: dict[str, str] = {
     RunScope.DOMAIN.value: "domain",
 }
 
-#: `sync_run_items.status`, ordered by how bad it is, so a multi-table
-#: dataset's items can be reduced to one status per run with a `MAX`.
-#:
-#: `failed` on top: one failed table makes the cell failed for that run,
-#: whatever the other tables did. `not_attempted` next, because a shard that
-#: was pulled left real work undone and must show as a gap rather than as
-#: nothing. The three good statuses in the middle. `out_of_scope` and
-#: `unknown_symbol` at the BOTTOM, which is what makes the universe rule
-#: work: a cell whose items are all out of scope reduces to `out_of_scope`
-#: and leaves the universe, but one where a single table was written stays
-#: in it and is judged on that write.
+#: `sync_run_items.status` ordered by how bad it is, so a multi-table
+#: dataset's items reduce to one status per run with a `MAX`. The two
+#: out-of-universe statuses sit at the bottom: a cell leaves the universe
+#: only when every table did.
 STATUS_RANK: dict[str, int] = {
     "out_of_scope": 0,
     "unknown_symbol": 1,
@@ -65,9 +44,6 @@ STATUS_RANK: dict[str, int] = {
 
 #: Ranks that count as a verified write. `skipped` is in it because a
 #: content-hash skip IS a verification: the row was fetched and compared.
-#: The `--start/--end` date-range skip shares the status and slightly
-#: flatters a manually ranged run, which is accepted rather than papered
-#: over with a second status nobody else reads.
 GOOD_RANKS = (STATUS_RANK["ok"], STATUS_RANK["empty"], STATUS_RANK["skipped"])
 
 #: Ranks that leave the universe. `not_attempted` is NOT here: a shard that
@@ -96,10 +72,8 @@ class Sample:
 class Context:
     """Everything a query needs that is not in the database.
 
-    `intervals` is the cron cadence per job name, which only the scheduler
-    knows -- it is derived from the trigger, not from a setting. `now` is
-    passed rather than taken from `now()` in SQL so a test can place a row
-    at a known age instead of sleeping.
+    `intervals` is the cron cadence per job name, known only to the
+    scheduler. `now` is passed so a test can place a row at a known age.
     """
 
     session_factory: sessionmaker[Session]
@@ -110,11 +84,8 @@ class Context:
     def stale_after(self, scope: str) -> float:
         """Seconds after which a cell of this scope is stale.
 
-        0 means "no cadence": the job that writes these cells is not
-        scheduled, or its cron fires less often than the 400-day sample
-        window can measure. The callers read 0 as "cannot judge" rather
-        than dividing by it, so an unscheduled job produces no staleness
-        rather than a universe that is entirely stale.
+        0 means "no cadence" (job unscheduled or unmeasurable); callers
+        read it as "cannot judge", never divide by it.
         """
         job = SCOPE_JOBS.get(scope)
         if job is None:
@@ -125,33 +96,18 @@ class Context:
 def _values_clause(rows: dict[str, int]) -> str:
     """A literal `VALUES` list from a module constant.
 
-    The only two callers pass `BOUNDED_INTERVALS`, whose keys are the
-    hard-coded interval names in `models/bars.py` and whose values are
-    integers from `BAR_LIMITS`. Nothing here comes from a request or a
-    setting, which is why it can be interpolated at all -- and why a
-    caller passing anything else would be the bug to catch in review.
+    Interpolation is safe only because `rows` is a hard-coded constant,
+    never a request or setting value.
     """
     return ", ".join(f"('{name}', {days})" for name, days in sorted(rows.items()))
 
 
 # --- freshness -------------------------------------------------------------
 
-#: A cell is `(symbol, region, dataset)` -- exactly the identity
-#: `sync_run_items` records, with `region` NULL outside domain runs and
-#: `symbol` the scope label for market runs.
-#:
-#: Three steps, and the middle one is the one that is easy to get wrong. A
-#: multi-table dataset writes one item PER TABLE per run, each with its own
-#: status, so `per_run` reduces a cell's items to the worst status IN THAT
-#: RUN first. `latest` then takes the newest run for the cell, and its
-#: status decides whether the cell is in the universe at all. `good` takes
-#: the newest run in which the cell was actually verified, and its
-#: `started_at` is the age staleness is measured from -- which is a
-#: DIFFERENT run whenever last night's attempt failed.
-#:
-#: The join back to `good` uses `IS NOT DISTINCT FROM` on `region`: it is
-#: NULL for every symbol and market cell, and `=` would match none of them
-#: and report the entire universe stale.
+#: A cell is `(symbol, region, dataset)`. `per_run` reduces a cell's items
+#: to the worst status within one run; `latest` decides universe
+#: membership; `good` is the newest verified run, whose `started_at` is
+#: the age. `region` is NULL outside domain runs, hence `IS NOT DISTINCT FROM`.
 FRESHNESS_SQL = """
 WITH per_run AS (
     SELECT run_id, symbol, region, dataset,
@@ -197,11 +153,8 @@ _THRESHOLD = (
 def freshness_sql() -> str:
     """The freshness statement, with its constants substituted in.
 
-    Substituted rather than parameterised because they are not values: the
-    status ranking is a `CASE` body and the two membership tests are `IN`
-    lists whose length is part of the plan. All three come from module
-    constants, so the statement is the same string on every call and
-    PostgreSQL can reuse the plan.
+    Substituted, not parameterised: a `CASE` body and `IN` lists are not
+    values. They are module constants, so the string is stable per call.
     """
     ranks = " ".join(f"WHEN '{status}' THEN {rank}" for status, rank in STATUS_RANK.items())
     return FRESHNESS_SQL.format(
@@ -256,11 +209,8 @@ ORDER BY 1
 def intraday_scope_stale(ctx: Context) -> list[Sample]:
     """Symbols whose newest bar is about to fall off Yahoo's window.
 
-    Not the same question as freshness. A cell can be perfectly fresh by
-    the schedule and still be unrecoverable: once the newest bar is older
-    than the interval's retention depth, the window between it and now can
-    never be fetched again, and the archive has a permanent hole. The warn
-    margin is how much notice that leaves.
+    Not freshness: once the newest bar is older than the interval's
+    retention depth, the gap can never be fetched again.
     """
     with ctx.session_factory() as session:
         rows = session.execute(
@@ -275,14 +225,9 @@ def intraday_scope_stale(ctx: Context) -> list[Sample]:
 
 # --- correctness -----------------------------------------------------------
 
-#: The latest run per (scope, kind), where `kind` is whether the scheduler
-#: started it. `job_run_id IS NOT NULL` is the whole test: `audit.open_run`
-#: reads `YF_JOB_RUN_ID` from the environment, so a run is scheduled exactly
-#: when a scheduler put it there.
-#:
-#: Both kinds are kept because they answer different questions. "Did last
-#: night's job work" is about the scheduled one; a manual backfill must not
-#: overwrite that answer, and must still be visible while it runs.
+#: The latest run per (scope, kind); `kind` is `job_run_id IS NOT NULL`.
+#: Both kinds are kept: a manual backfill must not overwrite the answer to
+#: "did last night's job work".
 LATEST_RUNS_SQL = """
 SELECT scope, kind, id, started_at, finished_at, status,
        rows_fetched, rows_written, rows_verified, rows_skipped
@@ -307,11 +252,8 @@ WHERE run_id = ANY(:ids)
 GROUP BY 1, 2
 """
 
-#: `error_kind` is NULL where nothing classified the failure -- a crashed
-#: worker before step 5's plumbing, or a path that never reached
-#: `classify_error`. Reported as `unknown` rather than dropped: a failure
-#: with no kind is still a failure, and a gauge that silently omitted it
-#: would make the error count disagree with the item count.
+#: `error_kind` is NULL where nothing classified the failure. Reported as
+#: `unknown` rather than dropped, so the error count matches the item count.
 ERRORS_SQL = """
 SELECT run_id, COALESCE(error_kind, 'unknown') AS error_kind, COUNT(*) AS n
 FROM sync_run_items
@@ -449,19 +391,10 @@ GROUP BY 1, 2
 ORDER BY 1, 2
 """
 
-#: Splits that apply and have not been applied. Both gates from
-#: `storage/rescale.pending_splits`, over every symbol at once: no
-#: `bar_rescales` row, and a split date after the symbol's earliest bar. The
-#: second gate is what keeps a fresh install -- where `rescale --seed` was
-#: skipped -- from reporting every historical split as pending work.
-#:
-#: The earliest bar is taken by ONE grouped pass, not by a correlated
-#: subquery per split row. `pending_splits` does the correlated form
-#: because it is asked about a single symbol; asked about all of them it
-#: became 211 per-symbol MIN lookups over a 1.7-million-row hypertable.
-#: Measured on the live database: 6.74 s correlated against 0.065 s
-#: grouped, same answer -- and it was the whole cost of the `bars` query,
-#: which the exporter runs every five minutes.
+#: Splits that apply and have not been applied: the two gates of
+#: `storage/rescale.pending_splits`, over every symbol at once. The
+#: earliest bar comes from one grouped pass; a correlated subquery per
+#: split row is far too slow over the hypertable.
 RESCALES_PENDING_SQL = """
 WITH first_bar AS (
     SELECT symbol, MIN(local_date) AS local_date FROM price_bars GROUP BY symbol
@@ -515,21 +448,10 @@ def bars(ctx: Context) -> list[Sample]:
 
 # --- stream and the outboxes -----------------------------------------------
 
-#: The OPEN session's connections, and only those.
-#:
-#: `stream_connection_health` is documented as holding current state only,
-#: but nothing deletes a row when its session ends -- so the table really
-#: does accumulate history. Read unfiltered, ONE row left behind by a
-#: session that finished thirteen hours earlier set
-#: `yfin_stream_canary_age_seconds` to 48,618 while every live connection
-#: was five seconds old. `StreamStale` fires at 600, so the alert would
-#: have been on permanently and cleared never: the exact way an alert
-#: channel becomes one nobody reads. It also counted 103 connections where
-#: 102 were running.
-#:
-#: The join is what makes "current" true. The two ages stay MAXIMA across
-#: the surviving rows, because one silent connection IS the failure and an
-#: average would hide it behind the ones still working.
+#: The OPEN session's connections only: `stream_connection_health` keeps
+#: rows of finished sessions, and one stale row would pin the age gauges.
+#: The ages stay MAXIMA over the surviving rows: one silent connection is
+#: the failure, and an average would hide it.
 _OPEN_SESSION = """
     JOIN stream_sessions s ON s.id = h.session_id AND s.finished_at IS NULL
 """
@@ -592,17 +514,10 @@ def stream(ctx: Context) -> list[Sample]:
 
 
 def outboxes(ctx: Context) -> list[Sample]:
-    """How far behind each relay is, through the same call `... status` uses.
+    """How far behind each relay is, through the same `relay_lag` that `status` uses.
 
-    `relay_lag` rather than a query of its own: the two cursors count lag
-    differently -- `id` and `(xid, id)` -- and a second implementation here
-    would be the one that gets it wrong on the outbox with concurrent
-    writers.
-
-    `held_back_seconds` is deliberately not published. A backlog behind an
-    open writing transaction is not a relay problem, and the alert reads
-    `unpublished_rows` and the age; the third number is what the operator
-    then runs `yfin changes status` to see.
+    `held_back_seconds` is not published: a backlog behind an open writing
+    transaction is not a relay problem.
     """
     from yfin.outbox.relay import relay_lag
     from yfin.outbox.spec import CHANGES_OUTBOX, TICK_OUTBOX
@@ -621,9 +536,8 @@ def outboxes(ctx: Context) -> list[Sample]:
 # --- API usage -------------------------------------------------------------
 
 #: `api_usage_daily` holds days that have been FLUSHED. Today's counts are
-#: still in Redis and are deliberately not exported: the API would have to
-#: be reached to read them, and a gauge that is half a flushed day and half
-#: a live one is a number with no meaning at either end.
+#: still in Redis and are not exported: mixing a flushed day with a live
+#: one gives a number with no meaning at either end.
 API_USAGE_SQL = """
 WITH latest AS (SELECT MAX(day) AS day FROM api_usage_daily)
 SELECT u.endpoint_family::text AS family,
@@ -652,12 +566,8 @@ def api_usage(ctx: Context) -> list[Sample]:
 
 # --- the sync counters, read back out of run_metrics -----------------------
 
-#: What a shard accumulated, for the latest run per scope, summed over that
-#: run's shards.
-#:
-#: The sum over `shard_index` is the point: shards are separate processes
-#: started with `spawn`, so each flushed its own rows and the run's real
-#: count exists nowhere until they are added up here.
+#: What a shard accumulated, for the latest run per scope, summed over
+#: that run's shards; each shard flushed its own rows.
 RUN_METRICS_SQL = """
 WITH latest AS (
     SELECT DISTINCT ON (scope) id, scope::text AS scope
@@ -675,12 +585,8 @@ ORDER BY 1, 2, 3
 def sync_counters(ctx: Context) -> list[Sample]:
     """`yfin_sync_*{scope,...}` from `run_metrics`.
 
-    A row whose name or labels this build does not declare is SKIPPED, not
-    published. `run_metrics` keeps history: a counter that was renamed or
-    retired still has rows from the runs that wrote it, and publishing them
-    would register a series with a label set the declaration no longer
-    matches -- which `prometheus_client` refuses anyway, one metric at a
-    time, mid-refresh.
+    A row whose name or labels this build does not declare is skipped:
+    `run_metrics` keeps rows from renamed or retired counters.
     """
     import json
 
@@ -708,12 +614,8 @@ def sync_counters(ctx: Context) -> list[Sample]:
 class Query:
     """One refresh step: what it is called, what it owns, and how to run it.
 
-    `gauges` is what the exporter CLEARS before republishing this query's
-    samples, and clearing is the only way a label combination ever goes
-    away -- a dataset that leaves the universe, a proxy that is deleted, a
-    stream connection that closes. Owning them by query rather than
-    globally is what keeps a failed query from wiping gauges another one
-    filled in the same pass.
+    `gauges` is what the exporter clears before republishing; owning them
+    per query keeps a failed query from wiping another's gauges.
     """
 
     name: str
@@ -722,12 +624,7 @@ class Query:
 
 
 def _republished_gauges() -> tuple[str, ...]:
-    """The gauges `sync_counters` owns, derived rather than retyped.
-
-    A counter added to `core/metrics.METRICS` gets its exported gauge
-    cleared and refreshed with no edit here, and a list written out by hand
-    would go stale exactly when a new counter is the thing being watched.
-    """
+    """The gauges `sync_counters` owns, derived from `METRICS` rather than retyped."""
     from yfin.core.metrics import METRICS
 
     return tuple(
@@ -798,9 +695,7 @@ QUERIES: tuple[Query, ...] = (
 def statements() -> Iterable[tuple[str, str]]:
     """Every SQL statement in this module, named. What the compile test reads.
 
-    Listed rather than discovered: a `dir()` sweep would also pick up any
-    string constant that happened to end in `_SQL`, and would silently stop
-    covering a statement someone renamed.
+    Listed rather than discovered, so a renamed statement is not silently dropped.
     """
     limits = _values_clause(BOUNDED_INTERVALS)
     return (

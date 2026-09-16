@@ -1,11 +1,7 @@
 """Shared pieces for domain datasets.
 
-The data source is the raw JSON. yfinance's `Sector`/`Industry` classes
-discard 24 fields of the raw response; 11 of those are two entire blocks
-(`performance` and `performanceOverviewBenchmark`) unreachable through any
-property. `Domain._fetch` is already a thin wrapper over `YfData`, so
-going to raw JSON does not mean leaving yfinance -- it uses the same HTTP /
-proxy / cookie / curl_cffi layer.
+The data source is the raw JSON, fetched through yfinance's own `YfData`
+layer: the `Sector`/`Industry` classes discard whole blocks of it.
 """
 
 from __future__ import annotations
@@ -36,17 +32,9 @@ REPORT_LINKS_TABLE = "domain_report_links"
 
 # --- key universe --------------------------------------------------------
 
-# Our own constant. Yahoo has no "list sectors" endpoint; verified live
-# for all 11. `test_domain_key_source.py` asserts this set matches the
-# top-level keys of yfinance's `SECTOR_INDUSTY_MAPPING_LC`, so a library
-# change would not silently diverge from us.
-#
-# Industry keys are NOT listed here and are never imported from the
-# library constant: 32 of `SECTOR_INDUSTY_MAPPING_LC`'s 145 industry keys
-# 404 against the live API (the library's constant doesn't handle the
-# em-dash and `&` characters: `software—application`, `oil-gas-e&p`). The
-# universe is instead discovered solely from the sector response's
-# `industries[].key` field.
+# Yahoo has no "list sectors" endpoint. Industry keys are never taken from
+# yfinance's `SECTOR_INDUSTY_MAPPING_LC` (many of them 404 live); they are
+# discovered from the sector response's `industries[].key`.
 SECTOR_KEYS: tuple[str, ...] = (
     "basic-materials",
     "communication-services",
@@ -63,10 +51,8 @@ SECTOR_KEYS: tuple[str, ...] = (
 
 # --- as-of day ------------------------------------------------------------
 
-# All 6 domain symbols measured have timezone America/New_York, currency
-# USD, benchmark "S&P 500" -- this is a US market aggregate. Using the UTC
-# day would produce two rows for the same trading day from runs at 23:30
-# and 00:30, and the PK could not tell them apart.
+# Domain data is a US market aggregate. Using the UTC day would produce two
+# rows for the same trading day from runs either side of midnight UTC.
 MARKET_TZ = ZoneInfo("America/New_York")
 
 
@@ -81,11 +67,7 @@ def as_of_day(fetched_at: datetime) -> date:
 def unwrap(value: Any) -> Any:
     """Unwraps Yahoo's {"raw":..., "fmt":...} envelope.
 
-    The same field can arrive in two different shapes across two blocks:
-    `topCompanies[].targetPrice` is wrapped, `researchReports[].targetPrice`
-    is a bare float, and the key is missing entirely for 17 of 104
-    reports measured. Two separate parsers would have silently written
-    None for one of them.
+    The same field arrives wrapped in one block and bare in another.
     """
     if isinstance(value, Mapping):
         return value.get("raw")
@@ -128,10 +110,8 @@ def ubig_of(row: Mapping[str, Any], key: str) -> Any:
 
 # --- mapped key sets -----------------------------------------------------
 
-# `overview` has two variants: 7 keys for a sector (including
-# `industriesCount`), 6 for an industry -- the key is simply absent from
-# the raw JSON (measured 145/145). A single shared set would warn "missing
-# key" for every industry, or "extra key" for every sector.
+# `overview` has two variants: `industriesCount` exists only for a sector.
+# A single shared set would warn on every industry or every sector.
 _MAPPED_OVERVIEW_KEYS: dict[str, frozenset[str]] = {
     "sector": frozenset(
         {
@@ -246,9 +226,8 @@ def warn_unmapped(
 ) -> list[str]:
     """Logs a warning for keys outside the known set.
 
-    No data is lost (it stays in `raw_json`, or list blocks go 100% to
-    typed columns); the log is a promotion signal for typed columns
-    (mirrors the `_MAPPED_SUMMARY_KEYS` pattern in `market/status.py`).
+    No data is lost (it stays in `raw_json`); the log is a promotion
+    signal for typed columns.
     """
     rows = payload if isinstance(payload, list) else [payload]
     extra: dict[str, None] = {}
@@ -271,15 +250,8 @@ def warn_unmapped(
 def fetch_domain(key: str, domain_type: str, region: str) -> dict[str, Any]:
     """Raw sector / industry response.
 
-    Uses `call_yahoo`, not `call_optional`: 404 -> `failed`. AH's "404 ->
-    empty" rule is for the symbol side, where the key is a symbol the user
-    supplied and that module legitimately not existing for it is normal.
-    Here the key comes from our own discovery earlier in the same run;
-    a 404 means "taxonomy is stale" and must be visible in auditing.
-
-    A missing `payload["data"]` raises `KeyError('data')` ->
-    `classify_error` -> DATA -> `failed`; an empty key is caught this way
-    (measured: no distinct HTTP status for it).
+    `call_yahoo`, not `call_optional`: the key came from our own discovery, so a
+    404 (or a missing `payload["data"]`) is a stale taxonomy and must be `failed`.
     """
     from yfinance.data import YfData
 

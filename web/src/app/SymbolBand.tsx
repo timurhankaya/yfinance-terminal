@@ -1,23 +1,8 @@
 // The band a symbol page wears: what the symbol is doing, and every
-// other function that can be pointed at it.
-//
-// It lives inside the panel rather than above the dock, for exactly the
-// reason the strip does (`Workspace.tsx`): two panels in two groups are
-// two symbols, and one band over the page could only have told the truth
-// about one of them.
-//
-// Two questions decide what it shows, and they used to be one:
-//   * `needsSymbol` -- does this panel have a symbol to navigate from?
-//     Fourteen do, and every one of them gets the band. Only four were
-//     `Headed`, so ten of them had no way back except the command line.
-//   * `Layout.Headed` -- is there a live price to put in it? That is what
-//     the layout field has always meant, and `Strip` already carries the
-//     `live={false}` case.
-//
-// The codes are the function bar's, minus the market pages, which stay
-// under the command line where they belong: a page about the market is
-// not a page about AAPL, and one flat list of twenty-two codes never
-// said which was which.
+// other function that can be pointed at it. It lives inside the panel
+// rather than above the dock: two panels in two groups are two symbols.
+// `needsSymbol` decides whether a panel gets the band; `Layout.Headed`
+// decides whether there is a live price to put in it.
 import { useEffect, useRef } from "react";
 import type { ReactElement } from "react";
 import { listPanels } from "../commands/registry";
@@ -36,14 +21,10 @@ export function SymbolBand(props: {
   const strip = useRef<HTMLElement>(null);
   const active = useRef<HTMLButtonElement>(null);
 
-  // A narrow panel scrolls its tabs rather than wrapping them to three
-  // rows, so the one that is on has to be brought into view -- otherwise
-  // opening `REF` in a split leaves the reader looking at `ANR`.
-  //
-  // By `scrollLeft` on the strip itself, NOT by `scrollIntoView`: that
+  // A narrow panel scrolls its tabs, so the active one is brought into
+  // view by `scrollLeft` on the strip itself, NOT `scrollIntoView`: that
   // scrolls every scrollable ancestor, and the band is sticky inside the
-  // panel's own scrollport -- so it pushed the overview up underneath
-  // itself on every mount. This can only ever move the strip sideways.
+  // panel's own scrollport, so it would push the overview up on mount.
   useEffect(() => {
     const nav = strip.current;
     const button = active.current;

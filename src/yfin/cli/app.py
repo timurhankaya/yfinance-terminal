@@ -1,18 +1,8 @@
-"""Command-line interface: the top-level commands, and the assembly.
+"""Command-line interface: the ungrouped commands, plus the wiring that mounts the groups.
 
-What is here is what belongs to no group -- `sync`, `status`, `prune`,
-`datasets` -- plus the wiring that mounts the groups. Each group lives in
-its own module, which is the pattern `bars`, `settings`, `stream` and `api`
-already followed; `db`, `symbols`, `proxy`, `market`, `screen`,
-`discover` and `domain` were the seven that had not been moved yet, and
-this file was 1249 lines because of it.
-
-The heavy imports -- pipeline, datasets, models -- are made INSIDE the
-command bodies. At module level they made `yfin --help` build the whole
-dataset registry and import SQLAlchemy's model package, on every
-invocation, to print a list of command names. `cli/stream.py` already did
-it this way.
-"""
+Heavy imports (pipeline, datasets, models) are made inside the command bodies:
+at module level they made `yfin --help` build the whole dataset registry and
+import the model package just to print a list of command names."""
 
 from __future__ import annotations
 
@@ -95,18 +85,9 @@ def sync(
 ) -> None:
     """Fetches data and writes it to PostgreSQL.
 
-    If the proxy pool has eligible proxies, the run is split into shards: one
-    OS process per proxy. History repair can rewrite the past, so getting all
-    corrections down requires a periodic --full-refresh.
-
-    --start/--end does a real backward fetch on datasets with
-    `date_range="api"`, filters rows on `"filter"` datasets, and is not
-    applied at all on `"none"` datasets.
-    """
-    # The pipeline, the registry and the models package are imported here,
-    # not at module level. This module is what `yfin` runs, so a top-level
-    # import made `yfin --help` build the whole dataset registry to print a
-    # list of command names.
+    With eligible proxies the run is split into shards, one OS process per proxy.
+    History repair can rewrite the past, so corrections need a periodic --full-refresh.
+    --start/--end fetches on `date_range="api"` datasets, filters `"filter"` ones."""
     from sqlalchemy import select
 
     from yfin.core import normalize as nz
@@ -249,10 +230,8 @@ def status(
             for item in failures:
                 typer.echo(f"    FAILED {item.symbol}/{item.dataset}: {item.error}")
 
-    # Only with change publishing on. With the relay off by design a
-    # permanently growing backlog is the expected state, and reporting it as
-    # a number to worry about would be noise -- the same rule `yfin stream
-    # status` applies to the tick relay.
+    # Only with change publishing on: with the relay off a growing backlog is
+    # the expected state, not a number to worry about.
     from yfin.core.config import get_settings
 
     if get_settings().yf_changes_enabled:
@@ -301,16 +280,9 @@ def prune(
 ) -> None:
     """Deletes orphaned news and, optionally, old calendar/_history/as-of rows.
 
-    Date-bounded pruning is disabled by default: it needs `YF_PRUNE_ENABLED=true`
-    or `--force`. Reason: calendar ends are window-based and `_history` snapshots
-    have no source-of-truth counterpart, so a deleted row cannot be recovered.
-
-    --asof-before always keeps each symbol's most recent as-of day: even if
-    that row's data is deleted, the `asof_state` gate stays in place, so the
-    next run says "unchanged" and writes nothing -- if the last day were
-    deleted, that gap would persist even while the source still serves the
-    data.
-    """
+    Date-bounded pruning needs `YF_PRUNE_ENABLED=true` or `--force`: a deleted
+    row cannot be recovered. --asof-before keeps each symbol's latest as-of day,
+    otherwise the `asof_state` gate would report "unchanged" over the gap."""
     from datetime import UTC, datetime, timedelta
 
     from yfin.pipeline.prune import PruneDisabledError, run_prune

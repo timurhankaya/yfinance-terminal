@@ -1,22 +1,7 @@
-"""What tells one outbox from another.
-
-The relay's correctness argument -- publish, wait for every
-acknowledgement, only then advance -- is the same whatever is queued. What
-differs between the tick outbox and the pipeline's change outbox is
-vocabulary: which table, which column picks the topic, whether that value
-is an exchange code (upper-cased) or a family name (already lower case),
-which advisory lock keeps a second relay out, and whether the consumer
-needs a dedupe header.
-
-Collecting that in one frozen value means the relay reads it rather than
-branching on which outbox it is looking at, and it means a second outbox
-costs a declaration rather than a fork of the process that has already
-been reasoned about.
-
-The lock name is a literal here rather than an import from
-`stream/repository.py`: `outbox/` is the generic side and may not depend
-on the stream package.
-"""
+"""What tells one outbox from another: table, topic column, lock name,
+dedupe header. The relay reads the spec rather than branching on the queue.
+The lock name is a literal, not an import from `stream/repository.py`,
+because `outbox/` may not depend on the stream package."""
 
 from __future__ import annotations
 

@@ -2,8 +2,7 @@
 
 Revision ID: e658b870d8f3
 Revises: 
-Create Date: 2026-09-06 09:58:46.416769+00:00
-"""
+Create Date: 2026-09-06 09:58:46.416769+00:00"""
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -1649,11 +1648,9 @@ def upgrade() -> None:
     )
 
     # --- TimescaleDB hypertables -----------------------------------
-    # Alembic cannot autogenerate these; the DDL lives in models/bars.py
-    # and tests/conftest.py uses the same source.
-    #
-    # `periodic_bars` is excluded: 1wk/1mo spans 46 years but only ~15M
-    # rows, so making it a hypertable would bring back chunk explosion.
+    # Alembic cannot autogenerate these; the DDL lives in models/bars.py and
+    # tests/conftest.py uses the same source. `periodic_bars` is excluded: few
+    # rows over decades would make a hypertable explode into chunks.
     for statement in timescale_ddl():
         op.execute(statement)
 
@@ -1810,7 +1807,7 @@ def downgrade() -> None:
     # ### end Alembic commands ###
 
     # ENUM types are dropped manually: `op.drop_table` doesn't drop them,
-    # and the next upgrade fails with "type ... already exists" (measured).
+    # and the next upgrade fails with "type ... already exists".
     # The list is written out explicitly -- a migration is a point-in-time
     # snapshot; a list derived from current models would try to drop types
     # this revision never created, once models move on.

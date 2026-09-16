@@ -1,13 +1,7 @@
 """Coordinator: one OS process per proxy, a dynamic symbol queue.
 
-Why a process? `yf.config` and `YfData` are process-global singletons in
-yfinance (config.py:21-61, data.py:83): four worker threads can't use
-different proxies at once, one overwrites another's proxy. So rotation must
-pivot on PROCESS, not thread.
-
-Side benefit: since `client._bucket` and `config._settings` are also
-process-global, each shard gets its own token bucket, and the rate limit
-becomes meaningful per proxy (per egress IP).
+yfinance's config, `YfData` and token bucket are process-global, so
+threads cannot use different proxies; rotation pivots on process.
 """
 
 from __future__ import annotations
@@ -79,33 +73,22 @@ class ShardSpec:
     # Resolved DSN; the password exists only in memory and on this pipe,
     # never in a log line (logging_setup.redact_credentials).
     proxy_dsn: str | None = None
-    # --start/--end and the symbol universe selector. If these didn't cross
-    # the process boundary while the proxy pool is full -- the default
-    # path -- the child would run with `start=None`: "filter" datasets
-    # wouldn't apply the range, "none" datasets wouldn't be skipped, and
-    # the user would believe the range was applied. Same chain already
-    # exists for `full_refresh`.
+    # --start/--end and the universe selector must cross the process
+    # boundary, or the child silently runs without the range.
     start: date | None = None
     end: date | None = None
     selector: str | None = None
-    # DB overrides already resolved by the parent. If the child called its
-    # own `get_settings()` three problems would follow: (a) a `yfin config
-    # set` racing in between would make shard-0 and shard-3 run with
-    # different configuration, (b) N extra connections would open, (c) the
-    # child would connect to `settings.db_name` and do its actual work in
-    # `spec.database` -- i.e. read settings from a schema other than the
-    # one `--database` redirected it to.
+    # DB overrides resolved by the parent: every shard runs one consistent
+    # snapshot, and the child never reads settings from a database other
+    # than `spec.database`.
     settings_overrides: dict[str, str] = field(default_factory=dict)
 
     @property
     def proxy_key(self) -> str:
         """Cache-directory key for tz/cookie/ISIN caches.
 
-        Not keyed by shard_index: since proxy selection is ordered by
-        latency/health, shard-0 can be a different proxy on the next run,
-        and a cookie minted against A's IP would then be used with B's
-        egress IP. The cookie cache's PK is `strategy` (cache.py:314), so a
-        shared file would have every shard overwrite the same two rows.
+        Keyed by proxy, not shard_index: a cookie minted against one
+        egress IP must not be reused with another.
         """
         return f"proxy-{self.proxy_id}" if self.proxy_id is not None else "direct"
 
@@ -231,10 +214,8 @@ def run_sharded(
 ) -> RunTally:
     """Advisory lock -> proxy selection -> run open -> shards -> finalize.
 
-    The advisory lock is taken only here; children never take it. It is
-    held until every child has finished: otherwise, if the parent dies, the
-    lock is released, orphan children keep writing, and a new cron trigger
-    lands on the same rows.
+    Only the parent takes the lock, and holds it until every child has
+    finished, so orphan children can never overlap a new run.
     """
     cfg = settings or get_settings()
     factory = session_factory(engine)

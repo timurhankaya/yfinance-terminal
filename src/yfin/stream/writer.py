@@ -1,29 +1,7 @@
 """The writer thread: ticks from the queue into PostgreSQL.
 
-Runs in a worker thread, never on the event loop. The supervisor produces
-into a bounded queue; this drains it in batches and writes them.
-
-Two decisions here were measured rather than argued (see
-docs/measurements/websocket.md):
-
-**COPY, not INSERT.** The full write path manages 6,219 ticks/s with
-`INSERT ... ON CONFLICT` and 22,291 with `COPY` into a staging table
-followed by `INSERT ... SELECT`. At 10,000 symbols producing roughly a
-message a second each, the first number does not meet the target and the
-second does -- so COPY is a precondition, not an optimisation.
-
-COPY also sidesteps a limit the INSERT path has to work around: the wire
-protocol allows 65,535 bind parameters per statement, and at 36 columns
-`live_ticks` would hit that ceiling at 1,820 rows (docs/measurements/database.md).
-A COPY body binds nothing, so batch size here is a latency choice rather
-than a protocol one.
-
-**Small batches.** Going from 500 rows to 5,000 buys 6%. The batch stays
-at 500, which keeps latency down and narrows the window a crash can lose.
-
-The verification read the rest of the codebase performs is kept: it costs
-2% here, so "every write is verified" survives into the live path without
-a meaningful bill.
+Runs in a worker thread, never on the event loop. COPY into a staging
+table, not INSERT: throughput needs it, and COPY has no bind-parameter cap.
 """
 
 from __future__ import annotations
@@ -84,12 +62,8 @@ class WriterConfig:
 class TickWrite(NamedTuple):
     """What one `live_ticks` write produced.
 
-    `accepted` is here rather than staying local because the browser
-    fan-out publishes exactly these rows, after the commit. It holds the
-    rows that passed the foreign-key filter, INCLUDING the duplicates
-    `ON CONFLICT DO NOTHING` dropped -- the write path cannot tell those
-    apart without a second read, so the same `(symbol, ts_utc)` can go
-    out twice and the page drops the repeat.
+    `accepted` is what the browser fan-out publishes after the commit. It
+    includes duplicates `ON CONFLICT DO NOTHING` dropped; the page drops those.
     """
 
     written: int
@@ -98,26 +72,10 @@ class TickWrite(NamedTuple):
 
 
 class SymbolFilter:
-    """Keeps unknown symbols out of the batch.
+    """Keeps unknown symbols out of the batch: one FK violation aborts the statement.
 
-    `live_ticks.symbol` carries a foreign key, so one symbol that is not
-    in `symbols` aborts the entire statement -- 500 good ticks lost to one
-    stray ticker. Filtering first is what makes the batch survivable.
-
-    The cache is miss-tolerant: a symbol that is not in it triggers a real
-    lookup rather than a rejection. An earlier design rejected on a cache
-    miss, which would have discarded every tick of a newly added symbol
-    for a whole TTL window -- and the reject sampling could have thrown
-    away the evidence too.
-
-    The `symbols` SELECTs below are deliberately NOT in `repository.py`,
-    against the package rule. They ask whether a row EXISTS, which is the
-    foreign key's question; `repository.load_scope` asks whether a symbol
-    is ELIGIBLE (`is_active` plus the scope join). An inactive symbol
-    still satisfies the FK, so reusing the repository query here would
-    reject ticks the database would have accepted. Same table, different
-    question. The cache also has to outlive a batch, so it owns its own
-    session factory rather than borrowing the batch session.
+    A cache miss triggers a lookup, never a rejection. The SELECTs ask whether
+    a row EXISTS (the FK's question), not `load_scope`'s "is it eligible".
     """
 
     def __init__(self, session_factory: sessionmaker[Session], ttl_seconds: float) -> None:
@@ -179,9 +137,7 @@ class SymbolFilter:
 class RejectSampler:
     """Caps how many reject rows one (symbol, reason) pair can write.
 
-    A single broken feed would otherwise fill the table. Counts are never
-    sampled -- the exact totals go on `stream_sessions` -- so this trims
-    repetition, not information.
+    Trims repetition, not information: exact totals go on `stream_sessions`.
     """
 
     def __init__(self, per_hour: int) -> None:
@@ -233,10 +189,8 @@ class StreamWriter:
     def run(self) -> None:
         """Writes until stopped, then drains what is left.
 
-        A failure here is fatal to the process by design. If this thread
-        dies the queue fills and the supervisor drops every tick while
-        still looking healthy -- a process that is up and collecting
-        nothing. `failed` is what the runner checks to decide that.
+        A failure is fatal to the process: a dead writer leaves the
+        supervisor dropping every tick while looking healthy.
         """
         try:
             while not self._stopping.is_set():
@@ -280,12 +234,7 @@ class StreamWriter:
         return True
 
     def _collect(self, *, block: bool = True) -> list[dict[str, Any]]:
-        """Fills a batch, bounded by size and by time.
-
-        Both bounds are needed. Without the size bound a busy open would
-        build one enormous transaction; without the time bound the last
-        ticks of a quiet market would sit in the queue for minutes.
-        """
+        """Fills a batch, bounded by size (transaction size) and by time (quiet-market latency)."""
         rows: list[dict[str, Any]] = []
         deadline = time.monotonic() + self._config.batch_interval_ms / 1000
         while len(rows) < self._config.batch_size:
@@ -315,26 +264,16 @@ class StreamWriter:
     def _write(self, rows: Sequence[dict[str, Any]], rejects: Sequence[Reject]) -> None:
         """One batch, one transaction."""
         self._batches += 1
-        # The number the batch interval has to stay under. Above it the
-        # queue grows, and the queue overflowing is how ticks are lost --
-        # so this histogram is the stream's single most important metric.
-        #
-        # The publish is INSIDE it, and that is deliberate: it runs on this
-        # thread between two batches, so a Redis that is slow delays the
-        # next `_collect` exactly the way a slow COPY does. Timing only the
-        # transaction would leave the histogram healthy while the queue
-        # grew, which is the one thing it exists to catch.
+        # Must stay under the batch interval or the queue grows. The publish
+        # is inside the timer: a slow Redis delays the next `_collect` just
+        # as a slow COPY does.
         with metrics.timed("yfin_stream_batch_seconds"):
             with self._session_factory() as session:
                 written, unknown, accepted = self._write_ticks(session, rows)
                 if self._config.kafka_enabled:
                     self._write_outbox(session, rows)
-                # The FK filter's casualties go through the same path as
-                # every other reject. They used to be counted nowhere and
-                # logged at debug: a symbol dropped from `symbols` took its
-                # whole tick stream with it and nothing said so.
-                # `rows_written` still agreed with itself, which is exactly
-                # why nobody would look.
+                # FK-filter casualties are rejects like any other, or a
+                # symbol dropped from `symbols` would vanish silently.
                 self._write_rejects(session, [*rejects, *unknown])
                 if self._batches % self._config.quotes_every_n_batches == 0:
                     self._write_quotes(session)
@@ -377,15 +316,9 @@ class StreamWriter:
             return TickWrite(0, unknown, [])
 
         columns = ", ".join(TICK_COLUMNS)
-        # Created once per connection, emptied per batch. `ON COMMIT DROP`
-        # plus a fresh CREATE would write to the system catalogue every
-        # 250ms for the life of the process; this way the table is made
-        # once and TRUNCATE (cheap on a temp table) clears it.
-        #
-        # The TRUNCATE is not redundant with ON COMMIT DELETE ROWS: that
-        # fires on a real commit, and a batch that ends in a savepoint --
-        # or a rolled-back transaction that left rows behind -- would
-        # otherwise carry them into the next INSERT ... SELECT.
+        # Created once per connection (a fresh CREATE per batch would churn
+        # the catalogue). The TRUNCATE is not redundant with ON COMMIT
+        # DELETE ROWS: a rolled-back batch would carry rows into the next one.
         session.execute(
             text(
                 "CREATE TEMP TABLE IF NOT EXISTS stream_stage (LIKE live_ticks) "
@@ -407,24 +340,10 @@ class StreamWriter:
         return TickWrite(self._verify(session, accepted), unknown, accepted)
 
     def _verify(self, session: Session, rows: Sequence[dict[str, Any]]) -> int:
-        """Counts the keys that are actually present.
+        """Counts the keys actually present; `ON CONFLICT DO NOTHING` reports zero rows.
 
-        The same guarantee the rest of the codebase gives: row counts come
-        from reading the keys back, not from the driver's affected-row
-        count, which `ON CONFLICT DO NOTHING` reports as zero anyway.
-
-        The `ts_utc BETWEEN` clause is not redundant with the row
-        constructor -- it is what makes this affordable. Measured against
-        a 200-chunk hypertable:
-
-            without the range clause:  200 chunks scanned, 21.5 ms
-            with it:                     2 chunks scanned,  2.2 ms
-
-        TimescaleDB cannot infer a time bound from a row-constructor `IN`,
-        so without the clause every batch touches every chunk and the cost
-        grows linearly with the age of the archive. On one day's data --
-        how this was first measured -- the two are indistinguishable,
-        which is exactly why it was missed.
+        `ts_utc BETWEEN` is not redundant: TimescaleDB cannot infer a time
+        bound from a row-constructor `IN`, so without it every chunk is scanned.
         """
         timestamps = [row["ts_utc"] for row in rows]
         found = session.execute(
@@ -476,20 +395,8 @@ class StreamWriter:
     def _write_outbox(self, session: Session, rows: Sequence[dict[str, Any]]) -> None:
         """Queues the batch for Kafka, in the tick's own transaction.
 
-        Atomic with the archive by construction: a row is in the outbox if
-        and only if it is in live_ticks. That is the whole reason for an
-        outbox rather than producing straight from the writer -- with a
-        direct producer, a broker outage would leave ticks in the database
-        that no consumer ever sees, and nothing would record the gap.
-
-        Written with COPY like the ticks are. Measured: once live_ticks
-        moved to COPY the bottleneck moved here, and an INSERT outbox held
-        the whole path at 13.6k rows/s against 22.3k with both on COPY.
-
-        `created_at` is this thread's clock, not the tick's received_at.
-        The relay walks `id` but drops chunks by `created_at`, so the two
-        have to agree -- a late tick carrying an old timestamp with a new
-        id would land in a chunk the relay already considers finished.
+        `created_at` is this thread's clock, not the tick's received_at: the
+        relay drops chunks by `created_at`, so a late tick must not land early.
         """
         if not rows:
             return
@@ -524,19 +431,10 @@ class StreamWriter:
     def _exchange_lookup(
         self, session: Session, symbols: set[str]
     ) -> dict[str, str | None]:
-        """Exchange per symbol, from `symbols` -- never from the tick.
+        """Exchange per symbol, from `symbols` -- never from the tick's raw field.
 
-        The tick carries its own `exchange` field, raw and uppercased by
-        nobody. Using it would let one exchange arrive as both `nms` and
-        `NMS` and split a single Kafka topic in two, which quietly halves
-        the per-symbol ordering guarantee.
-
-        Not in `repository.py`, again against the package rule, and for a
-        different reason than `SymbolFilter`'s: this runs on the BATCH
-        session so the topic assignment is decided inside the same
-        transaction as the outbox row it labels. Every `repository.py`
-        method opens its own session, which would put this read outside
-        that transaction.
+        Runs on the batch session so the topic assignment is decided in
+        the same transaction as the outbox row it labels.
         """
         if not symbols:
             return {}
@@ -549,18 +447,8 @@ class StreamWriter:
     def _write_quotes(self, session: Session) -> None:
         """Upserts the latest quote per symbol, guarded on ts_utc.
 
-        Read from the supervisor's last-value box, not from the batch.
-        Two consequences, and both are the point:
-
-          * the quote stays current even when the queue is overflowing and
-            ticks are being dropped -- the box is not behind the queue;
-          * a symbol that has not moved since the last flush is not
-            rewritten. Measured, this upsert was 34% of the write path,
-            and it is the one part of the batch worth skipping.
-
-        Every N batches rather than every batch: live_quotes is a derived
-        view of live_ticks, so a few hundred milliseconds of staleness
-        costs nothing that matters.
+        Read from the supervisor's last-value box, not the batch: current
+        under queue overflow, and unchanged symbols are not rewritten.
         """
         rows = self._supervisor.latest.drain()
         if not rows:
@@ -589,11 +477,8 @@ class StreamWriter:
     def _flush_health(self) -> None:
         """Writes the health the event loop recorded in memory.
 
-        Here rather than where it is emitted: this thread owns the
-        database and the event loop must never wait on it. `heartbeat_at`
-        is stamped by the repository at write time, which now also proves
-        the writer thread is alive -- a row that stopped being refreshed
-        is the honest signal either way.
+        This thread owns the database; the event loop must never wait on
+        it. The write-time `heartbeat_at` also proves this thread is alive.
         """
         if self._session_id is None:
             # Nothing to attach the rows to yet. They are left in the box,
@@ -614,12 +499,7 @@ class StreamWriter:
             )
 
     def _flush_counters(self, *, written: int = 0) -> None:
-        """Pushes the supervisor's counters onto the session row.
-
-        Additive, and only from here: the supervisor increments in the
-        event loop and this thread owns the database, so the counters
-        cross the boundary exactly once per batch.
-        """
+        """Pushes the supervisor's counters onto the session row, once per batch."""
         if self._session_id is None:
             return
         counters = self._supervisor.drain_counters()

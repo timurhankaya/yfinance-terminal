@@ -1,22 +1,15 @@
-// How the snapshot is LAID OUT: which sections share a tab, which handful
-// of keys earn a card, and which three pictures the snapshot can already
-// draw without a second request.
-//
-// Separate from `info.ts` on purpose. That file says what a key means and
-// is the same wherever the key is shown; this one is a presentation
-// decision that a redesign changes. Both are pure -- nothing here fetches
-// or imports React -- so the arithmetic under every card and every bullet
-// is testable without rendering anything.
+// How the snapshot is LAID OUT: which sections share a tab, which keys
+// earn a card, and which pictures the snapshot can draw without a second
+// request. Separate from `info.ts`: that file says what a key means; this
+// is a presentation decision. Both are pure, so the arithmetic is
+// testable without rendering.
 import { Interval } from "../../api/client";
 import { asNumber } from "../format";
 import { OTHER, type Grouped, type Section } from "./info";
 
-/** The four tabs the thirteen sections collapse into.
- *
- *  Four, because a reader arrives with one of four questions: what is it
- *  doing, what is it worth, who owns it, and what is it. Thirteen
- *  headings answered none of them -- they were the shape of Yahoo's
- *  payload, not of a question. */
+/** The four tabs the sections collapse into, one per question a reader
+ *  arrives with: what is it doing, what is it worth, who owns it, what is
+ *  it. */
 export enum FieldTab {
   Price = "price",
   Fundamentals = "fundamentals",
@@ -221,12 +214,8 @@ export function marginBars(info: Record<string, unknown>): MarginBars | null {
 
 // --- the trend window --------------------------------------------------------
 
-/** The four windows the header trend offers.
- *
- *  Four rather than a free window: the card is a glance, not `GP`. A
- *  reader who wants to pick a range picks a chart panel, and these are
- *  the four a glance is ever about -- today, the week, the month, the
- *  year. */
+/** The four windows the header trend offers. Not a free window: the card
+ *  is a glance, and `GP` is where a reader picks a range. */
 export enum TrendRange {
   D1 = "1d",
   W1 = "1w",
@@ -263,12 +252,9 @@ export const TREND_WINDOW: Record<TrendRange, TrendWindow> = {
   [TrendRange.Y1]: { interval: Interval.D1, days: 372, session: false, label: "One year, daily closes" },
 };
 
-/** The closes a window's bars draw, oldest first.
- *
- *  `session` cuts to the newest `session_date` rather than to a bar
- *  count: a session is 78 five-minute bars on a US equity, 96 on a
- *  crypto pair and fewer on a half day, and a fixed count would draw
- *  yesterday's afternoon into today on all three. */
+/** The closes a window's bars draw, oldest first. `session` cuts to the
+ *  newest `session_date` rather than a bar count: sessions differ in
+ *  length by exchange and on half days. */
 export function closesOf(rows: ReadonlyArray<Record<string, unknown>>, session: boolean): number[] {
   let wanted = rows;
   if (session) {

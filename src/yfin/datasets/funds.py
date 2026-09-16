@@ -1,19 +1,7 @@
 """funds_data dataset.
 
-HYBRID SCHEMA, forced by measurement: an equity fund has 11 sectors + 1
-rating, a bond fund has 0 sectors + 9 ratings (BND, TLT, AGG). A fixed
-column set cannot carry both fund types, so variable-key percentages go to
-EAV (`fund_weightings`) while the fixed measured fields get typed columns.
-`asset_classes` does NOT go to EAV: its six keys are fixed across all 10
-funds measured.
-
-PRE-CHECK: a non-fund symbol triggers NO request at all. Reads
-`fast_info['quoteType']` (else `history_metadata['instrumentType']`); both
-are ALREADY fetched by the bootstrap `symbols` dataset and sit in the ctx
-cache -- measured identical across 12 symbols, and free since they ride the
-same chart request. `depends_on` therefore does NOT include
-`history_metadata`: adding it would make `--datasets funds` also write the
-history_metadata table and produce an extra audit row.
+Equity and bond funds carry different weighting keys, so those go to EAV.
+A non-fund symbol triggers no request: the quote type is already in the ctx cache.
 """
 
 from __future__ import annotations
@@ -39,8 +27,8 @@ from yfin.storage.contracts import RowWriter, TableWrite, WriteStats
 
 log = get_logger(__name__)
 
-# `holding_rank` is TINYINT UNSIGNED (models/funds.py). The largest
-# top_holdings measured is 10 rows; the limit is the column's, not the source's.
+# `holding_rank` is TINYINT UNSIGNED (models/funds.py); the limit is the
+# column's, not the source's.
 MAX_HOLDING_RANK = 255
 
 PROFILE_TABLE = "fund_profile"
@@ -97,9 +85,7 @@ PROFILE_COLUMNS = (
 def _resolve_quote_type(ctx: SyncContext) -> str | None:
     """fast_info['quoteType'], else history_metadata['instrumentType'].
 
-    The key NAME is camelCase: `fi.get('quote_type')` returns None for
-    every symbol, and the pre-check would then silently make a fund
-    request for every symbol.
+    The key is camelCase; `quote_type` silently returns None.
     """
     fast_info = fetch_fast_info(ctx)
     value = nz.as_mapping(fast_info).get("quoteType") if fast_info is not None else None
@@ -113,13 +99,8 @@ def _resolve_quote_type(ctx: SyncContext) -> str | None:
 def _read(funds: Any, name: str) -> Any:
     """Reads a field, accepting both `@property` and plain-method form.
 
-    LIVE MEASUREMENT (2026-09-04, yfinance 1.7.0): nine of the ten fields
-    are `@property`, `quote_type` is NOT (`scrapers/funds.py:47`) -- plain
-    attribute access on it returns a `bound method`. A blind
-    `funds.quote_type` would write "<bound method ...>" into a NOT NULL
-    column; a blind `funds.quote_type()` would raise `TypeError` the day
-    upstream fixes this inconsistency. Accepting both is the only
-    resilient read.
+    Upstream mixes the two (`quote_type` is a method), and either blind
+    form breaks when they fix it.
     """
     value = getattr(funds, name)
     return value() if callable(value) else value
@@ -167,11 +148,8 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
     depends_on = ("symbols",)
     produces = asof_produces(PROFILE_TABLE, METRICS_TABLE, WEIGHTINGS_TABLE, HOLDINGS_TABLE)
     # `_profile_write` returns exactly one row whenever `normalize` returns
-    # anything, and it is the only one of the four with that property:
-    # BND's `fund_top_holdings` is empty while its three siblings are not.
+    # anything; the other three tables can be empty for a fund.
     gate_source_tables = (PROFILE_TABLE,)
-    # Four resources from one dataset. Before exposures could be named,
-    # every one of these was unreachable.
     api = (
         ApiExposure(
             name="fund_profile",
@@ -232,9 +210,8 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
         quote_type = nz.to_str(data.get("quote_type"), max_len=16)
         if not quote_type:
             # quote_type is NOT NULL; a partially populated object cannot be
-            # trusted (for a non-fund symbol, `description` on a SECOND access
-            # returns the company summary instead -- measured 1825 chars for
-            # AAPL).
+            # trusted (for a non-fund symbol, `description` on a second access
+            # returns the company summary instead).
             log.warning("funds data has no quote type", symbol=symbol)
             return NormalizedResult()
 
@@ -384,7 +361,7 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
                 )
                 weight = nz.to_decimal(value)
                 if item_key is None or weight is None:
-                    # weight is NOT NULL; measured populated for all 10 funds.
+                    # weight is NOT NULL.
                     continue
                 rows.append(
                     {
@@ -425,12 +402,9 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
         if isinstance(frame, pd.DataFrame) and not frame.empty:
             for rank, (index, record) in enumerate(frame.iterrows()):
                 if rank > MAX_HOLDING_RANK:
-                    # `holding_rank` is TINYINT UNSIGNED (models/funds.py).
-                    # The CHECK constraint is violated (23514) on row 256, and
-                    # `_persist_with_retry` does not retry on DataError: ALL
-                    # of the symbol's datasets would roll back. Widening the
-                    # column needs a migration; until then, extra rows are
-                    # dropped with a WARNING and the cell stays `ok`.
+                    # `holding_rank` is TINYINT UNSIGNED; a CHECK violation
+                    # would roll back all of the symbol's datasets, so extra
+                    # rows are dropped and the cell stays `ok`.
                     log.warning(
                         "top_holdings rank sinirini asti",
                         dataset=self.name,
@@ -454,8 +428,7 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
                     "holding_symbol": holding,
                     "holding_name": nz.to_str(record.get("Name"), max_len=128),
                     "holding_percent": nz.to_decimal(record.get("Holding Percent")),
-                    # Not `rank`: the name is a leftover guard from the MySQL
-                    # era and renaming it now would be a migration for no gain.
+                    # Not `rank`: a reserved word on some engines.
                     "holding_rank": rank,
                     # Filled from the DB during upsert.
                     "is_known": False,
@@ -485,14 +458,10 @@ class FundsDataDataset(AsOfDataset[FundsPayload]):
     ) -> WriteStats:
         """`is_known` is filled from the DB, THEN the as-of gate runs.
 
-        Order matters: the flag enters the hash body, so when the universe
-        changes (an unknown holding symbol gets added to `symbols`) the gate
-        opens and rows get updated.
+        The flag enters the hash body so a universe change reopens the gate.
         """
         # holding_symbol has NO FK: the source sends symbols outside the
-        # universe (BRK-B, 2330.TW, 005930.KQ, 0700.HK, and the fund symbols
-        # VRTPX, BISXX). With an FK, the per-symbol single transaction would
-        # roll back ALL of the fund's data.
+        # universe, and an FK would roll back all of the fund's data.
         marked = mark_known_in(
             writer,
             result,

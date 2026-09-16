@@ -1,22 +1,8 @@
-"""Bulk-loads the proxy pool.
+"""Bulk-loads the proxy pool. Usage: seed_proxies.py [FILE] [--scheme http] [--prefix p]
 
-Usage:
-    python scripts/seed_proxies.py [FILE] [--scheme http] [--prefix p]
-    cat list.txt | python scripts/seed_proxies.py
-
-Input format is one `host:port:username:password` per line (username
-and password optional). Blank lines and lines starting with '#' are
-skipped.
-
-Passwords are never written to the DB in plain text: they're encrypted
-with Fernet under YF_PROXY_SECRET_KEY. If the key isn't set, the script
-raises rather than silently creating passwordless records, since those
-proxies wouldn't work.
-
-Idempotent: a line is skipped if its (scheme, host, port, username)
-tuple already exists. The input file carries credentials and must not
-be committed to the repo.
-"""
+One `host:port[:username[:password]]` per line; blank and '#' lines skipped.
+Passwords are Fernet-encrypted under YF_PROXY_SECRET_KEY, and a missing key
+raises. Idempotent on (scheme, host, port, username). Never commit the input file."""
 
 from __future__ import annotations
 

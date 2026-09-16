@@ -1,15 +1,7 @@
-"""Connection lifecycle: subscribe, reconnect, idle watchdog, canary.
-
-These run against a real loopback websocket server rather than a mock,
-and that is the point. The upstream client's reconnect is broken in a way
-no mock would reveal -- `_connect()` returns early because `self._ws` is
-not None, so the retry loop spins forever on a dead socket. A test that
-substituted the transport would have reproduced the intended behaviour,
-not the actual one.
-
-This is a deliberate exception to "unit tests touch no network": the
-server binds 127.0.0.1 and nothing leaves the machine.
-"""
+"""Connection lifecycle: subscribe, reconnect, idle watchdog, canary. Runs against a real
+loopback websocket server, because the upstream client's reconnect bug (`_connect()` returns
+early while `self._ws` is set) is invisible through a mocked transport. A deliberate
+exception to "no network": the server binds 127.0.0.1 and nothing leaves the machine."""
 
 from __future__ import annotations
 

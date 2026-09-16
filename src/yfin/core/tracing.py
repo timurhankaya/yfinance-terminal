@@ -1,32 +1,8 @@
 """Traces, and the four places this codebase draws one by hand.
 
-Optional twice over. Without the `[otel]` extra every function here is a
-no-op that imports nothing; with the extra but no
-`OTEL_EXPORTER_OTLP_ENDPOINT` it installs the API's own no-op provider,
-which is what makes `with span(...)` free in a process nobody is collecting
-from. A pipeline must never slow down or fail because a collector is
-absent.
-
-Two things are read from the ENVIRONMENT and deliberately not from
-settings:
-
-**`OTEL_SEMCONV_STABILITY_OPT_IN`** is set here, before any
-`opentelemetry.instrumentation` module is imported. The value is read once,
-when the first instrumentor initialises, and an instrumentation that has
-already read it will not read it again -- so setting it later means the
-spans carry the old attribute names and every dashboard built on the stable
-ones is silently empty.
-
-**The sampler** is NOT passed as an argument. Give `TracerProvider` a
-`sampler=` and it stops honouring `OTEL_TRACES_SAMPLER` and
-`OTEL_TRACES_SAMPLER_ARG`, so the compose override that sets 0.1 for the
-API and 1.0 for the pipeline would be read, ignored, and hard to notice.
-Leaving the argument off is the feature.
-
-`BatchSpanProcessor` drops on backlog rather than blocking. A trace is
-worth less than the write it describes, and that is the same rule
-`core/metrics.py` follows.
-"""
+Optional: without the `[otel]` extra or an endpoint everything is a no-op.
+`OTEL_SEMCONV_STABILITY_OPT_IN` must be set before any instrumentation import
+(read once). No `sampler=` argument: it would silence `OTEL_TRACES_SAMPLER`."""
 
 from __future__ import annotations
 
@@ -63,10 +39,8 @@ _enabled = False
 def configure_tracing(service: str) -> bool:
     """Sets up the SDK. Returns whether spans will actually be exported.
 
-    Called once per process, at the entry point, before the first engine is
-    built -- SQLAlchemy instrumentation patches the library, and an engine
-    created earlier is not retroactively traced.
-    """
+    Called once per process, before the first engine is built: an engine
+    created earlier is not retroactively traced."""
     global _enabled  # noqa: PLW0603 - one provider per process, by design
 
     endpoint = os.environ.get(ENDPOINT_VAR, "").strip()
@@ -125,14 +99,8 @@ def instrument_fastapi(app: Any) -> None:
 def instrument_sqlalchemy(engine: Any) -> None:
     """Traces every statement the engine issues.
 
-    Per engine rather than globally: the API, the scheduler and a shard
-    each build their own, and instrumenting the library would trace the
-    ones a test built too.
-
-    psycopg is deliberately NOT instrumented. It would nest a second span
-    under every statement span to say the same thing twice, doubling the
-    volume for no new information.
-    """
+    Per engine rather than globally, so engines a test built are not traced.
+    psycopg is NOT instrumented: it would nest a duplicate span under every statement."""
     if not _enabled:
         return
     try:
@@ -146,17 +114,9 @@ def instrument_sqlalchemy(engine: Any) -> None:
 def span(name: str, **attributes: Any) -> Iterator[Any]:
     """One manual span. A no-op, and a cheap one, when tracing is off.
 
-    The four this codebase draws are the boundaries the automatic
-    instrumentation cannot see: a symbol's whole persist, one dataset's
-    fetch on a worker thread, a relay pass, and a scheduled job's
-    subprocess. Everything between them is HTTP and SQL, which fastapi and
-    sqlalchemy already cover.
-
     Attributes are set at ENTRY, so a span that ends in an exception still
-    carries what it was about. `symbol` is allowed here and forbidden as a
-    metric label, and the difference is real: a trace is sampled and
-    thrown away, a series is kept forever.
-    """
+    carries what it was about. `symbol` is allowed here, unlike on a metric:
+    a trace is sampled and thrown away, a series is kept forever."""
     if not _enabled:
         yield None
         return
@@ -177,10 +137,8 @@ def span(name: str, **attributes: Any) -> Iterator[Any]:
 def set_attributes(current: Any, **attributes: Any) -> None:
     """Adds attributes to a span once they are known.
 
-    `rows_written` cannot be set at entry -- the whole point of the span is
-    that the number does not exist yet. `None` is the no-op span, so this
-    is safe to call unconditionally at the end of a `with span(...)` block.
-    """
+    `None` is the no-op span, so this is safe to call unconditionally at the
+    end of a `with span(...)` block."""
     if current is None:
         return
     with _quiet():

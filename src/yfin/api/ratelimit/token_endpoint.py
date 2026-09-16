@@ -1,23 +1,8 @@
-"""The token endpoint's own limiter.
-
-This is the one place in the API that is **fail-closed**, and the reason
-is specific. Elsewhere Redis only holds counters, so losing it costs
-accounting. Here it also holds the only brake on an endpoint that runs an
-argon2 verification for anyone who asks. Failing open would not merely
-stop counting: it would remove the brute-force protection from
-authentication and hand an attacker an unmetered CPU sink at the same
-time. So when Redis is gone a small in-process limiter takes over, and
-when that is exceeded the endpoint returns 503.
-
-The keys are the second decision worth stating. `client_id` here is
-unverified, attacker-supplied text, so it cannot be the primary key: an
-attacker would spray a victim's client id with wrong secrets to fill
-their bucket (a targeted outage), and spray random ids to grow the
-keyspace until Redis dies -- which, given the paragraph above, is an
-attack on authentication itself. So the primary key is the address, the
-client id only ever *slows down* after repeated failures, and every key
-is a fixed-length digest with a mandatory TTL.
-"""
+"""The token endpoint's own limiter, the one fail-closed spot in the API:
+it is the only brake on an argon2 verification anyone can trigger, so
+without Redis an in-process limiter takes over and 503 follows. The
+primary key is the address; `client_id` is attacker-supplied, so it only
+ever slows down, and every key is a fixed-length digest with a TTL."""
 
 from __future__ import annotations
 
@@ -91,12 +76,8 @@ def check(settings: ApiSettings, *, client_ip: str, client_id: str) -> Decision:
 
 
 def record_failure(settings: ApiSettings, client_id: str) -> None:
-    """Counts a failed authentication for this client id.
-
-    Slows the id down; never blocks it outright, because the id is not
-    proof of anything -- the party being slowed may be the victim of
-    someone else's spray, not its author.
-    """
+    """Counts a failed authentication for this client id. Slows the id down,
+    never blocks it: the party slowed may be the victim of a spray."""
     key = FAIL_KEY.format(digest=_digest(client_id))
     try:
         redis = get_redis(settings)

@@ -1,15 +1,8 @@
 """The exporter's queries against a real database.
 
-Two things only a server can answer. First, whether the SQL is valid at all:
-`PREPARE` puts every statement through the planner, which is where a column
-that was renamed, an enum literal that does not exist and a cast that cannot
-be resolved show up -- five minutes after a deploy, otherwise.
-
-Second, the arithmetic. The freshness rule is three joins and a ranking, and
-the cases that decide whether it is right -- a multi-table dataset with one
-failed table, a cell that was never attempted, a domain cell that exists
-twice under two regions -- cannot be written down as anything but rows.
-"""
+`PREPARE` puts every statement through the planner, which is where a renamed
+column, a missing enum literal or an unresolvable cast shows up. The freshness
+arithmetic cases can only be expressed as rows."""
 
 from __future__ import annotations
 
@@ -51,12 +44,10 @@ def ctx(factory: sessionmaker[Session]) -> Context:
 
 
 class _Runs:
-    """Writes runs and items straight to the tables.
+    """Writes runs and items straight to the tables, bypassing `pipeline/audit.py`.
 
-    Not through `pipeline/audit.py`: these tests are about what the queries
-    make of rows, and going through the writer would make every case depend
-    on the writer agreeing to produce it -- a `not_attempted` domain cell
-    with two regions is not something it can be talked into on demand.
+    Going through the writer would make every case depend on the writer
+    agreeing to produce it; some of these rows it never would.
     """
 
     def __init__(self, session: Session) -> None:
@@ -537,11 +528,8 @@ class TestTheRepublishedSyncCounters:
 
 
 class TestIntradayScope:
-    """Not the same question as freshness.
-
-    A cell can be perfectly fresh by the schedule and still be
-    unrecoverable: once the newest bar is older than Yahoo's retention
-    depth, the window between it and now can never be fetched again.
+    """Not the same question as freshness: a cell fresh by the schedule is still
+    unrecoverable once the newest bar is older than Yahoo's retention depth.
     """
 
     def _scope(self, session: Session, symbol: str, interval: str) -> None:
@@ -953,14 +941,9 @@ class TestApiUsage:
 
 
 class TestOnlyTheOpenSessionIsHealth:
-    """A finished session's rows are still in the table.
-
-    `stream_connection_health` is documented as current state only, but
-    nothing deletes a row when its session ends. Read unfiltered, one row
-    left behind by a session that finished thirteen hours earlier set
-    `yfin_stream_canary_age_seconds` to 48,618 while every live connection
-    was five seconds old -- and `StreamStale` fires at 600, so the alert
-    would have been on permanently and cleared never.
+    """`stream_connection_health` is current state only, but rows of finished
+    sessions are never deleted, so an unfiltered read would report a stale
+    canary age from a dead session and keep `StreamStale` firing.
     """
 
     def _health(
@@ -1043,12 +1026,8 @@ class TestOnlyTheOpenSessionIsHealth:
 
 
 class TestPendingRescalesIsOneGroupedPass:
-    """211 splits against a 1.7-million-row hypertable.
-
-    A correlated `MIN(local_date)` per split row was 6.74 s on the live
-    database and the whole cost of the `bars` query, which the exporter
-    runs every five minutes. One grouped pass is 0.065 s for the same
-    answer. The behaviour below is what the rewrite had to preserve.
+    """Pending rescales must be one grouped pass, not a correlated `MIN(local_date)`
+    per split; the exporter runs the `bars` query every five minutes.
     """
 
     def _fixture(self, session: Session, split_day: str, bar_day: str) -> None:

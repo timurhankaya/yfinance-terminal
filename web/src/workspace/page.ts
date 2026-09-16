@@ -1,21 +1,8 @@
-// What a saved page IS, and how it travels.
-//
-// A layout does not fit in a URL. `WLA`'s symbol list did -- it is a
-// comma-separated string -- but a grid of four panels, their sizes and
-// their arguments is not something a reader can be asked to carry in an
-// address bar. So a page is a JSON document: the letters it points at,
-// and dockview's own serialisation of everything else.
-//
-// **There is no `panels` field beside `dock`.** `api.toJSON()` already
-// carries each panel's `params`, which is what it is showing; a second
-// map of the same thing would disagree with it the first time someone
-// dragged a panel. `dock` is the single source, and `groups` is the only
-// page-level fact there is.
-//
-// The document is portable on purpose. Phase 2b wants to keep pages in
-// the database for a signed-in reader; a `Page` can be written there
-// unchanged, which is the guarantee that this storage decision does not
-// become a migration.
+// What a saved page IS, and how it travels: a JSON document of the
+// letters it points at and dockview's own serialisation of everything
+// else. There is no `panels` field beside `dock`: `api.toJSON()` already
+// carries each panel's `params`, and a second map would disagree with it
+// on the first drag. The document is portable: it can be stored server-side unchanged.
 import type { SerializedDockview } from "dockview-react";
 import type { PanelParams, PanelSeed } from "../app/Workspace";
 import { getPanel } from "../commands/registry";
@@ -44,8 +31,7 @@ export interface PageStore {
 }
 
 //: One version field, in the envelope. No migration code is written for
-//: it: a lost layout is a preference that can be rebuilt in a minute,
-//: not data that cannot be recovered (spec, "Kararlar" 9).
+//: it: a lost layout is a preference that can be rebuilt in a minute.
 export const STORE_VERSION = 1;
 
 /** Characters a shared link may carry.
@@ -63,12 +49,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Whether a decoded value is a page.
- *
- *  Shallow on purpose: `dock` is dockview's own document and only
- *  dockview can say whether it will load. A page that passes this and
- *  then fails `fromJSON` is dropped at that point, which is the second
- *  of the two granularities. */
+/** Whether a decoded value is a page. Shallow: `dock` is dockview's own
+ *  document and only dockview can say whether it will load; a page that
+ *  fails `fromJSON` is dropped at that point. */
 export function isPage(value: unknown): value is Page {
   if (!isRecord(value)) return false;
   return typeof value.name === "string" && isRecord(value.groups) && isRecord(value.dock);
@@ -99,17 +82,11 @@ function asArgs(value: unknown): PanelArgs {
   return args;
 }
 
-/** The panels a saved layout holds, as the shell's own seeds.
- *
- *  Every panel's args go back through `normalizeArgs`, for the same
- *  reason a URL's do: a stored page is an input the panel's `parseArgs`
- *  never saw, and it may have been hand-edited, shared by someone on an
- *  older build, or written before the panel changed its mind about what
- *  it accepts.
- *
- *  Symbols are NOT verified here. A page of seven panels would be seven
- *  extra requests before anything drew, and a symbol the archive has
- *  dropped shows its own missing-symbol card one panel later. */
+/** The panels a saved layout holds, as the shell's own seeds. Every
+ *  panel's args go back through `normalizeArgs`: a stored page is an
+ *  input `parseArgs` never saw. Symbols are NOT verified here: that would
+ *  be one request per panel before anything drew, and a dropped symbol
+ *  shows its own missing-symbol card one panel later. */
 export function seedsFromDock(dock: SerializedDockview): PanelSeed[] {
   const panels = isRecord(dock.panels) ? dock.panels : {};
   const seeds: PanelSeed[] = [];

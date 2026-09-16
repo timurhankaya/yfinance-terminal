@@ -1,15 +1,8 @@
 """The live path end to end: a real schema and a real pub/sub.
 
-`tests/unit/test_ui_live.py` covers the socket with the bus down, which
-is the default state. This covers the one that matters in production: a
-tick published after a commit reaches an open page, in the right order,
-without the snapshot racing it.
-
-The bus is fakeredis rather than a mock. What is under test is the
-subscribe-then-snapshot ordering and the channel naming, and a mock that
-answers whatever it is asked would confirm both no matter what the code
-did.
-"""
+A tick published after a commit must reach an open page, in order, without
+the snapshot racing it. The bus is fakeredis rather than a mock: a mock would
+confirm the subscribe-then-snapshot ordering no matter what the code did."""
 
 from __future__ import annotations
 

@@ -155,18 +155,9 @@ from yfin.models.views import (
 def symbol_scoped_tables() -> list[str]:
     """Tables scoped to symbols.symbol, in deletion order.
 
-    Derived entirely from the FK edges in metadata: a new symbol-scoped
-    table is automatically covered by `yfin symbols purge` (otherwise it
-    would raise ON DELETE RESTRICT).
-
-    Blind spot of this derivation: a symbol-scoped table with no FK to
-    `symbols` is invisible here. Such a table existed under MySQL
-    (`price_bars`, which could not carry an FK due to partitioning) and
-    needed a manually maintained list; a TimescaleDB hypertable can be
-    the referencing side, so that exception is gone and the list was
-    removed. If a table that cannot carry an FK is added again, the list
-    must come back.
-    """
+    Derived from FK edges, so a new symbol-scoped table is covered by
+    `yfin symbols purge` automatically; a table without an FK to `symbols`
+    is invisible here and would need a manually maintained list."""
     names: list[str] = []
     for table in reversed(Base.metadata.sorted_tables):
         if table.name == "symbols":
@@ -322,10 +313,6 @@ __all__ = [
 def all_timescale_ddl() -> tuple[str, ...]:
     """Every hypertable in the schema, in creation order.
 
-    Kept separate from the per-module functions because migrations must
-    stay pinned to the tables that existed when they were written: the
-    initial revision calls `timescale_ddl()` and would fail if that ever
-    started returning DDL for tables it does not create. Test fixtures,
-    which build the whole schema at once, use this one.
-    """
+    Migrations stay pinned to the per-module functions (the initial revision
+    calls `timescale_ddl()`); only test fixtures build the whole schema."""
     return (*timescale_ddl(), *stream_timescale_ddl(), *changes_timescale_ddl())

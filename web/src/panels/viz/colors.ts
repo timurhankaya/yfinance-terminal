@@ -1,21 +1,8 @@
-// Colour, read from the stylesheet.
-//
-// There is no second definition of a colour in TypeScript. `styles.css`
-// holds `--up`, `--down` and the seven group colours, and this module
-// reads them the way `Chart.tsx` already reads `--bg` and `--accent`
-// (`Chart.tsx:36-49`): one source, so a change to the palette moves the
-// tables, the chart and every SVG here together.
-//
-// Three roles, and they do not mix. DIRECTION is `--up`/`--down` -- a
-// rise and a fall. EMPHASIS is `--accent` -- focus and selection.
-// IDENTITY is the seven group colours -- which series, which group, and
-// nothing about whether it went up.
-//
-// Read once, unlike `Chart.tsx`. That file builds one chart; a watchlist
-// draws two hundred sparklines, and `getComputedStyle` two hundred times
-// per paint is a cost with nothing to show for it. The stylesheet does
-// not change at runtime, and `resetVizTheme` exists for the tests that
-// need it to.
+// Colour, read from the stylesheet: `styles.css` holds `--up`, `--down`
+// and the seven group colours, and there is no second definition in
+// TypeScript. Three roles that do not mix: DIRECTION (`--up`/`--down`),
+// EMPHASIS (`--accent`), IDENTITY (the group colours). Read once and
+// cached: a watchlist draws two hundred sparklines per paint.
 
 /** The group letters a page can be split into, and the series colours a
  *  comparison uses. Seven, because an eighth is not distinguishable. */
@@ -119,11 +106,9 @@ export function groupColor(group: Group): string {
   return vizTheme().group[group];
 }
 
-/** One colour per series, in the order the series were named.
- *
- *  Throws past seven rather than wrapping: two series in the same colour
- *  is a chart that misleads, and the panel refuses the command instead
- *  (spec, "Hata yönetimi"). */
+/** One colour per series, in the order the series were named. Throws
+ *  past seven rather than wrapping: two series in the same colour is a
+ *  chart that misleads, and the panel refuses the command instead. */
 export function seriesColors(count: number): string[] {
   if (count > GROUP_ORDER.length) {
     throw new Error(`At most ${GROUP_ORDER.length} series can be told apart by colour`);
@@ -163,13 +148,9 @@ export function mix(from: string, to: string, t: number): string {
 }
 
 /** A heat colour for a percentage change: neutral at zero, `--up` at
- *  `+span`, `--down` at `-span`, clamped beyond.
- *
- *  Diverging and neutral in the middle, because zero is a meaningful
- *  value here rather than one end of a range -- a sequential ramp would
- *  make "unchanged" look like the low end of "fell". The colour never
- *  carries the value on its own: the number is in the cell where there
- *  is room for it, and in the row detail regardless (spec, "Kararlar" 7). */
+ *  `+span`, `--down` at `-span`, clamped beyond. Diverging because zero
+ *  is a meaningful value here, not one end of a range. The colour never
+ *  carries the value on its own. */
 export function divergingHeat(percent: number, span: number): string {
   const theme = vizTheme();
   if (!Number.isFinite(percent) || !Number.isFinite(span) || span <= 0) return theme.line;

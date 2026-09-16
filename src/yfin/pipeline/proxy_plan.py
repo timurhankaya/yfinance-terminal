@@ -1,22 +1,7 @@
 """Which proxies a run gets, and how a run reports one that died.
 
-Proxy-selection policy had two homes once before. `single_proxy.py`'s
-docstring records how that ended: the market and domain runners each
-carried a verbatim copy, "which meant proxy-selection policy had two
-homes and a fix to one silently missed the other". That refactor
-collapsed the one-proxy case into a single function -- and left the
-many-proxy case in `shard.py`, where the same decryption-skip block was
-duplicated character for character.
-
-This module is the one home. `shard.py` is then about processes, and it
-no longer imports `yfin.proxy` at all.
-
-The eligibility question and the endpoint question stay separate
-functions on purpose. Eligibility is answered by SQL and is what decides
-the shard count; building an endpoint needs `yf_proxy_secret_key` and can
-fail per row. Merging them would force any caller that only wants to know
-"how many shards" -- including the tests -- to supply decryptable
-credentials it has no use for.
+Eligibility (SQL, decides the shard count) and endpoint building (needs
+`yf_proxy_secret_key`, can fail per row) stay separate functions.
 """
 
 from __future__ import annotations
@@ -71,12 +56,8 @@ def eligible_proxies(
 ) -> list[Proxy]:
     """Eligible proxies; an empty list means a single, direct connection.
 
-    Formula:
-        shard_count = 1                              if --no-proxy
-                    = max(1, min(N, |eligible|))      otherwise
-    A shard is never opened without a proxy; the one exception is a
-    single-shard direct connection when the pool is empty or has no
-    eligible entries.
+    shard_count = 1 with --no-proxy, else max(1, min(N, |eligible|)). A
+    shard is never opened without a proxy except that single direct one.
     """
     if no_proxy:
         if require_proxy:
@@ -117,15 +98,8 @@ def build_plans(
 ) -> list[ProxyPlan]:
     """Resolves eligible rows to endpoints, skipping what cannot be decrypted.
 
-    A proxy whose password cannot be decrypted is skipped and reported,
-    NOT marked dead: the pool is fine, the operator's key is not.
-
-    The `require_proxy` re-check lives here rather than at the call site.
-    `eligible_proxies` can only see that rows exist; decryption failure is
-    only visible once endpoints are built. Without this, a rotated
-    `YF_PROXY_SECRET_KEY` would fall through to the "no proxy" branch and
-    fetch the entire universe from the operator's own IP -- exactly what
-    --require-proxy exists to prevent -- while exiting 0 instead of 5.
+    An undecryptable password is reported, NOT marked dead (the key is wrong,
+    not the pool). `require_proxy` is re-checked here for that case.
     """
     plans: list[ProxyPlan] = []
     for row in eligible:
@@ -148,12 +122,8 @@ def build_plans(
 def tracker_for(proxy_id: int | None, settings: Settings) -> ShardProxyTracker:
     """The health tracker for one assignment.
 
-    `proxy_id` is optional because a direct-connection shard still gets a
-    tracker; it just has no proxy row to attribute events to.
-
-    Exists so callers do not need `ProxyPolicy` and `ShardProxyTracker`
-    in scope just to build the pair; that is what keeps `shard.py` free of
-    `yfin.proxy` imports.
+    A direct-connection shard still gets a tracker; it has no proxy row
+    to attribute events to.
     """
     return ShardProxyTracker(proxy_id, ProxyPolicy.from_settings(settings))
 

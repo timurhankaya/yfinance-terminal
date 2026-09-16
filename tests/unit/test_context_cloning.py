@@ -1,17 +1,6 @@
-"""`_clone` must carry every field, including ones added after it was written.
-
-`MarketContext._clone` and `DomainContext._clone` exist because `for_region`
-used to enumerate fields by hand, and a field added without also being added
-there dropped silently. Collecting the enumeration into `_clone` moved that
-trap rather than removing it: `_clone` enumerated the fields too, so the next
-field added would fall into exactly the same hole -- and every existing test
-would still have passed, because they all name today's fields.
-
-These tests are driven off `dataclasses.fields()`. A field added tomorrow is
-covered without anyone remembering to come back here; the only thing the
-author has to supply is a value to change it to, and the test says so by name
-when they have not.
-"""
+"""`_clone` must carry every field, including ones added after it was written. Driven off
+`dataclasses.fields()`, so a new field is covered without anyone editing this file; the
+author only has to supply a value to change it to."""
 
 from __future__ import annotations
 
@@ -102,17 +91,12 @@ class TestMarketContext:
 
     @pytest.mark.parametrize("name", MARKET_SENTINELS)
     def test_every_field_can_actually_be_changed(self, name: str) -> None:
-        """`_clone(**changes)` honours whatever field it is handed.
-
-        Not a hypothetical: the domain twin honoured three of its eight and
-        ignored the rest in silence, so a caller could ask for a change and
-        get the original back with no error.
-        """
+        """`_clone(**changes)` honours whatever field it is handed, not just some of them."""
         clone = _market()._clone(**{name: MARKET_SENTINELS[name]})
         assert getattr(clone, name) == MARKET_SENTINELS[name]
 
     def test_an_unknown_field_is_refused(self) -> None:
-        """A typo in a change key used to do nothing at all, quietly."""
+        """A typo in a change key must not be silently ignored."""
         with pytest.raises(TypeError):
             _market()._clone(regoin="US")
 

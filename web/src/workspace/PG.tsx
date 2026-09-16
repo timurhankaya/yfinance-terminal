@@ -1,13 +1,7 @@
-// PG: the pages this browser has saved.
-//
-// A layout does not fit in an address, so a saved page is the one thing
-// in the terminal a reader cannot find by typing its URL from memory.
-// This is where they are: what is saved, which key opens it, and the two
-// edits a list of pages needs -- rename and delete.
-//
-// It reads the store on every render rather than holding a copy: the
-// store is written by the page the reader is actually on, and a second
-// copy here would go stale the moment they arranged a panel.
+// PG: the pages this browser has saved -- what is saved, which key opens
+// it, rename and delete. It reads the store on every render rather than
+// holding a copy: the store is written by the page the reader is on, and
+// a copy here would go stale the moment they arranged a panel.
 import { useState } from "react";
 import type { ReactElement } from "react";
 import { useNavigate } from "react-router";

@@ -1,24 +1,8 @@
-// What a panel is allowed to know about the page around it.
-//
-// A panel used to reach `useNavigate` through `useGo` and change the
-// address of the whole application. With one panel on screen that was the
-// same thing as "replace what I am showing"; with four it is not --
-// pressing Enter on an EQS row would abandon the page. The same was true
-// of the keyboard: `useListKeys` listened on `window`, so four open lists
-// all moved on one `j`.
-//
-// So a panel runs inside a frame, and the frame answers two questions:
-// what happens when this panel runs a command, and is this panel the one
-// the keyboard is talking to. `Workspace` gives each dockview panel its
-// own frame. With no frame around it -- a page whose only panel is the
-// address itself, and a panel rendered bare in a test -- the address bar
-// is the frame, which is exactly what such a page's frame is.
-//
-// The two questions are asked through two hooks rather than one, because
-// they do not cost the same: knowing whether you have the keyboard is
-// free, while running a command with no frame around it needs the router.
-// A panel that only reads lists must not be dragged into a <Router> for
-// an answer it could have had for nothing.
+// What a panel is allowed to know about the page around it: what happens
+// when it runs a command, and whether it is the one the keyboard is
+// talking to. `Workspace` gives each dockview panel its own frame; with
+// no frame, the address bar is the frame. Two hooks rather than one:
+// running a command needs the router, having the keyboard does not.
 import { createContext, useContext, useMemo } from "react";
 import { useGo } from "../commands/go";
 import type { Command } from "../commands/types";

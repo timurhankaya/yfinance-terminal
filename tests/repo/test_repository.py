@@ -355,17 +355,13 @@ class TestView:
 
 @pytest.mark.repo
 class TestPostgresUpsertSemantics:
-    """Two points whose behavior changed on the move to PostgreSQL.
-
-    Both used to run silently differently under MySQL; this pins the
-    behavior against the real engine.
-    """
+    """Two engine behaviors the write path depends on, pinned against
+    the real engine."""
 
     def test_greatest_ignores_null_and_orders_booleans(self, db_session: Session) -> None:
-        """MySQL's `GREATEST(x, NULL)` returned NULL; PostgreSQL ignores NULL.
-        The monotonic column (price_history.is_repaired) depends on this, and
-        PostgreSQL's behavior is safer: the stored value survives even if the
-        source reports NULL once."""
+        """`GREATEST(x, NULL)` ignores NULL in PostgreSQL. The monotonic
+        column (price_history.is_repaired) depends on this: the stored value
+        survives even if the source reports NULL once."""
         row = db_session.execute(
             text(
                 "SELECT greatest(true, NULL::boolean) AS a, "
@@ -380,7 +376,7 @@ class TestPostgresUpsertSemantics:
     def test_repeated_key_in_one_write_does_not_raise(self, db_session: Session) -> None:
         """Without dedup, this would raise 21000 cardinality_violation:
         `ON CONFLICT DO UPDATE` cannot touch the same row twice in one
-        statement. MySQL swallowed this without complaint."""
+        statement."""
         _seed_symbol(db_session)
         rows = [_row(1, "1.0"), _row(1, "2.5")]  # same key, two rows
         assert rows[0]["session_date"] == rows[1]["session_date"]

@@ -1,10 +1,7 @@
 """sector_rankings / industry_rankings -- as-of, regional.
 
-Region only affects these list blocks (measured): `topCompanies`,
-`topETFs`, `topMutualFunds`, `topPerformingCompanies`, `topGrowthCompanies`.
-`overview` / `performance` / `industries` / `researchReports` were
-byte-identical across all 5 regions, which is why they live on the
-`*_profile` side and are region-less.
+Only the `top*` list blocks vary by region; the rest lives on the
+region-less `*_profile` side.
 """
 
 from __future__ import annotations
@@ -124,15 +121,9 @@ class _DomainRankingsDataset(DomainAsOfDataset[DomainPayload]):
     ) -> WriteStats:
         """`is_known` is populated from the DB, then the as-of gate runs.
 
-        Order matters, and the flag enters the hash body (mirrors the
-        rationale in `funds.py`): when the universe changes -- a user adds
-        `SGE.L` to `symbols` -- the gate reopens and rows update. Excluding
-        it would leave the flag stuck at 0, since the gate would call it
-        `skipped`.
+        The flag enters the hash body so a universe change reopens the gate.
         """
-        # No FK on `symbol`: SGE.L, 285A.T, ODINE.IS and 0P0001WO1I are
-        # outside the universe, and an FK would drop the whole pass's
-        # transaction over one foreign symbol.
+        # No FK on `symbol`: one foreign symbol would drop the whole pass.
         marked = mark_known_in(
             writer,
             result,
@@ -194,7 +185,7 @@ class SectorRankingsDataset(_DomainRankingsDataset):
                     **self._scope(raw, key),
                     "fund_type": fund_type,
                     "symbol": symbol,
-                    # Missing in 7 of 220 fund rows measured
+                    # Can be missing
                     "name": text_of(entry, "name", 255),
                     "net_assets": big_of(entry, "netAssets"),
                     "expense_ratio": dec_of(entry, "expenseRatio"),
@@ -259,9 +250,8 @@ class IndustryRankingsDataset(_DomainRankingsDataset):
                     continue
                 rows[(rank_type, symbol)] = {
                     **self._scope(raw, key),
-                    # `rank_type` is in the PK: full-list measurement found
-                    # 8 of 50 shared symbols report two different
-                    # `ytdReturn` values across the two blocks.
+                    # `rank_type` is in the PK: a symbol shared by both blocks
+                    # can carry a different `ytdReturn` in each.
                     "rank_type": rank_type,
                     "symbol": symbol,
                     "name": text_of(entry, "name", 255),

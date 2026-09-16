@@ -1,9 +1,5 @@
-"""The turn's error and transaction policy, now that it has one home.
-
-The market and domain runners each carried a copy of this. The bodies
-differed only in log keys and `normalize`'s arity; the policy below was
-identical in both, which meant a fix to one silently missed the other.
-"""
+"""The turn's error and transaction policy, now that it has one home instead of a copy in
+each runner."""
 
 from __future__ import annotations
 

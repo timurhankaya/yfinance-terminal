@@ -56,7 +56,7 @@ def _payload(
 
 
 def test_row_order_does_not_change_the_hash() -> None:
-    """`topCompanies` order changed in 8 of 11 sectors within 15 minutes."""
+    """`topCompanies` order is not stable between fetches."""
     payload = _payload("sector", "technology")
     baseline = RANKINGS.normalize(payload, "technology")
 
@@ -84,12 +84,8 @@ def test_fetched_at_and_as_of_date_are_volatile() -> None:
 
 
 def test_first_seen_at_is_volatile_too() -> None:
-    """Otherwise the gate would never match.
-
-    `research_reports.first_seen_at` changes on every run; if it entered
-    the hash body, the profile dataset would rewrite every row every day,
-    and the as-of mechanism would silently stop working entirely.
-    """
+    """`research_reports.first_seen_at` changes on every run; in the hash body it would make
+    the profile dataset rewrite every row every day and the gate would never match."""
     first = PROFILE.normalize(_payload("sector", "technology"), "technology")
     second = PROFILE.normalize(
         _payload("sector", "technology", fetched_at=LATER), "technology"

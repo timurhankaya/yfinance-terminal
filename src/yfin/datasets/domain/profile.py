@@ -1,12 +1,7 @@
 """sector_profile / industry_profile -- as-of, region-less.
 
-`overview` + `performance` + `performanceOverviewBenchmark` -> 1
-`domain_metrics` row; `researchReports[]` -> 4 `research_reports`
-(upsert) + 4 `domain_report_links` rows.
-
-All five blocks were measured byte-identical across US/GB/DE/JP/TR, so
-these datasets skip the region loop and use the primary region's response
-(and, thanks to `ctx.cached`, produce no extra HTTP request).
+`overview` + `performance*` -> one `domain_metrics` row; `researchReports[]`
+-> `research_reports` + `domain_report_links`. Region-independent blocks.
 """
 
 from __future__ import annotations
@@ -41,12 +36,8 @@ from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
 
-# Top-level keys stored in `raw_json`: the non-list part of the response.
-# List blocks are excluded: `nz.canonical_json` only sorts dict keys and
-# preserves list order. Storing the full envelope would let
-# `topCompanies`'s order (observed to change within 15 minutes for 8 of 11
-# sectors) reopen the gate on every run, silently disabling the as-of
-# mechanism.
+# Top-level keys stored in `raw_json`. List blocks are excluded: their
+# order changes between calls and would reopen the as-of gate every run.
 RAW_JSON_KEYS = (
     "key",
     "name",
@@ -212,9 +203,9 @@ class _DomainProfileDataset(DomainAsOfDataset[DomainPayload]):
                 "provider": text_of(report, "provider", 64),
                 "report_type": text_of(report, "reportType", 64),
                 "head_html": text_of(report, "headHtml", 255),
-                # Column is unbounded `text`: measured max 23,570 characters
+                # Column is unbounded `text`
                 "report_title": text_of(report, "reportTitle"),
-                # Arrives as a bare float; missing entirely in 17 of 104 reports measured
+                # Arrives as a bare float; often missing entirely
                 "target_price": dec_of(report, "targetPrice"),
                 "target_price_status": text_of(report, "targetPriceStatus", 32),
                 "investment_rating": text_of(report, "investmentRating", 32),
@@ -233,9 +224,8 @@ class _DomainProfileDataset(DomainAsOfDataset[DomainPayload]):
             )
 
         return [
-            # Cannot use `replace_scope`: the table is shared (only 516 of
-            # 624 daily rows measured were unique; all 37 unique sector
-            # reports also appear under an industry) and has no scope column.
+            # Cannot use `replace_scope`: the table is shared (a sector's
+            # reports also appear under its industries) and has no scope column.
             TableWrite(
                 table=REPORTS_TABLE,
                 rows=list(report_rows.values()),
@@ -318,12 +308,8 @@ class IndustryProfileDataset(_DomainProfileDataset):
     def _domains_write(self, raw: DomainPayload, key: str) -> TableWrite | None:
         """`description` + `message_board_id`; does not touch identity fields.
 
-        These two fields are absent from the `industries[]` block, so
-        bootstrap cannot populate them for industries. Identity fields
-        (`symbol`, `parent_key`, `name`, `domain_type`) are bootstrap's job,
-        enforced by the separate `update_columns` here -- their presence as
-        values in the row only matters for the INSERT branch, which should
-        never actually fire.
+        Both are absent from the `industries[]` block bootstrap reads;
+        identity fields stay bootstrap's job via `update_columns`.
         """
         overview = raw.data.get("overview") or {}
         parent = text_of(raw.data, "sectorKey", 48)

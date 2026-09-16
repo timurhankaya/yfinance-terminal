@@ -28,25 +28,13 @@ from yfin.models.bars import (
 )
 from yfin.storage.contracts import TableWrite
 
-# (max days per request, max lookback depth in days) - measured values.
-#
-# These are NOT the limits Yahoo advertises, but the ones measurement found
-# accepted: Yahoo's messages say "60 days" / "730 days", but exactly 60 and
-# 730 were rejected while 59 and 729 were accepted. The limits are second-
-# based, not day-based, and relative to "now," so an exact boundary is
-# always risky. The margin already lives here; plan_windows does not add a
-# second one on top.
-#
-# None = unbounded: for 1wk/1mo the first fill uses period="max".
 log = get_logger(__name__)
 
+# (max days per request, max lookback depth in days); None = unbounded,
+# first fill uses period="max". One day under Yahoo's advertised limits:
+# they are second-based and relative to now, so the exact boundary is
+# rejected. This is the only margin; plan_windows adds none.
 BAR_LIMITS: dict[str, tuple[int | None, int | None]] = {
-    # 1m depth is 29, not 30: Yahoo's message says "within the last 30
-    # days" but exactly 30 days is rejected (measured: -30d REJECTED, -29d
-    # 1950 bars). Same pattern as 60 being rejected for 5m and 730 for 60m.
-    # This value was left at 30 in the first cut and caught on the first
-    # live run: the planner produced a request right at the boundary, got
-    # YFPricesMissingError, and AAPL's entire 1m initial fill was dropped.
     "1m": (8, 29),
     "5m": (59, 59),
     "15m": (59, 59),
@@ -103,19 +91,8 @@ def plan_windows(
 ) -> FetchPlan:
     """Computes the windows to fetch and any unrecoverable gap for one interval.
 
-    Five scenarios:
-      1. First fill (no watermark): back to the depth limit, sliced into windows.
-      2. Normal increment: watermark - overlap, single slice.
-      3. Resume after a pause: a range past the per-request limit is split into
-         multiple slices -- a single naive slice would be rejected by Yahoo
-         and lose all the data.
-      4. Depth exceeded: the fetchable part is sliced, the rest becomes `gap`.
-      5. Open gaps: any still within the retention window are retried; without
-         this feedback, bar_gaps would just be a tombstone list.
-
-    If `start`/`end` are given (--start/--end, date_range="api"), watermark
-    and `open_gaps` are ignored and no gap is produced for depth overrun: a
-    manually requested backfill failing is user error, not a missed fetch.
+    Ranges past the per-request limit are sliced; the part past the depth limit
+    becomes `gap`. Explicit `start`/`end` ignore watermark, `open_gaps` and gaps.
     """
     if interval not in BAR_LIMITS:
         raise ValueError(f"unknown interval: {interval}; valid: {', '.join(BAR_INTERVALS)}")
@@ -189,13 +166,8 @@ def _merge(ranges: list[tuple[date, date]]) -> list[tuple[date, date]]:
 class BarPayload:
     """Raw data returned by fetch.
 
-    No `has_prepost` field, deliberately. The first design used
-    has_pre_post_market_data as an early-exit gate; measurement discredited
-    it: SHEL.L and VWCE.DE report False for that field yet still return 5
-    and 8 extended-hours bars. That gate would have counted them as regular
-    session and let them into v_price_bars_regular -- exactly the
-    corruption the view exists to prevent. The only source of truth is
-    tradingPeriods' start/end range.
+    `has_pre_post_market_data` is not carried: symbols report False and
+    still return extended-hours bars. Only tradingPeriods is trusted.
     """
 
     frame: pd.DataFrame
@@ -238,11 +210,8 @@ _COLUMN_MAP: dict[str, str] = {
 def _session_bounds(periods: pd.DataFrame | None) -> dict[date, tuple[pd.Timestamp, pd.Timestamp]]:
     """day -> (regular session start, end).
 
-    Only `start`/`end` are read. `pre_*`/`post_*` columns are not used, for
-    two reasons: (1) they can be degenerate -- THYAO shows pre=09:30-09:30
-    and post=18:00-18:00 while reg=09:30-18:00 is sound; (2) they are absent
-    entirely when the call used prepost=False, and code accessing them
-    would raise KeyError.
+    `pre_*`/`post_*` columns are ignored: they can be degenerate and are
+    absent entirely when the call used prepost=False.
     """
     if periods is None or periods.empty:
         return {}
@@ -266,15 +235,8 @@ def is_extended_bar(
 ) -> bool:
     """Whether a bar falls outside the regular session.
 
-    Four steps:
-      1. interval is not intraday (1wk/1mo)   -> False (concept is meaningless)
-      2. that day's session bounds are unknown -> False (safe default)
-      3. ts < start or ts >= end                -> True
-      4. otherwise                              -> False
-
-    Step 2's default is deliberately False: counting an unknown bar as
-    extended would hide it from v_price_bars_regular; the opposite mistake
-    (counting extended as regular) is more visible and gets caught in audit.
+    Unknown session bounds default to False: a bar wrongly marked extended
+    would vanish from v_price_bars_regular; the opposite mistake is auditable.
     """
     if interval not in INTRADAY_INTERVALS:
         return False
@@ -361,13 +323,8 @@ def normalize_bars(raw: BarPayload, symbol: str) -> NormalizedResult:
 def _gap_writes(raw: BarPayload, symbol: str) -> list[TableWrite]:
     """bar_gaps rows: loss record, retry record, and retry closure.
 
-    Three sources, one table:
-      retention_expired  computed by the planner, data permanently lost
-      fetch_failed        a slice failed; retried next run if still in window
-      resolved_at         a successful slice closes an open gap inside it
-
-    Without the last case, bar_gaps would be a one-way list: a gap written
-    once would stay open forever and be re-fetched uselessly every run.
+    A successful slice must close open gaps inside it, or a gap once
+    written is re-fetched on every run.
     """
     now = datetime.now(UTC)
     rows: list[dict[str, Any]] = []
@@ -420,9 +377,8 @@ def _gap_writes(raw: BarPayload, symbol: str) -> list[TableWrite]:
 def _resolve_writes(raw: BarPayload, symbol: str, now: datetime) -> list[TableWrite]:
     """Closes open gaps that fall inside successfully fetched slices.
 
-    A targeted upsert, not `replace_scope`: scope deletion would be wrong
-    here, since it would delete the same symbol's open gaps sitting in
-    other ranges.
+    A targeted upsert, not `replace_scope`, which would delete the symbol's
+    open gaps in other ranges.
     """
     if not raw.fetched_windows or not raw.open_gaps:
         return []
@@ -464,12 +420,8 @@ def _resolve_writes(raw: BarPayload, symbol: str, now: datetime) -> list[TableWr
 class IntervalBarDataset(Dataset[BarPayload]):
     """Writes one interval to price_bars. Name: bars_<interval>.
 
-    Writing six classes for six intervals would be six copies of the same
-    body; interval is a sampling parameter instead.
-
-    `name` is therefore an instance attribute rather than a class attribute
-    like in the base class. The Registrable protocol only requires
-    `name: str`, so both are valid and the contract does not narrow.
+    `name` is an instance attribute; the Registrable protocol only requires
+    `name: str`, so the contract does not narrow.
     """
 
     # `produces` is an instance attribute: which table it writes to depends
@@ -477,17 +429,8 @@ class IntervalBarDataset(Dataset[BarPayload]):
     # a class attribute, auditing would report the wrong table and the
     # rescale hook (runner.py) would also fire on daily-or-longer runs.
     produces: tuple[str, ...] = ("price_bars", "bar_gaps")
-    # Just "symbols". Used to be ("symbols", "splits"), which was wrong for
-    # two reasons:
-    #   1. "splits" is a table name, not a dataset name -- the registry
-    #      resolves dependencies by dataset name, so resolution would fail.
-    #   2. Even as a dataset name, SplitsDataset._SeriesDataset.fetch calls
-    #      fetch_history_frame, i.e. a full 1d history() call. Even
-    #      `--datasets bars_1m` would fetch 1d data. The project deliberately
-    #      avoids this: corporate_actions.py has the same reason for not
-    #      declaring `depends_on = ("history",)`.
-    # The rescale hook works by reading the `splits` table, not by dataset
-    # dependency.
+    # Not "splits": that dataset's fetch is a full 1d history() call. The
+    # rescale hook reads the `splits` table, not a dataset dependency.
     depends_on = ("symbols",)
     # Range passes through to the yfinance call -> a real backfill.
     date_range = "api"
@@ -553,12 +496,9 @@ class IntervalBarDataset(Dataset[BarPayload]):
 
         if errors and not frames:
             if all(is_no_data(exc) for exc in errors):
-                # Every slice was answered, and the answer was "nothing
-                # here": a symbol Yahoo holds no bars of at this interval
-                # (measured: dozens of .IS / .KS names every run). That is
-                # an EMPTY result, and recording it as FAILED run after run
-                # hid the real failures in the audit. The windows still go
-                # to bar_gaps as fetch_failed so a later run retries them.
+                # Yahoo holds no bars at this interval: an EMPTY result, not
+                # FAILED. The windows still go to bar_gaps as fetch_failed
+                # so a later run retries them.
                 log.info(
                     "bars: yahoo holds no data",
                     symbol=ctx.symbol,
@@ -604,9 +544,8 @@ class IntervalBarDataset(Dataset[BarPayload]):
             kwargs["period"] = "max"
         else:
             # Localised HERE, not by yfinance: it localises a date string
-            # with the strict default and raises on a day the exchange's
-            # clock skips (measured: 2024-09-08 00:00 does not exist in
-            # America/Santiago, and every 60m fill of that range failed).
+            # with the strict default and raises on a midnight the exchange's
+            # clock skips (DST).
             tz = _ticker_tz(ctx.ticker)
             kwargs["start"] = _local_bound(window[0], tz)
             kwargs["end"] = _local_bound(window[1], tz)

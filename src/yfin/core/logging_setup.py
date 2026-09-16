@@ -1,23 +1,8 @@
 """One log pipeline, two renderings, and the redaction that survives both.
 
-Everything this process logs -- structlog calls, yfinance's stdlib records,
-SQLAlchemy's, uvicorn's -- goes through ONE chain and comes out of ONE
-handler. That is not tidiness. Redaction is a processor, so a record that
-took a different route would be a record nobody redacted, and the one thing
-this codebase must never write is the proxy DSN it is handed in plain text.
-
-The plumbing is structlog's stdlib recipe: `LoggerFactory` and
-`BoundLogger`, a chain ending in `wrap_for_formatter`, and a root
-`StreamHandler` whose `ProcessorFormatter` carries the same processors as
-`foreign_pre_chain`. A stdlib record and a structlog call meet at the
-formatter and are rendered by the same code.
-
-**Logs stay on stderr.** `yfin config export`, `config schema --json` and
-`scripts/dump_openapi.py` print machine-readable JSON to stdout, and
-logging is configured before they run -- a log line on stdout would corrupt
-them. Alloy's `loki.source.docker` reads both streams and labels them, so
-routing to stderr loses nothing.
-"""
+Every record, structlog or stdlib, goes through ONE chain and ONE handler:
+redaction is a processor, so a record on another route would be unredacted.
+Logs stay on stderr because several commands print machine-readable JSON to stdout."""
 
 from __future__ import annotations
 
@@ -51,14 +36,8 @@ def _resolve_format(fmt: str) -> str:
 def configure_logging(level: str = "INFO", fmt: str = "", service: str = "") -> None:
     """Installs the chain. Idempotent, and safe to call again with new values.
 
-    Called at every entry point, and more than once in a process: a CLI
-    command configures, and so does `create_app`. Reconfiguring has to
-    replace the handler rather than add a second one, or every line would
-    appear twice.
-
-    `service` is what a dashboard filters by, so a subprocess passes its
-    own: a shard is `sync`, not the scheduler that started it.
-    """
+    Called more than once per process, so it replaces the handler rather than
+    adding a second one. `service` is what a dashboard filters by."""
     global _service  # noqa: PLW0603 - one service name per process, by design
     _service = service or _service
 
@@ -104,11 +83,8 @@ def configure_logging(level: str = "INFO", fmt: str = "", service: str = "") -> 
 def _shared_processors() -> list[Any]:
     """The chain both structlog and stdlib records run through.
 
-    Order matters in two places. Redaction comes FIRST, before anything can
-    copy a value somewhere the later processors do not look. And
-    `_add_trace_context` comes last, after the exception has been rendered,
-    so a line carrying a traceback still carries the trace it belongs to.
-    """
+    Redaction comes FIRST, before anything can copy a value where later
+    processors do not look; `_add_trace_context` last, after the exception."""
     return [
         structlog.contextvars.merge_contextvars,
         redact_secrets,
@@ -125,19 +101,9 @@ def _shared_processors() -> list[Any]:
 def _rendering(fmt: str) -> list[Any]:
     """How a line is turned into text, and how a traceback is turned with it.
 
-    The exception handling lives here rather than in the shared chain
-    because the two renderers want it in different shapes: `ConsoleRenderer`
-    formats `exc_info` itself, and `JSONRenderer` needs it already turned
-    into data. `ProcessorFormatter` has moved `record.exc_info` into the
-    event dict by the time these run, so a stdlib record's traceback is
-    rendered by the same code as a structlog one's.
-
-    `show_locals=False` on both sides, and it is the whole reason this is
-    spelled out. The default serialises every frame local into the
-    traceback -- a `settings` object, a `dsn` string -- and the redaction
-    processors only ever see top-level event keys, so a password in a local
-    would travel to Loki untouched.
-    """
+    Exception handling lives here because the two renderers want it in
+    different shapes. `show_locals=False` on both: the redaction processors
+    only see top-level event keys, so a password in a frame local would leak."""
     if fmt == "json":
         return [
             structlog.processors.ExceptionRenderer(
@@ -167,14 +133,8 @@ def _add_trace_context(
 ) -> MutableMapping[str, Any]:
     """`trace_id` and `span_id` when a span is active; nothing otherwise.
 
-    Nothing, not zeros: an all-zero id is what OpenTelemetry returns for
-    the invalid span, and Grafana's `derivedFields` would happily turn it
-    into a link to a trace that does not exist.
-
-    Imported inside the function because the OTel packages are the `[otel]`
-    extra. Without them this is a no-op and costs one `ImportError` per
-    line -- which is why the miss is remembered.
-    """
+    Nothing, not zeros: Grafana's `derivedFields` would turn the all-zero
+    invalid span id into a link. OTel is the `[otel]` extra, imported lazily."""
     if _otel_missing:
         return event_dict
     try:
@@ -262,22 +222,9 @@ def redact_secrets(
 def bridge_yfinance_logging() -> None:
     """Points yfinance's logger at the root chain. Idempotent.
 
-    Two lines, and both are load-bearing.
-
-    The `NullHandler` is a DECOY. `yf.config.debug.logging = True` runs
-    `_enable_debug_mode()`, which checks whether the logger has a handler
-    and, finding none, installs its own `StreamHandler` -- a second,
-    unredacted route to stderr for exactly the records most likely to carry
-    a DSN. Giving it a handler first makes that check pass without adding
-    an output.
-
-    `propagate = True` is what then carries the record to the root handler,
-    where the shared chain redacts and renders it like everything else.
-    The old bridge set it to False and re-emitted through a structlog call
-    of its own, which meant yfinance's records were formatted by a second
-    code path -- one that could drift from this one, and did not carry
-    `service` or the trace context.
-    """
+    The `NullHandler` is a decoy: yfinance's `_enable_debug_mode()` installs
+    its own unredacted `StreamHandler` when the logger has no handler.
+    `propagate = True` then carries the record to the root handler."""
     yf_logger = logging.getLogger("yfinance")
     if not any(isinstance(h, logging.NullHandler) for h in yf_logger.handlers):
         yf_logger.addHandler(logging.NullHandler())
@@ -288,10 +235,7 @@ def bind_shard_context(run_id: int, shard_index: int, proxy_label: str | None) -
     """Called at the start of a worker thread.
 
     structlog.contextvars values are not copied into ThreadPoolExecutor
-    workers (the executor doesn't use copy_context), and fetch/normalize
-    plus yfinance's own logs are produced in exactly those threads, so the
-    context is bound again in each thread.
-    """
+    workers, so the context is bound again in each thread."""
     structlog.contextvars.bind_contextvars(
         run_id=run_id, shard=shard_index, proxy=proxy_label or "direct"
     )

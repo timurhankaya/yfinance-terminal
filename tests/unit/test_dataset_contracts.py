@@ -1,18 +1,6 @@
-"""Every dataset declares what its write policy needs.
-
-A write policy is a base class with annotated attributes and no values:
-`SnapshotWrite` needs `snapshot_table`, `history_table` and
-`key_columns`; `HashGatedDataset` needs `gate_key_columns`. A dataset
-that forgets one raises `AttributeError` at the FIRST WRITE -- which is
-after the Yahoo call has been paid for, in production, on a schedule
-nobody is watching.
-
-The two snapshot bases used to be two classes with two copies of the
-same three declarations, and the copies had drifted: one gave
-`key_columns` a default and the other did not, so the same omission was
-harmless on one side and fatal on the other. The default is gone and
-this is what replaces it.
-"""
+"""Every dataset declares what its write policy needs. The policies annotate attributes
+without values, so a dataset that forgets one raises `AttributeError` at the first write,
+after the Yahoo call has been paid for."""
 
 from __future__ import annotations
 
@@ -30,12 +18,8 @@ ALL = [
 
 
 def _required(dataset: object) -> set[str]:
-    """Attributes the dataset's bases annotate but never assign.
-
-    Read from the class hierarchy rather than from a list kept here: a
-    policy that grows a fourth attribute would otherwise be checked
-    everywhere except in the test written to check it.
-    """
+    """Attributes the dataset's bases annotate but never assign, read from the hierarchy so
+    a policy that grows a fourth attribute is covered here too."""
     needed: set[str] = set()
     for klass in type(dataset).__mro__:
         for name, _ in getattr(klass, "__annotations__", {}).items():

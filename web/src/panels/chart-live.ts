@@ -1,9 +1,6 @@
-// The live bar: what a chart shows between two REST loads.
-//
-// Folding each tick into a running candle, rather than recomputing the
-// last bar from the newest tick alone, is what makes the high and low
-// honest -- a bar that spiked to 233 and came back to 232 has to keep
-// the 233.
+// The live bar: what a chart shows between two REST loads. Each tick is
+// folded into a running candle rather than recomputed from the newest
+// tick alone, so the high and low survive.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuote } from "../live/hooks";
 import { BucketMode, applyTick } from "./chart-data";
@@ -13,12 +10,10 @@ export interface LiveSeries {
   /** The archive's bars with the live bar folded in. */
   candles: Candle[];
   /** The open time of the newest bucket a tick opened beyond the
-   *  archive's last bar, or null while no tick has. A caller refetches
-   *  when this moves to a LATER bucket: the pipeline writes that bar
-   *  within a batch or two, and the REST copy is the one with volume.
-   *  A bucket time, not a counter: after the refetch the same opening
-   *  tick folds onto the new base and opens the same bucket again, and a
-   *  counter would count that as a second roll -- a refetch loop. */
+   *  archive's last bar, or null while no tick has; a caller refetches
+   *  when it moves to a LATER bucket. A bucket time, not a counter: after
+   *  the refetch the same tick opens the same bucket again, and a counter
+   *  would count that as a second roll -- a refetch loop. */
   rolledAt: number | null;
 }
 

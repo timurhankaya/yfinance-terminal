@@ -1,12 +1,8 @@
 """`GET /ui/api/symbols/{symbol}/news`, end to end against a real schema.
 
-Copies the `seeded`/`client` pattern from `test_api_read_endpoints.py`,
-with the differences the UI route requires: `ApiSettings` carries
-`ui_enabled=True` (otherwise `create_app` never installs the UI and the
-route is a plain 404); `pages.default_dist_dir` is monkeypatched to an
-absent directory (no build is needed to exercise the data routes); and
-there is no credential at all -- the terminal is public.
-"""
+`ApiSettings` needs `ui_enabled=True` or `create_app` never installs the UI;
+`pages.default_dist_dir` points at an absent directory so no build is needed;
+there is no credential because the terminal is public."""
 
 from __future__ import annotations
 

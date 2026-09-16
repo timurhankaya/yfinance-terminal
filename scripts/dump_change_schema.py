@@ -1,24 +1,8 @@
-"""Writes the change-event schema, or checks the committed one is current.
+"""Writes the change-event schema, or checks the committed one is current (--check).
 
-A consumer of `yfin.changes.*` has to know what a row of each table looks
-like, and the envelope's `row` IS the table row -- so the schema of the
-event stream is the schema of 64 tables. Generating that from the models
-and committing the result turns every change to any of them into a
-reviewable diff, the same trick `openapi.json` plays for the read API.
-
-The churn is accepted deliberately: adding a column to a table changes this
-document, and that is correct, because it changes what consumers receive.
-Adding a field is compatible -- consumers ignore what they do not know --
-and removing or renaming one bumps the envelope version.
-
-Columns the API hides (`ApiExposure.hidden`) are still here. The event is
-the TABLE, not the resource: a column withheld from a REST response is
-still a column that changed.
-
-Usage:
-    python scripts/dump_change_schema.py            # write the document
-    python scripts/dump_change_schema.py --check    # exit 1 if it is stale
-"""
+The envelope's `row` IS the table row, so the schema is generated from the
+models and committed to make every change a reviewable diff. Columns the API
+hides are still here: the event is the TABLE, not the resource."""
 
 from __future__ import annotations
 

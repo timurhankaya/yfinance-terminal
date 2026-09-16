@@ -1,14 +1,8 @@
-// The sparkline column, shared by the three panels that draw one.
-//
-// The COLUMN is written three times, because the three panels write
-// their tables three ways and this spec does not rewrite them (`WLA`
-// hand-writes its `<tr>`, `EQS` builds a `Column[]`, the dataset panels
-// go through `DatasetTable`). What is NOT written three times is the
-// fetch: one request for the whole page, keyed by the symbol list, and
-// a lookup per row.
-//
-// It lives here rather than in `viz/` because it does what `viz/` may
-// not: it calls the API. The primitives stay pure.
+// The sparkline column, shared by the three panels that draw one. The
+// COLUMN is written per panel, since each writes its table its own way;
+// the fetch is not: one request for the whole page, keyed by the symbol
+// list. Here rather than in `viz/` because it calls the API, and the
+// primitives stay pure.
 import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { SPARKLINE_MAX_SYMBOLS, SPARKLINE_POINTS, getSparklines } from "../api/client";
@@ -37,13 +31,9 @@ export interface SparkData {
 
 const EMPTY: SparkData = { bySymbol: new Map(), points: SPARKLINE_POINTS, loading: false, failed: false };
 
-/** One request for a whole page of rows.
- *
- *  The key is the symbol list and the point count, so retyping a
- *  watchlist re-queries and a re-render does not. Above the route's cap
- *  the list is cut here rather than refused: the rows are already on
- *  screen, and a 422 would take the whole column away from the 200 rows
- *  that could have had it. */
+/** One request for a whole page of rows, keyed by the symbol list and
+ *  point count. Above the route's cap the list is cut rather than
+ *  refused: a 422 would take the column away from every row. */
 export function useSparklines(symbols: string[], points: number = SPARKLINE_POINTS): SparkData {
   const wanted = symbols.slice(0, SPARKLINE_MAX_SYMBOLS);
   const key = `${wanted.join(",")}:${points}`;

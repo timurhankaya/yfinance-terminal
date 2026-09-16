@@ -1,10 +1,7 @@
 """Who creates the collector, and what happens when a transaction is replayed.
 
-The context travels on the payload because only the runner knows the run.
-The collector is built per ATTEMPT, and that distinction is the whole point
-of this file: `persist_with_retry` replays the block on a lock conflict, and
-a collector shared across attempts would publish the rolled-back attempt's
-events alongside the committed one's.
+The collector is built per ATTEMPT: `persist_with_retry` replays on a lock
+conflict, and a shared collector would publish the rolled-back attempt's events.
 """
 
 from __future__ import annotations
@@ -128,13 +125,8 @@ class TestRetry:
     def test_a_replayed_transaction_publishes_one_set(
         self, db_session: Session, symbol: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The reason the collector is built per attempt.
-
-        The first attempt writes its rows and its events, then fails; the
-        rollback takes both. A collector shared across attempts would carry
-        the first attempt's events into the second and publish a write that
-        never committed.
-        """
+        """A collector shared across attempts would carry the first, rolled-back
+        attempt's events into the second and publish a write that never committed."""
         factory = sessionmaker(
             bind=db_session.connection(),
             expire_on_commit=False,

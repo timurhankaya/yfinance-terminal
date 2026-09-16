@@ -1,9 +1,6 @@
 """Snapshot tables: ticker_info(_history), ticker_fast_info(_history),
-history_metadata.
-
-Defined as Core Tables: the column set is generated from the single
-source of truth in fields.py, and upsert already uses a Core insert.
-"""
+history_metadata. Defined as Core Tables: the column set is generated
+from fields.py, and upsert already uses a Core insert."""
 
 from __future__ import annotations
 

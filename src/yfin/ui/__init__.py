@@ -1,9 +1,5 @@
 """The web terminal: a browser UI served by the API process under /ui.
-
-Nothing here is imported unless `YFAPI_UI_ENABLED` is on -- `create_app`
-guards the import -- so a deployment that has not opted in carries no
-UI code path at all.
-"""
+Imported only when `YFAPI_UI_ENABLED` is on; `create_app` guards it."""
 
 from __future__ import annotations
 
@@ -18,27 +14,17 @@ log = get_logger(__name__)
 
 
 def install(app: FastAPI, settings: ApiSettings, dist_dir: Path | None = None) -> None:
-    """Mounts the UI. Order matters: the terminal's own /ui/api routes
-    first, then the `/v1` mirror mounted at /ui/api (it answers
-    /ui/api/v1/* and is the 404 for every other /ui/api path), then the
-    pages. Starlette matches in registration order, so the mount must
-    come after the routes it would otherwise swallow, and before the pages
-    so /ui/api/* can never fall through to index.html.
-
-    `/ui/ws` sits outside all of that: it is a different scope type, so
-    no HTTP route can shadow it and the `RequestBrake` below never sees
-    it (a WebSocket does not pass through BaseHTTPMiddleware). Its guards
-    are its own: the Origin check in `live.py`, plus the per-address and
-    per-process connection limits there, which are what the brake would
-    otherwise have provided."""
+    """Mounts the UI. Registration order matters: the terminal's own /ui/api
+    routes, then the `/v1` mirror mount (which would swallow them), then
+    the pages, so /ui/api/* never falls through to index.html. `/ui/ws` is
+    a WebSocket scope: `RequestBrake` never sees it, so `live.py` carries
+    its own Origin check and connection limits."""
     from yfin.core.config import get_settings
     from yfin.ui import data, live, pages, public
 
-    # Warmed here, at startup, and not for the value. `get_settings()`
-    # lazily opens a database connection and reads the `settings` table
-    # under a lock; `/ui/ws` calls it from an `async` handler, so the
-    # FIRST handshake after startup would otherwise run that blocking
-    # read on the event loop and stall every other request in the worker.
+    # Warmed at startup: `get_settings()` lazily does a blocking database
+    # read, and `/ui/ws` calls it from an `async` handler, so the first
+    # handshake would otherwise stall the event loop.
     get_settings()
 
     app.include_router(data.router)

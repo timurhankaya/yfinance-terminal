@@ -1,14 +1,8 @@
-"""`yfin config` command group.
+"""`yfin config` command group: THIN wrappers over `settings_store`.
 
-Commands are THIN wrappers over `settings_store`. Validation and write logic
-deliberately live there, not here: the future admin panel won't call these
-commands, it will call the same functions. Burying logic here would make the
-panel BYPASS it and fall back to raw SQL.
-
-`list` / `get` / `schema` DON'T CRASH when the DB is unreachable: they print
-a warning and continue with `source=env|default`. A recovery command must
-not become a casualty of the failure it's trying to recover from.
-"""
+The admin panel calls the same store functions, so logic buried here would be
+logic the panel bypasses. `list`/`get`/`schema` don't crash when the DB is
+unreachable: a recovery command must not be a casualty of what it recovers from."""
 
 from __future__ import annotations
 
@@ -31,9 +25,8 @@ if TYPE_CHECKING:
 
 config_app = typer.Typer(help="DB-backed configuration (settings table)", no_args_is_help=True)
 
-# Configuration REJECTION. Using `2` (distinct from a plain command error, 1)
-# lets a CI step tell "invalid setting" apart from "command crashed" (same
-# pattern as PruneDisabledError in cli.py).
+# Configuration REJECTION: distinct from a plain command error (1) so a CI step
+# can tell "invalid setting" apart from "command crashed".
 EXIT_REJECTED = 2
 
 
@@ -87,13 +80,9 @@ def config_list(
 ) -> None:
     """Effective value and source for each DB-managed setting.
 
-    The 10 env-only fields (db_*, yf_proxy_secret_key, log_level,
-    log_format, metrics_port) are NOT
-    LISTED HERE: they can't be managed from the panel. `--changed` asks
-    "is the effective value different from the default", not "does a row
-    exist" -- that's the question an operator actually has; use
-    `--source db` for row existence.
-    """
+    Env-only fields are not listed: they can't be managed from the panel.
+    `--changed` asks "is the effective value different from the default", not
+    "does a row exist"; use `--source db` for row existence."""
     from yfin.storage.settings_store import Source
 
     if group is not None and group not in SETTING_GROUPS:
@@ -218,12 +207,8 @@ def config_seed(
     """Apply `config/settings.seed.json`.
 
     Scope is ONLY the keys in the JSON; even `--force` never touches a row
-    OUTSIDE the JSON -- otherwise it would silently erase every override an
-    operator made from the panel.
-
-    `--dry-run` returns EXIT CODE 1 if any row is missing, so it can be used
-    as a "is the seed up to date" step in CI.
-    """
+    outside it, which would erase operator overrides. `--dry-run` exits 1 if
+    any row is missing, so CI can use it as an "is the seed up to date" step."""
     from yfin.storage.settings_store import (
         SEED_PATH,
         SettingRejected,
@@ -281,12 +266,9 @@ def config_export(
 ) -> None:
     """Always prints JSON.
 
-    By default includes only keys WITH A DB ROW -- the natural inverse of
-    the seed file. `--all` also includes model defaults; that output must
-    NOT BE WRITTEN to `config/settings.seed.json`: doing so would sever the
-    link between a future default change and this deployment. Keep it out
-    of the seed repo.
-    """
+    By default includes only keys WITH A DB ROW, the inverse of the seed file.
+    `--all` adds model defaults; that output must NOT be written to
+    `config/settings.seed.json`, or a future default change would not reach here."""
     from yfin.storage.settings_store import export_values
 
     states = _states(bootstrap_settings())

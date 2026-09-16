@@ -47,9 +47,8 @@ def _ctx(ticker: _Ticker, start: date, end: date) -> SyncContext:
 
 
 def test_a_symbol_yahoo_holds_no_bars_of_is_empty_not_failed() -> None:
-    """Measured on the 2026-09-07 run: 88 of 355 5m/15m items failed with
-    YFPricesMissingError for names Yahoo simply has no intraday data for.
-    Every slice answered "nothing here" is an empty result."""
+    """YFPricesMissingError for a name Yahoo has no intraday data for is
+    an empty result, not a failure."""
     missing = yf_exceptions.YFPricesMissingError(
         "AKGRT.IS", "15m data not available for startTime=1 and endTime=2"
     )

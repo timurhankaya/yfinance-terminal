@@ -1,16 +1,6 @@
-"""The monitoring stack's configuration, checked without starting it.
-
-None of this is Python, and all of it fails at 3am if it is wrong. A
-dashboard panel referring to a metric nobody exports is a blank graph an
-operator does not notice until they need it; an alert whose expression
-names a series that does not exist never fires, which is indistinguishable
-from nothing being wrong.
-
-So the two things this file checks are the two a YAML linter cannot: that
-every metric named in a dashboard or an alert is DECLARED in
-`core/metrics.py`, and that the wiring between the files agrees with
-itself.
-"""
+"""The monitoring stack's configuration, checked without starting it: every metric named in
+a dashboard or an alert is declared in `core/metrics.py`, and the wiring between the files
+agrees with itself. A YAML linter checks neither, and a missing series never fires."""
 
 from __future__ import annotations
 
@@ -69,12 +59,8 @@ def _declared() -> set[str]:
 
 
 def _series_in(expr: str) -> set[str]:
-    """Metric names an expression reads.
-
-    A word-shaped token that is not a PromQL function, a label matcher or a
-    number. Deliberately crude -- it over-collects rather than under, so a
-    real metric name is never missed, and the known non-metrics are listed
-    below rather than parsed around.
+    """Metric names an expression reads: word-shaped tokens that are not a PromQL function,
+    label matcher or number. Deliberately over-collects; known non-metrics are listed below.
     """
     functions = {
         "sum", "rate", "increase", "max", "min", "avg", "count", "by", "le",

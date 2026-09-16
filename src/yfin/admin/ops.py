@@ -1,9 +1,7 @@
-"""What the admin page does to the database, as plain functions.
+"""Database operations behind the admin page, as plain functions.
 
-Settings go through `yfin.storage.settings_store`, the same validated
-path `yfin config set` takes. Proxies and screens mirror `yfin proxy` and
-the `screens.is_enabled` convention. Nothing here renders HTML; nothing
-in the router touches SQLAlchemy.
+Settings go through `yfin.storage.settings_store`, the same validated path
+`yfin config set` takes. Nothing here renders HTML.
 """
 
 from __future__ import annotations

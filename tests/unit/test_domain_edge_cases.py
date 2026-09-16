@@ -60,7 +60,7 @@ def test_gb_region_has_no_etfs() -> None:
 
 
 def test_gb_companies_do_not_overlap_us() -> None:
-    """Data-backed proof of why the 50% probe threshold is safe."""
+    """GB and US company sets are disjoint, which the probe threshold relies on."""
     us = {
         r["symbol"]
         for r in _rows(SECTOR_RANKINGS, "sector", "technology", "domain_top_companies")

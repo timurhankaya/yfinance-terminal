@@ -1,12 +1,5 @@
-"""`scope="variant"` -- a third outer loop.
-
-This file does two things:
-1. Show the new `variant` branch works.
-2. Prove the existing `region` / `global` branches stay exactly the same.
-
-The second matters more than the first: six market datasets run in
-production, and this change must not touch their behavior.
-"""
+"""`scope="variant"`, a third outer loop. The `region`/`global` branches must stay exactly
+the same."""
 
 from __future__ import annotations
 
@@ -27,24 +20,15 @@ def _ctx() -> MarketContext:
 
 class TestClone:
     def test_for_variant_sets_variant_and_leaves_region_none(self) -> None:
-        """A screen is not a region.
-
-        If it were written into `region`, `sync_run_items.region` would
-        lose its regional meaning, and a "which region did this run in"
-        query would return screen names instead.
-        """
+        """A screen is not a region: written into `region`, `sync_run_items.region` would
+        lose its regional meaning."""
         clone = _ctx().for_variant("day_gainers")
         assert clone.variant == "day_gainers"
         assert clone.region is None
 
     def test_for_region_does_not_drop_variant(self) -> None:
-        """Regression guard: `for_region` used to enumerate fields by hand.
-
-        Had `variant` been added without adding it there too, it would
-        silently drop on the region branch. `_clone` is now the single
-        cloning point, making this structurally impossible -- this test
-        locks that structure in.
-        """
+        """`_clone` is the single cloning point, so `variant` cannot silently drop on the
+        region branch; this locks that structure in."""
         base = _ctx().for_variant("tr_equity")
         assert base.for_region("US").variant == "tr_equity"
 

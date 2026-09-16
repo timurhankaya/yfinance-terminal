@@ -1,13 +1,8 @@
 """Fund content tables.
 
 Hybrid schema: fields with a fixed shape get typed columns; percentages
-with variable keys go to EAV. Measured basis: an equity fund has 11
-sectors + 1 rating, a bond fund has 0 sectors + 9 ratings (BND, TLT,
-AGG) -- no fixed column set covers both fund types.
-
-`asset_classes` is not EAV: its 6 keys measured fixed across all 10
-sample funds, so it is a typed column set on fund_profile.
-"""
+with variable keys (equity vs. bond funds report different sector and
+rating sets) go to EAV. `asset_classes` has fixed keys, so it is typed."""
 
 from __future__ import annotations
 
@@ -68,9 +63,7 @@ class FundProfile(Base):
     quote_type: Mapped[str] = mapped_column(AsciiKeyType(16), nullable=False)
     category_name: Mapped[str | None] = mapped_column(String(64, collation="C"))
     family: Mapped[str | None] = mapped_column(String(128, collation="C"))
-    # Measured None for VFIAX/FCNTX.
     legal_type: Mapped[str | None] = mapped_column(String(64, collation="C"))
-    # Measured max 555 chars (ARKK).
     description: Mapped[str | None] = mapped_column(Text)
     # fund_operations column 0 -- its name IS the symbol, read by position.
     expense_ratio: Mapped[Decimal | None] = mapped_column(PriceType())
@@ -79,7 +72,7 @@ class FundProfile(Base):
     expense_ratio_cat: Mapped[Decimal | None] = mapped_column(PriceType())
     holdings_turnover_cat: Mapped[Decimal | None] = mapped_column(PriceType())
     total_net_assets_cat: Mapped[Decimal | None] = mapped_column(PriceType())
-    # asset_classes: same 6 keys in all 10 sample funds.
+    # asset_classes: a fixed set of six keys.
     cash_position: Mapped[Decimal | None] = mapped_column(PriceType())
     stock_position: Mapped[Decimal | None] = mapped_column(PriceType())
     bond_position: Mapped[Decimal | None] = mapped_column(PriceType())
@@ -87,7 +80,7 @@ class FundProfile(Base):
     convertible_position: Mapped[Decimal | None] = mapped_column(PriceType())
     other_position: Mapped[Decimal | None] = mapped_column(PriceType())
     # Canonical body of eight sub-structures; preserves what would be lost
-    # reducing to EAV. Measured row size ~1325 bytes (2% of budget).
+    # reducing to EAV.
     raw_json: Mapped[str] = mapped_column(RawJsonType(), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
@@ -95,13 +88,8 @@ class FundProfile(Base):
 class FundMetric(Base):
     """equity_holdings + bond_holdings averages.
 
-    `section` is part of the PK. Without it, the same `metric` name
-    appearing in both sections would fail to write the second row:
-      uniqueness violation: 'SPY-2026-09-04-price_to_earnings'
-    Today's 9 names do not collide, but that is only Yahoo's naming
-    choice -- the sibling table fund_weightings already puts `category`
-    in its PK for the same reason.
-    """
+    `section` is part of the PK: the same `metric` name may appear in
+    both sections, and nothing but Yahoo's naming keeps them distinct."""
 
     __tablename__ = "fund_metrics"
     __table_args__ = (
@@ -129,7 +117,6 @@ class FundWeighting(Base):
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     category: Mapped[WeightCategory] = mapped_column(WEIGHT_CATEGORY_ENUM, primary_key=True)
     item_key: Mapped[str] = mapped_column(AsciiKeyType(32), primary_key=True)
-    # Measured populated in all 10 sample funds.
     weight: Mapped[Decimal] = mapped_column(PriceType(), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
@@ -138,13 +125,8 @@ class FundTopHolding(Base):
     """Fund -> constituent symbol relationship.
 
     `holding_symbol` has no FK: the source returns symbols outside the
-    universe (BRK-B, 2330.TW, 005930.KQ, 0700.HK, even fund symbols like
-    VRTPX, BISXX). An FK would roll back a fund's entire row set over one
-    foreign symbol -- same reasoning as news_symbols. `is_known` marks the
-    membership; an explicit index on (holding_symbol) exists because
-    PostgreSQL creates none on its own, and the column is the last
-    component of the PK so it cannot be searched alone.
-    """
+    universe, and an FK would roll back a fund's entire row set over one.
+    `is_known` marks membership; the column is last in the PK, hence its index."""
 
     __tablename__ = "fund_top_holdings"
     __table_args__ = (
@@ -156,11 +138,9 @@ class FundTopHolding(Base):
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     holding_symbol: Mapped[str] = mapped_column(SymbolType(), primary_key=True)
-    # Measured max 51 chars (ARKK).
     holding_name: Mapped[str | None] = mapped_column(KeyTextType(128))
     holding_percent: Mapped[Decimal | None] = mapped_column(PriceType())
-    # Not `rank`: it is a window function in PostgreSQL (and was reserved
-    # in MySQL 8, where the guard originated). Source order is the data
+    # Not `rank`: a window function in PostgreSQL. Source order is the data
     # itself (the "top 10" ranking).
     holding_rank: Mapped[int] = mapped_column(
         SmallInteger,

@@ -1,9 +1,7 @@
 """`yfin market` and `yfin screen` -- market-scoped datasets.
 
-Both groups run through `market_runner` and take the `yfin_market_sync`
-lock; the screener is a market dataset with a variant axis, not a separate
-kind of thing.
-"""
+Both groups run through `market_runner` and take the `yfin_market_sync` lock;
+the screener is a market dataset with a variant axis."""
 
 from __future__ import annotations
 
@@ -147,9 +145,8 @@ def market_sync(
     engine = create_db_engine(settings)
 
     selected = MARKET_DATASETS.resolve(comma_list(datasets))
-    # `_parse_day` gives a meaningful message + exit 1 on an invalid date. A raw
-    # strptime ValueError would fall through to main()'s generic handler and
-    # show the user "unexpected error" -- `sync` already did this correctly.
+    # `parse_day` gives a meaningful message + exit 1 on an invalid date instead
+    # of main()'s generic "unexpected error".
     window_start = parse_day(start, option="--start")
     window_end = parse_day(end, option="--end")
 

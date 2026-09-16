@@ -1,9 +1,7 @@
 """`GET /ui/api/sparklines` against a real schema.
 
-The `seeded`/`client` pattern of `test_ui_news_repo.py`. What only a
-database can answer: that the window is counted in SESSIONS rather than
-calendar days, that the closes come back in date order, and that a symbol
-with no bars is named in `missing` rather than dropped.
+The window is counted in SESSIONS rather than calendar days, the closes come
+back in date order, and a symbol with no bars is named in `missing`.
 """
 
 from __future__ import annotations

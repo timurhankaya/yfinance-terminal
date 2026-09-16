@@ -1,19 +1,8 @@
 """The pipeline's change outbox and its relay cursor.
 
-Sibling of the stream tables' outbox (`models/stream.py`) and deliberately
-not the same table. Two queues, two relays, two advisory locks, two
-offsets: a broker outage on one must not stall the other, and the tick
-outbox's `id` walk is only correct because it has a single writer thread --
-a premise the pipeline cannot make.
-
-That difference is the reason for `xid`. Symbol transactions commit
-concurrently, N shard processes by worker threads, so `id` order is not
-commit order: an `id`-ordered walk would step past the rows of a
-transaction that took its ids early and committed late, and those rows
-exist nowhere else. The relay therefore walks `(xid, id)` and only reads
-rows whose `xid` is below `pg_snapshot_xmin(pg_current_snapshot())`, i.e.
-transactions that have certainly ended.
-"""
+Separate from the stream outbox so a broker outage on one never stalls the
+other. Symbol transactions commit concurrently, so `id` order is not commit
+order; the relay walks `(xid, id)` below `pg_snapshot_xmin(pg_current_snapshot())`."""
 
 from __future__ import annotations
 
@@ -46,15 +35,9 @@ FAMILY_LENGTH = 16
 class PipelineOutbox(Base):
     """One row-level change event, queued inside the writing transaction.
 
-    Atomic with the data by construction: the flush is the last statement
-    before the commit, so a row is in the queue if and only if the write it
-    describes is in the database. A failed commit loses both.
-
-    A hypertable with one-hour chunks, dropped chunk by chunk as the relay
-    publishes them. The design gives it no retention beyond delivery: the
-    read API is how a consumer fetches current state, and this is only how
-    it learns that state moved.
-    """
+    The flush is the last statement before the commit, so a row is queued
+    iff the write it describes is in the database. One-hour chunks, dropped
+    as the relay publishes them: no retention beyond delivery."""
 
     __tablename__ = "pipeline_outbox"
     # `(xid, id)` is the relay's walk order and its cursor, so the index
@@ -96,14 +79,9 @@ class PipelineOutbox(Base):
 class PipelineRelayOffset(Base):
     """How far the pipeline relay has published.
 
-    Its own table rather than a second row in `stream_relay_offset`, so the
-    two relays never contend for one row lock.
-
-    The cursor is the PAIR `(last_published_xid, last_published_id)`. A
-    single `xid` would stall the relay on any transaction larger than one
-    batch: it could neither advance past it nor resume inside it. With the
-    pair, a large transaction is drained across passes.
-    """
+    Its own table so the two relays never contend for one row lock. The
+    cursor is the pair `(last_published_xid, last_published_id)`: a single
+    `xid` could neither advance past nor resume inside a multi-batch txn."""
 
     __tablename__ = "pipeline_relay_offset"
     __table_args__ = (CheckConstraint("id = 1", name="ck_pipeline_relay_offset_id"),)
@@ -121,18 +99,9 @@ class PipelineRelayOffset(Base):
 def changes_timescale_ddl() -> tuple[str, ...]:
     """Hypertable DDL for the change outbox.
 
-    Its own function, next to `timescale_ddl()` and `stream_timescale_ddl()`
-    and for the same reason: the migrations that ran before this table
-    existed call those, and merging would make a past migration fail
-    against a schema where `pipeline_outbox` is not there yet.
-
-    One hour, like `stream_outbox`. This is a queue, not an archive -- the
-    relay drops chunks as it publishes them, so the interval decides how
-    promptly the space comes back. `create_default_indexes => FALSE`
-    because the default DESC index on the time column is absent from
-    `Base.metadata`, and autogenerate would report it as a deletion
-    forever.
-    """
+    Its own function so past migrations stay pinned to the tables they
+    created. One-hour chunks: this is a queue, not an archive. The default
+    DESC index is absent from `Base.metadata`, hence `create_default_indexes => FALSE`."""
     return (
         "SELECT create_hypertable('pipeline_outbox', "
         "by_range('created_at', INTERVAL '1 hour'), "

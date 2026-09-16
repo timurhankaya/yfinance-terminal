@@ -1,14 +1,5 @@
-"""bar_gaps's three flows.
-
-These were noticed during an audit: the table was being written, but only
-for 'retention_expired'. Two flows were missing, and their absence was
-silent:
-
-  * `fetch_failed` was never written -> the planner's open_gaps mechanism
-    was reading from a table that would never fill: dead code.
-  * `resolved_at` was never populated -> a gap, once written, stays open
-    forever and gets refetched for nothing on every run.
-"""
+"""bar_gaps's three flows: `retention_expired`, `fetch_failed` (what the planner's open_gaps
+reads), and `resolved_at` (without it a gap stays open and is refetched every run)."""
 
 from __future__ import annotations
 

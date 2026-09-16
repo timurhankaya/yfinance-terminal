@@ -29,7 +29,7 @@ def _rows(payload: TaxonomyPayload) -> tuple[list[dict], list[dict]]:
 
 
 def test_all_industries_row_is_dropped_by_the_absence_of_key() -> None:
-    """12 of 13 rows have a `key`; that one row has neither `key` nor `symbol`."""
+    """The all-industries row has neither `key` nor `symbol`."""
     data = domain_data("sector", "technology")
     assert len(data["industries"]) == 13
     _, domains = _rows(_payload("technology"))
@@ -39,12 +39,8 @@ def test_all_industries_row_is_dropped_by_the_absence_of_key() -> None:
 
 
 def test_renaming_all_industries_still_drops_it() -> None:
-    """Proof the code does not look at the name.
-
-    yfinance filters via `i.get('name') != 'All Industries'`, a
-    language-dependent rule. If Yahoo changes the label, matching on the
-    name would try to insert row 13 into the PK with `key=NULL`.
-    """
+    """The code does not look at the name: yfinance's `name != 'All Industries'` filter is
+    language-dependent, and matching on it would insert a row with `key=NULL`."""
     data = copy.deepcopy(domain_data("sector", "technology"))
     row = next(r for r in data["industries"] if "key" not in r)
     assert row["name"] == "All Industries"

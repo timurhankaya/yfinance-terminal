@@ -1,11 +1,8 @@
 """As-of gate table.
 
-Carries no data of its own: it records, per (symbol, dataset), when the
-content last changed and when it was last verified. The hash lives here
-rather than in the data tables because `funds_data` writes to four
-tables -- copying the hash into each row would create four sources of
-truth for the same question.
-"""
+Records, per (symbol, dataset), when content last changed and was last
+verified. The hash lives here rather than in the data tables because
+`funds_data` writes four tables and must have one source of truth."""
 
 from __future__ import annotations
 

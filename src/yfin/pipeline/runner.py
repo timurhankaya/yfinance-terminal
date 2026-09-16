@@ -53,9 +53,8 @@ def resolve_symbol(
 ) -> tuple[NormalizedResult | None, str | None, ErrorKind | None]:
     """RESOLVE step: fast_info + history_metadata -> symbols row.
 
-    Returns (None, error) on failure and all of the symbol's datasets are
-    skipped. normalize() is wrapped too: FastInfo is lazy and raises
-    KeyError on attribute access for an invalid symbol.
+    normalize() is inside the boundary too: FastInfo is lazy and raises on
+    attribute access for an invalid symbol.
     """
     try:
         raw = bootstrap.fetch(ctx)
@@ -360,14 +359,10 @@ def run_sync(
     end: date | None = None,
     selector: str | None = None,
 ) -> RunTally:
-    """Single-shard, proxy-less run (backward-compatible entry point).
+    """Single-shard, proxy-less run; see `shard.run_sharded` for multi-shard.
 
-    The advisory lock is acquired here, not in the CLI layer, so that two
-    concurrent runs can't write the same rows even when run_sync is
-    called directly (library use, live tests). `acquire_lock` is turned
-    off only for a caller that already holds the lock externally.
-
-    For multi-shard runs, see `yfin.pipeline.shard.run_sharded`.
+    The advisory lock is taken here, not in the CLI, so direct callers are
+    serialized too. `acquire_lock=False` is for a caller already holding it.
     """
     cfg = settings or get_settings()
     if acquire_lock:
@@ -384,12 +379,8 @@ def run_sync(
                 selector=selector,
             )
 
-    # Not the shard's job here: this entry point is used directly by
-    # `yfin discover` and by library callers, and without it yfinance keeps
-    # its own default of `hide_exceptions=True`. An internal failure then
-    # comes back as an empty result, the audit records EMPTY rather than
-    # FAILED, and the run exits 0 -- "no data" and "the request blew up"
-    # become indistinguishable, in the direction that reports success.
+    # Direct callers get no shard, so yfinance would keep `hide_exceptions=True`
+    # and a blown-up request would be audited as EMPTY instead of FAILED.
     configure_yfinance(settings=cfg)
 
     factory = session_factory(engine)

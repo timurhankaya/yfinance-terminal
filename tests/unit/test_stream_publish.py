@@ -1,11 +1,6 @@
-"""The tick wire shape and the fan-out that is allowed to fail.
-
-Two things are covered here and nowhere else: that a tick body says the
-same thing whether it came from the writer's row dict or from a
-`live_quotes` row (a `snap` that disagreed with the ticks after it draws
-a jump on every chart at subscribe time), and that a Redis that is down
-costs a counter and one log line rather than the archive.
-"""
+"""The tick wire shape and the fan-out that is allowed to fail: a tick body says the same
+thing from the writer's row dict or a `live_quotes` row (or the `snap` draws a jump on every
+chart at subscribe time), and a Redis that is down costs a counter, not the archive."""
 
 from __future__ import annotations
 
@@ -92,14 +87,9 @@ def counters() -> Any:
 
 
 def _events(logs: list[dict[str, Any]], fragment: str) -> int:
-    """How many captured log events carried `fragment`.
-
-    `structlog.testing.capture_logs` rather than `capsys` or `caplog`:
-    the chain renders to the stream it was configured with, and by the
-    time the whole suite has run that is not the one pytest is capturing.
-    This intercepts before any renderer, so it holds whatever the process
-    is configured for.
-    """
+    """How many captured log events carried `fragment`. `structlog.testing.capture_logs`
+    rather than `capsys`/`caplog`: the chain renders to the stream it was configured with,
+    which by now is not the one pytest captures; this intercepts before any renderer."""
     return sum(fragment in str(entry.get("event", "")) for entry in logs)
 
 

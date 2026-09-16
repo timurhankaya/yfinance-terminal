@@ -1,11 +1,7 @@
 """Common base for snapshot datasets.
 
-The snapshot table updates its row; the _history table adds a new row ONLY
-if content_hash changed. When unchanged, that's a 'skipped', not an error.
-
-The compared table (snapshot) and the written table (_history) are
-DIFFERENT, so "compare first, then write" is safe. For a hash gate that
-writes to the same table, use `HashGatedDataset` instead.
+The snapshot table updates its row; _history adds a row only if content_hash
+changed (else 'skipped'). A gate on the written table itself is `HashGatedDataset`.
 """
 
 from __future__ import annotations
@@ -21,10 +17,8 @@ from yfin.storage.contracts import RowWriter, SnapshotWriter, TableWrite, WriteS
 class SnapshotSpec(Protocol):
     """What a snapshot dataset declares about where its rows go.
 
-    A Protocol rather than a base class because the two snapshot
-    hierarchies share no ancestor -- `SnapshotDataset` sits under
-    `Dataset[RawT]`, `SnapshotGlobalDataset` under `GlobalDataset[RawT]` --
-    which is the same reason `snapshot_upsert` below is a free function.
+    A Protocol because the symbol and market snapshot hierarchies share
+    no ancestor.
     """
 
     # Read-only properties, not plain attributes: a mutable Protocol member
@@ -51,22 +45,8 @@ def snapshot_writes(
 ) -> list[TableWrite]:
     """The snapshot write and the history write, from what the class DECLARES.
 
-    Four datasets built this pair by hand and spelled the table names and
-    key columns out again as literals -- `info`, `fast_info`,
-    `market_status`, `market_summary` -- even though each had already
-    declared them as class attributes for `snapshot_upsert` to read. That
-    is not merely repetition: `snapshot_upsert` looks the content hash up
-    in `dataset.snapshot_table`, so a literal that drifted from the
-    attribute would have the gate comparing against a table nobody writes,
-    and every row would look new forever.
-
-    The history key is the snapshot key plus `fetched_at` in all four, and
-    that is the rule: the snapshot holds one row per key, the history one
-    row per key per fetch.
-
-    `history_update` defaults to `snapshot_update`; `info` and `fast_info`
-    pass a narrower tuple because `fetched_at` is part of the history PK
-    and must not be in its update list.
+    The history key is the snapshot key plus `fetched_at`. `history_update`
+    defaults to `snapshot_update`; narrow it when `fetched_at` is in the history PK.
     """
     return [
         TableWrite(
@@ -98,9 +78,8 @@ def snapshot_upsert(
 ) -> WriteStats:
     """Snapshot + history write; works keyed on symbol or region.
 
-    `full_refresh` keeps every history row instead of comparing it against
-    the snapshot: the flag exists to repair history that went missing, and
-    the snapshot row it would be compared against is still there.
+    `full_refresh` skips the snapshot comparison so missing history rows
+    can be repaired while the snapshot row still exists.
     """
     stats = WriteStats(skipped=dict(result.skipped))
     history_writes: list[TableWrite] = []
@@ -141,20 +120,8 @@ def snapshot_upsert(
 class SnapshotWrite:
     """The snapshot + history write policy, declared ONCE for both axes.
 
-    A symbol-scoped snapshot (`ticker_info`) and a market-scoped one
-    (`market_status`) differ in what they fetch and in nothing else about
-    how they are written, so they share this rather than each carrying a
-    copy. They used to carry a copy, and the copies had already drifted:
-    one declared a default `key_columns` and the other did not, so the
-    same omission was harmless on one side and an AttributeError on the
-    other -- raised at the first write, which is after the Yahoo call has
-    been paid for.
-
-    `key_columns` has NO default here on purpose. ("symbol",) is right
-    for three of the five and wrong for the other two, and a default that
-    is right most of the time is how a market dataset ends up keyed by a
-    column it does not have. `tests/unit/test_dataset_contracts.py`
-    checks that every registered snapshot dataset declares all three.
+    `key_columns` has no default on purpose: a market dataset must not end
+    up keyed by a `symbol` column it does not have.
     """
 
     #: The table holding one row per key: what the gate compares against.

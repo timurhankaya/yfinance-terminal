@@ -1,9 +1,7 @@
 """The run's audit trail: sync_runs, sync_run_items, and the exit code.
 
-Every (symbol x dataset x table) cell that a run touches leaves a row
-here, and the run's outcome is computed from those rows rather than from
-anything the workers report. That is the whole point: the two could
-diverge, and the database is the side that is allowed to be right.
+The run's outcome is computed from the item rows, never from what the
+workers report, so the two cannot diverge.
 """
 
 from __future__ import annotations
@@ -47,10 +45,8 @@ class ItemRecord:
     rows_skipped: int = 0
     duration_ms: int | None = None
     error: str | None = None
-    # Region axis for domain (sector/industry) cells. Stays NULL for symbol
-    # and market cells: `market_runner` writes region into `symbol` instead,
-    # and that is left as-is deliberately -- changing it would break
-    # existing audit queries.
+    # Region axis for domain cells. NULL for symbol and market cells:
+    # `market_runner` writes region into `symbol`, and audit queries rely on that.
     region: str | None = None
     # The `ErrorKind` behind `error`, when one was classified. `error` is for
     # a human; this is what a dashboard groups by, and grouping by the free
@@ -93,10 +89,8 @@ def record_items(
                 status=status,
                 table_name=table,
                 region=region,
-                # `fetched` is rows pulled for the whole dataset, not per
-                # table. Writing it to every table row would inflate
-                # sync_runs.rows_fetched for multi-table datasets (info: 3
-                # tables, news: 2), so only the first table row gets it.
+                # `fetched` counts the whole dataset, not one table; only the
+                # first table row carries it so sync_runs.rows_fetched is not inflated.
                 rows_fetched=fetched if position == 0 else 0,
                 rows_written=attempted,
                 rows_verified=verified,
@@ -121,16 +115,10 @@ def failed_records(
     region: str | None = None,
     kind: str | None = None,
 ) -> list[ItemRecord]:
-    """One record per table for a failed cell.
+    """One record per table for a failed cell, so audit queries can filter per table.
 
-    A single table_name=NULL row would make audit queries unable to
-    filter per table, so "when did this table last fail" is unanswerable.
-
-    `kind` is the classified `ErrorKind`, or one of the two the classifier
-    never sees: `write` when the transaction failed rather than the fetch,
-    `crash` when the worker itself died. NULL where nothing classified it,
-    which is honest -- a guessed kind would group a failure under a cause
-    nobody established.
+    `kind` is the classified `ErrorKind`, or `write` / `crash`, which the
+    classifier never sees; NULL when nothing classified it.
     """
     dataset = registry.get(dataset_name)
     # Same gap exists on the error path: produces=() -> tuple(()) -> no
@@ -161,9 +149,7 @@ def skipped_records(
 ) -> list[ItemRecord]:
     """One record per table for a cell excluded before running.
 
-    Same per-table-row rule as `failed_records`, differing only in that
-    the status and reason are carried in the `error` field. `status` also
-    covers OUT_OF_SCOPE so a separate function doesn't duplicate the body.
+    `status` also covers OUT_OF_SCOPE; the reason travels in `error`.
     """
     dataset = registry.get(dataset_name)
     tables: tuple[str | None, ...] = (tuple(dataset.produces) if dataset else ()) or (None,)
@@ -181,15 +167,10 @@ def skipped_records(
 
 
 def channel_records(payload: SymbolPayload) -> list[ItemRecord]:
-    """Audit rows for the three channels that never reached the writer.
+    """Audit rows for the channels that never reached the writer.
 
-    `failures` blew up during fetch, `skipped` and `out_of_scope` never
-    hit the network. Both the success and the retry-exhausted path need
-    them: dropping them would leave no row at all for those cells -- not
-    even `failed`, just absence -- and silently mislead "when was this
-    dataset last attempted". Written once so that adding a fourth channel
-    to SymbolPayload cannot be remembered in one place and forgotten in
-    the other.
+    Both the success and the retry-exhausted path must write these, or
+    those cells leave no row at all.
     """
     records: list[ItemRecord] = []
     for dataset_name, error, kind in payload.failures:
@@ -206,9 +187,7 @@ def channel_records(payload: SymbolPayload) -> list[ItemRecord]:
 def _job_run_id() -> int | None:
     """`scheduler_runs.id` from the environment, when a scheduler set it.
 
-    A malformed value is ignored rather than raised on: an operator with a
-    stray `YF_JOB_RUN_ID` in their shell should get a manual run, not a
-    crash on the first line of it.
+    A malformed value yields a manual run rather than a crash.
     """
     raw = os.environ.get(JOB_RUN_ID_VAR)
     if not raw:
@@ -231,16 +210,8 @@ def open_run(
 ) -> int:
     """Opens a sync_runs row and commits it.
 
-    The commit is required: children use a separate connection, and
-    writing an item against an uncommitted run_id would raise an FK
-    violation (23503).
-
-    `job_run_id` is read from the ENVIRONMENT rather than passed in. The
-    scheduler sets `YF_JOB_RUN_ID` on the subprocess it starts, so a
-    scheduled run and the sync it produced become joinable without adding a
-    parameter to `yfin sync` that a person running it by hand would have to
-    know about -- and NULL is then exactly the right value for a manual run,
-    which is the other half of the `kind` split the exporter reports on.
+    Children write items over a separate connection, so an uncommitted
+    run_id would fail the FK. `job_run_id` comes from `YF_JOB_RUN_ID`.
     """
     with factory() as session:
         run = SyncRun(
@@ -260,16 +231,9 @@ def open_run(
         return int(run.id)
 
 
-# PostgreSQL SQLSTATEs. Symbols are spread across shards, so two processes
-# can write the same news / news_symbols row; a single process had no such
-# risk.
-#   40001 serialization_failure
-#   40P01 deadlock_detected
-#
-# 55P03 (lock_not_available) is deliberately not listed: it can't occur on
-# this code path since NOWAIT / SKIP LOCKED are not used. Retrying an
-# unjustified SQLSTATE would silently legitimize the wrong behavior if
-# NOWAIT is ever added.
+# Shards can write the same news / news_symbols row concurrently, so
+# serialization_failure (40001) and deadlock_detected (40P01) are retried.
+# 55P03 is not listed: NOWAIT / SKIP LOCKED are not used on this path.
 _RETRYABLE_SQLSTATES = frozenset({"40001", "40P01"})
 
 
@@ -319,9 +283,7 @@ def record_not_attempted(
 ) -> None:
     """Symbols left unprocessed in the queue.
 
-    Without these rows, those symbols would have no sync_run_items record
-    at all, failed would stay zero, and the run could return 'ok' + exit 0
-    while half the universe was never fetched.
+    Without these rows the run could report 'ok' while symbols were never fetched.
     """
     write_items(
         factory,
@@ -361,10 +323,7 @@ class RunTally:
     def cells(self) -> int:
         """Cells excluding unknown_symbol, not_attempted, and out_of_scope.
 
-        out_of_scope is excluded too: never-attempted cells must not count
-        toward "everything attempted failed". If 4,500 out-of-scope cells
-        counted, EXIT_PARTIAL would return instead of EXIT_ALL_FAILED even
-        if all 500 genuinely attempted cells failed.
+        Never-attempted cells must not count toward "everything attempted failed".
         """
         excluded = {
             ItemStatus.UNKNOWN_SYMBOL.value,
@@ -402,15 +361,10 @@ def finalize_run(
     symbol_count: int,
     dataset_count: int,
 ) -> RunTally:
-    """Computes totals and the exit code from the DB, closes out sync_runs.
+    """Computes totals and the exit code from sync_run_items, closes out sync_runs.
 
-    The summary is not carried to the parent via the result queue: if
-    sync_runs totals came from the queue while sync_run_items reflects
-    what the children actually did, the two could diverge and undermine
-    the "machine-verifiable completeness" guarantee.
-
-    The caller must have joined all children first, or this aggregates
-    over incomplete data.
+    Totals never come from the result queue, so they cannot diverge from
+    what the children wrote. The caller must have joined all children.
     """
     with factory() as session:
         rows = session.execute(
@@ -453,15 +407,10 @@ def finalize_run(
             session.execute(select(func.count()).select_from(resolved_subq)).scalar_one()
         )
 
-        # Reconciliation: a symbol with no row at all in the audit is one a
-        # crashed or timed-out shard pulled off the queue but never
-        # finished. `shard.py` only drains what's still in the queue, so
-        # the symbol a child was holding gets no `sync_run_items` row.
-        # Without counting this gap, aggregation would mistake incomplete
-        # data for complete and return EXIT_OK -- exactly where the
-        # "exit code can never be 0 with an unprocessed symbol" guarantee
-        # would break. symbol_count=0 for market runs, so this branch is a
-        # no-op there.
+        # A symbol with no audit row at all was pulled off the queue by a
+        # shard that crashed or timed out; `shard.py` only drains what is
+        # still queued. Counting the gap keeps the exit code non-zero.
+        # symbol_count=0 for market runs, so this is a no-op there.
         covered = int(
             session.execute(
                 select(func.count(func.distinct(SyncRunItem.symbol))).where(

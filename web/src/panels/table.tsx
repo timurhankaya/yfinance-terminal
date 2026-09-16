@@ -106,17 +106,10 @@ function Links({ row, rules }: { row: Row; rules: LinkRule[] }): ReactElement | 
   );
 }
 
-/** Every field of one row: the ones the grid drew and, more to the
- *  point, the ones it did not.
- *
- *  This is where a wide dataset actually lives now. `screen_quotes` puts
- *  seven of its hundred and six columns in the grid, so the other
- *  ninety-nine are read HERE -- which makes the detail a view of a row
- *  rather than a footnote to it. Same field grid as DES's snapshot
- *  tabs: one pattern for "many small facts about one thing", not two.
- *
- *  Blobs are pulled out of the grid and given the full width below it: a
- *  pretty-printed JSON document in a 240-pixel cell is a column of
+/** Every field of one row, including the ones the grid did not draw --
+ *  this is where a wide dataset actually lives. Same field grid as DES's
+ *  snapshot tabs. Blobs are pulled out of the grid and given the full
+ *  width below it: pretty-printed JSON in a narrow cell is a column of
  *  single characters. */
 export function RowDetail(props: {
   row: Row;
@@ -196,14 +189,10 @@ function detailTitle(row: Row, shown: CatalogColumn[]): string | undefined {
 export interface DatasetTableProps {
   columns: CatalogColumn[];
   rows: Row[];
-  /** The columns the GRID draws, by name and in order. Absent means
-   *  every column the catalogue lists; either way the row detail shows
-   *  all of them.
-   *
-   *  One input, not two: the rule for which columns a dataset shows
-   *  lives in `grid.ts` and the answer arrives here already worked out.
-   *  A table that both took an allow-list and applied a rule of its own
-   *  would be two places to look when a column went missing. */
+  /** The columns the GRID draws, by name and in order; absent means every
+   *  column the catalogue lists. The row detail shows all of them either
+   *  way. The rule lives in `grid.ts` and arrives here worked out, so
+   *  there is one place to look when a column goes missing. */
   grid?: string[];
   /** Newest first: the API sends most datasets newest first already, but
    *  bars and actions come oldest first. */
@@ -224,11 +213,8 @@ export interface DatasetTableProps {
 }
 
 /** Rows containing the text, anywhere in any column the reader can see.
- *
- *  This narrows what is loaded rather than asking the archive for less:
- *  the API filters by column, not by free text, and pretending otherwise
- *  would have a reader believe they had searched the dataset when they
- *  had searched one page of it. `RowFilter` says which it is. */
+ *  This narrows what is loaded, not what the archive returns: the API
+ *  filters by column, not free text. `RowFilter` says which it is. */
 function narrow(rows: Row[], query: string): Row[] {
   const needle = query.trim().toLowerCase();
   if (needle === "") return rows;
@@ -254,12 +240,10 @@ export function DatasetTable(props: DatasetTableProps): ReactElement {
   const toggle = (index: number) => setOpen((current) => (current === index ? null : index));
   const [selected, setSelected] = useListKeys(rows.length, toggle);
   const tableRef = useRef<HTMLDivElement>(null);
-  //: Mount is not a move. The effect below follows j/k, and on the first
-  //: run there has been no j/k -- it simply scrolled row 0 into view. For
-  //: a table at the top of its panel that was a no-op, so it went
-  //: unnoticed until one was put lower down (the officers table inside
-  //: DES's Reference tab), where opening the panel threw the reader past
-  //: everything above it.
+  //: Mount is not a move: the effect below follows j/k, and on the first
+  //: run there has been none. Scrolling row 0 into view on mount throws
+  //: the reader past everything above a table that is not at the top of
+  //: its panel.
   const moved = useRef(false);
 
   useEffect(() => {

@@ -1,10 +1,6 @@
-"""`GET /ui/api/sparklines`: the limits, checked before any query runs.
-
-The route reads up to 200 symbols x 90 sessions in one statement, so its
-own bounds -- not `RequestBrake`, which counts requests -- are what keeps
-one call from being expensive. They are asserted here, without a
-database, because none of them should ever reach one.
-"""
+"""`GET /ui/api/sparklines`: the limits, checked before any query runs. The route reads up
+to 200 symbols x 90 sessions in one statement, so its own bounds, not `RequestBrake`, keep
+one call cheap."""
 
 from __future__ import annotations
 

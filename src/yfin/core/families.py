@@ -1,21 +1,8 @@
 """Data families: the closed set both the dataset side and the API share.
 
-A family is the unit authorisation is expressed in. The API keeps no
-hand-maintained map of dataset -> scope: a dataset that is readable
-declares its family in its `ApiExposure`, and the scope follows from that
-one declaration. Exposure is opt-in and absence fails closed, so a newly
-registered dataset is unreachable rather than reachable under the wrong
-scope -- see `datasets/exposure.py` for why that beats a mandatory
-family on every dataset.
-
-The set is deliberately closed. Adding a family is not free -- it needs a
-migration for the enum type and a decision about what it means
-commercially -- and that friction is the point: it stops "one more
-scope" from happening by accident.
-
-This lives in `core` rather than in `api` because both `yfin.datasets`
-and `yfin.api` import it, and neither may import the other.
-"""
+A family is the unit authorisation is expressed in; a readable dataset declares
+its family in its `ApiExposure` and the scope follows. Adding a family needs a
+migration for the enum type. Lives in `core` because datasets and api both import it."""
 
 from __future__ import annotations
 
@@ -30,12 +17,8 @@ class DataFamily(enum.StrEnum):
     NEWS = "news"
     DISCOVERY = "discovery"  # search, lookup, screener results
     DOMAINS = "domains"  # sector / industry
-    # Option expirations and chains. Not BARS, and the difference is
-    # behavioural rather than taxonomic: membership in that family
-    # routes a table through range change events and `_purge_bars`,
-    # both of which assume a series keyed by an instant. An option
-    # chain is keyed by (expiry, type, contract) and satisfies
-    # neither.
+    # Not BARS: that family routes a table through range change events and
+    # `_purge_bars`, which assume a series keyed by an instant, not a contract.
     DERIVATIVES = "derivatives"  # option expirations and chains
 
 

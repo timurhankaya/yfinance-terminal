@@ -1,9 +1,7 @@
 """The writer against a real PostgreSQL.
 
-What can only be checked here: that the COPY path actually lands rows,
-that the FK filter keeps one stray symbol from destroying a batch, and
-that verification counts what is in the table rather than what the driver
-claimed.
+The COPY path must land rows, the FK filter must keep one stray symbol from
+destroying a batch, and verification must count what is in the table.
 """
 
 from __future__ import annotations
@@ -191,11 +189,8 @@ def test_verification_counts_what_is_in_the_table(
 def test_symbol_filter_finds_a_symbol_added_after_the_refresh(
     factory: sessionmaker[Session], db_session: Session
 ) -> None:
-    """Miss-tolerant on purpose.
-
-    Rejecting on a cache miss would discard every tick of a newly added
-    symbol for a whole TTL window, and the reject sampling could throw
-    away the evidence too.
+    """Miss-tolerant on purpose: rejecting on a cache miss would discard every
+    tick of a newly added symbol for a whole TTL window.
     """
     _seed(db_session, "AAPL")
     symbol_filter = SymbolFilter(factory, ttl_seconds=3600)
@@ -324,11 +319,8 @@ def test_a_newer_tick_moves_the_quote_forward(
 def test_an_older_tick_does_not_roll_the_quote_back(
     writer: StreamWriter, db_session: Session
 ) -> None:
-    """The database half of the guard.
-
-    Out-of-order delivery is normal on a reconnect: the server replays a
-    snapshot. Without the guard the quote would jump backwards in time
-    and disagree with the tick archive it summarises.
+    """Out-of-order delivery is normal on a reconnect (the server replays a
+    snapshot); without the guard the quote would jump backwards in time.
     """
     _seed(db_session, "AAPL")
     writer._supervisor.latest.put(_row("AAPL", TS))
@@ -375,8 +367,7 @@ def test_a_rejected_update_leaves_every_column_alone(
 def test_draining_the_box_means_unchanged_symbols_are_not_rewritten(
     writer: StreamWriter, db_session: Session
 ) -> None:
-    """The quotes upsert was 34% of the write path; skipping idle symbols
-    is the cheapest saving available."""
+    """Idle symbols are skipped: the quotes upsert dominates the write path."""
     _seed(db_session, "AAPL")
     writer._supervisor.latest.put(_row("AAPL"))
     with writer._session_factory() as session:
@@ -401,13 +392,8 @@ def test_quotes_skip_unknown_symbols(writer: StreamWriter, db_session: Session) 
 def test_verification_is_bounded_to_the_batch_time_range(
     writer: StreamWriter, db_session: Session
 ) -> None:
-    """The range clause is what keeps verification from scanning the whole
-    archive.
-
-    TimescaleDB cannot infer a time bound from a row-constructor IN, so
-    without it every batch touches every chunk -- measured at 200 chunks
-    scanned vs 2, 21.5ms vs 2.2ms. This test pins the clause; the cost
-    itself is in docs/measurements/websocket.md.
+    """TimescaleDB cannot infer a time bound from a row-constructor IN, so
+    without the range clause every batch would scan every chunk.
     """
     _seed(db_session, "AAPL")
     rows = [_row("AAPL", TS + timedelta(seconds=i), payload_hash=f"{i:016x}") for i in range(3)]

@@ -1,14 +1,8 @@
 """Live stream commands: run, status, scope.
 
-Kept out of `cli/app.py` for the same reason `cli/bars.py` is -- these
-share no state with the sync commands. No SQL lives here; the reads go
-through `stream/repository.py` and the process wiring through
-`stream/runner.py`.
-
-`run` stays in the foreground and obeys SIGTERM. It does not daemonize:
-the process is meant to run under systemd, Docker or Kubernetes, and
-those all want a process that exits when told to.
-"""
+No SQL lives here; reads go through `stream/repository.py` and process wiring
+through `stream/runner.py`. `run` stays in the foreground and obeys SIGTERM
+rather than daemonizing: systemd, Docker and Kubernetes all want that."""
 
 from __future__ import annotations
 
@@ -44,10 +38,8 @@ def _engine() -> object:
 def stream_run() -> None:
     """Run the stream in the foreground until SIGTERM.
 
-    Holds the `yfin_stream` advisory lock, so a second copy refuses to
-    start rather than writing the same ticks twice. The lock is separate
-    from `yfin_sync`: the two write different tables and may run together.
-    """
+    Holds the `yfin_stream` advisory lock so a second copy refuses to start.
+    It is separate from `yfin_sync`: the two write different tables."""
     from sqlalchemy import Engine
 
     from yfin.core.config import get_settings
@@ -90,14 +82,9 @@ def stream_run() -> None:
 def stream_status() -> None:
     """Connection health, subscription sizes, staleness and relay lag.
 
-    The `stale` column is the one to read first. Connection rows keep
-    whatever state they had when the process stopped, so a killed process
-    leaves them saying `open` -- only the heartbeat age reveals that
-    nothing is running.
-
-    Relay lag is reported only when Kafka is enabled; a growing row count
-    means the relay is behind, a growing age means it is stopped.
-    """
+    Read `stale` first: a killed process leaves connection rows saying `open`,
+    and only the heartbeat age reveals that nothing is running. Relay lag is
+    reported only when Kafka is enabled."""
     from sqlalchemy import Engine, func, select, text
 
     from yfin.core.config import get_settings
@@ -185,10 +172,8 @@ def scope_add(
 ) -> None:
     """Add symbols to the streaming scope.
 
-    Unlike `bars scope`, this table is a plain set: a missing row always
-    means out of scope, so `disable` may delete rather than having to keep
-    a row around.
-    """
+    Unlike `bars scope`, this table is a plain set: a missing row always means
+    out of scope, so `disable` may delete the row."""
     from sqlalchemy import func, select, text
 
     from yfin.core import normalize as nz
@@ -332,15 +317,9 @@ def stream_relay(
 ) -> None:
     """Publish outbox rows to Kafka.
 
-    A separate process from `stream run` on purpose: a broker outage must
-    not slow down or stop collection. The outbox is written inside the
-    tick transaction, so a row is queued if and only if it is archived.
-
-    Holds `yfin_stream_relay`. Two relays would read the same offset,
-    publish the same messages and could roll each other's progress back --
-    the single-row constraint on the offset table does not prevent that,
-    only this lock does.
-    """
+    A separate process from `stream run`: a broker outage must not stop
+    collection. Holds `yfin_stream_relay`; two relays would read the same
+    offset and could roll each other's progress back."""
     from sqlalchemy import Engine
 
     from yfin.core.config import get_settings
@@ -410,16 +389,9 @@ def stream_reconcile(
 ) -> None:
     """Fill open 1m bar gaps from the tick archive.
 
-    Takes the `yfin_sync` lock, not the stream's: this writes price_bars
-    and bar_gaps, which is exactly what a scheduled sync writes. The
-    stream process and a sync can run together precisely because they do
-    not share tables -- this command does, so it queues behind sync.
-
-    `retention_expired` gaps are included, and they are the reason this
-    exists: Yahoo drops 1m data after 29 days, so those windows can never
-    be fetched again and the tick archive is the only thing left that
-    knows what happened in them.
-    """
+    Takes the `yfin_sync` lock, not the stream's: this writes price_bars and
+    bar_gaps, the same tables a sync writes. `retention_expired` gaps are
+    included; Yahoo no longer serves them, so the tick archive is all that is left."""
     from sqlalchemy import Engine
 
     from yfin.pipeline.audit import EXIT_LOCK_NOT_ACQUIRED
@@ -435,12 +407,8 @@ def stream_reconcile(
         with advisory_lock(engine, SYNC_LOCK_NAME):
             stats = reconcile_gaps(factory, dry_run=dry_run, limit=limit)
     except LockNotAcquired:
-        # Exit 4, not 1. This job runs hourly and takes the SYNC lock, so a
-        # sync that outlives an hour makes it collide -- which is the
-        # design working, not a failure. Left as exit 1 the scheduler
-        # records `failed`, and a nightly run that legitimately overran
-        # would fire SyncFailed and JobPartial every hour until it
-        # finished. Measured: a 33-hour backfill did exactly that.
+        # Exit 4, not 1: colliding with a long sync is the design working, and
+        # exit 1 would make the scheduler record `failed` and alert every hour.
         typer.echo(
             "another sync holds the lock; the gaps stay open for the next pass",
             err=True,

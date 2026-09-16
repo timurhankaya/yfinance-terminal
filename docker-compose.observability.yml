@@ -1,18 +1,8 @@
-# The monitoring stack, and the environment that points the services at it.
-#
+# The monitoring stack, and the environment that points the services at it:
 #   docker compose -f docker-compose.yml -f docker-compose.observability.yml \
 #     --profile observability up -d
-#
-# A SECOND file rather than a profile inside the first, because it does two
-# different things: it adds seven containers, AND it adds environment to the
-# services in the base file. A profile can only do the first. Without this
-# file loaded, nothing tries to reach a collector that is not there --
-# METRICS_PORT stays 0, OTEL_EXPORTER_OTLP_ENDPOINT stays empty, and both
-# are read as "off" by design.
-#
-# The scheduler and the stream are NOT here. They live in the base file
-# because they are what keeps the data fresh, not part of what watches it;
-# this file only gives them a metrics port and a collector to talk to.
+# A second file rather than a profile because it also adds environment to
+# the base services, which a profile cannot do.
 
 x-otel-pipeline: &otel-pipeline
   # 1.0 for the pipeline services: a sync runs a few thousand times a day,
@@ -35,12 +25,8 @@ services:
       OTEL_TRACES_SAMPLER: parentbased_traceidratio
       OTEL_TRACES_SAMPLER_ARG: "0.1"
       LOG_FORMAT: json
-      # THE API ALONE. `prometheus_client` reads this at import time,
-      # process-wide, so setting it anywhere else would put that service
-      # into multiprocess mode too -- writing mmap files nobody collects
-      # while its own /metrics goes quiet. The entrypoint empties the
-      # directory before uvicorn starts, or files from dead workers would
-      # accumulate across restarts and be summed into every value.
+      # The API alone: `prometheus_client` reads this at import time, so on
+      # any other service it would switch that process to multiprocess mode.
       PROMETHEUS_MULTIPROC_DIR: /tmp/yfin-prometheus
       # No METRICS_PORT: the API serves /metrics on its own port through
       # the instrumentator, and `serve_metrics` is never called there.

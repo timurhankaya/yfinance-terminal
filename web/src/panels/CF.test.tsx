@@ -113,8 +113,7 @@ describe("CF", () => {
   });
 
   it("says why the next page failed instead of a button that does nothing", async () => {
-    // The failure used to be an unhandled rejection in the console and
-    // nothing at all on screen.
+    // A failed page must surface on screen, not as an unhandled rejection.
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url.startsWith("/ui/api/v1/datasets/sec_filing_exhibits?")) {

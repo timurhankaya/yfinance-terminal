@@ -1,9 +1,5 @@
-"""Database access for the API process.
-
-One engine per process, built lazily. The pipeline builds an engine per
-command; a long-lived server wants the pool to outlive the request, so
-the factory is cached rather than recreated.
-"""
+"""Database access for the API process: one engine per process, built
+lazily, so the pool outlives the request."""
 
 from __future__ import annotations
 

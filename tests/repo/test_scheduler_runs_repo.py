@@ -1,8 +1,7 @@
 """The `scheduler_runs` lifecycle against a real database.
 
 The row exists from BEFORE the subprocess starts, which is the difference
-between "it failed" and "nobody knows" -- and the second is what cron gave
-us.
+between "it failed" and "nobody knows".
 """
 
 from __future__ import annotations

@@ -1,9 +1,5 @@
-"""Normalization of the options dataset. No network, no database.
-
-The two tables answer two questions and are checked as two: the expiry
-list is complete because it comes free with the first request, while the
-chain is fetched for the first `yf_option_expiries` only.
-"""
+"""Normalization of the options dataset. No network, no database. The expiry list comes
+free with the first request; the chain is fetched for the first `yf_option_expiries` only."""
 
 from __future__ import annotations
 

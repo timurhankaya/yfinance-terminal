@@ -1,10 +1,7 @@
 """Stream tables against a real PostgreSQL + TimescaleDB.
 
-The unit tests check what the models declare; these check what the
-database actually does with them. Three behaviours can only be verified
-here: hypertable partitioning, the dedupe semantics of the three-column
-primary key, and that the foreign keys refuse what they are supposed to.
-"""
+Only a database can verify hypertable partitioning, the dedupe semantics of the
+three-column primary key, and that the foreign keys refuse what they should."""
 
 from __future__ import annotations
 
@@ -84,11 +81,8 @@ def _insert_tick(session: Session, tick: LiveTick) -> None:
 def test_stream_tables_are_hypertables(
     db_session: Session, table: str, column: str, interval: timedelta
 ) -> None:
-    """Without the explicit DDL these would be plain tables.
-
-    create_all() knows nothing about hypertables and Alembic cannot
-    autogenerate them, so this is the only thing standing between the
-    design and a silently unpartitioned archive.
+    """create_all() knows nothing about hypertables and Alembic cannot
+    autogenerate them, so without the explicit DDL these would be plain tables.
     """
     row = db_session.execute(
         text(
@@ -128,11 +122,8 @@ def test_identical_message_twice_stores_one_row(db_session: Session) -> None:
 
 
 def test_two_ticks_in_the_same_millisecond_are_both_kept(db_session: Session) -> None:
-    """The reason ts_utc alone cannot be the key.
-
-    Yahoo can emit several messages for one symbol inside a millisecond.
-    Keyed on (symbol, ts_utc) the second one would silently replace or
-    collide with the first.
+    """Yahoo can emit several messages for one symbol inside a millisecond, so
+    ts_utc alone cannot be the key.
     """
     _seed_symbol(db_session)
     _insert_tick(db_session, _tick(payload_hash="a" * 16, price="232.35"))
@@ -142,11 +133,8 @@ def test_two_ticks_in_the_same_millisecond_are_both_kept(db_session: Session) ->
 
 
 def test_a_new_proto_field_is_not_deduped_away(db_session: Session) -> None:
-    """unknown_fields is part of payload_hash, and this is why.
-
-    Two messages whose 33 known fields agree but which differ in a field
-    this build does not map yet must both be stored -- otherwise the one
-    piece of evidence that pricing.proto moved is the one thing dropped.
+    """unknown_fields is part of payload_hash: two messages that agree on every
+    known field but differ in an unmapped one must both be stored.
     """
     _seed_symbol(db_session)
     _insert_tick(db_session, _tick(payload_hash="c" * 16, unknown_fields=None))
@@ -182,11 +170,8 @@ def test_outbox_accepts_a_symbol_that_is_not_in_symbols(db_session: Session) -> 
 
 
 def test_reject_row_survives_for_an_unknown_symbol(db_session: Session) -> None:
-    """The whole point of stream_rejects having no FK.
-
-    An `unknown_symbol` reject is by definition about a symbol that is
-    not in `symbols`; with a foreign key the record of the rejection
-    would itself be rejected.
+    """stream_rejects has no FK: an `unknown_symbol` reject is about a symbol
+    not in `symbols`, so a foreign key would reject the record itself.
     """
     db_session.execute(
         text(

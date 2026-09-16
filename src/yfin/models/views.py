@@ -5,19 +5,9 @@ actions is not a table; it is the union of dividends + splits + capital_gains.
 
 from __future__ import annotations
 
-# CAST(... AS VARCHAR(16)): the literal's length fixes the view's column
-# type. Without it, adding a new action type would silently change the
-# type. A quoted PostgreSQL literal is `unknown` and resolves to `text`
-# inside a UNION, so the explicit cast is kept.
-#
-# Not CHAR(16): PostgreSQL's `bpchar` pads with trailing spaces
-# ('DIVIDEND        '). VARCHAR is the correct equivalent.
-#
-# Named action_value rather than value for ORM/dialect portability.
-#
-# security_invoker = true (PG 15+, verified on 18.6): the view reads with
-# the CALLER's privileges rather than the view owner's -- the safer
-# default.
+# CAST(... AS VARCHAR(16)) fixes the view's column type: a quoted literal
+# resolves to `text` inside a UNION, and CHAR would pad with spaces.
+# security_invoker = true: the view reads with the caller's privileges.
 V_ACTIONS_CREATE = """
 CREATE OR REPLACE VIEW v_actions
   WITH (security_invoker = true) AS
@@ -32,14 +22,9 @@ CREATE OR REPLACE VIEW v_actions
 
 V_ACTIONS_DROP = "DROP VIEW IF EXISTS v_actions"
 
-# Regular-session bars only. This exists to prevent accidents, not for
-# convenience: forgetting the is_extended filter mixes low-volume
-# after-hours bars into the regular session and silently corrupts every
-# computed indicator. This view should be the default read path.
-#
-# price_bars is a hypertable; chunk exclusion works on a plain view over
-# it (measured: Custom Scan (ChunkAppend) with Index Cond pushed down to
-# the chunk level). No continuous aggregate is needed.
+# Regular-session bars only; the default read path, since forgetting the
+# is_extended filter mixes after-hours bars into every computed indicator.
+# Chunk exclusion still works through a plain view over the hypertable.
 V_PRICE_BARS_REGULAR_CREATE = """
 CREATE OR REPLACE VIEW v_price_bars_regular
   WITH (security_invoker = true) AS

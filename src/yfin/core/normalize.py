@@ -71,14 +71,7 @@ _EPOCH_HIGH = 4_102_444_800
 
 def normalize_symbol(symbol: str) -> str:
     """One canonical form. With COLLATE "C" this makes 'aapl'/'AAPL'
-    collisions impossible.
-
-    Both boundaries call this, and that is the point: the read API used to
-    carry its own `_normalise_symbol` with a byte-identical body, so the
-    rule that decides whether a caller's `aapl` finds the row written as
-    `AAPL` was written down twice, in two packages, with nothing keeping
-    them in step.
-    """
+    collisions impossible. Both the write and the read boundary call this."""
     return symbol.strip().upper()
 
 
@@ -147,11 +140,8 @@ def to_bool(value: Any) -> bool | None:
 def to_decimal(value: Any) -> Decimal | None:
     """float -> DECIMAL conversion.
 
-    ``Decimal(repr(float(x)))`` is required:
-    - Bare ``Decimal(repr(x))`` breaks on numpy 2.x, since
-      ``repr(np.float64(0.00187))`` == ``'np.float64(0.00187)'``.
-    - ``Decimal(float(x))`` produces binary residue (0.001870000000000000041...).
-    """
+    ``Decimal(repr(float(x)))``: bare ``repr`` breaks on numpy 2.x scalars and
+    ``Decimal(float(x))`` produces binary residue."""
     if is_missing(value):
         return None
     if isinstance(value, Decimal):
@@ -191,26 +181,16 @@ def to_datetime_utc(value: Any) -> datetime | None:
 def utc_aware(value: datetime) -> datetime:
     """UTC-aware; a naive value is treated as already UTC.
 
-    The naive case is a documented contract, not a guess. Writing a naive
-    value into a `timestamptz` column leaves the interpretation to
-    psycopg's connection timezone -- the result usually comes out right,
-    and comparison and storage still operate at different awareness
-    levels.
-
-    Two copies of this existed, here and in `datasets/bars.py`; the rule
-    that decides what a naive timestamp MEANS is not something to write
-    down twice.
-    """
+    The naive case is a documented contract: a naive value written into a
+    `timestamptz` column is otherwise interpreted in psycopg's connection timezone."""
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def to_local_date(value: Any) -> date | None:
     """The exchange's local session date.
 
-    Converting to UTC first and taking the date shifts it back a day for
-    positive-offset exchanges (BIST, Tokyo): THYAO 2000-05-10 00:00+03:00
-    -> 2000-05-09 21:00 UTC. So no tz conversion happens here.
-    """
+    No tz conversion: converting to UTC first shifts the date back a day for
+    positive-offset exchanges."""
     if is_missing(value):
         return None
     if isinstance(value, str):
@@ -330,18 +310,10 @@ def _scrub_nan(value: Any) -> Any:
 
 
 def canonical_json(payload: Any) -> str:
-    """Canonical JSON.
+    """Canonical JSON: sorted keys, compact separators, no NaN.
 
-    sort_keys + allow_nan=False + ensure_ascii=False + compact separators.
-
-    allow_nan=False is required, and the reason hasn't changed even though
-    the database engine has: MySQL's JSON type used to reject a body
-    containing NaN (ERROR 3140), rolling back the whole symbol's
-    transaction. The column is TEXT now, so NaN would be written silently
-    -- and since `NaN != NaN`, comparing via `content_hash` would open the
-    hash gate on every run, rewriting unchanged data forever. So this
-    function, not the storage engine, is responsible for the gate.
-    """
+    allow_nan=False is the hash gate: `NaN != NaN`, so a NaN in the body would
+    make `content_hash` differ on every run and rewrite unchanged data forever."""
     return json.dumps(
         _scrub_nan(payload),
         sort_keys=True,
@@ -363,13 +335,9 @@ def content_hash(payload: Any | None = None, *, canonical: str | None = None) ->
 def as_mapping(raw: Any) -> dict[str, Any]:
     """Safely converts a source object to a dict.
 
-    HistoryMetadata is a Mapping, not a dict -- and violates the Mapping
-    contract itself: keys() lists 'tradingPeriods' but __getitem__ raises
-    KeyError for that same key (yfinance/scrapers/history.py:55). Observed
-    on mutual funds (VFIAX), where a plain dict(raw) call turned the whole
-    symbol into unknown_symbol. So keys are read one by one, and an
-    unreadable key is skipped.
-    """
+    HistoryMetadata violates the Mapping contract: keys() can list a key that
+    __getitem__ raises KeyError for. Keys are read one by one and an unreadable
+    key is skipped."""
     if isinstance(raw, dict):
         return raw
 

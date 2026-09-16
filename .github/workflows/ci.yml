@@ -1,7 +1,5 @@
-# The contract lock cannot be enforced without CI: openapi.json is
-# committed and diffed against the generated one. This workflow is where
-# that lock runs. ruff/mypy/pytest stay in the same job so the contract
-# check is not a separate mechanism that can be skipped on its own.
+# The contract locks (openapi.json and friends) run in the same job as
+# ruff/mypy/pytest so they cannot be skipped on their own.
 name: CI
 
 on:
@@ -24,20 +22,9 @@ jobs:
         with:
           enable-cache: true
 
-      # requires-python = ">=3.13"; uv provides the interpreter.
-      # The api extra is needed too: the OpenAPI check imports the app.
-      # The scheduler extra brings APScheduler, without which the cron
-      # validator falls back to counting fields and its strict path --
-      # the one that catches `99 2 * * *` -- would never run here.
-      # The kafka extra is for mypy: `outbox/kafka.py` imports
-      # confluent_kafka, and without it installed the module is checked
-      # against nothing.
-      # The otel extra is for mypy as well, and its absence is louder than
-      # kafka's: `core/tracing.py` and the log chain's trace context import
-      # opentelemetry inside try/except, which is a runtime fallback, not a
-      # type-checking one. With the extra missing, `mypy --strict` fails
-      # with import-not-found on all eight import lines rather than
-      # checking them against nothing.
+      # Every extra: the OpenAPI check imports the app, the strict cron
+      # validator needs APScheduler, and mypy --strict needs confluent_kafka
+      # and opentelemetry installed to check the modules that import them.
       - name: Dependencies
         run: >-
           uv sync --extra dev --extra api --extra scheduler --extra kafka
@@ -71,13 +58,8 @@ jobs:
       - name: web/src/live/tick-fields.json is current
         run: uv run python scripts/dump_tick_fields.py --check
 
-      # The monitoring stack's own configuration. None of it is Python and
-      # all of it fails at 3am if it is wrong: a Prometheus that will not
-      # parse its config does not start, and an Alloy that will not parse
-      # its own is a stack with no logs and no traces.
-      #
-      # Through the PINNED images rather than a downloaded binary, so what
-      # CI validates is exactly what compose runs.
+      # Validated through the pinned images, so CI checks exactly what
+      # compose runs.
       - name: promtool check config
         run: |
           docker run --rm -v "$PWD/deploy/observability/prometheus:/etc/prometheus:ro" \
@@ -111,14 +93,8 @@ jobs:
           DB_PASSWORD: ci
           YFAPI_JWT_SIGNING_KEY: ci-signing-key-that-is-at-least-32-bytes
 
-  # The schema invariants (collation, FK policy, timestamp precision,
-  # as-of key ordering) and the empty-diff rule are the project's stated
-  # guarantees, and none of them ran here: `pytest -q` deselects the
-  # `repo` marker because it needs a real database. A guarantee nothing
-  # checks is a comment. This job brings the database.
-  #
-  # Separate from `check` on purpose: a database outage must not mask a
-  # lint or type failure, and the fast job still gates in seconds.
+  # The `repo` marker needs a real database. Separate from `check` so a
+  # database outage cannot mask a lint or type failure.
   repo:
     runs-on: ubuntu-latest
     services:
@@ -172,14 +148,8 @@ jobs:
       - name: alembic autogenerate is empty
         run: uv run alembic check
 
-      # The `repo` fixtures create their own test database and schema, so
-      # nothing beyond a reachable server is needed here.
-      #
-      # This is also where the published examples are locked. They are
-      # captured from real responses, which needs a database, so the
-      # content check cannot live in the fast job -- but that job still
-      # fails when an example is MISSING, so neither half of the contract
-      # can be skipped on its own.
+      # Also locks the published API examples: they are captured from real
+      # responses, so the content check needs the database.
       - name: pytest -m repo
         run: uv run pytest -q -m repo
 

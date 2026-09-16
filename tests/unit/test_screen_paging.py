@@ -1,11 +1,6 @@
-"""`screener.fetch`'s call parameters and stop conditions.
-
-These tests are network-free and verify the parameters actually sent, by
-substituting a fake for `yf.screen`. The reason is a measured trap: when
-`offset` is given, `yf.screen` silently ignores `count` and returns 25 rows
-instead of 250 -- with no error. A test that only checks the result would
-miss this.
-"""
+"""`screener.fetch`'s call parameters and stop conditions, with a fake `yf.screen` that
+records what was actually sent: given `offset`, `yf.screen` silently ignores `count` and
+returns 25 rows, so checking only the result would miss it."""
 
 from __future__ import annotations
 
@@ -64,12 +59,8 @@ class TestPagingParameters:
         assert "offset" not in rec.calls[0]
 
     def test_later_pages_use_size_and_offset(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Regression guard.
-
-        An edit that sends `count` instead of `size` fetches 25 rows per
-        page instead of 250, with no error. This can only be proved by
-        looking at the parameter actually sent.
-        """
+        """An edit that sends `count` instead of `size` fetches 25 rows per page instead
+        of 250, with no error; only the parameter actually sent shows it."""
         rec = _Recorder([_page(2, 6, meta=True), _page(2, 6, start=2), _page(2, 6, start=4)])
         _run(monkeypatch, rec)
         assert len(rec.calls) == 3
@@ -79,12 +70,8 @@ class TestPagingParameters:
         assert [c["offset"] for c in rec.calls[1:]] == [2, 4]
 
     def test_sort_is_explicit_on_every_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Regression guard.
-
-        `sortAsc`'s default is None -> descending. If the order is not
-        stable across pages, pages overlap or a symbol gets skipped --
-        which means a silently incomplete roster.
-        """
+        """`sortAsc`'s default is None -> descending. An unstable order across pages means
+        overlap or a skipped symbol: a silently incomplete roster."""
         rec = _Recorder([_page(2, 6, meta=True), _page(2, 6, start=2), _page(2, 6, start=4)])
         _run(monkeypatch, rec, key="tr_equity")
         for call in rec.calls:
@@ -114,8 +101,8 @@ class TestStopConditions:
         assert len(payload.quotes) == 6
 
     def test_stops_on_empty_page(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When `offset > total`, Yahoo returns 0 rows with no error
-        (measured: offset=9000 -> 0). The empty-page branch catches this."""
+        """When `offset > total`, Yahoo returns 0 rows with no error; the empty-page branch
+        catches this."""
         rec = _Recorder([_page(2, 99, meta=True), _page(0, 99, start=2)])
         payload = _run(monkeypatch, rec)
         assert len(rec.calls) == 2
@@ -135,12 +122,8 @@ class TestStopConditions:
     def test_total_survives_pages_without_metadata(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`total` is taken from the first page and preserved.
-
-        A POST response also carries `total` but no metadata; re-reading
-        `total` from every page is harmless, but overwriting the first
-        page's metadata would lose `screens.title`.
-        """
+        """`total` is taken from the first page and preserved: overwriting the first page's
+        metadata would lose `screens.title`."""
         rec = _Recorder([_page(2, 4, meta=True), _page(2, 4, start=2)])
         payload = _run(monkeypatch, rec)
         assert payload.total == 4
@@ -164,12 +147,8 @@ class TestVariantContract:
             mod.ScreenerDataset().variants(cfg, None)
 
     def test_variants_come_from_code_not_db(self) -> None:
-        """The set comes from code; the DB only filters.
-
-        Were it the reverse, an empty `screens` table would mean no screen
-        ever runs, and since the table only fills during a run, the
-        bootstrap lock would never open.
-        """
+        """The set comes from code; the DB only filters. Otherwise an empty `screens` table
+        would mean no screen ever runs, and the bootstrap lock would never open."""
         from yfin.core.config import Settings
         from yfin.ingest.screens import ALL_SCREENS
 

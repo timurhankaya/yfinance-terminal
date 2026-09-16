@@ -1,13 +1,7 @@
 // What one `info` snapshot MEANS: which section a key belongs to, how a
-// value is written, and which handful of keys are worth a card.
-//
-// Pure, and deliberately so. `DES.tsx` used to hold all of this beside
-// its JSX, which made the one part worth testing on its own the part
-// hardest to reach. Nothing here imports React.
-//
-// Keys are the API's: the `info` snapshot is normalised to snake_case on
-// the way into the database, not yfinance's camelCase. Numbers arrive as
-// strings (Decimal on the wire).
+// value is written, and which keys are worth a card. Pure; nothing here
+// imports React. Keys are the API's snake_case, not yfinance's camelCase.
+// Numbers arrive as strings (Decimal on the wire).
 import { LOCALE, asNumber, formatBig } from "../format";
 import { formatDateTime } from "../table";
 
@@ -19,15 +13,10 @@ const PERCENT_FRACTION = new Set([
   "short_percent_of_float", "payout_ratio", "trailing_annual_dividend_yield",
   "three_year_average_return", "five_year_average_return", "fund_yield",
 ]);
-//: Values Yahoo already sends as percentages (0.34 is 0.34 %).
-//:
-//: `ytd_return` sits here and its own siblings do not, which looks like
-//: an error and is not: measured over fifteen funds in the archive,
-//: `ytd_return` is 13.72 / -36.19 / 19.54 while
-//: `three_year_average_return` beside it is 0.2464 / -0.5708. Yahoo is
-//: inconsistent inside one payload, so the classification is per key and
-//: by measurement. It was in the fraction set and drew SPY's year as
-//: 1307.29 %.
+//: Values Yahoo already sends as percentages (0.34 is 0.34 %). Yahoo is
+//: inconsistent inside one payload (`ytd_return` is a percentage while
+//: `three_year_average_return` is a fraction), so the classification is
+//: per key.
 const PERCENT_ALREADY = new Set([
   "dividend_yield", "five_year_avg_dividend_yield", "net_expense_ratio", "ytd_return",
 ]);

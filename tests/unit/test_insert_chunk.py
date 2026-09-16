@@ -1,14 +1,6 @@
-"""INSERT_CHUNK: chunking large TableWrites.
-
-Does not touch a database: a fake that records calls stands in for
-Session, so "how many INSERTs were produced" and "does every chunk carry
-the same column set" can be answered with no network and no DB.
-
-The one real trap in chunking is align_rows ORDER: the column set can vary
-row to row (a non-fund symbol has no 'Capital Gains'), and if align_rows
-runs AFTER chunking, each chunk ends up with a different column set and a
-different update map.
-"""
+"""INSERT_CHUNK: chunking large TableWrites, with a recording fake in place of Session.
+align_rows must run BEFORE chunking: the column set varies row to row, and chunks aligned
+separately would carry different column sets and update maps."""
 
 from __future__ import annotations
 
@@ -89,13 +81,8 @@ def test_small_write_produces_single_insert() -> None:
 
 
 def test_every_chunk_carries_the_same_column_set() -> None:
-    """align_rows must be applied before chunking.
-
-    The first half has `volume`, the second half does not. If align_rows
-    runs first, both chunks carry `volume` (None in the second); if it
-    runs after, the second chunk never sees it and it silently drops out
-    of the update scope.
-    """
+    """align_rows must be applied before chunking, or a column absent from the second half
+    silently drops out of that chunk's update scope."""
     session = RecordingSession()
     writer = PostgresRowWriter(session)  # type: ignore[arg-type]
 
@@ -115,9 +102,8 @@ def test_every_chunk_carries_the_same_column_set() -> None:
     assert "volume" in written_columns(inserts[1]), (
         "second chunk never saw volume: align_rows ran AFTER chunking"
     )
-    # and it must stay in the update scope too. In PostgreSQL that scope is
-    # `OnConflictDoUpdate.update_values_to_set`, the counterpart of MySQL's
-    # `OnDuplicateClause.update` dict.
+    # and it must stay in the update scope too
+    # (`OnConflictDoUpdate.update_values_to_set`).
     for stmt in inserts:
         clause = stmt._post_values_clause
         updated = {name for name, _ in clause.update_values_to_set}
@@ -145,8 +131,7 @@ def test_chunk_boundaries(size: int) -> None:
 
 class TestDedupeRows:
     """PostgreSQL's `ON CONFLICT DO UPDATE` cannot touch the same row twice
-    in one statement (ERROR 21000, "cannot affect row a second time").
-    MySQL's `ON DUPLICATE KEY UPDATE` swallowed this without complaint, so
+    in one statement (ERROR 21000, "cannot affect row a second time"), and
     most datasets have no within-chunk uniqueness guarantee.
     """
 

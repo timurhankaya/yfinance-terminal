@@ -1,11 +1,6 @@
-"""Live integration test for financials + market.
+"""Live integration test for financials + market (`-m live`, not in CI).
 
-Skipped by default. Run manually with: pytest -m live
-Uses the real Yahoo API and a real PostgreSQL; not run in CI.
-
-`run_sync` takes the 'yfin_sync' advisory lock. If another sync is running,
-this module fails with `LockNotAcquired` -- that means the concurrency
-protection works, it is not a test bug.
+`LockNotAcquired` here means another sync is running, not a test bug.
 """
 
 from __future__ import annotations

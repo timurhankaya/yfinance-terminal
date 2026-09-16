@@ -1,9 +1,4 @@
-"""Rescale's DB behavior: seed, idempotency, scope.
-
-The first test in this file is the design's most critical regression: it
-shows, in the same scenario, that the archive is corrupted when `--seed` is
-skipped and intact when it is not.
-"""
+"""Rescale's DB behavior: seed, idempotency, scope."""
 
 from __future__ import annotations
 
@@ -67,11 +62,8 @@ def _bar(session: Session, ts: datetime, interval: str = "5m") -> PriceBar:
 
 
 def test_seed_prevents_the_first_run_from_destroying_the_archive(db_session: Session) -> None:
-    """The design's most critical regression.
-
-    The splits table is already populated by the existing pipeline; a first
-    run against an empty bar_rescales would apply historical splits and
-    re-divide bars that already arrived from Yahoo at the current scale.
+    """A first run against an empty bar_rescales would apply historical splits
+    and re-divide bars that already arrived from Yahoo at the current scale.
     """
     _setup(db_session)
 
@@ -84,11 +76,8 @@ def test_seed_prevents_the_first_run_from_destroying_the_archive(db_session: Ses
 
 
 def test_split_inside_the_archive_is_applied_even_without_seed(db_session: Session) -> None:
-    """A split inside the archive (after the earliest bar) is applied.
-
-    That is the correct behavior even without a seed: the 06-05 bar was
-    written before the split, so it is at the pre-split scale and needs
-    aligning.
+    """The 06-05 bar was written before the split, so it is at the pre-split
+    scale and needs aligning even without a seed.
     """
     _setup(db_session)
 
@@ -99,13 +88,9 @@ def test_split_inside_the_archive_is_applied_even_without_seed(db_session: Sessi
 
 
 def test_split_older_than_the_archive_is_never_applied(db_session: Session) -> None:
-    """Structural protection: a split older than the archive has no work to do.
-
-    This makes the design independent of an operational step (`rescale
-    --seed`). If seed is skipped on a fresh install, the mechanism would
-    otherwise apply every historical split in the table (for AAPL: 1987,
-    2000, 2005, 2014, 2020) and re-divide bars that already arrived from
-    Yahoo at the current scale -- a 224x error for AAPL.
+    """A split older than the archive has no bar to rescale, so a skipped
+    `rescale --seed` on a fresh install cannot re-divide bars that already
+    arrived at the current scale.
     """
     _setup(db_session)
     # A split far older than the archive; no bar was written before it

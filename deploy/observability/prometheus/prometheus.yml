@@ -1,14 +1,7 @@
-# Scrape config for the yfin stack.
-#
-# Static targets, not service discovery: the service set is fixed by
-# docker-compose.yml, and Docker SD here would need the same socket mount
-# Alloy has -- a second root-equivalent grant to save editing a list of
-# six entries.
-#
-# A target that is DOWN is not an error in this file. The two relays and
-# the observability profile may legitimately be off, and `up == 0` for
-# them is shown on Overview rather than alerted; the alert rules live in
-# Grafana's provisioning and say which absences actually matter.
+# Scrape config for the yfin stack. Static targets: Docker SD would need
+# the same socket mount Alloy has. A DOWN target is not an error here; the
+# relays and the observability profile may be off, and the alert rules in
+# Grafana's provisioning say which absences matter.
 
 global:
   # 15s. The exporter refreshes its gauges every 300s, so a faster scrape

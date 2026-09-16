@@ -1,9 +1,7 @@
 """sec_filings dataset.
 
-Source returns `list[dict]` for US symbols; for non-US and fund/ETF symbols
-it returns **{} (dict)** (`quote.py:592`). Iterating a dict with `for f in
-raw` walks its keys, and `f["type"]` then raises TypeError -- hence the type
-check is mandatory.
+Source returns `list[dict]` for US symbols but `{}` for non-US and
+fund/ETF symbols, hence the type check.
 """
 
 from __future__ import annotations
@@ -24,7 +22,7 @@ from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
 
-# Accession number inside edgarUrl: 80/80 successful for AAPL.
+# Accession number inside edgarUrl.
 ACCESSION_RE = re.compile(r"(\d{10}-\d{2}-\d{6})")
 
 FILING_UPDATE_COLUMNS = (
@@ -97,7 +95,7 @@ class SecFilingsDataset(Dataset[SecFilingsPayload]):
             if not isinstance(entry, dict):
                 continue
             filing_date = nz.to_local_date(entry.get("date"))
-            # epochDate is in SECONDS (1788220800 -> 2026-09-01).
+            # epochDate is in SECONDS.
             filed_ts = nz.epoch_to_datetime(entry.get("epochDate"), unit="s")
             filing_type = nz.to_str(entry.get("type"), max_len=32)
             if filing_date is None or filed_ts is None or filing_type is None:

@@ -1,15 +1,7 @@
-"""Response models for the core market endpoints.
-
-Every monetary or large-integer field is a string. The database stores
-prices as Numeric(28,12) and counts as Numeric(38,0) exactly so they are
-not floats; emitting them as JSON numbers would silently undo that at the
-API boundary, where the loss is least visible and hardest to reverse.
-
-The bar model covers three tables with different columns, so the fields
-only some of them have are optional and documented as such. The
-alternative -- three near-identical schemas -- would push the difference
-onto every client instead of describing it once.
-"""
+"""Response models for the core market endpoints. Every monetary or
+large-integer field is a string, so the exact Numeric does not become a
+float at the boundary. One bar model covers three tables, so the fields
+only some have are optional."""
 
 from __future__ import annotations
 

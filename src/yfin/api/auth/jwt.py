@@ -1,21 +1,8 @@
-"""Minting and verifying access tokens.
-
-Issuing a claim and *verifying* it are different things, and PyJWT will
-happily do the first without the second: leave `audience=`/`issuer=` off
-`decode` and those claims are decoration. That is how a staging key
-shared with production -- a routine accident -- turns into staging tokens
-that work in production. So the verification options here are explicit
-and not optional.
-
-The algorithm list is a fixed single entry for the same reason. When
-RS256 arrives (the `kid` header exists so it can, without breaking issued
-tokens), it must be a second branch keyed on `kid`, never a second entry
-in this list: accepting HS256 and RS256 together is the classic
-confusion attack, where the public key is replayed as an HMAC secret.
-
-`kid` is attacker-controlled input. It only ever indexes a dict built in
-this process -- never a file path, never a query.
-"""
+"""Minting and verifying access tokens. `audience`/`issuer` are always
+passed to `decode`; PyJWT ignores those claims otherwise. The algorithm
+list stays a single entry: accepting HS256 and RS256 together is the key
+confusion attack, so a second algorithm must branch on `kid`. `kid` is
+attacker-controlled and only ever indexes an in-process dict."""
 
 from __future__ import annotations
 
@@ -65,12 +52,9 @@ def mint(
     secret_id: int,
     epoch: int,
 ) -> tuple[str, int]:
-    """Returns the encoded token and its lifetime in seconds.
-
-    `sid` and `epc` are what make revocation possible without a database
-    read: they name the secret the token was minted from and the
-    authorisation generation it belongs to.
-    """
+    """Returns the encoded token and its lifetime in seconds. `sid` and `epc`
+    (source secret, authorisation generation) are what make revocation
+    possible without a database read."""
     now = int(time.time())
     expires_in = settings.token_ttl_seconds
     payload = {

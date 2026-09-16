@@ -1,8 +1,7 @@
 """Pruning the run audit, and the two things it must not do.
 
-Nothing pruned these tables before, so they grew without bound -- and they
-are not idle: the freshness query walks `sync_run_items` every five minutes
-and `scheduler_runs` backs the job dashboard.
+These tables are not idle: the freshness query walks `sync_run_items` every
+five minutes and `scheduler_runs` backs the job dashboard.
 """
 
 from __future__ import annotations
@@ -146,18 +145,11 @@ class TestThroughRunPrune:
 
 class TestTheFreshnessIndex:
     def test_it_covers_the_cell_and_orders_by_run(self, db_session: Session) -> None:
-        """The exporter walks one cell -- (symbol, region, dataset) -- back to
-        its latest run, every five minutes, over a table that grows by
-        symbols x datasets every night.
+        """The exporter walks one (symbol, region, dataset) cell back to its latest
+        run over a table that grows by symbols x datasets nightly.
 
-        The assertion is on the index DEFINITION rather than on a query
-        plan. At this table's size PostgreSQL would rightly scan whatever
-        exists, so a plan here would measure the planner and not the schema;
-        what the exporter needs is that the prefix and the ordering are
-        there at all. Whether the query meets its five-second budget at real
-        scale is a measurement, and belongs in
-        docs/measurements/observability.md.
-        """
+        Asserted on the index definition, not a query plan: at test size the
+        planner would rightly scan, so a plan measures the planner, not the schema."""
         from sqlalchemy import text
 
         definition = db_session.execute(

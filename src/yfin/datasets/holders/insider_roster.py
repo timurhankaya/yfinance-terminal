@@ -1,13 +1,7 @@
 """insider_roster_holders dataset -> insider_roster.
 
-Source column set is 7 / 9 / 11 depending on symbol, and the ORDER IS NOT
-FIXED either (holders.py:186-200 conditionally renames fields). Every field
-is therefore read with `record.get(...)`; assuming position or a fixed
-order would silently lose data.
-
-`positionSummary` / `positionSummaryDate` were seen only for NVDA, but there
-they were the ONLY share info for a person; without a column for them, that
-row's entire share data would be NULL.
+Source column set and order vary by symbol, so every field is read with
+`record.get(...)`.
 """
 
 from __future__ import annotations

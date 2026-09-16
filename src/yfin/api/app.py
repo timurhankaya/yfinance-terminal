@@ -1,13 +1,7 @@
-"""The FastAPI application.
-
-Assembly only: routers, middleware, error handlers. Every decision worth
-arguing about lives in the module it belongs to.
-
-Middleware order matters and is not arbitrary. Starlette runs them
-outermost-first, so `RequestContextMiddleware` is added last in order to
-run first: the request id it assigns has to exist before anything else
-can log or fail with it.
-"""
+"""The FastAPI application: assembly of routers, middleware and error handlers.
+Starlette runs middleware outermost-first, so `RequestContextMiddleware` is
+added last to run first: its request id must exist before anything else
+logs or fails with it."""
 
 from __future__ import annotations
 
@@ -54,12 +48,8 @@ LICENSE = {"name": "AGPL-3.0-or-later", "identifier": "AGPL-3.0-or-later"}
 
 
 def _install_documentation_pages(app: FastAPI) -> None:
-    """Swagger UI and ReDoc, with our icon instead of FastAPI's.
-
-    Both are excluded from the OpenAPI document -- they are how the
-    contract is read, not part of it -- which is also what keeps them out
-    of `OPERATION_IDS` and the response tables.
-    """
+    """Swagger UI and ReDoc with our icon. Excluded from the OpenAPI document,
+    which also keeps them out of `OPERATION_IDS` and the response tables."""
 
     @app.get("/docs", include_in_schema=False)
     def swagger_ui() -> HTMLResponse:
@@ -84,31 +74,11 @@ def _install_documentation_pages(app: FastAPI) -> None:
 
 
 def build_instrumentator(registry: object | None = None) -> Any:
-    """The instrumentator, configured. Returns None without the package.
-
-    Split out so the four decisions below are one object a test can point
-    at its OWN registry -- which is the only way to observe them. The
-    default registry is process-wide, and `prometheus-fastapi-instrumentator`
-    answers a duplicate registration by returning None from its metric
-    factory and attaching no instrumentation at all: the SECOND app built
-    in one process gets a `/metrics` endpoint that will never move. That is
-    harmless in production, where there is one app per process, and it is
-    exactly what makes a second app in a test suite silently record
-    nothing.
-
-    Four parameters, each turning off something whose default would cost
-    more than it explains:
-
-    * `should_group_status_codes=False` -- `2xx` cannot tell a 200 from a
-      204, and the difference between 401 and 403 is the whole auth story.
-    * `should_instrument_requests_inprogress=False` -- an in-progress GAUGE
-      is meaningless under `PROMETHEUS_MULTIPROC_DIR`, where four workers
-      write four files and the collector takes one value per series.
-    * `excluded_handlers` -- at a fifteen-second scrape and a ten-second
-      probe, these two would be most of the traffic the API reports on.
-    * the default registry -- shared with `core/metrics.py`, so the
-      hand-written counters and the HTTP ones come out of one endpoint.
-    """
+    """The instrumentator, configured; None without the package. `registry` is
+    for tests: the default one is process-wide and a duplicate registration
+    silently attaches no instrumentation, so a second app in one process
+    records nothing. In-progress gauges are meaningless under
+    `PROMETHEUS_MULTIPROC_DIR`, hence off."""
     try:
         from prometheus_fastapi_instrumentator import Instrumentator
     except ImportError as exc:  # pragma: no cover - the package is in [api]
@@ -125,23 +95,10 @@ def build_instrumentator(registry: object | None = None) -> Any:
 
 
 def _install_metrics(app: FastAPI) -> None:
-    """HTTP metrics, and the `/metrics` endpoint that serves them.
-
-    After the routers, before the UI mount: the instrumentator names its
-    `handler` label from the route TEMPLATE, so it has to see the routes;
-    and the UI is a static mount with no templates to name.
-
-    `include_in_schema=False`: `/metrics` is not part of the published
-    contract. `test_api_contract.py` filters paths by the `("/v1",
-    "/oauth", "/health")` prefixes and would not have noticed either way,
-    which is why it now asserts the absence explicitly.
-
-    The endpoint carries the same per-IP cap as `/health/ready`: it is
-    unauthenticated and renders every series the process holds.
-
-    Missing `prometheus-fastapi-instrumentator` is a warning and the API
-    runs without `/metrics` -- see `build_instrumentator`.
-    """
+    """HTTP metrics and the `/metrics` endpoint. Must run after the routers:
+    the `handler` label comes from the route template. Unauthenticated and
+    renders every series, so it carries the same per-IP cap as
+    `/health/ready`."""
     from fastapi import Depends
 
     instrumentator = build_instrumentator()
@@ -161,15 +118,9 @@ def _install_metrics(app: FastAPI) -> None:
 def create_app(settings: ApiSettings | None = None) -> FastAPI:
     settings = settings or get_api_settings()
 
-    # Explicitly, and here, rather than leaving it to whichever engine
-    # happens to be built first. Two reasons: the API is the process that
-    # has to call itself `api` on every line, and uvicorn installs its own
-    # handlers on import -- configuring after that would leave the access
-    # log rendering through a chain that does not redact.
-    #
-    # `bootstrap_settings` because `log_level` and `log_format` are
-    # env-only: reading them must not require a database, and `create_app`
-    # runs in `dump_openapi.py` where there is none.
+    # Before uvicorn installs its own handlers, or the access log would
+    # render through a chain that does not redact. `bootstrap_settings`
+    # because `create_app` also runs in `dump_openapi.py` with no database.
     configure_logging(
         bootstrap_settings().log_level, bootstrap_settings().log_format, "api"
     )
@@ -185,18 +136,8 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         license_info=LICENSE,
         servers=openapi_document.servers_for(settings),
         openapi_tags=TAGS,
-        # Two views of the same document, because they answer different
-        # questions. Swagger UI is where a developer pastes a client id
-        # and calls an endpoint; ReDoc is where they read the contract
-        # end to end. Both render from /openapi.json, so neither can
-        # drift from what the API actually serves.
-        #
-        # Both pull their assets from a CDN. On a host without outbound
-        # internet the pages load but stay blank -- the document itself
-        # is always available at /openapi.json, which is what tooling
-        # consumes anyway.
-        # The two HTML pages are served by hand below, so they can carry
-        # our own favicon; the OpenAPI route is FastAPI's.
+        # Swagger UI and ReDoc are served by hand below so they can carry
+        # our own favicon; the OpenAPI route stays FastAPI's.
         docs_url=None,
         redoc_url=None,
         openapi_url="/openapi.json" if settings.docs_enabled else None,

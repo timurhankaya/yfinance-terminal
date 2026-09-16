@@ -1,9 +1,7 @@
 """Proxy health policy: a pure state machine.
 
-Has no DB or network dependency, so it can be tested with a full
-transition table. Parent and child both call the same `apply_outcome`,
-keeping the policy in one place.
-"""
+No DB or network dependency, so it can be tested with a full transition
+table. Parent and child both call the same `apply_outcome`."""
 
 from __future__ import annotations
 
@@ -92,10 +90,8 @@ def apply_outcome(
 ) -> ProxyHealthState:
     """Applies a single event to the state machine.
 
-    SUCCESS does not reset `cooldown_rounds`. If it did, one lucky success
-    would keep restarting the path to dead, leaving a half-dead proxy in
-    the pool forever.
-    """
+    SUCCESS does not reset `cooldown_rounds`: one lucky success would keep
+    restarting the path to dead, leaving a half-dead proxy in the pool forever."""
     if state.health is ProxyHealth.DEAD:
         return state  # only `proxy reset` brings it back
 

@@ -1,9 +1,5 @@
-"""Wrapper asymmetry and field parsing.
-
-Yahoo wraps numeric fields as `{"raw":..., "fmt":...}`, but not
-consistently. This file pins all three shapes in the same test; two
-separate parsers would let one of them silently write None.
-"""
+"""Wrapper asymmetry and field parsing: Yahoo wraps numerics as `{"raw":..., "fmt":...}`
+inconsistently, so all three shapes are pinned in one test."""
 
 from __future__ import annotations
 
@@ -42,7 +38,7 @@ def test_target_price_is_wrapped_in_top_companies_but_bare_in_reports() -> None:
 
 
 def test_missing_report_fields_become_null() -> None:
-    """17 of 104 reports have no `targetPrice` at all -> row.get() -> NULL."""
+    """A report without `targetPrice` -> row.get() -> NULL."""
     data = domain_data("sector", "technology")
     missing = [r for r in data["researchReports"] if "targetPrice" not in r]
     assert missing, "expected at least one report missing targetPrice"

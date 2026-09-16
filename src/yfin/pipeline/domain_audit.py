@@ -1,9 +1,7 @@
 """`yfin domain audit` -- three independent checks.
 
-The second check is the core of this design: the expected count comes
-from Yahoo's `overview.industriesCount` field, not our own list, and was
-measured equal to list length across 11/11 sectors (145 total). If Yahoo
-adds an industry our discovery misses, this check fails.
+The expected industry count comes from Yahoo's `overview.industriesCount`,
+not our own list, so an industry our discovery misses fails the audit.
 """
 
 from __future__ import annotations
@@ -64,12 +62,8 @@ def audit_domains(
         ).scalar_one()
     )
 
-    # 2) Industry count -- the expected value comes from the API itself.
-    #
-    # Cannot use exact equality on `as_of_date = :as_of`: if the change
-    # detection hash matches, no `domain_metrics` row is written that
-    # day, which would make the audit fail falsely. Take each sector's
-    # latest row up to `:as_of`.
+    # 2) Industry count. Each sector's latest row up to `:as_of`, not an
+    # exact date match: an unchanged hash writes no row that day.
     latest = (
         select(
             DomainMetric.domain_key.label("domain_key"),

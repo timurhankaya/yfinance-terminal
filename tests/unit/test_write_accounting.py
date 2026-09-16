@@ -74,9 +74,8 @@ class TestDistinctKeyCount:
 
 class TestTableWriteRebuilds:
     def test_replace_carries_monotonic_columns(self) -> None:
-        """The upsert paths used to rebuild TableWrite field by field and
-        dropped `monotonic_columns`, turning GREATEST() into last-wins and
-        letting is_repaired regress to 0."""
+        """Rebuilding TableWrite must carry `monotonic_columns`, or
+        GREATEST() becomes last-wins and is_repaired regresses to 0."""
         write = _write([{"a": 1, "b": "x"}], monotonic_columns=("is_repaired",))
         assert replace(write, rows=[]).monotonic_columns == ("is_repaired",)
 

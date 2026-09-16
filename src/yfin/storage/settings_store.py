@@ -1,15 +1,7 @@
-"""Reads, validates, and writes the `settings` table.
+"""Reads, validates, and writes the `settings` table; the only write gate.
 
-This module is the only write gate for the configuration layer. Validation is
-not embedded in the CLI command because a future admin panel would bypass
-that command and hit raw SQL directly.
-`yfin config set` is a thin wrapper around this module; the panel calls the
-same functions.
-
-Validation reuses the exact code path READ uses: a candidate value is tested
-by building `Settings(**{**current_overrides, key: value})`. Two separate
-validation paths would drift, and the panel could then accept a value that
-the next run rejects.
+Validation reuses the read path: a candidate is tested by building
+`Settings(**{**current_overrides, key: value})`, so the two cannot drift.
 """
 
 from __future__ import annotations
@@ -44,12 +36,7 @@ SEED_PATH = Path("config/settings.seed.json")
 
 
 class SettingRejected(ValueError):
-    """The value was not written. The CLI turns this into exit code 2.
-
-    Exit code 2 means "configuration rejected" in this codebase (same
-    pattern as `PruneDisabledError`); keeping it distinct from 1 lets a CI
-    step tell "invalid setting" apart from "command errored".
-    """
+    """The value was not written. The CLI turns this into exit code 2 ("rejected")."""
 
 
 class Source(StrEnum):
@@ -64,9 +51,7 @@ class Source(StrEnum):
 class SettingState:
     """The effective state of a single key.
 
-    `has_row` is not the same as `source is Source.DB`: a key can have a row
-    that was filtered out by `ENV_ONLY_FIELDS` and never applied. Collapsing
-    both into one flag would hide that case.
+    `has_row` differs from `source is Source.DB`: an env-only row exists but is never applied.
     """
 
     key: str
@@ -81,10 +66,7 @@ class SettingState:
 def serialize(value: Any) -> str:
     """Python value -> text stored in the `value` column.
 
-    All DB-managed fields are scalar (bool / float / int / str). There is no
-    rule for a complex type because none exists; the scalar test
-    (`tests/unit/test_settings_split.py`) will fail if one is ever added,
-    forcing this function to be updated.
+    All DB-managed fields are scalar; `test_settings_split.py` enforces that.
     """
     if isinstance(value, bool):
         # Not "True": pydantic would still parse it, but it would break
@@ -94,14 +76,10 @@ def serialize(value: Any) -> str:
 
 
 def normalize_key(raw: str) -> str:
-    """Convert operator input into the canonical key.
+    """Convert operator input into the canonical key (the lowercase field name).
 
-    The canonical form is the model field name (lowercase). Operators will
-    type `.env`-style `YF_MAX_SHARDS` out of habit; rejecting that would be
-    needless friction. This doesn't conflict with the table's
-    collation-sensitivity: the goal isn't to prevent collisions, it's to
-    make a row inserted via raw SQL as `YF_MAX_SHARDS` show up as a distinct,
-    visible "unknown key" warning instead of silently merging.
+    A row inserted via raw SQL as `YF_MAX_SHARDS` stays a distinct,
+    visible "unknown key" rather than silently merging.
     """
     return raw.strip().lower()
 
@@ -110,15 +88,8 @@ def normalize_key(raw: str) -> str:
 
 
 def _engine(settings: Settings) -> Engine:
-    """Deliberately not `create_db_engine`.
-
-    Three reasons: (1) called with no arguments it would recurse via
-    `settings or get_settings()`, since the loader is already inside
-    `get_settings()`; (2) pool sizing and `pool_pre_ping` are dead weight for
-    a single SELECT; (3) without `connect_timeout` the CLI hangs for tens of
-    seconds when the DB is unreachable. The repo already uses this pattern
-    (`migrations/env.py` -> `poolclass=pool.NullPool`).
-    """
+    """Not `create_db_engine`: that would recurse into `get_settings()`, and a
+    single SELECT needs no pool but does need `connect_timeout`."""
     return create_engine(
         settings.db_url(),
         poolclass=NullPool,
@@ -129,12 +100,8 @@ def _engine(settings: Settings) -> Engine:
 def fetch_rows(settings: Settings) -> dict[str, str] | None:
     """Raw rows from the table; `None` if the table doesn't exist.
 
-    Table existence is checked via `inspect(engine).has_table()`, not by
-    error code (MySQL 1146 / PG 42P01): code-based detection is
-    engine-specific and would silently break on an engine change.
-
-    Permission errors and an unreachable database propagate. Silently
-    falling back to env-only would mean running with the wrong configuration.
+    Permission errors and an unreachable database propagate: falling back
+    to env-only would mean running with the wrong configuration.
     """
     engine = _engine(settings)
     try:
@@ -161,13 +128,8 @@ class KeyVerdict(StrEnum):
 def classify_key(key: str) -> KeyVerdict:
     """The single source of truth for key policy.
 
-    The read path (`filter_overrides`) and the write path (`validate_pair`)
-    must make the same decision. When the decision was coded in both places
-    -- as it originally was -- a later third category (e.g. deprecated keys)
-    could be added to one and forgotten in the other. Forgetting it on the
-    write path would just be annoying; forgetting it on the READ path would
-    breach a security boundary: a DB row could override `db_host` and
-    redirect the connection, or overwrite `yf_proxy_secret_key`.
+    The read path and the write path must agree: a miss on the read path
+    would let a DB row override `db_host` or `yf_proxy_secret_key`.
     """
     if key in ENV_ONLY_FIELDS:
         return KeyVerdict.ENV_ONLY
@@ -195,10 +157,7 @@ _REJECT_MESSAGE = {
 def filter_overrides(rows: Mapping[str, str]) -> dict[str, str]:
     """Applicable rows. Nothing dropped passes silently.
 
-    Invalid VALUES are not caught here: this function returns raw text, and
-    the error surfaces as a `ValidationError` from `Settings(**overrides)`.
-    That keeps value validation in one place, while key policy stays in
-    `classify_key`.
+    Values are not validated here; `Settings(**overrides)` does that.
     """
     out: dict[str, str] = {}
     for key, value in rows.items():
@@ -206,9 +165,8 @@ def filter_overrides(rows: Mapping[str, str]) -> dict[str, str]:
         if verdict is KeyVerdict.OK:
             out[key] = value
         else:
-            # `Settings` has extra="ignore" and silently swallows an unknown
-            # kwarg (verified live); this warning is mandatory, not a nicety
-            # -- skip it and no test goes red.
+            # `Settings` has extra="ignore" and would swallow an unknown kwarg
+            # silently; this warning is the only signal.
             log.warning(_LOG_MESSAGE[verdict], setting_key=key)
     return out
 
@@ -216,10 +174,8 @@ def filter_overrides(rows: Mapping[str, str]) -> dict[str, str]:
 def load_overrides(settings: Settings) -> dict[str, str]:
     """DB overrides to apply (raw text).
 
-    Bootstrap `Settings` is a parameter, not a test convenience but part of
-    the contract: repo tests can point it at the test schema without
-    calling `get_settings()`, which would otherwise recurse into its own
-    loader.
+    Takes bootstrap `Settings` so callers never go through `get_settings()`,
+    which would recurse into this loader.
     """
     rows = fetch_rows(settings)
     if rows is None:
@@ -228,21 +184,10 @@ def load_overrides(settings: Settings) -> dict[str, str]:
 
 
 def settings_state(*, rows: Mapping[str, str] | None = None) -> dict[str, SettingState]:
-    """Effective value and source for every DB-managed key.
+    """Effective value and source for every DB-managed key. Pure function.
 
-    Deliberately has no `Settings` parameter. It had one originally, unused,
-    and the signature lied: callers (especially repo tests) assumed passing
-    it steered the read, when the read comes entirely from `rows`. Whoever
-    opens the connection calls `fetch_rows`; this function is pure.
-
-    `rows=None` means the DB was not consulted (unreachable, or
-    `YF_SETTINGS_SOURCE=env`); source then falls back to env/default and
-    `yfin config list` doesn't crash. A recovery command must not fall
-    victim to the outage it's meant to help recover from.
-
-    Source is determined via `model_fields_set`, not by comparing "value
-    differs from default": a setup where `.env` happens to match the
-    default would otherwise show as `default`.
+    `rows=None` means the DB was not consulted; source falls back to
+    env/default. Source uses `model_fields_set`, so `.env` matching the default is `env`.
     """
     overrides = filter_overrides(rows) if rows is not None else {}
     env_only = bootstrap_settings()
@@ -270,14 +215,7 @@ def export_values(
 ) -> dict[str, Any]:
     """JSON body of `yfin config export`. Pure function.
 
-    Values are returned as native types (int / bool / float / str), not
-    text: the round-trip guarantee `seed(export(state)) == state` depends on
-    it, and the seed file also uses native types.
-
-    This used to be inline in the CLI; a repo test had to duplicate the same
-    three lines, so the copy ended up testing itself rather than the actual
-    output. Extracting it made this the single source of truth and testable
-    without a DB.
+    Values are native types, not text: `seed(export(state)) == state` depends on it.
     """
     resolved = settings_from_overrides({key: state.value for key, state in states.items()})
     return {
@@ -293,9 +231,7 @@ def export_values(
 def validate_pair(key: str, value: str, *, overrides: Mapping[str, str]) -> None:
     """Reject a single (key, value) pair, or pass silently.
 
-    Other overrides are included in the build because validation must reuse
-    the read path's code; a future cross-field validator would then be
-    caught here too.
+    Other overrides are included so a cross-field validator is exercised too.
     """
     verdict = classify_key(key)
     if verdict is not KeyVerdict.OK:
@@ -316,12 +252,7 @@ def _first_error(exc: ValidationError) -> str:
 
 
 def _upsert(session: Session, key: str, value: str) -> None:
-    """Update the existing row, or insert one.
-
-    No engine-specific upsert clause (`ON CONFLICT` / `ON DUPLICATE KEY`):
-    this is a ten-row table touched by one operator (or the panel), so
-    engine neutrality is cheap to keep.
-    """
+    """Update the existing row, or insert one. Engine-neutral on purpose."""
     row = session.get(SettingRow, key)
     if row is None:
         session.add(SettingRow(setting_key=key, value=value))
@@ -386,10 +317,8 @@ def write_all(plan: Mapping[str, str], *, settings: Settings) -> None:
 def load_seed_file(path: Path = SEED_PATH) -> dict[str, Any]:
     """`config/settings.seed.json` -- this installation's configuration.
 
-    The file must not be a complete list: only keys that deviate from the
-    default belong here. A key left out inherits the model default and
-    tracks it when that default changes later -- a complete list would break
-    that link.
+    Only keys that deviate from the default belong here; a key left out
+    keeps tracking the model default.
     """
     if not path.exists():
         raise SettingRejected(f"seed file not found: {path}")
@@ -408,21 +337,8 @@ def plan_seed(
 ) -> dict[str, str]:
     """Rows to write. Pure function: never touches the DB.
 
-    Scope is limited to keys present in the JSON:
-
-        key in JSON, no existing row -> JSON value is written
-        key in JSON, row exists      -> untouched (overwritten with --force)
-        key not in JSON              -> nothing happens (--force included)
-
-    That last rule matters. An earlier draft defined seeding as "fill every
-    missing row", which meant `seed` silently undid a prior `unset` -- the
-    two commands would fight each other. `--force` also only overwrites keys
-    present in the JSON; otherwise it would silently erase every override an
-    operator made from the panel.
-
-    All-or-nothing: the whole JSON is validated first, then written in one
-    transaction. A partially written seed would leave it unclear which key
-    came from which source.
+    Only keys present in the JSON are touched, even with `--force`, so
+    `seed` never undoes an `unset` or a panel override. Validated as a whole first.
     """
     plan: dict[str, str] = {}
     validated: dict[str, str] = {}
@@ -449,9 +365,7 @@ def plan_seed(
 def adopt_env_values() -> dict[str, str]:
     """Effective values read from a bootstrap with the DB layer disabled.
 
-    Does not use `get_settings()`: doing so would feed seeding its own
-    freshly written rows back to itself, turning `--adopt-env` from
-    "adopt the env" into "copy the DB from the DB".
+    Not `get_settings()`: that would feed freshly seeded rows back to seeding.
     """
     env_only = bootstrap_settings()
     return {key: serialize(getattr(env_only, key)) for key in sorted(DB_MANAGED_FIELDS)}

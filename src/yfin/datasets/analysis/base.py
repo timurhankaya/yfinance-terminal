@@ -1,14 +1,7 @@
 """Common base for period-indexed analyst frames.
 
-Five of the nine analyst datasets share one shape: a single frame keyed by
-a relative period label (`0q`, `+1q`, `0y`, `+1y`, `LTG`, `0m`..`-3m`).
-Two rules follow from that shape:
-
-1. The period label is relative, so a row is meaningless without
-   `as_of_date` -- the base class is `AsOfDataset`.
-2. The source signals "module not available for this symbol" via HTTP
-   404, which is an `empty` result, not `failed` -- every fetch uses
-   `call_optional`.
+The period label (`0q`, `+1q`, `LTG`, ...) is relative, so rows need
+`as_of_date`; a 404 means "module absent" and is `empty`, not `failed`.
 """
 
 from __future__ import annotations
@@ -38,9 +31,8 @@ PERIOD_LENGTH = 8
 class Column:
     """Source key -> SQL column -> typed conversion.
 
-    The converter lives next to the field: `models/kinds.py`'s `Field` table
-    does not apply here because these columns are defined by hand in
-    SQLAlchemy with no counterpart in a kind table like FactValueType.
+    The converter lives here, not in `models/kinds.py`, because these
+    columns are hand-defined in SQLAlchemy with no kind-table counterpart.
     """
 
     source: str
@@ -63,13 +55,10 @@ class PeriodFrameDataset(AsOfDataset[AsOfFramePayload]):
     required: tuple[str, ...] = ()
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
-        """Names the one table this family writes as its gate source.
+        """Derives `gate_source_tables` from `table` before delegating.
 
-        Set BEFORE delegating, because the delegate is `AsOfGate`'s check
-        for exactly this declaration. Derived from `table` rather than
-        spelled out again in seven subclasses: the two would drift, and a
-        `gate_source_tables` naming a table the dataset does not write
-        fails every run of it.
+        Must be set before `super().__init_subclass__`, which is `AsOfGate`'s
+        check for exactly this declaration.
         """
         if "table" in cls.__dict__:
             cls.gate_source_tables = (cls.__dict__["table"],)

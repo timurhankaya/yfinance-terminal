@@ -1,14 +1,7 @@
-"""index.html and the built assets, by hand.
-
-FastAPI 0.141 has `app.frontend()`, and it is not used here for three
-reasons that were checked, not guessed. Its fallback answers EVERY
-unmatched request that accepts text/html with 200 index.html -- a typo
-under /v1 would come back as a web page instead of the 404 problem the
-contract promises. Its `check_dir` raises at import when the build is
-absent, which is every unit test and every unbuilt checkout. And it
-offers no hook to put a Content-Security-Policy on the one response
-that needs it.
-"""
+"""index.html and the built assets, by hand rather than `app.frontend()`:
+that answers every unmatched text/html request with index.html (a typo
+under /v1 would not get its 404 problem), raises at import when the build
+is absent, and offers no hook for a Content-Security-Policy."""
 
 from __future__ import annotations
 
@@ -55,18 +48,15 @@ def install_pages(app: FastAPI, dist_dir: Path, *, dockview_enabled: bool = True
     pages = APIRouter(include_in_schema=False)
 
     # `path` is unused but must be declared: FastAPI binds `{path:path}`
-    # to it. On /ui and /ui/ the default applies (verified: no 422).
+    # to it; on /ui and /ui/ the default applies.
     def spa(path: str = "") -> HTMLResponse:
         return HTMLResponse(index, headers=_PAGE_HEADERS)
 
     pages.add_api_route("/ui", spa, methods=["GET"])
     pages.add_api_route("/ui/", spa, methods=["GET"])
-    # Two client routes, because there are two kinds of page: a symbol's
-    # detail carries the symbol in its address, a market-wide page does
-    # not. Listed rather than one `/ui/{path:path}` catch-all, which
-    # would swallow `/ui/api/*` and `/ui/assets/*` and answer a mistyped
-    # API path with the SPA instead of the 404 problem the contract
-    # promises.
+    # Listed rather than one `/ui/{path:path}` catch-all, which would
+    # swallow `/ui/api/*` and `/ui/assets/*` and answer a mistyped API
+    # path with the SPA instead of a 404 problem.
     pages.add_api_route("/ui/t/{path:path}", spa, methods=["GET"])
     pages.add_api_route("/ui/m/{path:path}", spa, methods=["GET"])
     # And a third: a saved page's address names the page, not a command.

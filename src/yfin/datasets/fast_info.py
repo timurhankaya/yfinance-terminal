@@ -50,9 +50,8 @@ class FastInfoDataset(SnapshotDataset[FastInfoPayload]):
         if fast_info is None:
             return NormalizedResult()
 
-        # Upstream hardcodes 20 keys (quote.py:_public_keys), identical
-        # across the 5 markets measured. marketCap/shares are None for
-        # ETFs, crypto, FX and indices.
+        # Upstream hardcodes the key set (quote.py:_public_keys);
+        # marketCap/shares are None for ETFs, crypto, FX and indices.
         # FastInfo is not a Mapping but is iterable, so an explicit loop
         # is used instead of dict()
         payload = {key: fast_info[key] for key in fast_info}

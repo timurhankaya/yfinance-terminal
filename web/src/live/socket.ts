@@ -1,11 +1,7 @@
-// One socket for the page, and the reconnect policy around it.
-//
-// The store above this decides WHAT is subscribed; this decides only that
-// whatever is subscribed survives a dropped connection. The subscription
-// set is resent on every open rather than replayed from a log: after a
-// reconnect the server knows nothing, and "what is on screen now" is the
-// only correct answer -- a replay would resubscribe panels the reader
-// closed while the socket was down.
+// One socket for the page, and the reconnect policy around it. The store
+// decides WHAT is subscribed; this only keeps it alive across a dropped
+// connection. The subscription set is resent whole on every open: a
+// replay would resubscribe panels the reader closed while it was down.
 import { LinkState, Op, socketUrl } from "./types";
 import type { ClientFrame, ServerFrame } from "./types";
 
@@ -67,13 +63,9 @@ export class LiveSocket {
     if (fresh.length > 0) this.send({ op: Op.Sub, symbols: fresh });
   }
 
-  /** Asks for the whole set again.
-   *
-   *  For one situation only: the server refuses a `sub` frame WHOLE when
-   *  it would take the connection past its symbol ceiling
-   *  (`ui/live.py`), so after such a refusal the client's idea of what is
-   *  subscribed is ahead of the server's. `subscribe` cannot fix that --
-   *  it deliberately skips symbols it has already asked for. */
+  /** Asks for the whole set again. The server refuses a `sub` frame WHOLE
+   *  past its symbol ceiling (`ui/live.py`), leaving the client ahead of
+   *  the server; `subscribe` skips symbols it has already asked for. */
   resubscribe(): void {
     if (this.symbols.size > 0) this.send({ op: Op.Sub, symbols: [...this.symbols] });
   }

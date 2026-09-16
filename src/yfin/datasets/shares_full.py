@@ -1,12 +1,7 @@
 """shares_full dataset.
 
-**`Ticker.get_shares()` is deliberately not a second dataset.** It reads
-`Fundamentals.shares`, which is never populated -- the property raises
-`YFNotImplementedError('shares')` on every symbol (yfinance 1.7.0,
-`scrapers/fundamentals.py`). `get_shares_full()` is the live path and is
-what this collects; a dataset for the other would be a scheduled call
-that can only ever fail. Recorded rather than left silent because this
-codebase justifies every exclusion in writing.
+`Ticker.get_shares()` is not collected: upstream it raises
+`YFNotImplementedError` on every symbol. `get_shares_full()` is the live path.
 """
 
 from __future__ import annotations
@@ -50,8 +45,8 @@ class SharesFullDataset(Dataset[SeriesPayload]):
         else:
             watermark = ctx.watermark("shares_full", "as_of_date")
             if watermark is None:
-                # start=None becomes 'end - 548 days' inside yfinance; for
-                # AAPL, 353 of 420 rows are SILENTLY dropped (base.py:511).
+                # start=None becomes 'end - 548 days' inside yfinance, which
+                # silently drops older rows.
                 kwargs = {"start": EPOCH_START.isoformat()}
             else:
                 overlap = get_settings().yf_incremental_overlap_days
@@ -64,8 +59,7 @@ class SharesFullDataset(Dataset[SeriesPayload]):
         return result
 
     def normalize(self, raw: SeriesPayload, symbol: str) -> NormalizedResult:
-        # SPY, BTC-USD, EURUSD=X, GC=F, ^GSPC -> returns None; calling
-        # 'raw.empty' would raise AttributeError.
+        # Non-equity symbols return None; calling 'raw.empty' would raise.
         if nz.is_empty_result(raw):
             return NormalizedResult()
 

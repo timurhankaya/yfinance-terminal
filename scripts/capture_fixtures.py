@@ -1,10 +1,7 @@
 """Fetches data once from the real API and saves it as a fixture.
 
-Usage:  python scripts/capture_fixtures.py [SYMBOL ...]
-        python scripts/capture_fixtures.py --bars [SYMBOL ...]
-        python scripts/capture_fixtures.py --domain
-        python scripts/capture_fixtures.py _market
-"""
+Usage: capture_fixtures.py [SYMBOL ...] | --bars [SYMBOL ...] | --domain |
+       --discovery | --screen | _market"""
 
 from __future__ import annotations
 
@@ -18,15 +15,9 @@ from yfin.core import normalize as nz
 from yfin.core.config import get_settings
 from yfin.datasets.funds import _collect
 
-# MSFT is required: its June fiscal year proves the period end isn't
-# pinned to the calendar year, and it's the only one with the 60-character
-# item_key FinancialAssetsDesignatedasFairValueThroughProfitorLossTotal.
-# Six more symbols each prove one edge case on their own: PFE has two
-# identical insider rows across nine columns, XOM has `Ownership='D/I'`,
-# NVDA has an 11-column insider_roster plus a float epoch date, WMT has a
-# 56-character position and a 150-row window, KO has negative net_shares,
-# BND is a bond fund (0 sectors + 9 ratings, top_holdings empty), and
-# ^GSPC returns all 16 datasets empty.
+# Each symbol proves one edge case on its own (fiscal year not pinned to the
+# calendar, duplicate insider rows, a bond fund, an index with every dataset
+# empty); removing one silently drops coverage for that case.
 REFERENCE_SYMBOLS = (
     "AAPL",
     "MSFT",
@@ -85,16 +76,9 @@ VALUATION_SPECS = (
 
 FIXTURE_ROOT = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 
-# price_bars fixture symbols. Each proves one edge case on its own:
-#   AAPL     hasPrePost=True, start=09:30/end=16:00 -> bars before 04:00 and
-#            after 16:00 are is_extended=1
-#   SHEL.L   regression: reports hasPrePost=FALSE yet still returns
-#            16:30/16:35 bars. A removed earlier check counted these as
-#            regular session; this fixture guards against that regressing.
-#   VWCE.DE  same pattern, 17:30/17:35
-#   THYAO.IS start=09:30/end=18:00; degenerate pre_*/post_* columns
-#   BTC-USD  24/7, start=00:00/end=23:59 -> all zero
-#   GC=F     bar opens at 18:10; local_date is not the session day
+# price_bars fixture symbols. Each proves one edge case on its own: extended
+# hours, hasPrePost=False yet extended bars returned, degenerate pre/post
+# columns, 24/7 trading, and a bar whose local_date is not the session day.
 BAR_FIXTURE_SYMBOLS = ("AAPL", "SHEL.L", "VWCE.DE", "THYAO.IS", "BTC-USD", "GC=F")
 
 
@@ -134,8 +118,8 @@ def _capture_optional(ticker: Any, getter: str) -> Any:
 def _capture_funds(ticker: Any) -> Any:
     """A non-fund symbol raises a raw `KeyError('topHoldings')`."""
     try:
-        # `_read` is required: `quote_type` isn't a @property in yfinance
-        # 1.7.0, unlike its nine sibling fields (measured live).
+        # `_read` is required: `quote_type` is a method, not a @property,
+        # in yfinance 1.7.0.
         collected = _collect(ticker.get_funds_data())
         return {
             key: (_frame_records(value) if hasattr(value, "columns") else value)
@@ -201,10 +185,8 @@ def capture(symbol: str) -> dict[str, Any]:
 def capture_bars(symbol: str) -> dict[str, Any]:
     """price_bars fixture: frame + tradingPeriods.
 
-    A 1m fixture can't be recaptured after 30 days, so what's captured
-    goes into the repo. 5m is used here because it tests the same
-    is_extended logic and has a 59-day window.
-    """
+    5m rather than 1m: it tests the same is_extended logic and, unlike 1m,
+    can still be recaptured after 30 days."""
     ticker = yf.Ticker(symbol)
     frame = ticker.history(
         period="5d",
@@ -300,11 +282,8 @@ DOMAIN_INDUSTRY_FIXTURES: tuple[tuple[str, str], ...] = (
 def capture_domain() -> None:
     """Saves raw JSON envelopes ({"data": {...}}) as fixtures.
 
-    The envelope is stored as-is: `fetch_domain` reads `payload["data"]`,
-    and tests must go through the same path -- if the fixture were
-    already unwrapped, the `KeyError('data')` -> DATA -> failed path
-    could never be tested.
-    """
+    Stored as-is: `fetch_domain` reads `payload["data"]`, and an unwrapped
+    fixture could never exercise the `KeyError('data')` -> failed path."""
     from yfin.datasets.domain.common import _QUERY
 
     root = FIXTURE_ROOT / "_domain"
@@ -385,11 +364,8 @@ SCREEN_FIXTURES = (
 def capture_discovery() -> None:
     """Saves raw `Search` and `Lookup` response bodies.
 
-    `include_research=True` and `include_nav_links=True` are given
-    explicitly: both default to False (search.py:32-34), and without them
-    `researchReports` never comes back -- fixtures would be silently
-    incomplete.
-    """
+    `include_research=True` and `include_nav_links=True` are explicit: both
+    default to False, and without them `researchReports` never comes back."""
     from yfin.ingest.screens import SCREEN_KEY_MAX_LENGTH  # noqa: F401  (import check)
 
     target = FIXTURE_ROOT / "_discovery"
@@ -421,10 +397,8 @@ def capture_discovery() -> None:
 def capture_screen() -> None:
     """Saves `yf.screen` responses.
 
-    The first page is requested with `count`, later pages with `size`.
-    Sending `count` together with `offset` would make Yahoo silently
-    ignore it and return 25 rows.
-    """
+    The first page is requested with `count`, later pages with `size`: Yahoo
+    silently ignores `count` sent together with `offset`."""
     from yfin.ingest.screens import screen_by_key
 
     target = FIXTURE_ROOT / "_screen"

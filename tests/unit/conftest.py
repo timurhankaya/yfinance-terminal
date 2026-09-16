@@ -1,18 +1,6 @@
-"""Unit tests must reach no service outside this process.
-
-The README states it and CI depends on it: the `check` job runs
-`pytest -q` with no service container and no credentials, so a unit test
-that quietly called Yahoo would pass locally and hang or fail there. A
-claim nothing enforces is a comment, so this enforces it.
-
-Loopback is allowed on purpose. `test_stream_connection.py` runs a real
-websocket server in-process and talks to it over 127.0.0.1; that needs
-no upstream, no database and no network the CI runner does not already
-have. What the claim is actually about is leaving the machine.
-
-The guard is on `connect`, not on the import: constructing a client, an
-Engine or a Ticker stays fine. Only reaching out does not.
-"""
+"""Unit tests must not leave the machine: CI's `check` job runs them with no services or
+credentials. Loopback is allowed (`test_stream_connection.py` runs an in-process websocket
+server). The guard is on `connect`, not on construction."""
 
 from __future__ import annotations
 

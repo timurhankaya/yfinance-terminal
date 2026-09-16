@@ -1,11 +1,6 @@
-// Whether a block has been scrolled to.
-//
-// The home page is six reads. A reader who opens it in a narrow dock
-// panel and never scrolls should pay for what they can see and nothing
-// else, so each block asks this before it fetches.
-//
-// Once seen, always seen: a block that scrolls back out does not throw
-// its rows away and ask again.
+// Whether a block has been scrolled to, so a reader in a narrow dock
+// panel pays only for what they can see. Once seen, always seen: a block
+// that scrolls back out keeps its rows.
 import { useEffect, useState } from "react";
 import type { RefObject } from "react";
 

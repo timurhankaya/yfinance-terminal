@@ -1,21 +1,8 @@
 """Single source of screen definitions.
 
-Two sources exist and are not to be confused:
-
-- The single source for the DEFINITION is this file (`ScreenDef`).
-- The single source for RUNTIME enablement is the `screens.is_enabled` column.
-  `ScreenDef.is_enabled` is only a seed value; an operator's change in the DB
-  is not reverted by this file.
-
-The 19 predefined screens are DERIVED from the library, not hand-written, so
-we don't silently drift the day the library adds or removes a screen
-(`test_screens_match_library.py` enforces this).
-
-Custom screens require a query object, and building it is its own
-validation: `EquityQuery`/`FundQuery`/`ETFQuery` raise ValueError for an
-invalid field or value without a network call. A bad definition fails at
-import time, not mid-run.
-"""
+This file owns the DEFINITION; the `screens.is_enabled` column owns runtime
+enablement, and `ScreenDef.is_enabled` is only a seed. Predefined screens are
+derived from the library; custom ones fail at import time on a bad query."""
 
 from __future__ import annotations
 
@@ -31,8 +18,7 @@ ScreenKind = Literal["predefined", "custom"]
 ScreenQuoteType = Literal["EQUITY", "MUTUALFUND", "ETF"]
 
 # Derived from the schema column length rather than duplicated as a literal:
-# if they diverge, validation checks itself instead of the schema. The
-# longest measured predefined name is `conservative_foreign_funds` = 26.
+# if they diverge, validation checks itself instead of the schema.
 SCREEN_KEY_MAX_LENGTH = SCREEN_KEY_LENGTH
 
 # Query class -> Yahoo's `quoteType` field. `yf.screen` does this same
@@ -50,12 +36,8 @@ _QUOTE_TYPE_BY_QUERY_CLASS: dict[type[QueryBase], ScreenQuoteType] = {
 class ScreenDef:
     """Definition of a single screen.
 
-    `query` is None for predefined screens, deliberately: with just a name,
-    `yf.screen` takes the predefined GET path, and the first page returns 12
-    extra fields (`title`, `description`, `rawCriteria`, `lastUpdated`, ...).
-    Holding a query object and taking the POST path instead would never
-    return that metadata.
-    """
+    `query` is None for predefined screens: with just a name `yf.screen` takes
+    the GET path, whose first page returns metadata the POST path never does."""
 
     key: str
     kind: ScreenKind
@@ -86,10 +68,8 @@ class ScreenDef:
 def _title_from_key(key: str) -> str:
     """`day_gainers` -> `Day Gainers`.
 
-    Seed value only: for predefined screens, the first GET page returns the
-    real title and refreshes `screens.title`. Still can't be left blank --
-    the column is NOT NULL.
-    """
+    Seed value only: the first GET page refreshes `screens.title` with the
+    real one. The column is NOT NULL, so it cannot be blank."""
     return key.replace("_", " ").title()
 
 
@@ -119,7 +99,7 @@ PREDEFINED_SCREENS: tuple[ScreenDef, ...] = _derive_predefined()
 
 # --- custom screens ---------------------------------------------------------
 # Building them is their own validation. `region` values are limited to
-# EQUITY_SCREENER_EQ_MAP['region']; 'tr' was measured and is valid (total=628).
+# EQUITY_SCREENER_EQ_MAP['region'].
 
 CUSTOM_SCREENS: tuple[ScreenDef, ...] = (
     ScreenDef(
@@ -129,8 +109,7 @@ CUSTOM_SCREENS: tuple[ScreenDef, ...] = (
         title="BIST Equities",
         description="All shares traded on Borsa Istanbul (region=tr).",
         # `ticker` + ascending: stable order across pages. Sorting by price
-        # or volume could reorder between two pages and skip a symbol --
-        # 628 rows means three pages.
+        # or volume could reorder between two pages and skip a symbol.
         sort_field="ticker",
         sort_asc=True,
         query=EquityQuery(
@@ -159,8 +138,6 @@ if len(_BY_KEY) != len(ALL_SCREENS):  # pragma: no cover - defensive
 def screen_by_key(key: str) -> ScreenDef:
     """Raises KeyError for an unknown name; never silently returns None.
 
-    A key present in the `screens` table but not in this file was added by
-    hand after seeding, and the `screener` dataset can't run it -- it has
-    no query body to use.
-    """
+    A key in the `screens` table but not here was added by hand after seeding,
+    and the `screener` dataset has no query body to run it with."""
     return _BY_KEY[key]

@@ -1,20 +1,7 @@
 """dividends, splits, capital_gains datasets.
 
-All three feed from a column of the repaired history frame; none makes its
-own get_dividends/get_splits/get_capital_gains call.
-
-Rationale (verified against the source): `base.py`'s `repair` parameter is
-not forwarded to `PriceHistory.get_dividends`, and the cache key is
-`(interval, period, repair)`. So `ticker.dividends` both returns unrepaired
-data and makes a second, full history() network call. That would have
-`price_history.dividend` (repaired) disagree with the `dividends` table
-(unrepaired) -- with `dividends` as the authoritative side.
-
-Three gains: authoritative tables get repaired data; the cross-source
-conflict disappears; three network calls per symbol are eliminated.
-
-'actions' is an alias for these; the v_actions view only reads these three
-tables.
+All three feed from the repaired shared history frame: yfinance does not
+forward `repair` to `get_dividends` etc., and each would cost a history() call.
 """
 
 from __future__ import annotations
@@ -47,10 +34,8 @@ class _SeriesDataset(Dataset[FramePayload]):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Declares this subclass as a consumer of the shared history frame.
 
-        Derived from `table`/`date_column` rather than spelled out a second
-        time: the two would drift, and a `shared_frame_watermark` pointing
-        at the wrong column reads a watermark that is always None and
-        refetches the full history on every run.
+        Derived from `table`/`date_column`: a wrong `shared_frame_watermark`
+        reads None forever and refetches full history every run.
         """
         super().__init_subclass__(**kwargs)
         cls.shared_frame_watermark = (cls.table, cls.date_column)
@@ -80,7 +65,7 @@ class _SeriesDataset(Dataset[FramePayload]):
             if value is None or float(value) == 0.0:
                 continue
             # ex_date is also a local date; the dividends/splits index comes
-            # at a different time of day than history's (THYAO: 09:30 vs 00:00)
+            # at a different time of day than history's.
             when = nz.to_local_date(index)
             amount = nz.to_decimal(value)
             if when is None or amount is None:
@@ -126,12 +111,7 @@ class SplitsDataset(_SeriesDataset):
 
 
 class CapitalGainsDataset(_SeriesDataset):
-    """Never returns data for any symbol tested, including 7 funds/ETFs.
-
-    An empty result is 'empty', not 'failed'. A system that treats empty as
-    an error would false-alarm on every run. The 'Capital Gains' column
-    only appears for funds; otherwise normalize returns an empty result.
-    """
+    """The 'Capital Gains' column only appears for funds; otherwise the result is empty."""
 
     name = "capital_gains"
     produces = ("capital_gains",)

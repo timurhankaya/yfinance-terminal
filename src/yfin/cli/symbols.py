@@ -1,10 +1,7 @@
 """`yfin symbols` and `yfin discover` -- the symbol universe.
 
-Two groups, one module, because they are two ends of one workflow:
-`discover term` finds candidates and writes them inactive, `symbols
-activate` promotes them. Splitting them would put the halves of that
-sentence in different files.
-"""
+Two ends of one workflow: `discover term` finds candidates and writes them
+inactive, `symbols activate` promotes them."""
 
 from __future__ import annotations
 
@@ -139,12 +136,8 @@ def symbols_purge(
     force: Annotated[bool, typer.Option("--force", help="Hard delete; data loss")] = False,
 ) -> None:
     """Hard delete. Related rows are deleted explicitly, in order, because of
-    ON DELETE RESTRICT.
-
-    The order and the deletes themselves live in `storage/purge.py`: they are
-    write mechanics, and the change collector has to see them -- a consumer
-    mirroring the archive keeps rows that exist nowhere otherwise.
-    """
+    ON DELETE RESTRICT; the deletes live in `storage/purge.py` so the change
+    collector sees them."""
     from yfin.core import normalize as nz
     from yfin.storage.purge import purge_symbol
 
@@ -172,10 +165,8 @@ def symbols_activate(
 ) -> None:
     """Activates discovered, inactive symbols.
 
-    `--dry-run` is deliberate: `most_shorted_stocks` alone reports 4,022
-    symbols. Activating them without a preview could silently multiply
-    `yfin sync`'s daily request count.
-    """
+    Preview with `--dry-run`: a screen can report thousands of symbols, and
+    activating them multiplies `yfin sync`'s daily request count."""
     from sqlalchemy import select, update
 
     from yfin.models import Symbol

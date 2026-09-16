@@ -96,9 +96,8 @@ def proxy_add(
         try:
             session.commit()
         except IntegrityError:
-            # `label` is UNIQUE. The existence check above looks at the endpoint,
-            # not the label: adding a different endpoint under the same label
-            # used to print a raw SQLAlchemy traceback.
+            # `label` is UNIQUE; the existence check above looks at the endpoint,
+            # not the label.
             session.rollback()
             typer.echo(f"that label is already in use: {name}", err=True)
             raise typer.Exit(code=1) from None
@@ -217,11 +216,8 @@ def proxy_check(
 ) -> None:
     """Verifies each proxy against Yahoo and refreshes its health.
 
-    Does not use yfinance: yf.config is process-global, so checking N proxies
-    in parallel would need N processes. A raw curl_cffi request is sent
-    instead. Two endpoints are tried: chart does not require a crumb, but
-    real traffic also goes through /v1/test/getcrumb.
-    """
+    Sends raw curl_cffi requests rather than using yfinance: yf.config is
+    process-global, so checking N proxies in parallel would need N processes."""
     from sqlalchemy import select
 
     from yfin import proxy as px

@@ -1,8 +1,7 @@
 """Dataset contract.
 
-Independent of SQLAlchemy and the database: defines which data goes to
-which table, with which keys, and with what column scope. How the write
-happens lives in `yfin.storage.persistence`.
+Independent of SQLAlchemy: which data goes to which table with which keys.
+How the write happens lives in `yfin.storage.persistence`.
 """
 
 from __future__ import annotations
@@ -27,10 +26,8 @@ from yfin.storage.contracts import (
 class WatermarkProvider(Protocol):
     """Contract for a read-only watermark provider.
 
-    `Callable[..., date | datetime | None]` is not enough: `...` turns off
-    argument checking entirely, so a wrong call site would not be caught by
-    typing. The Protocol also documents that `where` is keyword-only and
-    optional -- existing call sites (history, shares_full) omit it.
+    A Protocol rather than `Callable[..., ...]` so call sites are
+    type-checked; `where` is keyword-only and optional.
     """
 
     def __call__(
@@ -59,11 +56,6 @@ class GapProvider(Protocol):
 #   "api"    : range passes through to the yfinance call -> a real backfill
 #   "filter" : source returns a fixed window; normalize filters rows
 #   "none"   : range is meaningless; the dataset does not run when --start is given
-#
-# The third level is required: --start acts on both `history` (a different
-# fetch) and `upgrades_downgrades` (row filtering) in the same command. A
-# single bool would make `--start 2020-01-01 --datasets history` fetch
-# everything before 2020 from Yahoo and then discard it.
 DateRange = Literal["api", "filter", "none"]
 
 
@@ -81,11 +73,8 @@ class NormalizedResult:
 def _sum_counters(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
     """Sums per key; does not drop a zero-valued entry.
 
-    Dropping zeros looks tempting but is wrong: when the hash matches,
-    `AsOfGate.upsert` writes `attempted.setdefault(table, 0)` for a target
-    with no rows. Losing that entry would drop the table from `tables()`,
-    `_record_items` would never see it, and it would fall out of auditing
-    for that run.
+    `AsOfGate.upsert` records zero counts for a row-less target to keep it
+    in `tables()` and therefore in auditing.
     """
     merged = dict(left)
     for name, count in right.items():
@@ -94,15 +83,10 @@ def _sum_counters(left: dict[str, int], right: dict[str, int]) -> dict[str, int]
 
 
 def merge_stats(left: WriteStats, right: WriteStats) -> WriteStats:
-    """Reduces two `WriteStats` into one.
+    """Reduces two `WriteStats` into one; inputs are not mutated.
 
-    `DiscoveryDataset.upsert` splits its writes in two -- ungated tables
-    (`symbols`, `news`, `news_symbols`, `research_reports`) get a plain
-    upsert, the rest are delegated to `AsOfGate` -- producing two separate
-    stats objects. `_record_items` expects a single `WriteStats`.
-
-    Inputs are not mutated: the same dicts may still be in use during
-    `apply_write` calls.
+    Needed where a dataset splits its writes between a plain upsert and
+    `AsOfGate`, since `_record_items` expects a single `WriteStats`.
     """
     return WriteStats(
         attempted=_sum_counters(left.attempted, right.attempted),
@@ -165,13 +149,10 @@ class SyncContext:
         *,
         where: Mapping[str, Any] | None = None,
     ) -> date | datetime | None:
-        """Read-only DB query; the contract explicitly allows this inside
-        fetch. --full-refresh skips watermarks.
+        """Read-only DB query, allowed inside fetch; --full-refresh skips it.
 
-        `where` adds equality conditions. Required for price_bars: a single
-        MAX(ts_utc) would mix 1m with 60m and 60m would be mistaken for
-        up to date, so its first fill would never run. Omitting it keeps
-        behavior identical to before.
+        `where` adds equality conditions; price_bars needs it so intervals
+        are not mixed in one MAX(ts_utc).
         """
         if self.full_refresh or self._watermark_provider is None:
             return None
@@ -180,8 +161,7 @@ class SyncContext:
     def in_scope(self, interval: str) -> bool:
         """Whether the symbol is in scope for this interval.
 
-        True when there is no provider: the safe default for library use
-        and tests, since otherwise a directly invoked dataset would
+        True with no provider, so a directly invoked dataset does not
         silently do nothing.
         """
         if self._scope_provider is None:
@@ -199,12 +179,8 @@ class SyncContext:
 def plain_upsert(writer: RowWriter, result: NormalizedResult) -> WriteStats:
     """The write policy of a dataset with no gate: write everything.
 
-    A module function, not a method, because the SAME policy is the
-    default on both axes -- a symbol-scoped `Dataset` and a market-scoped
-    `GlobalDataset` (`datasets/market/base.py`). Written twice as a method
-    it was two identical bodies that had to be kept identical by hand,
-    which is exactly the drift the two sibling snapshot classes had
-    already shown is possible.
+    A module function because it is the default on both `Dataset` and
+    `GlobalDataset`, which share no base.
     """
     stats = WriteStats(skipped=dict(result.skipped))
     for write in result.writes:
@@ -222,16 +198,8 @@ def mark_known_in(
 ) -> NormalizedResult:
     """`result` again, with `is_known` filled on the writes `select` picks.
 
-    `mark_known` (datasets/common.py) already answers "which of these
-    symbols are in the universe" once for all five datasets that need it.
-    What was still written out per dataset is the splice: marking a SUBSET
-    of the writes and putting them back where they came from. Two of the
-    five did it identically, keyed by `id()` -- a dictionary that is only
-    correct as long as nothing copies a `TableWrite` in between, which
-    nothing does today and nothing promises.
-
-    The predicate is evaluated once per write and the marked writes come
-    back in order, so position does the work `id()` was doing.
+    Marked writes come back in order, so position splices them back
+    without relying on `id()` identity.
     """
     chosen = [select(write) for write in result.writes]
     targets = [write for write, take in zip(result.writes, chosen, strict=True) if take]
@@ -265,36 +233,22 @@ class Dataset[RawT](ABC):
     # A class attribute, not a property: turning it into a property in a
     # subtype would narrow the base contract, same issue as `produces`.
     date_range: DateRange = "none"
-    # Opt-in to the generic read surface, one entry per readable
-    # resource. Empty means "not served": the dataset stays out of the
-    # catalogue and /v1/datasets/{name} answers 404. Failing closed is
-    # what keeps a newly registered dataset from becoming readable, or
-    # readable under the wrong scope, by accident. A tuple rather than a
-    # single value because a dataset can write several tables and each is
-    # its own resource.
+    # Opt-in to the generic read surface, one entry per readable table.
+    # Empty means "not served": the dataset stays out of the catalogue and
+    # /v1/datasets/{name} answers 404, so nothing becomes readable by accident.
     api: tuple[ApiExposure, ...] = ()
-    # (table, date column) when this dataset feeds from the shared history
-    # frame -- the single daily `history()` call several datasets consume
-    # through `ctx.cached`. That call's `start` is the MINIMUM of the
-    # watermarks declared here, so a dataset that consumes the frame and
-    # does NOT declare one silently fills from a window narrowed by its
-    # siblings: `price_history` current while `dividends` is empty would
-    # fetch a few days and miss every old dividend.
-    #
-    # Declared by the dataset rather than listed centrally on purpose. A
-    # central list is only ever wrong in the direction nobody checks --
-    # adding a consumer and forgetting the list is exactly the case that
-    # has to fail, and it cannot fail if the list is somewhere else.
+    # (table, date column) when this dataset consumes the shared `history()`
+    # frame via `ctx.cached`. That call's `start` is the MINIMUM of the
+    # watermarks declared here; a consumer that does not declare one fills
+    # from a window narrowed by its siblings.
     shared_frame_watermark: tuple[str, str] | None = None
 
     @abstractmethod
     def fetch(self, ctx: SyncContext) -> RawT:
         """Fetches raw data.
 
-        May raise `DatasetOutOfScope`: means the dataset was deliberately
-        not run for that symbol, and the runner catches it before the
-        generic error path and records it as OUT_OF_SCOPE. Part of the
-        contract; subtypes are free to use it.
+        May raise `DatasetOutOfScope`; the runner records it as OUT_OF_SCOPE
+        instead of an error.
         """
         ...
 
@@ -306,11 +260,7 @@ class Dataset[RawT](ABC):
     ) -> WriteStats:
         """Default implementation: `plain_upsert`.
 
-        `full_refresh` is accepted and ignored here -- an ungated dataset
-        writes everything it normalized either way. It is part of the base
-        signature rather than the gated subclasses' alone because
-        `persist_symbol` passes it to whatever dataset it holds, and a
-        keyword only some of them accept is the kind of contract that is
-        discovered by a TypeError in production.
+        `full_refresh` is ignored by an ungated dataset but stays in the
+        base signature because `persist_symbol` passes it to every dataset.
         """
         return plain_upsert(writer, result)

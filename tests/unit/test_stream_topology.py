@@ -1,10 +1,5 @@
-"""Symbol -> connection mapping.
-
-The quota tests are the load-bearing ones. Yahoo subscribes a connection
-to the first 100 symbols it is sent and discards the rest without an
-error, so a mapping bug here does not fail -- it just stops collecting
-data, quietly, for as long as nobody checks.
-"""
+"""Symbol -> connection mapping. The quota tests are load-bearing: Yahoo subscribes a
+connection to the first 100 symbols and silently discards the rest."""
 
 from __future__ import annotations
 
@@ -51,7 +46,7 @@ def test_no_connection_exceeds_yahoos_limit() -> None:
 
 
 def test_canary_counts_against_the_quota() -> None:
-    """Measured: even invalid tickers occupy slots, so the canary does too."""
+    """Even invalid tickers occupy slots, so the canary does too."""
     assert effective_capacity(canary_count=1) == YAHOO_SUBSCRIPTION_LIMIT - 1
     assert effective_capacity(canary_count=0) == YAHOO_SUBSCRIPTION_LIMIT
 

@@ -1,13 +1,7 @@
-"""`/ui/ws`: the origin gate, the frame protocol and the fallback.
-
-No Redis and no database here. What this file pins down is what the
-socket does when the live bus is NOT available -- which is the state
-every deployment starts in, since `yf_stream_publish_enabled` defaults to
-off -- and the rules that hold whether it is available or not: who may
-open a socket, what a bad frame does, and the per-connection ceiling.
-
-The pub/sub half is covered against fakeredis in tests/repo.
-"""
+"""`/ui/ws`: the origin gate, the frame protocol and the fallback when the live bus is not
+available (the default, since `yf_stream_publish_enabled` is off), plus who may open a
+socket, what a bad frame does and the per-connection ceiling. No Redis, no database; the
+pub/sub half is covered against fakeredis in tests/repo."""
 
 from __future__ import annotations
 
@@ -246,12 +240,10 @@ class TestClosedCodes:
 
 
 class TestConnectionLimits:
-    """A WebSocket never passes through `RequestBrake` (a
-    BaseHTTPMiddleware does not see this scope type), and the Origin
-    check admits a client that sends no Origin by design. Without a
-    limit of its own, `wscat` in a loop is admitted without end -- and
-    what it exhausts is the process's threadpool and database pool,
-    which belong to `/v1` as much as to the terminal."""
+    """A WebSocket never passes through `RequestBrake` (a BaseHTTPMiddleware does not see
+    this scope type) and the Origin check admits a client with no Origin, so without its
+    own limit a loop of connections exhausts the threadpool and database pool `/v1` shares.
+    """
 
     @pytest.mark.parametrize("overrides", [{"ui_ws_max_connections": 1}])
     def test_the_process_ceiling_closes_the_extra_socket(self, client: TestClient) -> None:

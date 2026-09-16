@@ -94,8 +94,7 @@ def test_holder_scope_values_are_explicit_so_deletion_survives_empty_source() ->
 
 
 def test_holder_date_reported_varies_per_row() -> None:
-    """Four different dates were measured in AAPL's mutualfund list; the
-    date cannot be hoisted to the table header."""
+    """Dates differ per row, so the date cannot be hoisted to the table header."""
     dataset = SYMBOL_DATASETS["mutualfund_holders"]
     rows = _rows(
         dataset.normalize(AsOfFramePayload(_holder_frame(), NOW), "AAPL"), "institutional_holders"
@@ -104,7 +103,7 @@ def test_holder_date_reported_varies_per_row() -> None:
 
 
 def test_holder_large_values_survive_decimal_38_0() -> None:
-    """Measured max: shares 1.94e9, value 1.76e13 (JPM)."""
+    """Share and value figures exceed 32-bit range."""
     dataset = SYMBOL_DATASETS["institutional_holders"]
     rows = _rows(
         dataset.normalize(AsOfFramePayload(_holder_frame(), NOW), "JPM"), "institutional_holders"
@@ -146,7 +145,7 @@ def test_insider_purchases_pivots_seven_rows_into_one() -> None:
 
 
 def test_insider_purchases_allows_negative_net_shares() -> None:
-    """KO measured net -547,806 -> a signed DECIMAL(38,0) and a signed INT."""
+    """Net shares can be negative: a signed DECIMAL(38,0) and a signed INT."""
     dataset = SYMBOL_DATASETS["insider_purchases"]
     row = _rows(
         dataset.normalize(AsOfFramePayload(_purchases_frame(), NOW), "KO"), "insider_activity"
@@ -191,8 +190,8 @@ def _transactions_frame(rows: int = 2) -> pd.DataFrame:
 
 
 def test_insider_transactions_deduplicates_identical_rows() -> None:
-    """Two identical rows were measured for PFE across all nine columns,
-    indistinguishable by `fact_hash`. Without deduplication, 2 rows would
+    """Identical rows across all nine columns are indistinguishable by
+    `fact_hash`. Without deduplication, 2 rows would
     be read but 1 written, and `rows_verified != rows_attempted` would
     produce a false `failed`."""
     dataset = SYMBOL_DATASETS["insider_transactions"]
@@ -215,7 +214,7 @@ def test_insider_transactions_sentinels_become_null() -> None:
 
 
 def test_insider_transactions_keeps_three_character_ownership() -> None:
-    """`D/I` was measured for XOM; VARCHAR(2) would truncate it."""
+    """`D/I` needs three characters; VARCHAR(2) would truncate it."""
     dataset = SYMBOL_DATASETS["insider_transactions"]
     frame = _transactions_frame(1)
     frame.loc[0, "Ownership"] = "D/I"
@@ -258,7 +257,7 @@ def _roster_frame(columns: int) -> pd.DataFrame:
         "Position Direct Date": [pd.Timestamp("2026-04-01")],
     }
     if columns >= 9:
-        # Can arrive as a raw epoch float64 (measured populated for 6 symbols)
+        # Can arrive as a raw epoch float64
         data["Position Indirect Date"] = [1_774_000_000.0]
         data["Shares Owned Indirectly"] = [1_000]
     if columns >= 11:

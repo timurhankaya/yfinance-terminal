@@ -1,15 +1,7 @@
 """price_bars schema behavior: hypertable, chunk, view.
 
-These are schema tests -- they verify the table behaves as claimed, not the
-write path. Hypertables are not created by `create_all()`; conftest applies
-the same `timescale_ddl()` fixture as the migration, and these tests prove
-that fixture does its job.
-
-The intent carries over from the old MySQL partition tests (monthly RANGE
-COLUMNS, no MAXVALUE, out-of-range insert fails) even though TimescaleDB has
-none of those mechanics -- it creates chunks at write time instead. What's
-still being checked: is partitioning actually set up, do chunks get created,
-does a query descend to chunk level.
+Hypertables are not created by `create_all()`; conftest applies the migration's
+`timescale_ddl()` fixture, and these tests prove it partitions and chunks.
 """
 
 from __future__ import annotations
@@ -42,11 +34,7 @@ def _bar(ts: datetime, *, symbol: str = "AAPL", interval: str = "5m") -> PriceBa
 
 
 def _seed_symbol(session: Session, symbol: str = "AAPL") -> None:
-    """price_bars now carries an FK to symbols.
-
-    MySQL's partitioning made an FK impossible, so orphan bars could be
-    written; now the parent row must exist first.
-    """
+    """price_bars carries an FK to symbols, so the parent row must exist first."""
     session.execute(
         text(
             "INSERT INTO symbols (symbol, is_active, unknown_streak, created_at, updated_at) "
@@ -109,10 +97,8 @@ def test_no_default_partition_index_is_created(db_session: Session) -> None:
 
 
 def test_chunks_are_created_on_write(committed_session: Session, cleanup_tables: list[str]) -> None:
-    """MySQL required manually adding monthly partitions, and a missed one
-    made inserts fail with ERROR 1526. TimescaleDB opens a chunk at write
-    time on its own; there is no "out of range" case -- a bar dated 2029
-    writes without issue."""
+    """TimescaleDB opens a chunk at write time on its own; there is no
+    "out of range" case for a far-future bar."""
     cleanup_tables.extend(["price_bars", "symbols"])
     _seed_symbol(committed_session)
     committed_session.add(_bar(datetime(2026, 9, 2, 14, 30, tzinfo=UTC)))
@@ -172,13 +158,7 @@ def test_view_hides_extended_session_bars(db_session: Session) -> None:
 
 
 def test_orphan_bars_are_impossible(db_session: Session) -> None:
-    """The FK now exists: an orphan bar cannot be written.
-
-    MySQL tested the opposite -- partitioning made an FK impossible, so an
-    orphan row could be written, and integrity was kept up by a monthly
-    audit query. Since a hypertable can be the referencing side, that query
-    is no longer needed and was removed from `bars maintain`.
-    """
+    """price_bars carries an FK to symbols, so an orphan bar cannot be written."""
     from sqlalchemy.exc import IntegrityError
 
     db_session.add(_bar(datetime(2026, 9, 2, 14, 30, tzinfo=UTC), symbol="ZZNOSYMBOL"))

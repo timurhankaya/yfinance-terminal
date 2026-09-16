@@ -1,11 +1,8 @@
 """Transfer to shards: the parent resolves settings, the child never re-reads them.
 
-Closes three problems at once: (a) cross-shard config skew -- an
-interleaved `yfin config set` would run shard-0 and shard-3 under
-different configs, (b) N extra connections, (c) the child connects to
-`settings.db_name` but does its real work in `spec.database`, i.e. it
-would read settings from a schema it was not redirected to.
-"""
+A re-read would skew config across shards under an interleaved `yfin config
+set`, open N extra connections, and read from `settings.db_name` while the
+work happens in `spec.database`."""
 
 from __future__ import annotations
 

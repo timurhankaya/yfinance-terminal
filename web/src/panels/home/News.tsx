@@ -1,9 +1,6 @@
-// The archive's newest headlines, market-wide.
-//
-// `news` is keyed for the API by `(pub_date, news_id)` DESCENDING, so
-// the first page IS the latest: fifteen rows is one small read and no
-// sorting of our own. The panel `N` is per symbol; this is what the
-// archive saw last, whoever it was about.
+// The archive's newest headlines, market-wide. `news` is keyed for the
+// API by `(pub_date, news_id)` DESCENDING, so the first page IS the
+// latest. The panel `N` is per symbol.
 import { getDatasetPage } from "../../api/client";
 import type { Row } from "../../api/client";
 import { LoadState, usePanelData } from "../common";

@@ -1,13 +1,7 @@
 """Live WebSocket stream: tick archive, last-value table and its audit.
 
-Eight tables. Measurements behind the shape:
-docs/measurements/websocket.md
-
-The column set of `live_ticks` and `live_quotes` is the 33-field mapping
-in `stream/protocol.py`. The two are checked against each other by
-test_stream_schema -- if they drifted, a decoded field would have nowhere
-to land and the write would fail at runtime rather than at import.
-"""
+The column set of `live_ticks` and `live_quotes` is the field mapping in
+`stream/protocol.py`; test_stream_schema checks the two against each other."""
 
 from __future__ import annotations
 
@@ -46,18 +40,11 @@ from yfin.models.base import (
 
 
 class TickFields:
-    """The 33 wire fields, shared by `live_ticks` and `live_quotes`.
+    """The wire fields, shared by `live_ticks` and `live_quotes`.
 
-    A mixin rather than two hand-written copies: the two tables are the
-    same measurement seen twice (every tick, and the latest one), so a
-    column that exists in only one of them is always a bug. Thirty-six
-    columns written out twice would drift on the first schema change.
-
-    `symbol` and the key columns are NOT here -- they differ between the
-    two tables, and a foreign key cannot be shared through a mixin
-    without `declared_attr` indirection that would obscure more than it
-    saves.
-    """
+    A mixin so the two tables cannot drift. `symbol` and the key columns
+    are not here: they differ between the tables, and a foreign key cannot
+    be shared through a mixin without `declared_attr` indirection."""
 
     # --- proto float (binary32) -> NUMERIC(28,12) --------------------------
     #
@@ -86,28 +73,17 @@ class TickFields:
 
     # --- proto sint64 that is really a small code -> INTEGER ---------------
     #
-    # INTEGER rather than SMALLINT even though the observed values are
-    # tiny: they are sint64 on the wire, and one out-of-range value in a
-    # 500-row batch would abort the whole COPY with a DataError. The
-    # decoder nulls anything outside INTEGER and records a reject, so the
-    # batch survives either way -- but the wider column keeps that path
-    # rare.
+    # INTEGER rather than SMALLINT: they are sint64 on the wire, and one
+    # out-of-range value would abort the whole COPY batch with a DataError.
     options_type_code: Mapped[int | None] = mapped_column(Integer)
     mini_option_code: Mapped[int | None] = mapped_column(Integer)
     price_hint_code: Mapped[int | None] = mapped_column(Integer)
 
     # --- Yahoo enum codes, NOT NULL ---------------------------------------
     #
-    # These two are the exception to the "absent -> NULL" rule, and the
-    # exception is load-bearing. proto3 cannot distinguish 0 from unset,
-    # and market_hours 0 is PRE_MARKET -- a real value. Nulling it would
-    # make it impossible to derive price_bars.is_extended (NOT NULL) for
-    # exactly the pre-market rows that need the flag.
-    #
-    # The code -> name mapping stays in protocol.py. Making these an ENUM
-    # type here would create a second source of truth that drifts the
-    # moment Yahoo adds a code, and a new code would then be rejected by
-    # the database instead of stored.
+    # Exception to "absent -> NULL": proto3 cannot distinguish 0 from unset,
+    # and market_hours 0 is PRE_MARKET, needed for price_bars.is_extended.
+    # Not an ENUM type: a new Yahoo code must be stored, not rejected.
     quote_type_code: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, server_default="0"
     )
@@ -161,18 +137,9 @@ class TickFields:
 class LiveTick(TickFields, Base):
     """Every message, kept.
 
-    Primary key is a triple for two separate reasons, and dropping either
-    one loses data:
-
-      * Yahoo can send several messages for the same symbol inside one
-        millisecond, so (symbol, ts_utc) collides and the second tick
-        would vanish.
-      * Yahoo re-sends identical snapshots. `payload_hash` makes those a
-        no-op through ON CONFLICT DO NOTHING.
-
-    So two different ticks in the same millisecond are both stored, and
-    the same tick twice is stored once.
-    """
+    The PK triple: Yahoo can send several messages for one symbol within a
+    millisecond, so (symbol, ts_utc) collides; and it re-sends identical
+    snapshots, which `payload_hash` makes a no-op via ON CONFLICT DO NOTHING."""
 
     __tablename__ = "live_ticks"
     __table_args__ = (Index("ix_live_ticks_received_at", "received_at"),)
@@ -191,15 +158,9 @@ class LiveTick(TickFields, Base):
 class LiveQuote(TickFields, Base):
     """The latest tick per symbol.
 
-    A derived view of live_ticks, not a second archive: it exists so a
-    reader can answer "what is the price now" without scanning a
-    hypertable. Fed from the supervisor's last-value box rather than the
-    writer queue, so it stays current even when the queue overflows.
-
-    Row count is not fixed: `yfin stream scope disable` deletes the row.
-    Left in place, the table would only ever grow and `yfin stream status`
-    would show quotes for symbols nobody streams any more.
-    """
+    Fed from the supervisor's last-value box rather than the writer queue,
+    so it stays current even when the queue overflows. `yfin stream scope
+    disable` deletes the row, or the table would only ever grow."""
 
     __tablename__ = "live_quotes"
 
@@ -217,15 +178,8 @@ class LiveQuote(TickFields, Base):
 class StreamScope(Base):
     """Which symbols are streamed, and which are archived.
 
-    Data, not configuration -- the same reasoning as `intraday_scope`: a
-    subset of a 5,000-symbol universe does not fit in .env and needs to be
-    versioned and mutable.
-
-    The resolution rule differs from intraday_scope's, deliberately.
-    There, "no row" means the whole universe for some intervals, which is
-    why `bars scope disable` must keep the row. Here the table is a plain
-    set: no row always means out of scope, so disable may delete.
-    """
+    Data, not configuration, like `intraday_scope`. Unlike there, this is
+    a plain set: no row always means out of scope, so disable may delete."""
 
     __tablename__ = "stream_scope"
 
@@ -233,9 +187,7 @@ class StreamScope(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
 
     # False keeps the symbol on the wire and in live_quotes but out of
-    # live_ticks. This is the volume dial: the archive is ~500-600 GB per
-    # year at 500 symbols, and some symbols are wanted live without their
-    # tick history being wanted at all.
+    # live_ticks: some symbols are wanted live without their tick history.
     archive: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     added_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
     note: Mapped[str | None] = mapped_column(String(255, collation="C"))
@@ -244,14 +196,9 @@ class StreamScope(Base):
 class StreamOutbox(Base):
     """Transactional outbox for the optional Kafka publish path.
 
-    Written in the same transaction as the tick, so a row is in the outbox
-    if and only if it is in the archive. Only written when Kafka is
-    enabled: with it off this table stays empty and costs nothing.
-
-    A hypertable, and that is what makes the cost bearable. The relay
-    drops whole chunks once they are published; DELETE plus autovacuum
-    could not keep up with a queue this size.
-    """
+    Written in the same transaction as the tick, and only when Kafka is
+    enabled. A hypertable: the relay drops whole chunks once published,
+    since DELETE plus autovacuum could not keep up."""
 
     __tablename__ = "stream_outbox"
     __table_args__ = (Index("ix_stream_outbox_id", "id"),)
@@ -282,12 +229,9 @@ class StreamOutbox(Base):
 
 
 class StreamRelayOffset(Base):
-    """How far the relay has published.
-
-    One row, enforced. A second row would mean two relays not seeing each
-    other's progress -- though the real protection against two relay
-    processes is the `yfin_stream_relay` advisory lock, not this check.
-    """
+    """How far the relay has published. One row, enforced; the real
+    protection against two relay processes is the `yfin_stream_relay`
+    advisory lock."""
 
     __tablename__ = "stream_relay_offset"
     __table_args__ = (CheckConstraint("id = 1", name="ck_stream_relay_offset_id"),)
@@ -302,10 +246,8 @@ class StreamRelayOffset(Base):
 class StreamRejectReason(enum.StrEnum):
     """Why a message, a field or a subscription entry was dropped.
 
-    Mirrors the constants in `stream/protocol.py`; a test keeps the two
-    in step. Not every reason is fatal to the row -- NON_FINITE_FIELD and
-    FIELD_OUT_OF_RANGE null one column and keep the other 32.
-    """
+    Mirrors the constants in `stream/protocol.py`; a test keeps the two in
+    step. NON_FINITE_FIELD and FIELD_OUT_OF_RANGE null one column, not the row."""
 
     DECODE_FAILED = "decode_failed"
     NO_TIMESTAMP = "no_timestamp"
@@ -320,16 +262,9 @@ class StreamRejectReason(enum.StrEnum):
 class StreamReject(Base):
     """Permanent record of what was dropped.
 
-    The same argument as bar_gaps: if the fact that a tick was dropped is
-    not written down when it happens, it is gone -- nothing can
-    reconstruct it later.
-
     Sampled per (symbol, reason) so a single broken feed cannot fill the
-    table. Counts are NOT sampled: the exact total lives on
-    stream_sessions. `queue_overflow` is deliberately absent from the
-    reasons -- writing a row per dropped tick would add load at exactly
-    the moment the writer is already behind.
-    """
+    table; exact totals live on stream_sessions. `queue_overflow` is not a
+    reason here: a row per dropped tick would add load when already behind."""
 
     __tablename__ = "stream_rejects"
     __table_args__ = (Index("ix_stream_rejects_received_at", "received_at"),)
@@ -397,14 +332,10 @@ class StreamSession(Base):
 
 
 class StreamConnectionHealth(Base):
-    """Live state of one upstream connection.
+    """Live state of one upstream connection, no history.
 
-    Current state only, no history. `session_id` and `heartbeat_at` are
-    what stop it from lying after a crash: killed hard, the rows would
-    stay `open` forever and `yfin stream status` would report a dead
-    process as healthy. A row whose heartbeat is older than two rescan
-    intervals is stale, not healthy.
-    """
+    After a hard kill rows would stay `open` forever, so a row whose
+    `heartbeat_at` is older than two rescan intervals is stale, not healthy."""
 
     __tablename__ = "stream_connection_health"
 
@@ -433,27 +364,11 @@ class StreamConnectionHealth(Base):
 
 
 def stream_timescale_ddl() -> tuple[str, ...]:
-    """Hypertable DDL for the stream tables.
-
-    Separate from bars' `timescale_ddl()` rather than merged into it: the
-    initial migration imports that function and runs it against a schema
-    where these tables do not exist yet. Merging would make a past
-    migration fail.
-
-    `create_default_indexes => FALSE` for the same reason as price_bars:
-    the default index is absent from Base.metadata, so autogenerate
-    reports it as a deletion forever and the "empty diff" gate never
-    opens.
-
-    Chunk intervals differ by an order of magnitude on purpose:
-
-      * live_ticks, 1 day. At ~5.8M rows/day a 7-day chunk (what
-        price_bars uses) would reach ~40M rows and its index working set
-        would not stay in memory.
-      * stream_outbox, 1 hour. This one is a queue, not an archive: the
-        relay drops chunks as it publishes them, so the interval sets how
-        promptly space comes back.
-    """
+    """Hypertable DDL for the stream tables, separate from bars'
+    `timescale_ddl()` so past migrations stay pinned to their tables.
+    `create_default_indexes => FALSE`: the default index is absent from
+    Base.metadata. live_ticks: 1-day chunks keep the index working set in
+    memory; stream_outbox: 1 hour, since it is a queue, not an archive."""
     return (
         "SELECT create_hypertable('live_ticks', "
         "by_range('ts_utc', INTERVAL '1 day'), "

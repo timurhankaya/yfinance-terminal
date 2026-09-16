@@ -17,15 +17,8 @@ def test_key_fits_signed_bigint() -> None:
 
 
 def test_parts_are_valid_oids() -> None:
-    """classid/objid are `oid`: unsigned 32-bit.
-
-    The real key is NEGATIVE and classid is above 2^31. If the split were
-    done in SQL via `(:key >> 32)::int`, two separate bugs would appear:
-    on a negative key, `>>` sign-extends and produces the wrong classid;
-    and when the low 32 bits exceed 2^31, `::int` raises ERROR 22003. This
-    test's `key < 0` and `classid >= 2**31` assertions record that the
-    failure is not theoretical.
-    """
+    """classid/objid are `oid` (unsigned 32-bit) and the key is negative with classid above
+    2^31, so a SQL split via `(:key >> 32)::int` would sign-extend and overflow `int`."""
     key = _lock_key(SYNC_LOCK_NAME)
     assert key < 0, "the key must be negative for this test to be meaningful"
     classid, objid = _lock_key_parts(key)

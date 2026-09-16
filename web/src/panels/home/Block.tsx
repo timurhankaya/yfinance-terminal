@@ -1,9 +1,6 @@
-// One tile of the home grid.
-//
-// Every block is the same shape: a heading that is also the way into the
-// panel it stands for, and a body that says which of loading, empty,
-// failed or ready it is. They are separate reads on purpose -- one slow
-// or broken block must not blank the page.
+// One tile of the home grid: a heading that opens the panel it stands
+// for, and a body that says which of loading, empty, failed or ready it
+// is. Separate reads: one slow or broken block must not blank the page.
 import { useRef } from "react";
 import type { ReactNode, RefObject } from "react";
 import { useWhenVisible } from "./visible";

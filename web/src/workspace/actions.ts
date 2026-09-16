@@ -19,18 +19,11 @@ export const PG_CODE = "PG";
 /** `PG SAVE <name>`: the one form that writes rather than opens. */
 export const PG_SAVE = "SAVE";
 
-/** `PG` is BOTH an action and a panel, and deliberately so.
- *
- *  The panel is the page manager -- a list of saved pages, which is a
- *  page like any other and belongs in the function bar and in HELP.
- *  `PG SAVE trading` and `PG trading` are not: one writes to the store
- *  and the other changes which page the whole window is on, and neither
- *  is something a panel's `parseArgs` could carry out from inside the
- *  layout it is trying to save.
- *
- *  The parser resolves actions first, so every typed `PG` arrives here;
- *  the shell opens the panel for the bare form. Nothing else in the
- *  terminal shares a code, and nothing else needs to. */
+/** `PG` is BOTH an action and a panel. The panel is the page manager;
+ *  `PG SAVE trading` and `PG trading` write the store or change which
+ *  page the window is on, which a panel's `parseArgs` cannot do from
+ *  inside the layout it is saving. The parser resolves actions first, so
+ *  every typed `PG` arrives here; the shell opens the panel for the bare form. */
 export const PG_ACTION: ActionSpec = {
   code: PG_CODE,
   title: "Saved pages: list them, open one, or name this one",

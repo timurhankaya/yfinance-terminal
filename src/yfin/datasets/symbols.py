@@ -65,12 +65,8 @@ class SymbolsDataset(Dataset[SymbolsPayload]):
 
         row: dict[str, Any] = {
             "symbol": symbol,
-            # .upper() is MANDATORY: columns are now COLLATE "C" (case
-            # SENSITIVE). MySQL's table default was ai_ci, so `--exchange
-            # nms` used to work; case-insensitivity is now enforced on the
-            # WRITE and QUERY paths instead. Yahoo already returns these two
-            # fields uppercase -- so this is a no-op on the data -- but this
-            # must be the single place normalization happens.
+            # Columns are COLLATE "C" (case sensitive); this is the single
+            # place case normalization happens for these two fields.
             "quote_type": _upper(nz.to_str(fi.get("quoteType") or md.get("instrumentType"), 32)),
             "exchange": _upper(nz.to_str(fi.get("exchange") or md.get("exchangeName"), 32)),
             "full_exchange_name": nz.to_str(md.get("fullExchangeName"), 64),
@@ -84,14 +80,9 @@ class SymbolsDataset(Dataset[SymbolsPayload]):
             "last_seen_at": raw.fetched_at,
         }
 
-        # Column ownership is unique per dataset. Two columns are
-        # deliberately left OUT of the update scope:
-        #   - isin: owned by the `isin` dataset; if included, a second
-        #     symbols run would overwrite ISIN back to NULL.
-        #   - is_active: kept separate from the delist counter by user
-        #     decision (`symbols deactivate`); if included, a successful
-        #     sync would silently reactivate a manually deactivated symbol.
-        #     Still present in the row so the FIRST INSERT defaults to 1.
+        # `is_active` is in the row so the first INSERT defaults to 1, but
+        # out of the update scope so a sync never reactivates a manually
+        # deactivated symbol.
         frozen = {"symbol", "is_active"}
         update_columns = tuple(c for c in row if c not in frozen)
 

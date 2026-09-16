@@ -1,17 +1,7 @@
 """Income statement / balance sheet / cash flow datasets.
 
-Eight registrations are parameterized instances of one `StatementDataset`
-class. They are registered separately for ERROR ISOLATION: each (table,
-frequency) is a separate HTTP request, and the others must still write if
-one fails.
-
-**`Ticker.earnings` / `quarterly_earnings` are deliberately not
-collected.** Upstream they are deprecated and return `None` outright --
-"'Ticker.earnings' is deprecated as not available via API. Look for
-\"Net Income\" in Ticker.income_stmt." (yfinance 1.7.0,
-`scrapers/fundamentals.py`). That net income is already here, as the
-`NetIncome` item of the income statement, so the surface is not a gap in
-coverage; it is the same number under a name Yahoo stopped serving.
+One class, registered per (table, frequency) so each request fails in
+isolation. `Ticker.earnings` is `None` upstream; its value is `NetIncome` here.
 """
 
 from __future__ import annotations
@@ -59,10 +49,8 @@ def _api_getter(ticker: Any, statement: StatementKind) -> Any:
 def financial_currency(ctx: SyncContext) -> str | None:
     """info.financialCurrency; BEST-EFFORT. Also used by the `valuation` dataset.
 
-    THYAO.IS statements are in USD, prices in TRY: without storing the
-    currency, data is misread. `currency` is a nullable secondary field
-    though; if the info call (a third wire request) fails, the statement
-    cell does NOT fail.
+    Statements may be reported in a currency other than the quote currency.
+    A failed info call does not fail the statement cell.
     """
     try:
         info = ctx.cached(

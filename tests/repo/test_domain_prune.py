@@ -31,11 +31,10 @@ def _count(session: Session, table: str, where: str = "1=1") -> int:
 
 
 def test_symbol_side_defaults_are_unchanged() -> None:
-    """Parameterizing this introduces zero behavior change."""
+    """The symbol-side as-of mapping keeps its defaults."""
     mapping = asof_table_datasets()
     assert "asof_state" not in mapping
-    # Fourteen until the two option tables joined them (2026-09-08); they
-    # are picked up by being as-of, not by being listed anywhere.
+    # Datasets are picked up by being as-of, not by being listed anywhere.
     assert len(mapping) == 16
     assert mapping["institutional_holders"] == ["institutional_holders", "mutualfund_holders"]
     # Domain tables do not leak into the symbol side's scope
@@ -63,13 +62,9 @@ def test_domain_side_mapping_excludes_the_gate_and_the_shared_report_table() -> 
 
 
 def _seed_two_days(session: Session) -> None:
-    """Two separate days, two different content.
-
-    Running the second day with the identical fixture would match the
-    content_hash and the gate would write nothing (`as_of_date` is
-    volatile) -- the row meant to be pruned would never exist. That's
-    correct as-of behavior, and the test setup has to accommodate it.
-    """
+    """Two days with different content: an identical fixture would match the
+    content_hash and the gate would write nothing (`as_of_date` is volatile),
+    so the row meant to be pruned would never exist."""
     import copy
 
     from helpers import domain_data
@@ -167,12 +162,9 @@ def test_run_prune_calls_both_registries(db_session: Session) -> None:
 
 
 def test_symbol_side_registry_still_has_fourteen_asof_datasets() -> None:
-    """The `asof_state` gate family is still 13.
-
-    Counted by gate table, not just by type: `search`/`lookup` are also
-    `AsOfDataset` but use their own gate (`discovery_asof_state`). Counting
-    by type alone would break this test every time an unrelated family grows.
-    """
+    """Counted by gate table, not by type: `search`/`lookup` are also
+    `AsOfDataset` but use `discovery_asof_state`, so counting by type would
+    break whenever an unrelated family grows."""
     from yfin.datasets.asof_base import GATE_TABLE, AsOfDataset
 
     count = sum(

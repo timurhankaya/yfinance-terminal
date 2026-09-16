@@ -17,7 +17,7 @@ def _count(session: Session, table: str, where: str = "1=1") -> int:
 
 
 def test_a_shared_report_yields_one_row_and_two_links(db_session: Session) -> None:
-    """All 37 distinct sector reports also show up under an industry (100%)."""
+    """A report shared by a sector and an industry is one row with two links."""
     run_taxonomy(db_session)
     db_session.execute(
         text(
@@ -58,7 +58,7 @@ def test_reports_upsert_across_domains_without_duplicate_key_errors(
 
 
 def test_report_title_round_trips_at_measured_length(db_session: Session) -> None:
-    """Measured max is 23,570 characters; `TEXT` would overflow in utf8mb4."""
+    """Titles run to tens of thousands of multibyte characters."""
     run_taxonomy(db_session)
     title = "ş" * 24000
     db_session.execute(

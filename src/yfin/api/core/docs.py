@@ -1,21 +1,7 @@
-"""The prose half of the published contract.
-
-OpenAPI describes shapes well and intent badly. Fifty-five resources sit
-behind one path -- `/v1/datasets/{name}` -- so a reader opening ReDoc
-sees a single generic endpoint and no way to learn what is actually
-available, what scope each thing needs, or what may be filtered.
-
-The fix is not a path per resource. That would make the frozen
-openapi.json churn on every dataset added, and a contract lock that
-changes constantly is one nobody reads. Instead the catalogue is rendered
-into the document's description, generated from the same `CATALOG` the
-API serves from -- so the table cannot describe a resource that does not
-exist, or miss one that does.
-
-The introduction covers the four things every caller gets wrong once:
-how to get a token, how paging works, that decimals are strings, and that
-the two date columns are not the same date.
-"""
+"""The prose half of the published contract. Every dataset sits behind one
+path (`/v1/datasets/{name}`), so the catalogue is rendered into the
+document description from the same `CATALOG` the API serves from, rather
+than as a path per resource that would churn the frozen openapi.json."""
 
 from __future__ import annotations
 
@@ -195,14 +181,8 @@ TAGS = [
 def _row(entry: CatalogEntry) -> str:
     filters = ", ".join(f"`{name}`" for name in entry.exposure.filters) or "—"
     symbol = "required" if entry.symbol_required else ("optional" if entry.has_symbol else "—")
-    # Two things are deliberately not columns. The scope is the same for
-    # every row in a section and the heading already says it, and the sort
-    # order is almost always "newest first" -- a column that repeats one
-    # value costs width the resource names need.
-    #
-    # The column COUNT rather than the column names: fifty-five rows each
-    # listing every field would be unreadable, and `GET /v1/datasets`
-    # already serves the names with their types.
+    # Column count, not names: `GET /v1/datasets` already serves the names
+    # with their types. Scope and sort order are per section, not per row.
     fields = len(entry.table.columns)
     return (
         f"| `{entry.name}` | {entry.exposure.description} | {symbol} | "

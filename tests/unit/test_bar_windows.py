@@ -1,13 +1,5 @@
-"""Window planner tests.
-
-This function is the first line of defense against data loss, and the
-cheapest part to test since it needs no network or DB.
-
-Measured limits: 1m allows 8 days per request / 30 days depth, 5m-15m 59,
-60m 729. `BAR_LIMITS` holds these accepted values -- 9, 60, and 730 were
-rejected -- so the margin is already baked into the constants and the
-planner does not add a second margin on top.
-"""
+"""Window planner tests. `BAR_LIMITS` already holds Yahoo's accepted limits with the margin
+baked in; the planner must not add a second margin on top."""
 
 from __future__ import annotations
 
@@ -75,12 +67,8 @@ def test_normal_incremental_is_a_single_slice() -> None:
 
 
 def test_ten_day_pause_is_split_into_two_slices() -> None:
-    """Exists because of a measured bug.
-
-    A naive `start = watermark - overlap` asks for a 12-day window; Yahoo
-    rejects it with YFPricesMissingError for exceeding the 8-day limit, and
-    the WHOLE slice is lost. A pause would silently turn into data loss.
-    """
+    """A window longer than the per-request limit is rejected whole by Yahoo, so a naive
+    `start = watermark - overlap` would turn a pause into data loss."""
     watermark = NOW - timedelta(days=10)
 
     plan = plan_windows("1m", watermark, NOW, overlap_days=2)
@@ -131,16 +119,8 @@ def test_open_gap_outside_retention_is_not_retried() -> None:
 
 
 def test_no_window_ever_starts_at_the_retention_boundary() -> None:
-    """Regression for a bug caught in a live run.
-
-    BAR_LIMITS["1m"] used to be (8, 30); the planner started the oldest
-    slice exactly at the limit and Yahoo returned YFPricesMissingError --
-    AAPL's entire 1m first fill was dropped. Measured: -30d REJECTED,
-    -29d 1950 bars.
-
-    This test verifies that for every interval, the oldest slice stays at
-    least one day inside Yahoo's announced limit.
-    """
+    """For every interval, the oldest slice stays at least one day inside Yahoo's announced
+    depth limit; a slice starting exactly at the limit is rejected whole."""
     announced = {"1m": 30, "5m": 60, "15m": 60, "60m": 730}
     for interval, limit in announced.items():
         plan = plan_windows(interval, None, NOW)
@@ -198,8 +178,8 @@ def test_unknown_interval_is_rejected() -> None:
 
 
 def test_bar_limits_match_the_measured_values() -> None:
-    """Constants are the measured accepted values."""
-    # 29, not 30: exactly 30 days was rejected in a live measurement (see bars.py).
+    """Constants are the limits Yahoo accepts."""
+    # 29, not 30: Yahoo rejects exactly 30 days (see bars.py).
     assert BAR_LIMITS["1m"] == (8, 29)
     assert BAR_LIMITS["5m"] == (59, 59)
     assert BAR_LIMITS["15m"] == (59, 59)
@@ -209,12 +189,8 @@ def test_bar_limits_match_the_measured_values() -> None:
 
 
 def test_distant_open_gap_becomes_its_own_slice_not_a_giant_span() -> None:
-    """A distant open gap must not force refetching every day in between.
-
-    A naive approach slices from min(watermark, gap) to today: for a gap
-    25 days back that produces 4 requests, three of which refetch data
-    already written. The gap must become its own slice.
-    """
+    """A distant open gap must not force refetching every day in between: it becomes its
+    own slice instead of extending the window from min(watermark, gap) to today."""
     watermark = NOW - timedelta(days=1)
     gap = (NOW - timedelta(days=25), NOW - timedelta(days=24))
 

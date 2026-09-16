@@ -1,13 +1,6 @@
-# One contact point, and it is a webhook rather than SMTP.
-#
-# Email needs a relay that has to be configured, authenticated and kept
-# working -- a second thing to monitor, and the first thing to fail
-# silently. A webhook posts to whatever the operator already reads:
-# Slack's incoming hooks, Discord's, an internal endpoint.
-#
-# GRAFANA_ALERT_WEBHOOK comes from deploy/observability/.env through
-# `env_file`, and Grafana expands `$VAR` in this file at load time --
-# which is why it is spelled with a plain `$` and not compose's `${}`.
+# One webhook contact point; email would need a relay to keep working.
+# GRAFANA_ALERT_WEBHOOK arrives through `env_file` and Grafana expands the
+# plain `$VAR` at load time, hence not compose's `${}`.
 
 apiVersion: 1
 

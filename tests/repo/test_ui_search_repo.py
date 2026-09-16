@@ -1,10 +1,6 @@
 """`GET /ui/api/search` against a real schema.
 
 The ranking is SQL, so only a database can answer whether it is right.
-Every case below is one the archive actually produced while the route
-was being written -- the ordering rules are not guesses, and this is
-where they stay honest.
-
 The `seeded`/`client` pattern of `test_ui_sparklines_repo.py`.
 """
 
@@ -127,7 +123,7 @@ def test_an_exact_ticker_wins_outright(client: TestClient) -> None:
 def test_a_name_that_starts_with_the_query_beats_a_ticker_that_does(
     client: TestClient,
 ) -> None:
-    """Measured: a ticker-first rank put a joke coin above Apple Inc."""
+    """A name prefix match outranks a ticker prefix match."""
     found = hits(client, "APPLE")
     assert found[0] == "AAPL"
     assert found.index("AAPL") < found.index("APPLE31391-USD")

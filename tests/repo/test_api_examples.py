@@ -1,23 +1,7 @@
 """The published examples, captured from real responses.
 
-Hand-written examples drift from what the API sends, and nothing notices
-until a reader follows one. These are captured by calling the API and
-committed under `yfin/api/core/examples/`, and `core/openapi.py` attaches
-them to the document. Run with `--snapshot-update` to rewrite them.
-
-The document builder reads files, never a database, so
-`scripts/dump_openapi.py` stays runnable on any machine with no
-environment of its own -- the property its docstring exists to protect.
-Producing the files is what needs a database, and that is why this module
-carries the `repo` marker while the presence check lives in the unit
-suite.
-
-The seed data is written to be READ. It is a fictional company with round
-numbers, because these bodies end up in the published contract, and
-`TESTCO` with arbitrary decimals is documentation nobody learns from.
-Every value that would drift between runs -- the token, the request id,
-the validator -- is replaced with a placeholder, or the lock would fail
-on every capture and become noise.
+Committed under `yfin/api/core/examples/`, attached by `core/openapi.py`, and
+rewritten with `--snapshot-update`; values that drift between runs are placeholders.
 """
 
 from __future__ import annotations
@@ -225,15 +209,9 @@ def _make_client(
 ) -> Iterator[TestClient]:
     factory = sessionmaker(bind=test_engine, expire_on_commit=False, future=True)
     monkeypatch.setattr(api_session, "get_session_factory", lambda: factory)
-    # `token_endpoint` belongs in this list and was missing from it. It is
-    # the one limiter that is fail-closed, so it does not degrade quietly:
-    # it kept writing `tok:fail:*` to the REAL Redis at YFAPI_REDIS_URL
-    # while everything else here used fakeredis. The example capture that
-    # deliberately provokes a 401 increments that counter, the counter has
-    # a ten-minute TTL, and after ten runs the endpoint answered 429
-    # slow_down instead of the 401 the example is FOR -- a suite that
-    # cannot be run ten times in ten minutes, failing in a way that points
-    # nowhere near the cause.
+    # `token_endpoint` must be in this list: its limiter is fail-closed and
+    # would otherwise write `tok:fail:*` to the real Redis at YFAPI_REDIS_URL,
+    # turning the deliberate 401 capture into a 429 after repeated runs.
     for module in (limiter, concurrency, usage, auth_deps, token_endpoint):
         monkeypatch.setattr(module, "get_redis", lambda _s: redis)
     monkeypatch.setattr(policy, "limits_for_client", lambda _cid: limits)
@@ -280,12 +258,8 @@ PLACEHOLDERS = {
 
 
 def normalise(body: Any) -> Any:
-    """Replaces what drifts between runs, and nothing else.
-
-    Anything not on this list that changes from one capture to the next is
-    a finding about the API, not a nuisance to paper over: it means a
-    response carries a value nobody meant to make part of the contract.
-    """
+    """Replaces what drifts between runs, and nothing else: any other value that
+    changes between captures is a finding about the API, not noise."""
     if isinstance(body, list):
         return [normalise(item) for item in body]
     if not isinstance(body, dict):
@@ -543,10 +517,8 @@ def test_every_required_example_was_captured() -> None:
 class _Fake:
     """A response that was built rather than received.
 
-    One example needs this: a 200 from `/oauth/token` requires a client row
-    with a hashed secret, which is the credential store's test to write,
-    not this module's. The body is `TokenResponse` either way, and the
-    token itself is a placeholder in the published example.
+    A 200 from `/oauth/token` needs a client row with a hashed secret, which is
+    the credential store's test to write; the body is `TokenResponse` either way.
     """
 
     def __init__(self, status_code: int, body: Any) -> None:

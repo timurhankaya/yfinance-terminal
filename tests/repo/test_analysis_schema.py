@@ -72,8 +72,7 @@ def test_fund_metrics_pk_includes_section() -> None:
 
 
 def test_holding_rank_is_not_named_rank() -> None:
-    """`rank` is a window function in PostgreSQL, and was reserved in MySQL 8
-    where the guard originated; the name stays as it is."""
+    """`rank` is a window function in PostgreSQL."""
     cols = Base.metadata.tables["fund_top_holdings"].c
     assert "rank" not in cols
     assert "holding_rank" in cols
@@ -89,7 +88,7 @@ def test_holding_symbol_has_no_foreign_key_but_has_index() -> None:
 
 
 def test_ownership_column_fits_the_measured_value() -> None:
-    """Measured 'D/I' on XOM; VARCHAR(2) would truncate it."""
+    """Ownership codes such as 'D/I' need three characters."""
     col = Base.metadata.tables["insider_transactions"].c["ownership"]
     assert col.type.length >= 3
 
@@ -192,7 +191,7 @@ def test_fact_value_type_carries_eps_and_revenue_in_one_column(
 
 
 def test_insider_activity_accepts_negative_net_shares(db_session: Session, symbol: str) -> None:
-    """Measured net -547806 on KO."""
+    """Net shares can be negative."""
     _insert(
         db_session,
         "insider_activity",
@@ -274,8 +273,7 @@ def test_as_of_pk_upserts_within_the_same_day(db_session: Session, symbol: str) 
             "INSERT INTO analyst_recommendations "
             "(symbol, as_of_date, period, strong_buy, buy, hold, sell, strong_sell, fetched_at) "
             "VALUES (:s, :d, '0m', 9, 9, 9, 9, 9, :t) "
-            # PostgreSQL equivalent of MySQL's VALUES(...): the conflict target is
-            # explicit and the new value is read via `excluded`.
+            # The conflict target is explicit and the new value is read via `excluded`.
             "ON CONFLICT (symbol, as_of_date, period) "
             "DO UPDATE SET strong_buy = excluded.strong_buy"
         ),

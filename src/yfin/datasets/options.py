@@ -1,24 +1,7 @@
 """options dataset -> option_expirations + option_quotes.
 
-**Opt-in, and the reason is arithmetic.** One request returns the expiry
-LIST plus the first expiry's chain; every expiry after that is another
-request. A symbol carries ten to twenty expiries, so collecting them all
-would multiply a run by fifteen -- against a universe that already takes
-~33 hours on one IP (`docs/superpowers/specs/2026-09-07-kalan-isler.md`).
-So this never joins the `all` expansion and runs only when named:
-`yfin sync --datasets options`. `yf_option_expiries` bounds it further
-for whoever does name it.
-
-Two tables, because there are two facts. The expiry list says which
-contracts Yahoo was offering that day and is complete, since it comes
-free with the first request; the chain is fetched for the first N
-expiries only. Neither is a summary of the other.
-
-Calls and puts share `option_quotes` and are told apart by an ENUM.
-Their column sets are identical by construction -- yfinance builds both
-frames with the same `reindex` call -- which is exactly the case this
-codebase answers with one table plus a discriminator
-(`institutional_holders` + `holder_type`).
+Opt-in: every expiry past the first is its own request, so this never joins
+`all`. The expiry list is complete; the chains cover only the first N expiries.
 """
 
 from __future__ import annotations
@@ -96,12 +79,7 @@ COLUMN_MAP: dict[str, str] = {
 
 @dataclass
 class OptionsPayload:
-    """Every expiry Yahoo offered, and the chains actually fetched.
-
-    `expiries` is the whole list; `chains` holds only the first
-    `yf_option_expiries` of them, so the two are deliberately different
-    lengths and the tables below say so.
-    """
+    """Every expiry Yahoo offered, and the chains actually fetched (first N only)."""
 
     expiries: list[str]
     chains: list[tuple[str, pd.DataFrame | None, pd.DataFrame | None]]
@@ -143,12 +121,8 @@ class OptionsDataset(AsOfDataset[OptionsPayload]):
         wanted = expiries[: max(1, get_settings().yf_option_expiries)]
         chains: list[tuple[str, pd.DataFrame | None, pd.DataFrame | None]] = []
         for expiry in wanted:
-            # Per expiry rather than in one call because that is what the
-            # endpoint offers; `call_optional` per chain so one expiry
-            # going missing does not cost the symbol its other three.
-            # `partial`, not a lambda with a bound default: the repo's
-            # own answer to this loop-variable question (`domain/taxonomy`),
-            # and mypy can resolve it.
+            # `call_optional` per chain so one missing expiry does not cost
+            # the symbol its others.
             chain = call_optional(
                 partial(ctx.ticker.option_chain, expiry),
                 what=f"{self.name}:{ctx.symbol}:{expiry}",

@@ -1,9 +1,5 @@
-"""Screen definitions validated with no network.
-
-`EquityQuery`/`FundQuery`/`ETFQuery` raise ValueError for an invalid field
-or value with no network call. So a broken definition surfaces at module
-load time, not mid-run -- and this test catches it in CI, not production.
-"""
+"""Screen definitions validated with no network: `EquityQuery`/`FundQuery`/`ETFQuery` raise
+ValueError for an invalid field or value at module load."""
 
 from __future__ import annotations
 
@@ -28,10 +24,7 @@ def test_keys_are_unique() -> None:
 
 
 def test_keys_fit_sync_run_items_symbol_column() -> None:
-    """The limit comes from `sync_run_items.symbol` = VARCHAR(32) COLLATE "C".
-
-    The longest measured predefined name is `conservative_foreign_funds` = 26.
-    """
+    """The limit comes from `sync_run_items.symbol` = VARCHAR(32) COLLATE "C"."""
     for screen in ALL_SCREENS:
         assert len(screen.key) <= SCREEN_KEY_MAX_LENGTH, screen.key
         assert screen.key.isascii(), screen.key
@@ -85,7 +78,7 @@ def test_screen_by_key_rejects_unknown() -> None:
 
 
 def test_tr_equity_custom_screen_exists() -> None:
-    """Measured `region=tr`, total=628. The only custom entry for BIST discovery."""
+    """The only custom entry for BIST discovery."""
     screen = screen_by_key("tr_equity")
     assert screen.kind == "custom"
     assert screen.quote_type == "EQUITY"

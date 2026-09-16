@@ -1,25 +1,7 @@
 """search dataset.
 
--> symbols | news | news_symbols | research_reports        [ungated]
--> search_quotes | search_lists | search_report_hits       [gated]
-
-Three measured traps shaped this module:
-
-1. `include_research`'s default is False. Without passing it explicitly,
-   `researchReports` never arrives and two tables stay silently empty --
-   and the completeness proof would not catch this, since "source returned
-   empty" and "we didn't ask" look identical.
-
-2. The `quotes` block carries rows with no symbol. The `include_cb=True`
-   default pulls in Crunchbase private-company records
-   (`{index, name, permalink, isYahooFinance}`). yfinance's `.quotes`
-   property filters these out, but we use the raw `.response` body, so the
-   filter is applied explicitly here instead.
-
-3. Search news shares its identity space with `Ticker.news` but has a
-   narrower body: 8 keys against 17. A blind upsert would NULL the richer
-   row, so `update_columns` is limited to the columns this path actually
-   populates.
+Ungated: symbols, news, news_symbols, research_reports. Gated: search_quotes,
+search_lists, search_report_hits. `include_research` must be passed explicitly.
 """
 
 from __future__ import annotations
@@ -52,12 +34,8 @@ from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
 
-# Columns Search actually populates. The ones left out of scope --
-# `summary`, `description`, `canonical_url`, `provider_url`,
-# `provider_source_id`, `display_time`, `thumbnail_*`, and `raw_json` --
-# are written on INSERT and untouched on later Search passes. This way
-# `Ticker.news`'s richer body always overwrites the narrower one, never
-# the reverse.
+# Only the columns Search populates: a full update would NULL the richer
+# body `Ticker.news` writes for the same item.
 NEWS_UPDATE = (
     "title",
     "pub_date",
@@ -296,7 +274,7 @@ def _quote_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str
                 "industry_disp": nz.to_str(quote.get("industryDisp"), max_len=128),
                 "disp_sec_ind_flag": nz.to_bool(quote.get("dispSecIndFlag")),
                 "is_yahoo_finance": nz.to_bool(quote.get("isYahooFinance")),
-                # Leading whitespace measured in the source; `nz.to_str` trims it
+                # Source carries leading whitespace; `nz.to_str` trims it
                 "prev_name": nz.to_str(quote.get("prevName"), max_len=255),
                 "name_change_date": nz.to_datetime_utc(quote.get("nameChangeDate")),
                 "is_known": is_known,
@@ -323,12 +301,8 @@ def _quote_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str
 
 
 def _list_rows(raw: SearchPayload) -> list[dict[str, Any]]:
-    """A block with two shapes.
-
-    `ALGO_WATCHLIST` -> `slug` + `name` + `symbolCount`
-    `PREDEFINED_SCREENER` -> `canonicalName` + `title` + `total`
-
-    Only four fields are common; separate tables would duplicate them.
+    """One table for two shapes: ALGO_WATCHLIST (slug/name/symbolCount) and
+    PREDEFINED_SCREENER (canonicalName/title/total).
     """
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -415,9 +389,8 @@ def _news_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str,
 def _report_rows(raw: SearchPayload) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Shared entity plus link.
 
-    `reportDate` arrives as an epoch in milliseconds here; the domain path
-    gets an ISO text string instead. A shared converter would silently
-    NULL one of the two.
+    `reportDate` is epoch milliseconds here but ISO text on the domain
+    path, so the converters cannot be shared.
     """
     reports: list[dict[str, Any]] = []
     hits: list[dict[str, Any]] = []

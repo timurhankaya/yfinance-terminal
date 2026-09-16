@@ -1,9 +1,5 @@
-"""funds_data dataset. No network, no database.
-
-`ctx.cached` prefetch keys are filled in by hand in the test, so no real
-HTTP call is made and it becomes visible that the precheck reads values
-left behind by the `symbols` bootstrap.
-"""
+"""funds_data dataset. No network, no database: `ctx.cached` prefetch keys are filled in by
+hand, which makes visible that the precheck reads values left by the `symbols` bootstrap."""
 
 from __future__ import annotations
 
@@ -34,14 +30,9 @@ def _write(result: NormalizedResult, table: str) -> TableWrite:
 
 
 class FakeFundsData:
-    """Shape of the real `FundsData`: `quote_type` is a method, the rest are not.
-
-    In yfinance 1.7.0, nine of ten fields carry `@property`, but
-    `quote_type` does not (`scrapers/funds.py:47`) -- verified with a live
-    measurement. This fake carries that inconsistency, otherwise the test
-    would pass while production code writes "<bound method ...>" into a
-    NOT NULL column.
-    """
+    """Shape of the real `FundsData`: `quote_type` is a method, the rest are properties. The
+    fake carries that inconsistency, or production would write "<bound method ...>" into a
+    NOT NULL column while the test passed."""
 
     def __init__(self, *, sectors: dict[str, float], ratings: dict[str, float], holdings: int):
         self.description = "Fon aciklamasi"
@@ -125,7 +116,7 @@ def _context(ticker: FakeTicker, quote_type: str | None, instrument_type: str | 
 
 
 def _equity_fund() -> FakeFundsData:
-    """Measured from SPY/QQQ/VFIAX: 11 sectors + 1 rating, 10 holdings."""
+    """An equity fund shape: sectors, one rating, holdings."""
     return FakeFundsData(
         sectors={f"sector_{i}": 0.09 for i in range(11)},
         ratings={"aaa": 1.0},
@@ -134,7 +125,7 @@ def _equity_fund() -> FakeFundsData:
 
 
 def _bond_fund() -> FakeFundsData:
-    """Measured from BND/TLT: 0 sectors + 9 ratings, top_holdings empty."""
+    """A bond fund shape: no sectors, ratings only, no holdings."""
     return FakeFundsData(
         sectors={},
         ratings={"us_government": 0.0, "aaa": 0.4, "below_b": 0.01},
@@ -242,7 +233,7 @@ def test_fund_operations_first_column_is_read_by_position() -> None:
 
 
 def test_asset_classes_are_typed_columns_not_eav() -> None:
-    """The six keys were measured as fixed across all 10 of 10 funds."""
+    """The six asset-class keys are fixed."""
     result = DATASET.normalize(FundsPayload(_collect(_equity_fund()), NOW), "SPY")
     row = _rows(result, "fund_profile")[0]
     assert row["stock_position"] == Decimal("0.99")
@@ -274,7 +265,7 @@ def test_is_known_defaults_to_false_and_is_filled_at_upsert() -> None:
 
 
 def test_quote_type_is_read_as_a_method_not_an_attribute() -> None:
-    """A blind `funds.quote_type` access would write a bound method (live measurement)."""
+    """A blind `funds.quote_type` access would write a bound method."""
     data = _collect(_equity_fund())
     assert data["quote_type"] == "ETF"
 

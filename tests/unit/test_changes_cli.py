@@ -1,10 +1,5 @@
-"""`yfin changes` refuses to pretend when the feature is off.
-
-Both commands touch the database, so what is testable without one is the
-gate in front of them -- and that gate matters: a `status` that printed
-"0 rows unpublished" with publishing switched off would read as healthy
-when nothing is being produced at all.
-"""
+"""`yfin changes` refuses to pretend when the feature is off: a `status` printing
+"0 rows unpublished" with publishing disabled would read as healthy."""
 
 from __future__ import annotations
 

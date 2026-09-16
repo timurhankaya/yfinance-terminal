@@ -1,28 +1,8 @@
 """What publishing change events costs the write path.
 
-The design adds three things to every upsert: `RETURNING *`, a distinctness
-predicate, and a second statement that touches the volatile columns the
-predicate stops the upsert from writing. All three run on the one statement
-that writes 68 tables, so "within 10 %" is an acceptance criterion rather
-than a curiosity.
-
-Protocol: the SAME symbol synced three times against a WARM database --
-off, on, off. Warm matters. A first sync is dominated by inserts, where the
-predicate never fires and there is nothing to touch; the steady-state daily
-sync is where the extra statement actually runs, and that is the run this
-pipeline does 4,500 times a night. The third pass is not redundant: it
-bounds run-to-run variance, so a difference smaller than that spread is
-reported as noise rather than as a cost.
-
-`--full-refresh` is deliberately NOT used. It would push every content-hash
-gate open and make each pass fetch and rewrite everything, which measures a
-run nobody makes.
-
-    uv run python scripts/measure_change_cost.py --symbol AAPL
-
-The numbers go into docs/measurements/database.md. Needs the network and a
-database that already holds the symbol.
-"""
+Syncs the SAME symbol three times against a WARM database (off, on, off); the
+third pass bounds run-to-run variance. Not `--full-refresh`: that measures a
+run nobody makes. Usage: measure_change_cost.py --symbol AAPL (needs network + DB)."""
 
 from __future__ import annotations
 

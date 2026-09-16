@@ -1,23 +1,8 @@
-// Which columns a dataset puts in its GRID. The rest are not dropped --
-// they are in the row detail, one click away, which is what the detail
-// is for.
-//
-// The archive is wide: `screen_quotes` has 106 columns, `info_history`
-// 190, and a dozen more are over fifteen. A grid that draws all of them
-// is a horizontal scrollbar with a table somewhere behind it, and the
-// reader cannot see two rows of the same column at once -- which is the
-// one thing a table is for.
-//
-// Two rules, in order:
-//   1. A dataset named in `GRID` shows exactly those columns, in that
-//      order. This is where a real editorial choice lives: which six
-//      columns answer the question this dataset exists to answer.
-//   2. Anything else shows every column except the housekeeping ones.
-//
-// The order matters, and `*_history` is why. `fetched_at` is bookkeeping
-// on a current-state table and the TIME AXIS on a history one, so a
-// blanket filter would gut exactly the tables that need it most. The
-// history datasets name it in rule 1 and get it back.
+// Which columns a dataset puts in its GRID; the rest are in the row
+// detail. Two rules, in order: a dataset named in `GRID` shows exactly
+// those columns in that order; anything else shows every column except
+// the housekeeping ones. The order matters for `*_history`: `fetched_at`
+// is the TIME AXIS there, so those datasets name it in rule 1.
 import type { CatalogColumn } from "../api/client";
 
 /** Columns that say when and how the archive wrote the row rather than
@@ -74,11 +59,8 @@ export const GRID: Readonly<Record<string, readonly string[]>> = {
 };
 
 /** The grid's columns for one dataset: its own list where it has one,
- *  everything but the housekeeping otherwise.
- *
- *  `drop` is the panel's own subtraction -- a symbol column that only
- *  repeats the band above it. It applies to rule 2 only: a dataset that
- *  names its grid has already said whether the symbol belongs in it. */
+ *  everything but the housekeeping otherwise. `drop` applies to rule 2
+ *  only: a dataset that names its grid has already decided. */
 export function gridNames(
   dataset: string,
   columns: readonly CatalogColumn[],

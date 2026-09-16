@@ -1,15 +1,7 @@
 """insider_purchases dataset -> insider_activity.
 
-Source (holders.py:208-240) presents ONE record as SEVEN ROWS: column 0
-carries the row labels and that column's NAME is dynamic (`Insider
-Purchases Last 6m`). Consequently:
-
-- the period suffix is parsed out of the HEADER (`period_label` NOT NULL),
-- row labels are read BY POSITION from column 0 (`df.iloc[:, 0]`), never
-  by a fixed name,
-- the seven rows are pivoted into ONE table row.
-
-Values can be NEGATIVE (KO net -547_806); `Trans` counters are SIGNED too.
+Source presents one record as seven rows: column 0 holds the labels and its
+header the period (`Insider Purchases Last 6m`). Read by position, pivoted.
 """
 
 from __future__ import annotations
@@ -39,8 +31,8 @@ PERIOD_LABEL_LENGTH = 8
 SHARES_COLUMN = "Shares"
 TRANS_COLUMN = "Trans"
 
-# Row label -> (Shares column, Trans column). Labels measured fixed across
-# 19/19 symbols; an unmapped label is a signal to investigate, not data loss.
+# Row label -> (Shares column, Trans column). An unmapped label is a signal
+# to investigate, not data loss.
 SHARE_ROWS: dict[str, tuple[str, str | None]] = {
     "Purchases": ("purchases_shares", "purchases_trans"),
     "Sales": ("sales_shares", "sales_trans"),

@@ -1,19 +1,7 @@
-"""Making an authorisation change effective before the token expires.
-
-Token verification deliberately does not read the database -- that is
-what makes it cheap. The cost is that a leaked secret, a narrowed scope
-or a downgraded plan would otherwise stay in force until the token runs
-out.
-
-`auth_epoch` closes that gap. Every change bumps the counter in the
-database and publishes it here; tokens carry the value they were minted
-with, and the Bearer dependency (which already talks to Redis for rate
-limiting) rejects anything that has fallen behind. No extra round trip,
-no extra query.
-
-Keys expire after one token lifetime because that is exactly how long
-they can still matter: no token minted before the bump can outlive it.
-"""
+"""Making an authorisation change effective before the token expires:
+every change bumps `auth_epoch` and publishes it here, and the Bearer
+dependency rejects tokens minted with an older value. Keys expire after
+one token lifetime, which is exactly how long they can still matter."""
 
 from __future__ import annotations
 
@@ -23,23 +11,10 @@ from yfin.api.core.config import ApiSettings
 from yfin.api.ratelimit.connection import get_redis
 from yfin.core.logging_setup import get_logger
 
-#: Written by the API at startup. Its only job is to answer "has an API
-#: process ever used this Redis?", and the reason it exists is a measured
-#: failure: `yfin api client disable` published a revocation to the
-#: operator's local Redis while the API read a different one. The command
-#: reported success -- it HAD reached a Redis -- and the disabled client
-#: kept working. An exit code that proves only "some Redis answered" is
-#: exactly the false assurance this design set out to avoid.
-#:
-#: What it proves and what it does not: an API process has used this
-#: Redis at some point. It does not prove the API you care about uses it
-#: -- a developer running an instance against the default URL claims that
-#: Redis too. The value is the time of the last claim, so an operator
-#: staring at a failed propagation can tell "nothing has ever run here"
-#: from "something ran here, months ago".
-#:
-#: No TTL: it must survive the API being down, which is when a revocation
-#: is most likely to be issued.
+#: Written by the API at startup so `yfin api client disable` can refuse
+#: to publish into a Redis no API process has ever used. The value is the
+#: time of the last claim. No TTL: it must survive the API being down,
+#: which is when a revocation is most likely to be issued.
 MARKER_KEY = "yfin:api:redis"
 
 EPOCH_KEY = "client_epoch:{client_id}"
@@ -92,13 +67,9 @@ def publish_revocation(
     disabled: bool | None = None,
     revoked_secret_ids: tuple[int, ...] = (),
 ) -> None:
-    """Publishes an authorisation change. Raises if Redis is unreachable.
-
-    Raising is the point: the caller has committed a database change and
-    has to be able to tell the operator that the change is not yet in
-    force. Swallowing the error here would turn "this client is cut off"
-    into a claim nobody verified.
-    """
+    """Publishes an authorisation change. Raises if Redis is unreachable: the
+    caller has committed a database change and must be able to tell the
+    operator it is not yet in force."""
     # Before anything else: publishing into the wrong Redis is worse
     # than failing, because it looks like success.
     assert_api_redis(settings)

@@ -1,15 +1,8 @@
 """Pipeline change-event commands: relay, status.
 
-The second relay, and deliberately a second PROCESS. Two outboxes, two
-advisory locks, two offsets, two `client.id`s: a broker outage on the tick
-side must not stall the pipeline side, and the two queues are walked
-differently -- ticks by row id, changes by transaction id. See
-`outbox/cursor.py` for why that difference is not a preference.
-
-Its own module rather than a group inside `cli/stream.py` for the reason
-`cli/bars.py` is separate: these commands share no state with the stream,
-and the stream's docstring is about a socket that has to stay connected.
-"""
+A second relay PROCESS with its own outbox, advisory lock, offset and `client.id`:
+a broker outage on the tick side must not stall the pipeline side, and the two
+queues are walked differently (ticks by row id, changes by transaction id)."""
 
 from __future__ import annotations
 
@@ -35,12 +28,8 @@ def _disabled() -> None:
 
 
 def _spec(topic_pattern: str) -> OutboxSpec:
-    """`outbox/spec.py` is a leaf -- dataclasses and typing, nothing else --
-    so importing it at module level costs `yfin --help` nothing.
-
-    The pattern is an operator setting, so it overrides the spec's own
-    default rather than sitting beside it as a second source of truth.
-    """
+    """The pattern is an operator setting, so it overrides the spec's own
+    default rather than sitting beside it as a second source of truth."""
     return replace(CHANGES_OUTBOX, topic_pattern=topic_pattern)
 
 
@@ -52,14 +41,9 @@ def changes_relay(
 ) -> None:
     """Publish pipeline change events to Kafka.
 
-    Holds `yfin_pipeline_relay`, which is NOT the stream relay's lock: the
-    two relays run at the same time and must not serialise on each other.
-
-    The contract is at-least-once. The offset moves only after every
-    delivery is acknowledged, so a broker outage retries the batch rather
-    than stepping past it -- and the outbox is the only place those rows
-    exist. Consumers dedupe on the `yfin-outbox-id` header.
-    """
+    Holds `yfin_pipeline_relay`, not the stream relay's lock: the two relays
+    must not serialise on each other. Delivery is at-least-once; the offset
+    moves only after every delivery is acknowledged."""
     from sqlalchemy import Engine
 
     from yfin.core.config import get_settings
@@ -117,13 +101,9 @@ def changes_relay(
 def changes_status() -> None:
     """How far behind the change relay is, and whether it is blocked.
 
-    Three numbers rather than two, because a growing backlog has two
-    unrelated causes and one fix each. The relay cannot pass an OPEN WRITING
-    transaction anywhere in the database -- a long bar backfill, a `psql`
-    session left idle in transaction -- so when the third number is set the
-    relay is not behind, it is waiting, and the thing to look at is
-    `pg_stat_activity` rather than the broker.
-    """
+    The relay cannot pass an open writing transaction, so when the third number
+    is set the relay is waiting, not behind: look at `pg_stat_activity`, not
+    the broker."""
     from yfin.core.config import get_settings
 
     settings = get_settings()

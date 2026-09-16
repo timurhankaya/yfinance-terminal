@@ -25,7 +25,7 @@ FETCHED_AT = datetime(2026, 9, 4, 10, 0, 0, 500000, tzinfo=UTC)
 # Real accession-number parsing is covered by a unit test; only key behavior
 # matters here, so a plain value is used.
 FILING_ID = "acc-test-a1"
-# Largest absolute value magnitude measured on 7203.T
+# Largest value magnitude the facts column must carry without loss
 HUGE_VALUE = Decimal("1.05522331e14").quantize(Decimal("1E-10"))
 
 
@@ -281,12 +281,8 @@ class TestSchemaInvariants:
     def test_statement_and_freq_enums_have_single_definition(self, db_session: Session) -> None:
         """One named type per concept, not one per table.
 
-        PostgreSQL stores the pg_enum OID, so a diverging definition is not
-        the silent-wrong-value trap it would be over an ordinal -- it is
-        two incompatible types for one idea. Comparing them, joining on
-        them or pointing a foreign key across them then needs a cast at
-        every site, and the first person to hit that adds the cast rather
-        than fixing the schema.
+        Diverging enum definitions are two incompatible types for one idea,
+        needing a cast at every comparison, join or foreign key.
         """
         rows = db_session.execute(
             text(
@@ -417,12 +413,9 @@ class TestSchemaInvariants:
         assert scope == "symbols"
 
     def test_period_end_index_is_used(self, db_session: Session) -> None:
-        """Without an index on (period_end, item_key), financial_facts would full-scan.
-
-        `enable_seqscan = off` is required: on an empty table the planner always
-        picks a Seq Scan (correctly -- an index lookup is more expensive there).
-        The test checks the index exists and is usable, not the planner's choice
-        on an empty table.
+        """`enable_seqscan = off` is required: on an empty table the planner always
+        picks a Seq Scan, so this checks the index exists and is usable, not the
+        planner's choice.
         """
         db_session.execute(text("SET LOCAL enable_seqscan = off"))
         plan = "\n".join(
@@ -613,15 +606,7 @@ class TestValuationStatementKind:
             db_session.flush()
 
     def test_enum_carries_every_statement_kind(self, db_session: Session) -> None:
-        """The ENUM type must carry every member of StatementKind.
-
-        This replaces a former migration test: MySQL had a separate revision
-        adding 'valuation', requiring careful downgrade/upgrade around FK
-        checks. PostgreSQL's ENUM is its own type object, so adding a value
-        never touches the FK (measured: ALTER TYPE ... ADD VALUE leaves a
-        row with a composite FK intact). The invariant that matters --
-        the schema accepts every value the code knows -- is unchanged.
-        """
+        """The ENUM type must carry every member of StatementKind."""
         from yfin.models import StatementKind
 
         labels = set(

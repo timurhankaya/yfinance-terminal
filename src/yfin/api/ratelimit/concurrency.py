@@ -1,15 +1,7 @@
-"""Per-client concurrency slots.
-
-Rate limits bound how *often* a client calls, not how many calls it keeps
-open at once. Those are different resources: the synchronous design (K1)
-serves requests from a fixed thread pool, so a handful of slow queries
-held open simultaneously can occupy every worker while the caller stays
-comfortably inside its per-second rate. This is the layer that stops
-that.
-
-Slots are counted in Redis with a TTL, not held as a lease. A crashed
-worker cannot leak a slot forever: the counter expires on its own.
-"""
+"""Per-client concurrency slots: a few slow queries held open at once can
+occupy the whole thread pool while the caller stays inside its rate.
+Slots are Redis counters with a TTL, so a crashed worker cannot leak one
+forever."""
 
 from __future__ import annotations
 

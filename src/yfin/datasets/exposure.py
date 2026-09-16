@@ -1,19 +1,7 @@
 """How a dataset opts in to the generic read surface.
 
-Exposure is opt-in, and absence is the safe default: a dataset that
-declares nothing here does not appear in the catalogue and returns 404
-from `/v1/datasets/{name}`. Registering a new dataset therefore cannot
-leave it readable under the wrong scope, or readable at all, by accident.
-
-The alternative -- a mandatory `family` on every dataset -- was
-considered and rejected. It buys no safety over failing closed; it only
-forces every existing dataset to be classified before any of them can be
-served, and it makes adding a dataset a two-part decision when the second
-part is usually "not yet".
-
-One declaration carries everything the API needs, so the scope required,
-the usage family billed and the sort key paged on cannot disagree with
-each other.
+Opt-in, failing closed: an undeclared dataset is absent from the catalogue and
+404s. One declaration carries scope, billing family and sort key together.
 """
 
 from __future__ import annotations
@@ -27,11 +15,8 @@ from yfin.core.families import DataFamily, scope_for
 class ApiExposure:
     """One readable resource, declared by the dataset that writes it.
 
-    A dataset may declare several. That is not a convenience: a dataset is
-    a WRITE-side unit -- one fetch, one or more tables -- while the read
-    side wants resources. `funds_data` writes four tables and `search`
-    eight; with one exposure per dataset their data was unreachable, and
-    three published scopes granted access to nothing.
+    A dataset may declare several: it is a write-side unit (one fetch,
+    several tables) while the read side wants one resource per table.
     """
 
     #: Decides the scope required and the usage counter billed.
@@ -60,33 +45,17 @@ class ApiExposure:
     #: as well -- wrong, and wrong in a way a caller cannot see.
     fixed: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
-    #: Whether the table may be browsed without a symbol filter.
-    #:
-    #: The default is no, and that default earns its keep: an unfiltered
-    #: scan of a symbol-keyed table is neither what a caller wants nor
-    #: cheap to serve. Calendars are the exception -- "what reports this
-    #: week" is the whole point of them -- and they can afford it because
-    #: each carries an index on its time column, so the browse is an index
-    #: scan rather than a sort over the table. Setting this without such
-    #: an index would create exactly the endpoint §5.5 exists to prevent:
-    #: cheap to send, expensive to serve.
+    #: Whether the table may be browsed without a symbol filter. Only set
+    #: it on a table with an index on its time column (calendars), or the
+    #: browse becomes a sort over the whole table.
     symbol_optional: bool = False
 
     #: The name this resource is served under. Empty means "the dataset's
     #: own name", which is right when a dataset exposes exactly one thing.
     name: str = ""
 
-    #: Columns this resource does NOT serve.
-    #:
-    #: Without it a table is all or nothing, and one operational column is
-    #: enough to make an otherwise useful resource unpublishable. `screens`
-    #: is the case that forced it: a caller can filter three resources by
-    #: `screen_key` but had no way to discover which keys exist, purely
-    #: because the same row carries the screen's query definition.
-    #:
-    #: Hiding, not projecting: the default stays "everything the table
-    #: has", so a column added later is served unless someone decides
-    #: otherwise. An allow-list would silently drop new columns instead.
+    #: Columns this resource does NOT serve. A deny-list, so a column added
+    #: later is served unless someone decides otherwise.
     hidden: tuple[str, ...] = field(default_factory=tuple)
 
     #: One line for the catalogue.
@@ -102,10 +71,8 @@ class ApiExposure:
     def validate(self, *, dataset_name: str, produces: tuple[str, ...]) -> None:
         """Checks what can be checked without touching the database.
 
-        Raises at registration -- that is, at import time -- rather than
-        on the first request. A misdeclared dataset should stop the
-        process from starting, not surface as a 500 to whoever happens to
-        call it first.
+        Raises at registration so a misdeclared dataset stops the process
+        from starting rather than surfacing as a 500.
         """
         if not isinstance(self.family, DataFamily):
             raise ValueError(f"{dataset_name}: api.family must be a DataFamily")

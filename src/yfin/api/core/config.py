@@ -1,16 +1,7 @@
-"""API settings.
-
-Deliberately a separate BaseSettings from `yfin.core.config.Settings`,
-for two reasons. These are not pipeline settings managed by the
-`settings` table -- an operator changing `yf_max_shards` from the admin
-panel has no business changing the JWT audience. And the signing key is a
-secret: like `yf_proxy_secret_key` it stays in the environment and never
-becomes an editable row.
-
-The `YFAPI_` prefix is here to separate the two namespaces. Note that the
-pipeline's `Settings` uses no prefix at all (its fields are already
-`yf_*`/`db_*`), so this is not a repeat of an existing pattern.
-"""
+"""API settings, separate from `yfin.core.config.Settings`: these are not
+pipeline settings managed by the `settings` table, and the signing key is a
+secret that stays in the environment. The `YFAPI_` prefix separates the
+two namespaces."""
 
 from __future__ import annotations
 
@@ -58,12 +49,9 @@ class ApiSettings(BaseSettings):
     public_base_url: str = ""
 
     # --- web terminal -----------------------------------------------------
-    # Off by default: a deployment that has not opted in serves nothing
-    # under /ui and never imports yfin.ui. Switching it on publishes the
-    # terminal to anyone who can reach the port: it has no login and no
-    # identity of any kind, and it shows the same data the read API
-    # serves, through its own unmetered mount (`/ui/api/v1`). The only
-    # thing in front of it is the per-address brake below.
+    # Switching this on publishes the terminal to anyone who can reach the
+    # port: no login, an unmetered mount (`/ui/api/v1`), and only the
+    # per-address brake below in front of it.
     ui_enabled: bool = False
     #: Split-panel workspaces. Read into the HTML shell at API startup so
     #: changing this value needs no Vite rebuild.
@@ -72,11 +60,8 @@ class ApiSettings(BaseSettings):
     #: brake on one browser's worth of traffic, not the API's limiter.
     ui_requests_per_minute: int = Field(default=600, ge=1)
     #: New `/ui/ws` sockets one address may open per minute, per process.
-    #: A WebSocket never passes through `RequestBrake` (it is a
-    #: BaseHTTPMiddleware and this is a different scope type), so the
-    #: brake in front of `/ui/api` does not cover it. A page opens one
-    #: socket and reopens it on reconnect; anything opening thirty a
-    #: minute is not a page.
+    #: A WebSocket never passes through `RequestBrake` (BaseHTTPMiddleware,
+    #: different scope type), so the `/ui/api` brake does not cover it.
     ui_ws_connections_per_minute: int = Field(default=30, ge=1)
     #: Sockets this process serves at once, across all addresses. Each one
     #: holds a Redis pub/sub connection, and each `sub` frame takes a
@@ -96,12 +81,9 @@ class ApiSettings(BaseSettings):
     health_rate_limit_per_minute: int = Field(default=60, ge=1)
 
     def signing_key_bytes(self) -> bytes:
-        """The signing key, refusing anything too short.
-
-        Checked where the key is used rather than at field level so that
-        commands and health checks that never sign a token still run
-        without one configured.
-        """
+        """The signing key, refusing anything too short. Checked at use rather
+        than at field level so commands that never sign a token run without
+        one configured."""
         raw = self.jwt_signing_key.encode("utf-8")
         if len(raw) < MIN_SIGNING_KEY_BYTES:
             raise ValueError(

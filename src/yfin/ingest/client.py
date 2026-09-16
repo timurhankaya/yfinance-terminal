@@ -126,22 +126,12 @@ def configure_yfinance(
 ) -> None:
     """Called once per process, at shard startup.
 
-    `yf.config` is a process-global singleton (not thread-local), so these
-    settings apply to the whole process, and the process is therefore the
-    unit of rotation.
-
-    `yf.set_config()` is not used: in 1.7.0 it emits a DeprecationWarning
-    and only accepts proxy/retries.
-    """
+    `yf.config` is a process-global singleton, so the process is the unit of
+    proxy rotation. `yf.set_config()` is deprecated and only accepts proxy/retries."""
     cfg = settings or get_settings()
 
-    # Order matters: the bridge attaches BEFORE the debug.logging
-    # assignment. That assignment triggers _enable_debug_mode(), which
-    # installs yfinance's own StreamHandler on a handler-less logger -- a
-    # second, unredacted route to stderr for exactly the records most
-    # likely to carry the DSN set two lines below. The bridge's NullHandler
-    # makes that check pass without adding an output, and propagation
-    # carries the records to the root chain instead.
+    # The bridge attaches BEFORE the debug.logging assignment: that assignment
+    # installs yfinance's own unredacted StreamHandler on a handler-less logger.
     bridge_yfinance_logging()
 
     yf.config.network.proxy = proxy_dsn

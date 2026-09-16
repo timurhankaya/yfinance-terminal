@@ -1,16 +1,8 @@
 // The daily chart's body: candles over a window of years, volume under
-// them, and a marker wherever the company paid or split.
-//
-// Two years by default rather than "everything": that is the window a
-// reader actually looks at, and the archive reaches back decades for
-// symbols where it would otherwise be 12,000 candles of which 11,500
-// are a grey smear.
-//
-// A body, not a panel. `GP` owns the code, the arguments and the
-// controls; this owns one way of drawing a chart. The intraday body
-// beside it is a different pipeline -- a different table, a different
-// live bucket, a different axis, and `bar_gaps` instead of actions --
-// which is why the two did not become one function with a flag.
+// them, and a marker wherever the company paid or split. Two years by
+// default rather than "everything": the archive reaches back decades.
+// A body, not a panel: `GP` owns the code, the arguments and the
+// controls. The intraday body is a different pipeline (see `GP.tsx`).
 import { useMemo } from "react";
 import type { ReactElement } from "react";
 import { INTERVALS, Interval, daysAgo, getActions, getBarsWindow, type Row } from "../api/client";

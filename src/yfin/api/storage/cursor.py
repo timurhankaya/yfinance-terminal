@@ -1,30 +1,8 @@
-"""Keyset pagination cursors.
-
-`OFFSET` is not used anywhere in this API. On a hypertable with millions
-of rows deep pages degrade linearly, and under concurrent writes an
-offset silently skips rows -- a client paging through a symbol's history
-would end up with gaps it has no way to detect.
-
-A cursor is therefore the sort key of the last row returned, and it
-carries two things besides:
-
-`v` is a schema version. If a sort key ever changes shape, old cursors
-must fail loudly rather than be reinterpreted against the new one.
-
-`q` is a fingerprint of every other parameter of the request. Without it
-a cursor from `interval=1d` could be handed to `interval=1m`, which
-resolves to a different table with a different key -- either a 500 or,
-worse, a silently wrong and very expensive scan. With it, the mismatch is
-a 422 the client can act on.
-
-The cursor is NOT signed. Authorisation comes from the scope and the path,
-never from the cursor, and the data behind it is not tenant-specific: a
-forged cursor only jumps to another point in a query the caller was
-already allowed to make. Signing would add key management for no threat
-that exists here. What it does need is validation -- the fingerprint and
-typed parsing above -- because the failure it prevents is a broken query,
-not an unauthorised one.
-"""
+"""Keyset pagination cursors (no `OFFSET`: it skips rows under concurrent
+writes). A cursor is the last row's sort key plus `v`, a schema version so
+a reshaped key fails loudly, and `q`, a fingerprint of the other request
+parameters so a cursor is not replayed against a different query. Not
+signed: a forged cursor only moves within a query the caller may make."""
 
 from __future__ import annotations
 

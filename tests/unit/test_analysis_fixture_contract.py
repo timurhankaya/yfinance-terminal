@@ -1,18 +1,6 @@
-"""Source contract against real captured fixtures.
-
-`test_analysis.py` / `test_holders.py` / `test_funds.py` use hand-built
-frames and verify normalization logic. This file verifies something
-different: whether the source keys and shapes the code expects match what
-Yahoo actually returns.
-
-The distinction matters. A synthetic frame only encodes what the author
-believes: if `downLast7days` were written with a lowercase `d` in both the
-code and the test, the test would pass and the column would stay silently
-NULL forever. The assertions here look at the actual captured body, so
-they break when Yahoo changes a key or the code drifts.
-
-Tests are skipped when a fixture is missing (`helpers.load_fixture` ->
-pytest.skip).
+"""Source contract against captured fixtures: the keys and shapes the code expects must
+match what Yahoo actually returns. Hand-built frames only encode what the author believes;
+these assertions break when Yahoo changes a key or the code drifts. Missing fixture -> skip.
 """
 
 from __future__ import annotations
@@ -152,8 +140,7 @@ def test_ko_insider_purchases_has_a_negative_net_value() -> None:
 
 
 def test_wmt_position_exceeds_the_originally_measured_length() -> None:
-    """The original measurement said 23 characters; the real value is 56.
-    KeyTextType(64) is enough."""
+    """Position titles are longer than a short key; KeyTextType(64) is enough."""
     records = load_fixture("WMT", "insider_transactions")
     longest = max((len(str(r.get("Position") or "")) for r in records), default=0)
     assert longest > 23

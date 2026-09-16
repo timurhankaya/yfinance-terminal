@@ -1,16 +1,7 @@
-"""Hard-deleting a symbol, and saying so.
+"""Hard-deleting a symbol, and publishing the deletions.
 
-`yfin symbols purge` used to own the delete order inline. It moved here for
-two reasons: the order is write mechanics rather than a CLI concern, and the
-change collector needs to see the deletions -- a consumer mirroring the
-archive has to be told a symbol went, or its copy keeps rows that no longer
-exist anywhere.
-
-The deletion order itself is unchanged and still comes from
-`symbol_scoped_tables()`, which derives it from the FK edges in metadata
-rather than from a hand-kept list: `ON DELETE RESTRICT` is what enforces the
-soft-delete policy, so the children have to go first and a table added later
-must not be forgotten.
+The order comes from `symbol_scoped_tables()`, derived from the FK edges:
+`ON DELETE RESTRICT` enforces the soft-delete policy, so children go first.
 """
 
 from __future__ import annotations
@@ -36,10 +27,8 @@ def purge_symbol(
 ) -> dict[str, int]:
     """Deletes every row a symbol owns. Returns the count per table.
 
-    The caller commits. With a collector, every deletion is published --
-    row-level outside the bars family, and as one `range` event with
-    `kind: delete` for the bars tables, because returning millions of bar
-    keys from a DELETE is the cost the range event exists to avoid.
+    The caller commits. Deletions publish row-level, except bars tables,
+    which publish one `range` event with `kind: delete`.
     """
     removed: dict[str, int] = {}
     for name in symbol_scoped_tables():
@@ -67,18 +56,8 @@ def delete_rows(
 ) -> int:
     """One DELETE, published as one `delete` event per removed row.
 
-    The single place a deletion becomes an event. `symbols purge` and
-    `yfin prune` are the two callers, and before this they were two
-    different spellings of the same DELETE with only one of them able to
-    say what it removed.
-
-    Without a collector, and for infrastructure tables, this is exactly the
-    statement it replaced: no `RETURNING`, no events, one round trip.
-
-    Bars-family tables must not come through here -- millions of returned
-    keys is precisely the cost a range event exists to avoid -- so they are
-    refused rather than silently allowed. `purge_symbol` routes them to
-    `_purge_bars`; no `prune` path touches one.
+    Bars-family tables are refused: returning their keys is the cost a
+    range event exists to avoid, so `purge_symbol` routes them to `_purge_bars`.
     """
     if collector is None or table.name in INFRASTRUCTURE_TABLES:
         return rowcount(session.execute(delete(table).where(where)))
@@ -119,11 +98,8 @@ def _purge_bars(
 ) -> int:
     """A bars table: the span goes, the keys do not come back.
 
-    One event per (symbol, interval) where the table has one, otherwise one
-    per symbol. The span itself is left null -- reading min and max back
-    before the delete would cost an extra scan of the very table whose size
-    is the reason this event exists, and a consumer clearing a symbol does
-    not need a range to do it.
+    One event per (symbol, interval) where the table has one. The span is
+    left null: reading min and max first would cost an extra scan.
     """
     where = table.c["symbol"] == symbol
     ts_column = BARS_TIME_COLUMN[table.name]

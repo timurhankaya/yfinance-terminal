@@ -1,18 +1,7 @@
-"""The admin page: a few server-rendered forms over what an operator
-changes at runtime -- the `settings` table, the proxy pool, which screens
-run, and a read-only view of API clients.
-
-Deliberately not a framework. `settings_store` was written so that "the
-future admin panel will call the same functions" as `yfin config`; the
-proxy operations mirror `yfin proxy` line for line. A generic CRUD admin
-would have bypassed that validation and written raw rows.
-
-Off unless `YFAPI_ADMIN_PASSWORD` is set. Guarded by HTTP Basic auth
-(the browser's own prompt: no cookie, no session, no form to get
-wrong), a per-address brake on failed attempts, and the same security
-headers as the rest of the API. Serve it behind TLS: Basic sends the
-secret with every request.
-"""
+"""Server-rendered admin forms over the `settings` table, proxy pool and screens.
+Writes go through the same validated paths as `yfin config` / `yfin proxy`.
+Off unless `YFAPI_ADMIN_PASSWORD` is set; HTTP Basic sends the secret with
+every request, so serve it behind TLS."""
 
 from __future__ import annotations
 

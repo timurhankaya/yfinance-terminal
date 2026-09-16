@@ -23,9 +23,9 @@ from yfin.core.families import EXTRA_USAGE_FAMILIES, DataFamily, scope_for
 
 
 def test_argon2_parameters_are_PINNED() -> None:
-    """Pinned deliberately. The decoy hash used to pad the verification
-    path is built with these; if they drift, the decoy stops costing what
-    a real comparison costs and the timing signal comes back."""
+    """The decoy hash that pads the verification path is built with these;
+    if they drift, the decoy stops costing what a real comparison costs and
+    the timing signal comes back."""
     assert (TIME_COST, MEMORY_COST_KIB, PARALLELISM) == (2, 19456, 1)
 
 

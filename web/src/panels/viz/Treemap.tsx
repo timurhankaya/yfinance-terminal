@@ -1,15 +1,8 @@
-// A treemap: area is size, colour is the move.
-//
-// Two questions in one picture -- how big is this, and which way did it
-// go -- which a table answers in two columns the reader has to hold in
-// their head at once. Squarified rather than sliced, because a cell has
-// to be readable AND comparable: long thin slivers make neither area nor
-// label work.
-//
-// Every box is focusable and answers Enter, so this is `role="group"`
-// and NOT `role="img"` (Decision 8): `role="img"` drops the subtree from
-// the accessibility tree, and the boxes -- the whole content -- would
-// stop existing for a screen reader.
+// A treemap: area is size, colour is the move. Squarified rather than
+// sliced: a cell has to be readable AND comparable, and long thin slivers
+// are neither. Every box is focusable and answers Enter, so this is
+// `role="group"` and NOT `role="img"`, which would drop the boxes from
+// the accessibility tree.
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { divergingHeat } from "./colors";
 import { useVizTheme } from "./useVizTheme";
@@ -30,9 +23,7 @@ export interface TreemapBox extends TreemapItem {
   height: number;
 }
 
-//: The SVG stays the default until a measurement says otherwise, and the
-//: cell count is what that measurement is about (`treemap.bench.ts`,
-//: `docs/measurements/web-viz.md`). Past this the tail is one box.
+//: Past this the tail is one box (`treemap.bench.ts` is the gate).
 export const MAX_CELLS = 400;
 
 //: A label needs room to be a label rather than a smear.
@@ -121,12 +112,9 @@ function layRow(
     : { x: rect.x + thickness, y: rect.y, width: rect.width - thickness, height: rect.height };
 }
 
-/** Squarified layout: boxes whose area is proportional to `value`, kept
- *  as close to square as the ordering allows.
- *
- *  Bruls, Huizing and van Wijk's algorithm. The rows it emits are laid
- *  along the shorter side of what is left, which is what keeps the
- *  aspect ratios near one. */
+/** Squarified layout (Bruls, Huizing and van Wijk): boxes whose area is
+ *  proportional to `value`, laid along the shorter side of what is left,
+ *  which keeps the aspect ratios near one. */
 export function squarify(
   items: readonly TreemapItem[],
   width: number,
@@ -264,8 +252,8 @@ export function Treemap(props: TreemapProps): ReactElement | null {
           );
         })}
       </svg>
-      {/* Always drawn (Decision 7). Colour on its own carries no value;
-          without a scale a reader cannot tell a 2% day from a 20% one. */}
+      {/* Always drawn. Colour on its own carries no value; without a
+          scale a reader cannot tell a 2% day from a 20% one. */}
       <figcaption className="viz-legend" data-legend="heat">
         <span className="muted">−{span}%</span>
         <svg className="viz-ramp" viewBox="0 0 100 10" aria-hidden="true" preserveAspectRatio="none">

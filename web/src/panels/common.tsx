@@ -68,15 +68,10 @@ export function usePanelData<T>(
 }
 
 /** The newest payload of `key`, kept while a RELOAD of the same query is
- *  in flight.
- *
- *  `usePanelData` goes back to `Loading` on every re-run, which unmounts
- *  whatever was on screen. That is right for a new query and wrong for a
- *  refresh of the one already showing: a chart loses the reader's pan and
- *  zoom, a list loses its selection and its open row. `key` is the
- *  query's IDENTITY -- the symbol and the interval, not the reload
- *  counter -- so a genuinely different query still drops the old payload
- *  rather than showing it under the new heading. */
+ *  in flight: `usePanelData` goes back to `Loading` on every re-run, which
+ *  would unmount a chart's pan and zoom or a list's selection. `key` is
+ *  the query's IDENTITY, not the reload counter, so a different query
+ *  still drops the old payload. */
 export function useKeptData<T>(key: string, state: Loaded<T>): T | null {
   const [kept, setKept] = useState<{ key: string; data: T } | null>(null);
   useEffect(() => {
@@ -107,12 +102,9 @@ interface Paged<T> {
   error: string | null;
 }
 
-/** Cursor paging on top of a first page some other loader fetched.
- *
- *  One mechanism, one place: the reset on a new query, the guard against
- *  a second in-flight page, and the error the button has to report are
- *  the same for every list that pages by cursor. `key` identifies the
- *  query; a new one drops the pages already read. */
+/** Cursor paging on top of a first page some other loader fetched: the
+ *  reset on a new query, the in-flight guard and the error are the same
+ *  for every list. `key` identifies the query; a new one drops the pages. */
 export function usePagedRows<T>(
   key: string,
   firstCursor: string | null,
@@ -245,11 +237,8 @@ function compare(left: Ranked, right: Ranked): number {
 }
 
 /** Rows in the order the reader asked for, and the control that asks.
- *
- *  The sort lives with whoever holds the rows rather than inside the
- *  table, because that is also whoever owns j/k: sorting inside the
- *  table would leave the keyboard walking the old order under the new
- *  one. */
+ *  The sort lives with whoever owns j/k: sorting inside the table would
+ *  leave the keyboard walking the old order under the new one. */
 export function useSortedRows<Row extends Record<string, unknown>>(
   rows: Row[],
 ): { rows: Row[]; sort: Sort | null; toggle: (key: string) => void } {
@@ -383,11 +372,9 @@ export function SortedTable<Row extends Record<string, unknown>>(props: {
 const INTERACTIVE = "input, textarea, select, button, a, [contenteditable], [role=tab]";
 
 /** j/k/Enter over `count` rows while nothing interactive is focused, and
- *  only in the panel the keyboard is talking to.
- *
- *  The listener is on `window` because the rows themselves are not
- *  focusable -- so with two lists open on one page, both would move on a
- *  single `j`. The frame settles which of them meant it. */
+ *  only in the panel the keyboard is talking to. The listener is on
+ *  `window` because rows are not focusable, so with two lists open both
+ *  would move on one `j`; the frame settles which meant it. */
 export function useListKeys(
   count: number,
   onEnter: (index: number) => void,

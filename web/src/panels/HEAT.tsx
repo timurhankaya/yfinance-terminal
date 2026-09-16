@@ -1,19 +1,8 @@
-// HEAT: the market as area and colour.
-//
-// Two questions in one picture that a table answers in two columns the
-// reader has to hold in their head together -- how big is this, and
-// which way did it go. Area is market capitalisation, colour is the move
-// over the chosen window.
-//
-// Two rosters, one shape. Without an argument it draws the eleven
-// sectors, joining `domains` (which key is a sector, and what it is
-// called) to `domain_metrics` (what it is worth and how it moved). With
-// a screen key it draws that screen's members, from the roster route
-// `EQS` already reads.
-//
-// Colour never carries the value on its own: the scale is always drawn
-// (spec, "Kararlar" 7), the number is in the box wherever there is room
-// for it, and Enter opens the thing itself.
+// HEAT: the market as area and colour. Area is market capitalisation,
+// colour is the move over the chosen window. Without an argument it
+// draws the eleven sectors from `domain_metrics`; with a screen key, that
+// screen's members from the roster route `EQS` reads. The scale is
+// always drawn: colour never carries the value on its own.
 import { useMemo } from "react";
 import type { ReactElement } from "react";
 import { PAGE_LIMIT, getDatasetPage, getScreen, type Row, type ScreenDetail } from "../api/client";
@@ -23,12 +12,9 @@ import { ErrorCard, LoadState, usePanelData } from "./common";
 import { asNumber, formatBig } from "./format";
 import { OTHER_KEY, Treemap, type TreemapItem } from "./viz";
 
-/** The windows a heat map can be coloured by.
- *
- *  Two sources with two different answers: a sector's metrics row
- *  carries five performance figures, a screen's quote snapshot carries
- *  today's move and the 52-week change. The panel offers only what the
- *  source it is drawing actually holds. */
+/** The windows a heat map can be coloured by. A sector's metrics row and
+ *  a screen's quote snapshot carry different figures, so the panel offers
+ *  only what the source it is drawing holds. */
 export enum HeatPeriod {
   Day = "1d",
   Ytd = "ytd",
@@ -117,22 +103,11 @@ function parseArgs(tokens: string[]): PanelArgs {
   return args;
 }
 
-/** Yahoo's eleven sectors, and what to call each one.
- *
- *  Written down rather than read, and that is forced. `domain_metrics`
- *  carries all 156 domains -- the eleven sectors AND every industry
- *  under them -- with no column saying which is which, so the panel used
- *  to join it to `domains` filtered to `domain_type=sector` for both the
- *  filter and the display names. But `domains` is SYMBOL-SCOPED: the API
- *  refuses an unfiltered scan of it with a 422, and it had been refusing
- *  this one, so the sector map did not draw at all -- every load ended
- *  on "This dataset is symbol-scoped".
- *
- *  There is no route that lists the sectors, and there are eleven of
- *  them, fixed by Yahoo's own taxonomy and already named in this panel's
- *  own description. A key the archive stops publishing simply leaves a
- *  cell out; a twelfth sector would need a line here, and the map would
- *  say so by being one cell short. */
+/** Yahoo's eleven sectors, and what to call each one. Written down
+ *  rather than read: `domain_metrics` carries every industry too with no
+ *  column saying which is a sector, and `domains` is SYMBOL-SCOPED (an
+ *  unfiltered scan is a 422). No route lists the sectors, and Yahoo's
+ *  taxonomy fixes them at eleven. */
 export const SECTORS: ReadonlyArray<[key: string, label: string]> = [
   ["basic-materials", "Basic Materials"],
   ["communication-services", "Communication Services"],

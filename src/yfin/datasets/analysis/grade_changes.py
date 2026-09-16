@@ -1,12 +1,7 @@
 """upgrades_downgrades dataset -> analyst_grade_changes.
 
-Not as-of: the source carries each row's own date (`epochGradeDate`). A
-pure upsert -- with `replace_scope`, old records that fall off the
-source's ~1000-row cap would be deleted on every run.
-
-The official docs list four columns; measurement found seven:
-`priceTargetAction`, `currentPriceTarget`, `priorPriceTarget` also appear
-(consistent across 15 symbols).
+Not as-of: each row carries its own `epochGradeDate`. Pure upsert, no
+`replace_scope`: rows that fall off the source's row cap must survive.
 """
 
 from __future__ import annotations

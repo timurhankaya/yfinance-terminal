@@ -1,14 +1,7 @@
 """Contract for domain (sector / industry) scoped datasets.
 
-Sibling of `GlobalDataset`. Cannot derive from `SyncContext`: the `symbol`
-field would carry the wrong meaning on the domain side -- sharper here than
-the same issue in `market/base.py`, because domain tables really do have a
-`symbol` column, but it is the company's symbol.
-
-A third axis: neither a symbol loop nor a region loop. 156 keys, each its
-own HTTP request. The region loop lives outside the dataset (inside
-domain_runner), so `sync_run_items` granularity naturally becomes
-(dataset x key x region x table).
+Not derived from `SyncContext`: domain tables' `symbol` means the company, not
+the target. The region loop is in domain_runner: items are (dataset x key x region).
 """
 
 from __future__ import annotations
@@ -31,21 +24,15 @@ from yfin.models.domains import DomainType
 from yfin.storage.contracts import RowWriter, WriteStats
 
 #: `DomainType` is the SAME enum the `domains` table is typed with
-#: (`models.domains`). It used to be a second, Literal-typed declaration
-#: of the same two values under the same name, and the domain runner
-#: imported both -- the enum for its queries, the Literal (via
-#: `dataset.scope`) for its target lookup, four lines apart.
+#: (`models.domains`); the runner uses it for queries and target lookup.
 
 
 @dataclass
 class DomainContext:
     """Per-run context, symbol-less and key-targeted.
 
-    `for_target` and `for_region` share the same `_cache` (mirrors
-    `MarketContext.for_region`): a (key, region) pair's raw JSON is fetched
-    once and feeds all of that pair's datasets. Region-less datasets use
-    the primary region's response and produce no extra request (data was
-    measured to be region-independent).
+    `for_target` and `for_region` share `_cache`, so a (key, region) pair's
+    raw JSON is fetched once for all of that pair's datasets.
     """
 
     fetched_at: datetime
@@ -67,15 +54,7 @@ class DomainContext:
         return self._cache[key]
 
     def _clone(self, **changes: Any) -> DomainContext:
-        """A copy that SHARES the cache and the parent map.
-
-        This used to honour three of the seven fields and pass the rest
-        straight from `self`, so `_clone(fetched_at=...)` returned the
-        original value with no error, and a misspelled key did nothing at
-        all. `dataclasses.replace` honours every field, refuses a name that
-        is not one, and carries `_cache` and `parents` across by identity
-        because both are init fields holding the same object.
-        """
+        """A copy that SHARES the cache and the parent map by identity."""
         return replace(self, **changes)
 
     def for_target(self, key: str, domain_type: DomainType) -> DomainContext:
@@ -88,12 +67,7 @@ class DomainContext:
 
     @property
     def fetch_region(self) -> str:
-        """The region actually requested.
-
-        In a region-less pass, `region` is `'*'`; that request goes to the
-        primary region and shares its cache with regional passes -- no
-        second HTTP request is made if the primary region is already fetched.
-        """
+        """The region actually requested; a region-less pass uses the primary region's cache."""
         return self.primary_region if self.region == GLOBAL_REGION_MARKER else self.region
 
     @property
@@ -142,13 +116,7 @@ class DomainDataset[RawT](ABC):
 
 
 class DomainAsOfDataset[RawT](AsOfGate, DomainDataset[RawT]):
-    """as-of gated domain dataset.
-
-    Cannot derive from `AsOfDataset`: that class sits under `Dataset[RawT]`
-    and carries the `fetch(SyncContext)` / `normalize(raw, symbol)`
-    signature. What is shared is the gate logic, not the hierarchy -- which
-    is why `AsOfGate` is a mixin.
-    """
+    """as-of gated domain dataset; shares the gate mixin, not the `Dataset` hierarchy."""
 
     asof_gate_table = DOMAIN_GATE_TABLE
     asof_gate_key_columns = DOMAIN_GATE_KEY_COLUMNS
@@ -156,11 +124,8 @@ class DomainAsOfDataset[RawT](AsOfGate, DomainDataset[RawT]):
     def gate_identity(self, result: NormalizedResult) -> dict[str, Any]:
         """Gate key: (domain_key, dataset, region).
 
-        `region` is not kept as state on the dataset instance (registry
-        datasets are singletons reused across the region loop); the value
-        passed from `DomainContext` to `normalize()` per pass is written
-        into rows and read back from there. Region-less datasets have no
-        `region` column in their rows -> defaults to `'*'`.
+        `region` is read back from the rows because dataset instances are
+        singletons reused across the region loop.
         """
         first = self.gate_row(result)
         return {

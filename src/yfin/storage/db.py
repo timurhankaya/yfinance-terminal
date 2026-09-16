@@ -18,10 +18,7 @@ SYNC_LOCK_NAME = "yfin_sync"
 def _lock_key(name: str) -> int:
     """Name -> signed 64-bit advisory lock key.
 
-    Not PostgreSQL's `hashtext()`: it's an undocumented internal function
-    and its output can change between versions. The key must be
-    version-independent so two clients on different server versions see
-    the same lock.
+    Not PostgreSQL's `hashtext()`: its output can change between server versions.
     """
     digest = hashlib.blake2b(name.encode("utf-8"), digest_size=8).digest()
     return int.from_bytes(digest, "big", signed=True)
@@ -30,16 +27,8 @@ def _lock_key(name: str) -> int:
 def _lock_key_parts(key: int) -> tuple[int, int]:
     """`pg_locks.classid` / `objid` are both `oid`, unsigned 32-bit.
 
-    Splitting happens here, not in SQL. `(:key >> 32)::int` in SQL would
-    fail two ways:
-      1. `::int` raises ERROR 22003 once the low 32 bits exceed 2^31.
-      2. `>>` on a negative key is an arithmetic shift: it sign-extends
-         and never yields the top 32 bits.
-    The 'yfin_sync' key hits both cases (measured: key is negative,
-    classid = 3,089,743,290), so this isn't theoretical -- it would
-    break on first use of the project's only advisory lock, and since
-    that's inside the LockNotAcquired error path, it would mask the
-    real error.
+    Split here, not in SQL: `::int` overflows past 2^31 and `>>` on a
+    negative key sign-extends instead of yielding the top 32 bits.
     """
     unsigned = key & 0xFFFF_FFFF_FFFF_FFFF
     return unsigned >> 32, unsigned & 0xFFFF_FFFF
@@ -53,24 +42,13 @@ def create_db_engine(
     pool_size: int | None = None,
     application_name: str = "yfin",
 ) -> Engine:
-    """Pool is sized for concurrent consumers.
+    """Pool is sized for the concurrent consumers of one process.
 
-    Concurrent connection requesters: the main thread's symbol
-    transaction, three read-only providers (watermark, scope, gap), and
-    the session holding the advisory lock. The old default pool_size=5
-    was right at that total and could produce QueuePool timeouts.
+    The symbol transaction, three read-only providers, and the lock session.
     """
     cfg = settings or get_settings()
-    # Shards set pool_size explicitly: real concurrent consumers per
-    # process are four. The three read-only providers (WatermarkReader,
-    # ScopeReader, GapReader) each serialize their own reads with a
-    # threading.Lock, so each holds at most one connection, plus the
-    # main thread's symbol transaction.
-    # Invariant: per-process ceiling is pool_size + max_overflow, i.e.
-    # 2 x pool_size. Default pool_size = max(5, workers+4) = 8
-    # (workers=4), so at most 16 per shard, (N x 16) + 2 for N shards.
-    # PostgreSQL max_connections must be sized accordingly
-    # (docker-compose.yml: 200).
+    # Per-process ceiling is pool_size + max_overflow = 2 x pool_size, so
+    # N shards need (N x 2 x pool_size) + 2 <= PostgreSQL max_connections.
     if pool_size is None:
         pool_size = max(5, cfg.yf_max_workers + 4)
 
@@ -78,11 +56,8 @@ def create_db_engine(
     # connect_args keys would have one overwrite the other.
     options = ["-c timezone=UTC"]
     if schema is not None:
-        # `public` is required: the timescaledb extension lives there,
-        # and without it `create_hypertable` / `timescaledb_information.*`
-        # fail to resolve ("function by_range(unknown, interval) does
-        # not exist" -- measured). Tests would silently fall back to a
-        # plain table without noticing.
+        # `public` is required: the timescaledb extension lives there, and
+        # without it `create_hypertable` fails to resolve.
         options.append(f"-c search_path={schema},public")
 
     return create_engine(
@@ -105,32 +80,17 @@ def create_db_engine(
 def session_factory(engine: Engine) -> sessionmaker[Session]:
     """The one session shape this process uses.
 
-    There were eleven `sessionmaker(...)` calls and four different shapes
-    among them: six passed `expire_on_commit=False, future=True`, three in
-    `stream/runner.py` left `future` off, and one in the CLI passed neither
-    -- so whether an object was still readable after `commit()` depended on
-    which file had opened the session.
-
-    `expire_on_commit=False` is the load-bearing half. The pipeline reads
-    attributes off ORM objects after committing (the audit path does this
-    on every run), and the default would re-query for each one, or fail
-    outright once the session is closed.
+    `expire_on_commit=False` is load-bearing: the pipeline reads ORM
+    attributes after committing, sometimes after the session is closed.
     """
     return sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
 
 def rowcount(result: Any) -> int:
-    """Rows affected by a DML statement.
+    """Rows affected by a DML statement (`rowcount` exists only on `CursorResult`).
 
-    `Session.execute` is statically typed to return `Result`, and `rowcount`
-    only exists on `CursorResult`. Written once here rather than as a
-    `# type: ignore[attr-defined]` at each call site, which is what three
-    different modules had grown.
-
-    Not usable as verification -- `ON CONFLICT DO NOTHING` reports 0 for
-    rows it skipped (measured: `INSERT 0 0`), which is why writes are
-    verified by an independent key-existence read. It is fine for a DELETE,
-    where "how many did I remove" is exactly what it answers.
+    Not usable as write verification: `ON CONFLICT DO NOTHING` reports 0
+    for skipped rows. Fine for a DELETE.
     """
     return int(getattr(result, "rowcount", 0) or 0)
 
@@ -138,14 +98,8 @@ def rowcount(result: Any) -> int:
 def returns_rows(result: Any) -> bool:
     """Whether the statement just executed had a RETURNING clause.
 
-    Sibling of `rowcount` and there for the same reason: the attribute is on
-    `CursorResult`, while `Session.execute` is typed as returning `Result`.
-
-    The writer needs it because "should this write produce events" and "does
-    this statement hand any back" are different questions. A write whose
-    update map is entirely volatile is collected in principle and returns
-    nothing in practice, and reading that result raises
-    `ResourceClosedError`.
+    A write whose update map is entirely volatile returns nothing, and
+    reading that result raises `ResourceClosedError`.
     """
     return bool(getattr(result, "returns_rows", False))
 
@@ -161,8 +115,8 @@ _HOLDER_SQL = text(
     "  JOIN pg_stat_activity a ON a.pid = l.pid "
     " WHERE l.locktype = 'advisory' "
     "   AND l.classid = :classid AND l.objid = :objid "
-    # objsubid = 1 is the single-bigint form; the two-int form uses 2
-    # (measured). Wrong objsubid makes the query silently return empty.
+    # objsubid = 1 is the single-bigint form; the two-int form uses 2.
+    # The wrong objsubid makes the query silently return empty.
     "   AND l.objsubid = 1 AND l.granted"
 )
 
@@ -183,17 +137,8 @@ def lock_holder(conn: Any, name: str = SYNC_LOCK_NAME) -> str | None:
 def advisory_lock(engine: Engine, name: str = SYNC_LOCK_NAME) -> Iterator[None]:
     """pg_try_advisory_lock; raises LockNotAcquired if unavailable.
 
-    No `timeout` parameter: PostgreSQL's equivalent isn't a duration in
-    seconds but a binary choice -- `pg_advisory_lock` (wait forever) or
-    `pg_try_advisory_lock` (don't wait at all). Carrying a parameter that
-    implies otherwise would be misleading.
-
-    Scope: PostgreSQL advisory locks are per-database, so two runs
-    against different databases never see each other's lock. Live tests
-    and `run_sync` must use the same database.
-
-    The lock is session-scoped, so the same connection is held open for
-    the duration.
+    Advisory locks are per-database and session-scoped: the same
+    connection is held open for the duration.
     """
     key = _lock_key(name)
     conn = engine.connect()

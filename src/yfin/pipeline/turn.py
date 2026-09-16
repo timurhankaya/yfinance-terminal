@@ -1,15 +1,7 @@
 """One turn of a non-symbol dataset: fetch, normalize, write, account.
 
-The market and domain runners each had their own copy of this. The two
-bodies differed only in log keys, the arity of `normalize`, and the shape
-of the audit key -- everything load-bearing was identical: the error
-boundary around fetch, the proxy-health accounting, the one-transaction
-write, and the rollback that still leaves an audit row behind. That is
-transaction and error policy, and it should not have two homes.
-
-The symbol side does NOT use this. It runs many symbols across worker
-threads with a retry loop around the transaction (`pipeline/persist.py`);
-sharing a body with that would mean a parameter for every difference.
+Shared by the market and domain runners. The symbol side does not use
+it: its transaction has a retry loop (`pipeline/persist.py`).
 """
 
 from __future__ import annotations

@@ -1,28 +1,7 @@
 """lookup dataset -> symbols | lookup_results | lookup_totals.
 
-The call is adaptive, which is a decision measurement overturned. The
-first cut always made one `all` call, and was generalized from a single
-narrow term (`BTC`, total 503). Independent verification found the `all`
-call gets hard-clipped around ~1,000 documents for broad terms:
-
-    term    typed union   `all`   `all`-only   typed-only
-    BTC          500        500        0            0
-    GOLD       3,313        996      354        2,671
-    TECH       4,024        998        0        3,026
-
-For `GOLD` the difference runs both ways: 354 symbols (all `0P...` fund
-codes) appear only in `all`, 2,671 only in the typed calls. So switching
-to typed calls means adding to `all`, not replacing it.
-
-The adaptive branch almost never fires in the per-symbol loop (57 for
-AAPL, 1 for THYAO), so cost stays at 1 request/symbol; only broad
-free-text terms pay for it, and get 3-4x the symbols in return.
-
-Uses `_fetch_lookup` (raw body), not `get_all()` (DataFrame):
-`Lookup._parse_response` discards the `lookupTotals` and `total` fields,
-but the `lookup_totals` table -- proof of completeness and the adaptive
-branch's trigger -- depends on them. `_fetch_lookup` is the wrapper's own
-method, so it still handles HTTP and the proxy itself.
+`all` is hard-clipped for broad terms yet returns documents typed calls miss,
+so typed calls add to `all`. Raw `_fetch_lookup`: `get_all()` drops the totals.
 """
 
 from __future__ import annotations
@@ -110,9 +89,7 @@ class LookupPayload:
 def _result_block(payload: Any) -> dict[str, Any]:
     """Unwraps the `{"finance": {"result": [ ... ]}}` envelope.
 
-    Raises KeyError/TypeError if the envelope shape changes, marking the
-    cell `failed`; returning empty silently would conflate "no data" with
-    "the response shape changed".
+    Raises on a changed envelope shape so the cell is `failed`, not `empty`.
     """
     result = expect_dict(payload, what="lookup").get("finance", {}).get("result") or []
     return result[0] if result else {}
@@ -201,11 +178,9 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
         for index, (lookup_type, doc) in enumerate(raw.documents):
             sym = nz.to_str(doc.get("symbol"))
             if sym is None or sym in seen:
-                # The same symbol can come back from both the `all` call
-                # and a typed call (measured: three symbols under two types
-                # for BTC). Since the PK is (query_term, as_of_date,
-                # symbol), the second row would overwrite the first; the
-                # first seen -- i.e. the one from `all` -- is kept instead.
+                # The same symbol can come back from both the `all` call and
+                # a typed call; the PK is (query_term, as_of_date, symbol), so
+                # the first seen (from `all`) is kept.
                 continue
             seen.add(sym)
             is_known = symbol_is_writable(sym)
@@ -215,10 +190,8 @@ class LookupDataset(DiscoveryDataset[LookupPayload]):
                     "as_of_date": raw.as_of_date,
                     "symbol": sym,
                     "rank_index": index,
-                    # The source's own `rank` field is not a position but
-                    # Yahoo's ranking score (measured example: 30007). The
-                    # column name is split apart for this reason; the
-                    # source key is still `rank`.
+                    # The source's `rank` is Yahoo's ranking score, not a
+                    # position, hence the distinct column name.
                     "source_rank": nz.to_int(doc.get("rank")),
                     "lookup_type": lookup_type,
                     "quote_type": nz.to_str(doc.get("quoteType"), max_len=32),

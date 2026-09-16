@@ -1,16 +1,7 @@
 """Calendar datasets: earnings, economic, IPO, splits.
 
-Three mandatory rules:
-
-1. `get_earnings_calendar(filter_most_active=True)` is the DEFAULT, and the
-   filter applies ONLY at offset==0 (`calendars.py`). Page 0 comes from the
-   filtered universe, pages 1+ from the unfiltered one; concatenating them
-   would skip rows 1-100 of the universe entirely. Hence
-   `filter_most_active=False` is passed explicitly.
-2. The stop condition is an EMPTY PAGE.
-3. An empty page returns early from `_cleanup_df`: `set_index`, `rename`,
-   and `to_datetime` are NOT APPLIED, so raw column names come through.
-   The emptiness check must happen BEFORE any column/index access.
+`filter_most_active=False` is explicit: the default applies only to page 0 and
+paging would skip rows. An empty page has raw column names: check emptiness first.
 """
 
 from __future__ import annotations
@@ -67,11 +58,8 @@ def _fetch_pages(mctx: MarketContext, method: str, **extra: Any) -> pd.DataFrame
             break
         frames.append(frame)
     if not complete:
-        # The cap is reachable in practice: the default window is 37 days
-        # and a US earnings season carries more events than the page budget
-        # allows. Everything past it was dropped with no log, no counter
-        # and no gap row -- the screener admits the same risk out loud
-        # (`screen_runs.total` against `fetched_rows`) and this did not.
+        # The page cap is reachable: an earnings season carries more events
+        # than the page budget, and everything past it is dropped.
         log.warning(
             "calendar hit the page cap; events beyond it were not fetched",
             method=method,
@@ -146,12 +134,7 @@ class CalendarDatasetBase(GlobalDataset[CalendarFramePayload]):
 
 
 def _symbol_of(index: Any, *, dataset: str) -> str | None:
-    """The symbol feeding the PK. NOT TRUNCATED (`common.key_value` contract).
-
-    `to_str(max_len=32)` would truncate, and two different symbols sharing
-    the same first 32 characters would collapse into one row; in the
-    `build_rows` dict, the second would silently overwrite the first.
-    """
+    """The symbol feeding the PK. NOT TRUNCATED (`common.key_value` contract)."""
     text = key_value(index, 32, field="symbol", dataset=dataset, symbol=str(index)[:32])
     return nz.normalize_symbol(text) if text else None
 

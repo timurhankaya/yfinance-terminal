@@ -1,11 +1,7 @@
 """analyst_price_targets dataset.
 
-The source returns a dict, not a DataFrame, with keys already mapped:
-`target*Price` -> `low/high/mean/median`, `currentPrice` -> `current`.
-
-No consistency constraint is enforced: THYAO was measured with
-low(330) > current(294). `0.0` is a real value (not "no target") and is
-not converted to NULL.
+The source returns a dict, not a DataFrame. No consistency constraint is
+enforced (low may exceed current), and `0.0` is a real value, not NULL.
 """
 
 from __future__ import annotations

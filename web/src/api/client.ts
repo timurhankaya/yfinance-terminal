@@ -100,15 +100,9 @@ interface Page<T> {
 
 export const SEARCH_MIN_PREFIX = 1;
 
-/** Symbols by ticker OR by company name.
- *
- *  `/ui/api/search`, not `/v1/symbols?q=`: the published route matches
- *  the symbol column and says so in its contract, which leaves a reader
- *  who knows "Akbank" but not `AKBNK.IS` with nothing. This is one of
- *  the terminal's own reads, like `news` and `sparklines`.
- *
- *  Not upper-cased on the way out: the route folds case itself, and the
- *  name half of the match is not a ticker. */
+/** Symbols by ticker OR by company name, through `/ui/api/search`:
+ *  `/v1/symbols?q=` matches the symbol column only. Not upper-cased
+ *  here: the route folds case itself, and the name half is not a ticker. */
 export async function searchSymbols(prefix: string): Promise<SymbolSummary[]> {
   const q = prefix.trim();
   if (q.length < SEARCH_MIN_PREFIX) return [];
@@ -321,12 +315,8 @@ export async function getNews(symbol: string, limit: number = NEWS_PAGE): Promis
 
 // --- the charts and the tape ------------------------------------------------
 
-/** Bars over a WINDOW rather than a row count.
- *
- *  `getBars` asks for "the newest N", which is what a table wants. A
- *  chart wants "the last two years" or "the last five sessions", and the
- *  difference matters at the edges: a row count over a thin symbol
- *  reaches back years, and over a busy one stops mid-session. */
+/** Bars over a WINDOW rather than a row count: a row count over a thin
+ *  symbol reaches back years, and over a busy one stops mid-session. */
 export async function getBarsWindow(
   symbol: string,
   interval: Interval,
@@ -407,12 +397,9 @@ export interface SparklineSet {
 export const SPARKLINE_POINTS = 30;
 export const SPARKLINE_MAX_SYMBOLS = 200;
 
-/** The last `points` daily closes for a list of symbols, in ONE request.
- *
- *  One of the terminal's own reads, like `news` and `screens` -- not
- *  because `/v1` does not join this time, but because it does not batch:
- *  a 200-row watchlist through `/v1/symbols/{s}/bars` is 200 requests to
- *  draw 200 lines of thirty numbers. */
+/** The last `points` daily closes for a list of symbols, in ONE request:
+ *  `/v1/symbols/{s}/bars` does not batch, and a watchlist through it is
+ *  one request per row. */
 export async function getSparklines(
   symbols: string[],
   points: number = SPARKLINE_POINTS,
@@ -472,12 +459,8 @@ export interface ScreenDetail {
 //: `yf_screen_max_pages` 4 is a thousand members.
 export const SCREEN_PAGE = 250;
 
-/** Every screen this deployment runs, with its latest run.
- *
- *  One of the terminal's own reads, like `news` and `gaps`: a screen is
- *  four tables, and `/v1` does not join. Reading it through the generic
- *  surface means four calls and a client-side join over the hundred-odd
- *  columns of `screen_quotes` to show twelve. */
+/** Every screen this deployment runs, with its latest run. A screen is
+ *  four tables and `/v1` does not join, so this is a terminal-own read. */
 export async function getScreens(): Promise<ScreenSummary[]> {
   const page = await apiFetch<Page<ScreenSummary>>("/ui/api/screens");
   return page.data;

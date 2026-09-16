@@ -1,13 +1,7 @@
 """Every read and maintenance query the stream package makes.
 
-The write path goes through `storage/contracts.py` like the rest of the
-codebase, but that contract only offers `write` / `current_hash` /
-`known_symbols` -- there is no general SELECT in it. The scope join, the
-session bookkeeping and the health table need one, so the SQL lives here
-rather than leaking into the supervisor or the CLI.
-
-Nothing in this module knows about sockets or asyncio. The supervisor
-calls it from a worker thread, never from the event loop.
+Nothing here knows about sockets or asyncio; the supervisor calls it
+from a worker thread, never from the event loop.
 """
 
 from __future__ import annotations
@@ -51,16 +45,8 @@ class StreamRepository:
     def load_scope(self) -> list[ScopeEntry]:
         """The symbols to subscribe to, with their exchange.
 
-        Both conditions are required. `stream_scope.enabled` is the
-        operator's choice; `symbols.is_active` is the pipeline's. Without
-        the second one a symbol that was deactivated by hand, or that
-        crossed the delist threshold, would keep streaming forever --
-        `known_symbols()` only checks that the row exists, not that it is
-        active, so nothing further down would catch it.
-
-        Ordered so two processes reading the same universe produce the
-        same subscription: Yahoo keeps the first 100 entries it is sent,
-        so ordering decides which symbols survive an overflow.
+        `is_active` is required: nothing downstream checks it. Ordered, as
+        Yahoo truncates the subscription and order decides what survives.
         """
         with self._session_factory() as session:
             rows = session.execute(
@@ -75,13 +61,7 @@ class StreamRepository:
         return [ScopeEntry(symbol=r[0], exchange=r[1], archive=r[2]) for r in rows]
 
     def count_symbols_missing_exchange(self) -> int:
-        """Scoped symbols whose exchange is still NULL.
-
-        `yfin symbols add` writes only the symbol and is_active, so
-        exchange stays NULL until the first sync. Those symbols stream
-        fine but all land on the `unknown` connection, and an operator
-        should be told rather than discover it in `stream status`.
-        """
+        """Scoped symbols whose exchange is still NULL (unsynced); they land on `unknown`."""
         with self._session_factory() as session:
             return int(
                 session.execute(
@@ -127,12 +107,7 @@ class StreamRepository:
             session.commit()
 
     def close_stale_sessions(self) -> int:
-        """Closes sessions a previous process never finished.
-
-        A hard kill leaves the row `running` forever. Left alone the table
-        would fill with sessions that look live, and nothing would
-        distinguish the current process from three crashed ones.
-        """
+        """Closes sessions a hard-killed process left `running`."""
         with self._session_factory() as session:
             result = session.execute(
                 text(
@@ -159,12 +134,7 @@ class StreamRepository:
         rejected: int = 0,
         dropped: int = 0,
     ) -> None:
-        """Accumulates counters onto the session row.
-
-        Additive rather than absolute so the writer can flush whatever it
-        has since the last batch without holding a running total that a
-        crash would lose.
-        """
+        """Accumulates counters onto the session row; additive so no running total is held."""
         with self._session_factory() as session:
             session.execute(
                 text(
@@ -202,10 +172,8 @@ class StreamRepository:
     ) -> None:
         """Upserts one connection's live state.
 
-        `heartbeat_at` is set here, on every write, and it is what stops
-        this table from lying after a crash: killed hard, the rows would
-        stay `open` and `yfin stream status` would report a dead process
-        as healthy.
+        `heartbeat_at` is set on every write; after a hard kill the rows
+        stay `open` and only the heartbeat age reveals it.
         """
         with self._session_factory() as session:
             session.execute(
@@ -259,12 +227,10 @@ class StreamRepository:
             session.commit()
 
     def health_rows(self, *, stale_after_seconds: float) -> list[dict[str, object]]:
-        """Connection health for `yfin stream status`, with staleness.
+        """Connection health for `yfin stream status`.
 
-        A row is `stale` when its heartbeat is older than the caller's
-        threshold. Reporting that separately from `state` matters: a
-        crashed process leaves rows saying `open`, and only the heartbeat
-        age reveals that nothing is actually running.
+        `stale` is reported separately from `state`: a crashed process
+        leaves rows saying `open`.
         """
         with self._session_factory() as session:
             rows = session.execute(

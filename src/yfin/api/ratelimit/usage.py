@@ -1,19 +1,7 @@
-"""Usage measurement.
-
-Counters accumulate in Redis and are flushed to `api_usage_daily` by
-`yfin api usage flush`. Writing a row per request would put a hot row in
-the request path for data nobody reads in real time.
-
-Billing is a separate subsystem and is not in this scope, but the
-measurement is here from day one: the alternative is to start counting on
-the day billing arrives and have no history to bill against or reason
-about.
-
-`estimated` marks a day whose counters could not be measured exactly --
-Redis was unreachable and the limiter failed open. Billing has to be able
-to tell a measured row from a reconstructed one instead of quietly
-treating both as fact.
-"""
+"""Usage measurement. Counters accumulate in Redis and are flushed to
+`api_usage_daily` by `yfin api usage flush`, keeping a hot row out of the
+request path. `estimated` marks a day the limiter failed open, so billing
+can tell a measured row from a reconstructed one."""
 
 from __future__ import annotations
 
@@ -93,13 +81,9 @@ def _pending_days(redis_client: object, keep_today: bool) -> list[str]:
 
 
 def flush(session: Session, settings: ApiSettings, *, include_today: bool = False) -> FlushResult:
-    """Moves buffered counters into the database.
-
-    Counters are read and deleted in one pass per day. Today's bucket is
-    skipped by default because it is still being written to; a flush that
-    took it would race with in-flight requests and lose whatever landed
-    between the read and the delete.
-    """
+    """Moves buffered counters into the database. Today's bucket is skipped
+    by default: it is still being written to, and a flush would lose what
+    lands between the read and the delete."""
     redis = get_redis(settings)
     days = _pending_days(redis, keep_today=not include_today)
 

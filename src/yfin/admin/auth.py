@@ -1,19 +1,7 @@
-"""HTTP Basic auth for the admin page.
-
-One operator, one secret, in the environment. The browser keeps the
-credential for the tab's lifetime and sends it with every request, so
-there is no session to issue, refresh or revoke. What there is: a
-constant-time comparison, and a per-address window on failures so a
-guess costs a minute after five misses.
-
-That same automatic credential is why this dependency also answers a
-second question. Basic auth establishes WHO; nothing in a cross-site
-form POST establishes that the operator asked for it, and the browser
-would attach the cached credential to it anyway (there is no cookie, so
-no `SameSite` applies). Both questions are answered in the one
-dependency every write route already shares, so a new route cannot
-acquire one guard and miss the other.
-"""
+"""HTTP Basic auth for the admin page, with a per-address brake on failures.
+The browser attaches the cached credential to cross-site form POSTs too (no
+cookie, so no `SameSite`), so the same dependency also enforces same-origin
+on writes; a route cannot take one guard and miss the other."""
 
 from __future__ import annotations
 
@@ -32,12 +20,9 @@ REALM = "yfin admin"
 #: Failed attempts per client IP per minute, per process.
 FAILURES_PER_MINUTE = 5
 
-#: The problem type for a write that did not come from this site.
-#:
-#: Declared here rather than in `api/core/errors.py`: `ALL_TYPES` there
-#: is the enum the published `openapi.json` carries, and the admin page
-#: is deliberately outside that document. A type only /admin can emit
-#: does not belong in the contract clients read.
+#: Problem type for a write that did not come from this site. Kept out of
+#: `api/core/errors.ALL_TYPES`: that enum is published in `openapi.json`
+#: and /admin is outside that contract.
 TYPE_CROSS_SITE = "cross_site_request"
 
 _scheme = HTTPBasic(auto_error=False, realm=REALM)

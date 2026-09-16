@@ -1,16 +1,6 @@
-"""Bounds on what a single request may ask the database to do.
-
-Under the synchronous design each request holds a thread for as long as
-its query runs, and the pool is fixed. Without these bounds one request
-is enough to matter and a handful are enough to stop the API:
-`interval=1m&from=1980-01-01` scans a hypertable with millions of rows,
-holds a worker for minutes, and costs the caller a single request -- well
-inside any per-second rate limit, because a rate limit bounds frequency,
-not cost.
-
-So the cost is bounded directly: how much time a query may span, how long
-it may run, and how much it may return.
-"""
+"""Bounds on what a single request may ask the database to do: span, run
+time and row count. A rate limit bounds frequency, not cost, and each
+request holds a pool thread for as long as its query runs."""
 
 from __future__ import annotations
 
@@ -69,12 +59,8 @@ def resolve_window(
     end: datetime | None,
     now: datetime,
 ) -> tuple[datetime, datetime]:
-    """Fills in and bounds the [from, to) window.
-
-    Half-open on purpose: `from` inclusive, `to` exclusive. A closed
-    interval makes consecutive pages overlap by exactly one row at the
-    boundary, which clients then have to de-duplicate.
-    """
+    """Fills in and bounds the [from, to) window. Half-open so consecutive
+    windows do not overlap by one row at the boundary."""
     span = max_span(interval)
     if start is not None and end is not None:
         return start, end
@@ -86,14 +72,8 @@ def resolve_window(
 
 
 class WindowProblem(enum.Enum):
-    """Why a window was refused.
-
-    An enum rather than a message, because the router maps this onto a
-    published error type. It used to return prose and the router asked
-    whether the word "exceeds" appeared in it -- so rewording a sentence
-    in the storage layer silently changed which `type` the API sends, and
-    `range_too_large` is part of the contract.
-    """
+    """Why a window was refused. An enum rather than a message because the
+    router maps it onto a published error type."""
 
     INVERTED = "inverted"
     TOO_WIDE = "too_wide"
@@ -126,14 +106,9 @@ def escape_prefix(value: str) -> str:
 
 
 def to_utc(value: datetime | date | None) -> datetime | None:
-    """Normalises a client-supplied bound to an aware UTC datetime.
-
-    A bare date means UTC midnight, and a datetime without an offset is
-    read as UTC rather than as local time. Leaving it naive would make it
-    incomparable with the aware timestamps in the columns -- and, worse,
-    psycopg would interpret it in the connection's timezone, so the same
-    request would mean different things on different hosts.
-    """
+    """Normalises a client-supplied bound to an aware UTC datetime. A bare
+    date means UTC midnight; a naive datetime is read as UTC, or psycopg
+    would interpret it in the connection's timezone."""
     if value is None:
         return None
     if not isinstance(value, datetime):

@@ -28,14 +28,10 @@ function isTextInput(el: Element | null): boolean {
   return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
 }
 
-/** Global shortcuts for the shell.
- *
- * Inert entirely while the palette is open (it owns the keyboard then).
- * Escape when the command box is focused is left to the box's own
- * keydown handler (it clears the draft and blurs); this listener only
- * turns Escape into "go back" when focus is elsewhere. Shift+Esc always
- * goes forward. The remaining shortcuts (Ctrl/Meta+K, "/", "?") are inert
- * while any INPUT/TEXTAREA is focused, so they never interrupt typing. */
+/** Global shortcuts for the shell. Inert while the palette is open.
+ *  Escape in the command box is the box's own handler; here Escape is
+ *  "go back" only when focus is elsewhere, and Shift+Esc always goes
+ *  forward. Ctrl/Meta+K, "/" and "?" are inert in any INPUT/TEXTAREA. */
 export function useGlobalKeys({
   inputRef,
   paletteOpen,

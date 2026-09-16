@@ -1,13 +1,7 @@
 """advisory_lock behavior and the content of its error message.
 
-The message content is not cosmetic: a bare "could not acquire advisory lock"
-sent a 2026-09-04 debugging session down the wrong path when two live runs
-were accidentally started concurrently. The symptom (18 ERRORs and
-inconsistent row counts in module fixtures) looked like a code bug. A message
-naming who holds the lock would have resolved it in one step.
-
-`pg_locks JOIN pg_stat_activity` reports pid, application_name and the
-running query, which is why this message is richer than a raw connection id.
+The message must name the holder (pid, application_name and query, via
+`pg_locks JOIN pg_stat_activity`) so a concurrent run is diagnosable.
 """
 
 from __future__ import annotations

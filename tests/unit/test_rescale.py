@@ -1,14 +1,7 @@
-"""Retroactive rescaling - pure computation.
-
-No SQL: direction, type, and boundary rules are validated without touching
-the DB. Idempotency and atomicity are covered by the repo tests.
-
-The formula's DIRECTION rests on a measured fact: after a split, Yahoo
-rescales the ENTIRE history - it divides price and multiplies volume (NVDA
-2024-06-10 10:1; 2024-06-05 Close=122.44 / Volume=528,402,000, when in
-reality it was ~1224.40 and ~52.84 M). Old rows in our archive are at the
-pre-split scale; the UPDATE aligns them to Yahoo's current scale.
-"""
+"""Retroactive rescaling, pure computation: direction, type and boundary rules without SQL.
+Idempotency and atomicity are covered by the repo tests. Direction: after a split Yahoo
+rescales the ENTIRE history (divides price, multiplies volume), so archived rows at the
+pre-split scale are aligned to Yahoo's current scale."""
 
 from __future__ import annotations
 
@@ -22,7 +15,7 @@ from yfin.storage.rescale import RescaleSkipped, rescale_factors, split_boundary
 
 
 def test_forward_split_divides_price_and_multiplies_volume() -> None:
-    """NVDA 10:1 - measured direction."""
+    """A 10:1 forward split."""
     price_factor, volume_factor = rescale_factors(Decimal(10))
 
     assert Decimal("1224.40") * price_factor == Decimal("122.440")
@@ -66,12 +59,8 @@ def test_split_boundary_is_local_midnight_in_utc() -> None:
 
 
 def test_positive_offset_exchange_shifts_the_other_way() -> None:
-    """BIST +03: local 00:00 = the PREVIOUS day's UTC 21:00.
-
-    If raw UTC midnight were used, bars between 00:00-03:00 on the split day
-    (no session on BIST, but there is one for crypto/futures) would end up on
-    the wrong side.
-    """
+    """BIST +03: local 00:00 is the previous day's UTC 21:00. Raw UTC midnight would put
+    bars between 00:00-03:00 on the split day on the wrong side."""
     boundary = split_boundary_utc(date(2026, 6, 10), "Europe/Istanbul")
 
     assert boundary == datetime(2026, 6, 9, 21, 0, tzinfo=UTC)

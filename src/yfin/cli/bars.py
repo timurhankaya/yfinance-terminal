@@ -36,10 +36,9 @@ def scope_add(
 ) -> None:
     """Add symbols to intraday_scope.
 
-    Adding the FIRST row for an interval other than 1m is DANGEROUS:
-    resolution checks "is there at least one row for this interval", so a
-    single row excludes every OTHER symbol from that scope.
-    """
+    Adding the FIRST row for a non-1m interval is DANGEROUS: resolution checks
+    "is there at least one row for this interval", so a single row excludes
+    every OTHER symbol from that scope."""
     from sqlalchemy import func, select
 
     from yfin.core import normalize as nz
@@ -178,20 +177,7 @@ def bars_gaps(
 
 @bars_app.command("maintain")
 def bars_maintain(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -> None:
-    """Monthly maintenance. NEVER DELETES anything.
-
-    Two steps were REMOVED, both as a direct result of the engine switch:
-
-      * PARTITION ADVANCE. price_bars is now a TimescaleDB hypertable and
-        creates its own chunks AT WRITE TIME. There is no "out-of-range
-        insert" case, so skipping this maintenance has no cost either. The
-        entire `maintenance.py` module was deleted.
-
-      * ORPHAN-ROW AUDIT. The FK had been sacrificed for partitioning
-        (MySQL ERROR 1506); since a hypertable can be the referencing side,
-        price_bars now CARRIES an FK to symbols and integrity is guaranteed
-        at the DB level. The query became dead code.
-    """
+    """Monthly maintenance: baseline-seed audit and gap summary. NEVER DELETES anything."""
     from sqlalchemy import text
 
     from yfin.storage.rescale import unseeded_historic_splits
@@ -209,9 +195,6 @@ def bars_maintain(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -
         # 2) Gap summary
         for why, total, still_open in session.execute(
             text(
-                # MySQL implicitly cast `SUM(x IS NULL)`'s boolean to int.
-                # PostgreSQL has no SUM(boolean) (42883); FILTER is both
-                # correct and more readable.
                 "SELECT reason, COUNT(*), "
                 "       COUNT(*) FILTER (WHERE resolved_at IS NULL) "
                 "  FROM bar_gaps GROUP BY reason"
@@ -234,11 +217,9 @@ def bars_rescale(
 ) -> None:
     """Retroactive rescaling.
 
-    `--seed` must be run ONCE AT SETUP, BEFORE `bars_*` runs for the first
-    time. Skipping it makes the first run apply every historical split in
-    the splits table and re-split bars that Yahoo already returned at the
-    current scale.
-    """
+    `--seed` must run ONCE AT SETUP, BEFORE the first `bars_*` run; otherwise
+    that run applies every historical split to bars Yahoo already returned at
+    the current scale."""
     from yfin.core import normalize as nz
     from yfin.storage.rescale import apply_pending, seed_baseline
 

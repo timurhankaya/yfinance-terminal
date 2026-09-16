@@ -1,22 +1,8 @@
-"""How a relay walks its queue, and why the two ways are not the same.
+"""Relay cursors: how a relay walks its queue.
 
-The tick outbox walks row ids. That is correct only because its writer is a
-single thread, so `id` follows commit order and a row with a low id can
-never appear after one with a high id. `stream/writer.py` states that
-premise; this module is where it is depended on.
-
-The pipeline outbox cannot claim it. Symbol transactions commit
-concurrently -- N shard processes times worker threads -- so a transaction
-can take its ids early and commit late, and an `id`-ordered walk would step
-straight past its rows. Those rows exist nowhere else, so that is silent
-data loss, which is the one failure mode this whole subsystem exists to
-prevent.
-
-So there are two cursors, and they are separate classes rather than five
-`if spec.cursor` branches inside the relay: each one's correctness argument
-belongs next to its own SQL, and the relay has no business knowing which of
-the two it is driving.
-"""
+The tick outbox walks row ids, which is correct only because its writer is
+a single thread (`stream/writer.py`). The pipeline outbox's transactions
+commit concurrently, so `id` order is not commit order and it walks `(xid, id)`."""
 
 from __future__ import annotations
 
@@ -31,14 +17,9 @@ from yfin.outbox.kafka import OutboxMessage
 from yfin.outbox.spec import OutboxSpec
 
 #: How far behind `now()` the xid cursor's chunk cleanup is allowed to reach.
-#:
-#: `drop_chunks(older_than => c)` drops a chunk only when its whole range
-#: ends at or before `c`. With one-hour chunks not aligned to `now()`,
-#: `now() - 3h` guarantees any chunk dropped closed at least two hours ago.
-#: The exposure that leaves is a transaction still open more than two hours
-#: after its flush -- which the flush being the last statement before the
-#: commit rules out short of a pathological lock wait, and
-#: `persist_with_retry` logs that case.
+#: With one-hour chunks not aligned to `now()`, `now() - 3h` guarantees any
+#: dropped chunk closed at least two hours ago; a transaction still open
+#: that long after its flush is the remaining exposure.
 CLEANUP_LAG_HOURS = 3
 
 
@@ -86,16 +67,9 @@ class Cursor(Protocol):
 def _ensure_offset_row(session: Session, spec: OutboxSpec) -> None:
     """Creates the single offset row on first use.
 
-    One statement for both tables: every published-position column on both
-    carries a server default of zero, so only `updated_at` has to be
-    supplied. Zero is below every real id and every real transaction id, so
-    a relay starting on a non-empty outbox publishes all of it rather than
-    skipping to the end.
-
-    No migration seeds this row. The repo fixtures build the schema from
-    `Base.metadata` rather than by running migrations, so a seeded row would
-    exist in production and not in the tests.
-    """
+    Every published-position column defaults to zero, which is below every
+    real id, so a relay starting on a non-empty outbox publishes all of it.
+    Not seeded by a migration: test fixtures build the schema from metadata."""
     session.execute(
         text(
             f"INSERT INTO {spec.offset_table} (id, updated_at) "
@@ -183,25 +157,10 @@ class IdCursor:
 
 class XidCursor:
     """Walks `(xid, id)`, for a queue written by concurrent transactions.
-
-    A row becomes eligible only once `xid < pg_snapshot_xmin(...)`, i.e.
-    once every transaction with a smaller id has ENDED -- committed or
-    aborted, and an aborted one's rows are invisible anyway. Every
-    transaction that starts later takes a higher id. So a transaction that
-    took its ids early and commits late is waited for rather than skipped,
-    and once its xid is below xmin all of its rows are visible at once.
-
-    The cursor is the PAIR. A bare xid could neither advance past a
-    transaction larger than one batch nor resume inside it, so one big
-    backfill would stall the relay indefinitely.
-
-    The price of the guarantee is that the relay cannot pass an open writing
-    transaction ANYWHERE in the database -- a long bar backfill, a `psql`
-    session left idle in transaction. The outbox window itself is small (the
-    flush is the last statement before the commit), but the wait is on the
-    oldest WRITER, not the oldest flush. `lag` reports that separately so an
-    operator can tell "behind" from "blocked".
-    """
+    A row is eligible only once `xid < pg_snapshot_xmin(...)`, i.e. every
+    older transaction has ended, so a late commit is waited for, not skipped.
+    The pair, not a bare xid, lets a multi-batch transaction be resumed
+    inside. The relay cannot pass any open writing transaction; see `lag`."""
 
     def read(self, session: Session, spec: OutboxSpec) -> Position:
         row = session.execute(
@@ -249,16 +208,11 @@ class XidCursor:
     def cutoff(
         self, session: Session, spec: OutboxSpec, at: Position
     ) -> datetime | None:
-        """`LEAST(oldest unpublished, now() - 3 chunk intervals)`.
+        """`LEAST(oldest unpublished, now() - CLEANUP_LAG_HOURS)`.
 
-        The first term is exact: rows of transactions at or below the cursor
-        are all published, and rows of transactions still open are invisible
-        to `min`. The second is what covers the chunks a still-open
-        transaction could yet flush into -- see `CLEANUP_LAG_HOURS`.
-
-        PostgreSQL's `LEAST` ignores NULL, so with nothing unpublished the
-        second term stands on its own, which is the intended answer.
-        """
+        The second term covers the chunks a still-open transaction could
+        yet flush into. `LEAST` ignores NULL, so with nothing unpublished
+        the second term stands on its own."""
         return session.execute(
             text(
                 "SELECT LEAST("

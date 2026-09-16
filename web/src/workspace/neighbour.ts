@@ -1,9 +1,6 @@
-// Which panel is to the left of this one.
-//
-// dockview has no directional navigation of its own, so the answer comes
-// from where the panels actually are on screen. That is geometry, and
-// geometry is testable: the arithmetic lives here with real rectangles,
-// and the dock only has to hand over what it measured.
+// Which panel is to the left of this one. dockview has no directional
+// navigation, so the answer is geometry over real rectangles, testable
+// here; the dock only hands over what it measured.
 
 /** The four ways a reader can mean "the next one over". */
 export enum Direction {
@@ -31,13 +28,9 @@ function centre(box: Box): Centre {
   return { id: box.id, x: box.left + box.width / 2, y: box.top + box.height / 2 };
 }
 
-/** The panel next to `activeId` in `direction`, or null when the edge of
- *  the page is that way.
- *
- *  Nearest along the direction wins, and a tie is settled by whichever
- *  strays least across it -- so from a wide chart with two panels stacked
- *  to its right, "right" lands on the one whose middle is closest to the
- *  chart's, not on whichever dockview happened to create first. */
+/** The panel next to `activeId` in `direction`, or null at the edge of
+ *  the page. Nearest along the direction wins; a tie goes to whichever
+ *  strays least across it, not to whichever dockview created first. */
 export function pickNeighbour(boxes: Box[], activeId: string, direction: Direction): string | null {
   const active = boxes.find((box) => box.id === activeId);
   if (active === undefined) return null;

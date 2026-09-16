@@ -1,11 +1,6 @@
-"""One pipeline, two renderings, and the redaction that has to survive both.
-
-The claim under test is not "logging works". It is that there is exactly
-ONE route out of this process and every record takes it -- because
-redaction is a processor, and a record that went around the chain is a
-record nobody redacted. yfinance is handed the proxy DSN in plain text, so
-that is not a hypothetical.
-"""
+"""One pipeline, two renderings, and the redaction that has to survive both: redaction is a
+processor, so a record that bypasses the chain is a record nobody redacted, and yfinance is
+handed the proxy DSN in plain text."""
 
 from __future__ import annotations
 
@@ -32,12 +27,8 @@ SECRET = "s3cret"  # noqa: S105 - the thing that must not appear in a line
 
 @pytest.fixture(autouse=True)
 def _restore_logging() -> Iterator[None]:
-    """No test inherits another's handlers or service name.
-
-    `configure_logging` is process state twice over -- the root handler and
-    the module-level service -- so a test that reconfigured would otherwise
-    decide what the next one sees.
-    """
+    """No test inherits another's handlers or service name: `configure_logging` is process
+    state (root handler and module-level service)."""
     from yfin.core import logging_setup
 
     root = logging.getLogger()

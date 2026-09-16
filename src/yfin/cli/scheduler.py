@@ -1,10 +1,7 @@
 """Scheduler commands: run, jobs.
 
-`run` stays in the foreground and obeys SIGTERM. It does not daemonize --
-the process is meant to run under systemd, Docker or Kubernetes, and all
-three want a process that exits when told to. `cli/stream.py` says the same
-about `stream run`, for the same reason.
-"""
+`run` stays in the foreground and obeys SIGTERM rather than daemonizing:
+systemd, Docker and Kubernetes all want a process that exits when told to."""
 
 from __future__ import annotations
 
@@ -19,14 +16,9 @@ scheduler_app = typer.Typer(help="Scheduled jobs (replaces cron)", no_args_is_he
 def scheduler_run() -> None:
     """Runs scheduled jobs until stopped.
 
-    Each firing spawns `yfin <command>` in its own process group. The
-    scheduler replaces cron, not the runner: sharding, advisory locks and
-    exit codes all stay where they are.
-
-    Holds no advisory lock of its own. Two schedulers would double every
-    job, but each job's own lock is what stops the damage -- and running two
-    is an operator error that a lock here would only half-hide.
-    """
+    Each firing spawns `yfin <command>` in its own process group; the scheduler
+    replaces cron, not the runner. It holds no advisory lock of its own: each
+    job's own lock is what stops a doubled run from doing damage."""
     from importlib.metadata import version
 
     from sqlalchemy import Engine
@@ -56,12 +48,7 @@ def scheduler_run() -> None:
 
 @scheduler_app.command("jobs")
 def scheduler_jobs() -> None:
-    """Lists every job, its cron, its queue and when it next fires.
-
-    Every job is listed, including the disabled ones. A command that showed
-    only what is scheduled would make "why did prune never run" a question
-    with no visible answer.
-    """
+    """Lists every job, including disabled ones, with its cron, queue and next firing."""
     from datetime import UTC, datetime
 
     from yfin.core.config import get_settings

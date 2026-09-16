@@ -79,10 +79,8 @@ def test_supported_region_passes_the_probe() -> None:
 def test_region_only_affects_the_five_list_blocks() -> None:
     """Region only scopes the five list blocks.
 
-    No exact equality: seconds pass between the two requests and the market
-    moves, so e.g. `ytdChangePercent` drifts (0.119388185 -> 0.11939399).
-    The claim is "region doesn't change these blocks", not "value froze" --
-    hence exact equality on text fields, a narrow tolerance on numeric ones.
+    The market moves between the two requests, so numeric fields get a
+    narrow tolerance and only text fields are compared exactly.
     """
     us = fetch_domain("technology", "sector", "US")
     gb = fetch_domain("technology", "sector", "GB")

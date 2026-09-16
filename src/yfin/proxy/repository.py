@@ -1,9 +1,7 @@
 """Reads and writes the proxies table.
 
-Health updates happen in their own short transaction, outside the
-symbol transaction: a rollback there would also erase which proxy got
-banned.
-"""
+Health updates happen in their own short transaction, outside the symbol
+transaction: a rollback there would also erase which proxy got banned."""
 
 from __future__ import annotations
 
@@ -29,16 +27,9 @@ log = get_logger(__name__)
 def select_eligible(session: Session, limit: int) -> list[Proxy]:
     """Eligible proxies: healthy first, then never-tried, then fastest.
 
-    This query is the single source of truth for eligibility. A Python
-    helper mirroring the same rule used to exist unused in production and
-    could drift from this one, so it was removed; the rule is tested
-    directly against this SQL with a truth table.
-
-    The `(health='unknown') DESC` ordering is required: without it, a
-    newly added proxy (`last_latency_ms IS NULL`) would never be picked,
-    while a proxy freshly out of cooldown with a stale measured latency
-    would be preferred instead.
-    """
+    This query is the single source of truth for eligibility. The
+    `(health='unknown') DESC` ordering is required: without it a newly added
+    proxy (`last_latency_ms IS NULL`) would never be picked."""
     now = datetime.now(UTC)
     stmt = (
         select(Proxy)
@@ -76,14 +67,8 @@ def persist_event(
 ) -> ProxyHealthState:
     """Applies a single event to the DB. Must be called in its own transaction.
 
-    Health updates never happen inside the symbol transaction: a rollback
-    there would also erase which proxy got banned.
-
-    Counters are written incrementally (`= x + 1`) because multiple
-    writers can hit the same row (child's flush, parent's SHARD_CRASH,
-    a concurrent `proxy check`); writing back a value read earlier would
-    lose updates. The state transition itself runs under FOR UPDATE.
-    """
+    Counters are written incrementally (`= x + 1`) because multiple writers
+    can hit the same row; the state transition itself runs under FOR UPDATE."""
     moment = now or datetime.now(UTC)
     row = session.execute(
         select(Proxy).where(Proxy.id == proxy_id).with_for_update()
@@ -125,14 +110,11 @@ def persist_event(
 
 
 class ShardProxyTracker:
-    """Tracks one shard's proxy health in memory.
+    """Tracks one shard's proxy health in memory; flushed to the DB when the
+    cooldown threshold is crossed and at shard end.
 
-    Events accumulate in memory and are written to the DB (a) the moment
-    the cooldown threshold is crossed, (b) at shard end. Once `withdrawn`
-    is True the child stops pulling new symbols from the queue -
-    otherwise a banned proxy gets 429s instantly and would drain the
-    queue fastest, marking everything failed.
-    """
+    Once `withdrawn` is True the child stops pulling symbols: a banned proxy
+    gets 429s instantly and would drain the queue fastest, failing everything."""
 
     def __init__(self, proxy_id: int | None, policy: ProxyPolicy) -> None:
         self.proxy_id = proxy_id

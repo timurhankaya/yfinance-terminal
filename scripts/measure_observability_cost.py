@@ -1,17 +1,7 @@
-"""What observing the pipeline costs the pipeline.
+"""What observing the pipeline costs the pipeline: log line, span and scrape.
 
-Three numbers the design asks for, and all three are about the same
-question: does the instrumentation change the thing it measures? A log
-format that costs a millisecond a line is a different format on a run that
-writes a million of them; a span per dataset is 46 spans per symbol; a
-scrape that renders the whole registry holds the GIL while the stream's
-writer thread wants it.
-
-    uv run python scripts/measure_observability_cost.py
-
-Needs no database, no network and no collector. The numbers go into
-docs/measurements/observability.md.
-"""
+Needs no database, no network and no collector.
+Usage: uv run python scripts/measure_observability_cost.py"""
 
 from __future__ import annotations
 
@@ -34,10 +24,8 @@ SCRAPES = 200
 def _timed(work: Callable[[], None], repeat: int) -> float:
     """Seconds per operation, taking the best of three runs.
 
-    The best rather than the mean: what is being measured is the cost of
-    the work, and a run that was slower because something else on the
-    machine wanted the CPU measures the machine, not the code.
-    """
+    The best rather than the mean: a run slowed by something else on the
+    machine measures the machine, not the code."""
     best = float("inf")
     for _ in range(3):
         started = time.perf_counter()
@@ -49,10 +37,8 @@ def _timed(work: Callable[[], None], repeat: int) -> float:
 def _silence() -> None:
     """Points the root handler at a buffer instead of the terminal.
 
-    Writing to /dev/null would still pay for the syscall, and writing to a
-    terminal would measure the terminal. The formatter runs in full either
-    way, which is the part under test.
-    """
+    /dev/null would still pay for the syscall and a terminal would measure the
+    terminal; the formatter, the part under test, runs in full either way."""
     sink = io.StringIO()
     for handler in logging.getLogger().handlers:
         handler.setStream(sink)  # type: ignore[attr-defined]

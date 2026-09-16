@@ -1,15 +1,7 @@
-"""Job definitions are settings, so a bad one has to fail at the command.
-
-The whole point of putting cron expressions in the settings table is that an
-operator retimes a run without a deployment. That only works if
-`yfin config set yf_schedule_sync "every tuesday"` is refused there and
-then -- a validator living in the scheduler would accept it, and the
-operator would find out hours later from a different process's logs.
-
-A `field_validator` is what makes that true: `validate_pair` builds a
-`Settings` from the candidate, so the CLI, the loader and the scheduler all
-go through the same check.
-"""
+"""Job definitions are settings, so a bad cron must be refused at `yfin config set` rather
+than hours later in the scheduler's logs. A `field_validator` makes that true:
+`validate_pair` builds a `Settings` from the candidate, so CLI, loader and scheduler share
+the check."""
 
 from __future__ import annotations
 

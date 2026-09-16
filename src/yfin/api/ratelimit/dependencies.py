@@ -1,17 +1,7 @@
-"""The single guard an endpoint declares.
-
-`guard(family)` is what a route depends on, and one argument settles
-three things that must never disagree: the scope required, the counter
-the request is billed to, and the limits applied. They all derive from
-the data family, so there is no way to advertise one scope, meter under
-another, and enforce a third.
-
-Refunds and usage counting need the final status code, which a
-dependency cannot see, so they happen in `UsageMiddleware`. The
-dependency leaves what it did in `request.state` and the middleware
-finishes the job -- including releasing the concurrency slot, which must
-happen even when the handler raised.
-"""
+"""The single guard an endpoint declares: `guard(family)` derives scope,
+counter and limits from one argument so they cannot disagree. Refunds,
+usage counting and slot release need the final status, which a dependency
+cannot see, so `UsageMiddleware` finishes from `request.state`."""
 
 from __future__ import annotations
 
@@ -54,16 +44,10 @@ class LimitState:
 
 
 def attribute_family(request: Request, family: DataFamily) -> None:
-    """Names the family a request turned out to belong to.
-
-    The generic dataset route cannot know its family until it has resolved
-    the name, but it must be metered BEFORE that -- otherwise a caller
-    could drive the 403 and 404 paths at any rate they liked, and every
-    one of those still costs a signature check, a Redis read and a worker.
-    So the request is metered under `meta` and told its real family here,
-    once. The counter is only read by the middleware after the handler
-    returns, so filling it in late is safe.
-    """
+    """Names the family a request turned out to belong to. The dataset route
+    is metered under `meta` before the name resolves (the 403/404 paths
+    must not be free) and corrected here; the middleware only reads the
+    family after the handler returns."""
     state: LimitState | None = getattr(request.state, "limits", None)
     if state is not None:
         state.family = family.value
@@ -75,14 +59,9 @@ def meter(
     principal: Principal,
     family: DataFamily | str,
 ) -> None:
-    """Applies the plan's limits and records what was done.
-
-    Split out of `guard` because the generic dataset surface cannot name
-    its family in a signature -- the family depends on which dataset was
-    asked for. Both paths run this same function, so a request served
-    generically is metered exactly like one served by a hand-written
-    endpoint.
-    """
+    """Applies the plan's limits and records what was done. Split out of
+    `guard` because the dataset route only knows its family inside the
+    handler."""
     if principal.client_id == UI_CLIENT_ID:
         # The operator's own browser: no plan row, no counters, no slot.
         # `request.state.limits` is deliberately NOT set, which is what
@@ -137,12 +116,10 @@ def guard(family: DataFamily) -> Callable[..., Principal]:
     """Requires the family's scope, then meters the request under it."""
     scope = scope_for(family)
 
-    # Security() in a default rather than inside Annotated, and that is
-    # forced: `from __future__ import annotations` turns the annotation
-    # into a string that FastAPI re-evaluates against module globals,
-    # where the closure's `scope` does not exist. The Annotated form
-    # silently degrades into "principal is a query parameter" and every
-    # request 422s.
+    # Security() as a default, not inside Annotated: with `from __future__
+    # import annotations` FastAPI re-evaluates the string against module
+    # globals, where the closure's `scope` does not exist, and the
+    # principal silently becomes a query parameter.
     def dependency(
         request: Request,
         response: Response,
@@ -158,18 +135,9 @@ def guard(family: DataFamily) -> Callable[..., Principal]:
 
 class UsageMiddleware(BaseHTTPMiddleware):
     """Releases the slot, refunds server errors, counts what was billable.
-
-    A client must not pay for our 500, so it gives the quota unit back
-    and is not counted. A refusal we made before doing any work (429) is
-    not counted either. Client errors are: a malformed request still cost
-    a round trip and is the caller's to fix.
-
-    A 504 is billed like a success, and that is deliberate. The query was
-    cancelled because the caller asked for more than the timeout allows;
-    the work was really done, and refunding it would make an expensive
-    request that times out free -- which is an invitation to keep sending
-    them.
-    """
+    A 500 is refunded and not counted; a 429 is not counted; client errors
+    are. A 504 is billed like a success: the work was done, and refunding
+    it would make a too-expensive request free to repeat."""
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]

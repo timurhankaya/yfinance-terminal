@@ -1,12 +1,7 @@
 """earnings_estimate + revenue_estimate datasets.
 
-Both write to one table (`analyst_estimates`) with `metric` as part of the
-PK: the column sets are identical and both come from the same Yahoo module
-(`earningsTrend`). They stay separate datasets because each needs its own
-`sync_run_items` cell and independent `--datasets` selection.
-
-The only difference is the source key for "value a year ago": `yearAgoEps`
-vs `yearAgoRevenue`.
+Both write `analyst_estimates` with `metric` in the PK; they stay separate
+datasets so each gets its own `sync_run_items` cell and `--datasets` entry.
 """
 
 from __future__ import annotations
@@ -29,8 +24,7 @@ def _currency(value: object) -> str | None:
 
 def _columns(year_ago_source: str) -> tuple[Column, ...]:
     return (
-        # DECIMAL(38,10) is required: the same column holds AAPL EPS 1.97656
-        # and THYAO revenue 1_285_436_390_920.
+        # DECIMAL(38,10): the same column holds EPS and revenue values.
         Column("avg", "avg", to_fact_value),
         Column("low", "low", to_fact_value),
         Column("high", "high", to_fact_value),
@@ -47,10 +41,8 @@ def _columns(year_ago_source: str) -> tuple[Column, ...]:
 class _EstimateDataset(PeriodFrameDataset):
     produces = asof_produces(TABLE)
     table = TABLE
-    # Deliberate difference from `financial_facts`: an all-NULL period row is
-    # still written. There, a missing row meant "no such line item"; here the
-    # period set is a fixed four, so a NULL row means "period exists, no
-    # estimate yet" -- measured exactly this way for THYAO's 0q/+1q periods.
+    # Unlike `financial_facts`, an all-NULL period row is still written: the
+    # period set is fixed, so a NULL row means "period exists, no estimate yet".
 
 
 class EarningsEstimateDataset(_EstimateDataset):

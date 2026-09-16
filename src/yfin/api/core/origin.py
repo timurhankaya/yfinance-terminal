@@ -1,22 +1,8 @@
-"""Where a request says it came from, and whether that is this site.
-
-Two surfaces ask the question and they ask it for the same reason: the
-browser attaches the visitor's ambient authority (the cached Basic
-credential on `/admin`, the visitor's own network on `/ui/ws`) to a
-request another page told it to make. Neither surface has a cookie, so
-`SameSite` decides nothing for either, and `form-action 'self'` in the
-admin CSP restricts where *our* forms may post -- not where someone
-else's may post to us.
-
-So the check lives here once, in `api/core` rather than in `ui/`: the
-admin page must not import the optional UI package to get it.
-
-Both answers are deliberately permissive for a request that is not a
-browser at all. `curl`, `wscat` and the test client send neither
-`Origin` nor `Sec-Fetch-Site`, and refusing those would break every
-operator script while stopping no attack: a program that can set its own
-headers is not the thing this defends against.
-"""
+"""Whether a request came from this site, shared by `/admin` and `/ui/ws`
+(neither has a cookie, so `SameSite` decides nothing). Lives in `api/core`
+so the admin page need not import the optional UI package. Requests with
+no `Origin`/`Sec-Fetch-Site` are allowed: a program that sets its own
+headers is not what this defends against."""
 
 from __future__ import annotations
 
@@ -38,12 +24,8 @@ SAFE_METHODS: Final = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 class FetchSite(StrEnum):
-    """The values a browser puts in `Sec-Fetch-Site`.
-
-    All four are spelled out rather than just the one that is compared,
-    because the comparison is a whitelist of one and the reader has to be
-    able to see what it excludes.
-    """
+    """The values a browser puts in `Sec-Fetch-Site`. All four are spelled
+    out so the whitelist of one shows what it excludes."""
 
     SameOrigin = "same-origin"
     SameSite = "same-site"
@@ -53,14 +35,9 @@ class FetchSite(StrEnum):
 
 
 def origin_allowed(origin: str | None, host: str | None, settings: ApiSettings) -> bool:
-    """Whether `origin` is this deployment.
-
-    Scheme-independent on purpose. `public_base_url` is what the operator
-    published and is authoritative when set; without it the request's own
-    `Host` is the only thing that knows what this deployment is called,
-    and a deployment behind a TLS-terminating proxy sees `http` on the
-    inside while the browser sends `https`.
-    """
+    """Whether `origin` is this deployment. Scheme-independent: behind a
+    TLS-terminating proxy the inside sees `http` while the browser sends
+    `https`. `public_base_url` is authoritative when set, else `Host`."""
     if not origin:
         # No Origin at all is not a browser. `wscat` and the test client
         # send none; a page always does.
@@ -73,12 +50,8 @@ def origin_allowed(origin: str | None, host: str | None, settings: ApiSettings) 
 
 def same_origin_write(conn: HTTPConnection, settings: ApiSettings) -> bool:
     """Whether a state-changing request demonstrably came from this site.
-
-    `Sec-Fetch-Site` is preferred where it exists because the browser
-    computes it and a page cannot forge it; `Origin` is the fallback for
-    the browsers that do not send fetch metadata, and it is compared the
-    same way `/ui/ws` compares it.
-    """
+    `Sec-Fetch-Site` is preferred (a page cannot forge it); `Origin` is the
+    fallback for browsers without fetch metadata."""
     site = conn.headers.get(HEADER_FETCH_SITE)
     if site is not None:
         return site == FetchSite.SameOrigin

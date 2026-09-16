@@ -1,9 +1,7 @@
 """Ownership and insider tables.
 
-Four of the five tables are as-of (the source returns "current top 10 /
-current roster"). insider_transactions is not as-of, since the source
-carries its own date.
-"""
+Four of the five tables are as-of (the source returns the current roster);
+insider_transactions carries its own date."""
 
 from __future__ import annotations
 
@@ -41,7 +39,7 @@ HOLDER_TYPE_ENUM = Enum(
 
 
 class HolderBreakdown(Base):
-    """majorHoldersBreakdown: same 4 keys measured in 19/19 symbols."""
+    """majorHoldersBreakdown: a fixed set of four keys."""
 
     __tablename__ = "holder_breakdown"
     __table_args__ = (
@@ -61,11 +59,8 @@ class HolderBreakdown(Base):
 class InstitutionalHolder(Base):
     """institutional_holders + mutualfund_holders in one table.
 
-    Column sets measured identical across 14 symbols. Both datasets write
-    to this table; their scopes separate via
-    `scope_columns=(symbol, as_of_date, holder_type)` -- this is exactly
-    why scope_columns exists.
-    """
+    Both datasets write here; their scopes separate via
+    `scope_columns=(symbol, as_of_date, holder_type)`."""
 
     __tablename__ = "institutional_holders"
     __table_args__ = (
@@ -77,15 +72,12 @@ class InstitutionalHolder(Base):
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     holder_type: Mapped[HolderType] = mapped_column(HOLDER_TYPE_ENUM, primary_key=True)
-    # Measured max 70 chars (JPM mutualfund).
     holder: Mapped[str] = mapped_column(KeyTextType(128), primary_key=True)
-    # Varies per row: AAPL mutualfund has 4 different dates in one list.
-    # Nullable: not measured to always be populated, and a single NaT
-    # would roll back the whole symbol's transaction.
+    # Varies per row. Nullable: a single NaT would roll back the whole
+    # symbol's transaction.
     date_reported: Mapped[date | None] = mapped_column(Date)
     pct_held: Mapped[Decimal | None] = mapped_column(PriceType())
     pct_change: Mapped[Decimal | None] = mapped_column(PriceType())
-    # Measured max: shares 1.94e9, value 1.76e13.
     shares: Mapped[Decimal | None] = mapped_column(BigNumType())
     value: Mapped[Decimal | None] = mapped_column(BigNumType())
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
@@ -94,11 +86,8 @@ class InstitutionalHolder(Base):
 class InsiderActivity(Base):
     """netSharePurchaseActivity's 7-row presentation pivots into one row.
 
-    The source is already a 7-row display of a single record; column 0's
-    name is dynamic ('Insider Purchases Last 6m'), so the row label is
-    read by position, not name, and the period suffix is split into
-    period_label.
-    """
+    Column 0's name is dynamic (it carries the period), so the row label
+    is read by position and the period suffix is split into period_label."""
 
     __tablename__ = "insider_activity"
     __table_args__ = (
@@ -113,9 +102,8 @@ class InsiderActivity(Base):
     sales_shares: Mapped[Decimal | None] = mapped_column(BigNumType())
     net_shares: Mapped[Decimal | None] = mapped_column(BigNumType())
     total_insider_shares: Mapped[Decimal | None] = mapped_column(BigNumType())
-    # Signed Integer: net transaction count can be negative in principle
-    # and this was not measured out; a non-negative constraint would drop
-    # the whole symbol on the first negative value.
+    # Signed: a non-negative constraint would drop the whole symbol on the
+    # first negative value.
     purchases_trans: Mapped[int | None] = mapped_column(Integer)
     sales_trans: Mapped[int | None] = mapped_column(Integer)
     net_trans: Mapped[int | None] = mapped_column(Integer)
@@ -128,12 +116,8 @@ class InsiderActivity(Base):
 class InsiderTransaction(Base):
     """Insider transactions. Not as-of: the source carries a transaction date.
 
-    fact_hash is part of the PK but not sufficient alone: PFE measured two
-    rows identical across all nine columns (BOSHOFF CHRISTOFFEL, 8741
-    shares, value 263716, 2025-02-21), with identical hashes too. So
-    normalize deduplicates exact duplicates first; otherwise 34 rows read
-    would write 33, breaking the verification check on every run.
-    """
+    The source can return exact duplicate rows (identical fact_hash), so
+    normalize deduplicates first or the read/write count check would fail."""
 
     __tablename__ = "insider_transactions"
     __table_args__ = (
@@ -143,33 +127,27 @@ class InsiderTransaction(Base):
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     start_date: Mapped[date] = mapped_column(Date, primary_key=True)
     fact_hash: Mapped[str] = mapped_column(ShortHashType(), primary_key=True)
-    # Not always a person name: 'Elliott Investment Management L.P' (BP.L).
-    # Measured max 33 chars.
+    # Not always a person name; can be an institution.
     insider: Mapped[str | None] = mapped_column(PersonNameType())
-    # Measured max 56 (WMT); '' maps to NULL (measured empty for BP.L).
+    # '' maps to NULL.
     position: Mapped[str | None] = mapped_column(KeyTextType(64))
     text: Mapped[str | None] = mapped_column(String(255, collation="C"))
-    # All 1464 rows / 16 symbols measured '' -> NULL. Column kept anyway so
-    # a future non-empty value needs no migration.
+    # Usually '' -> NULL; kept so a future non-empty value needs no migration.
     transaction_label: Mapped[str | None] = mapped_column(String(64, collation="C"))
     url: Mapped[str | None] = mapped_column(Text)
     shares: Mapped[Decimal | None] = mapped_column(BigNumType())
-    # NaN in all rows measured for DIS and BP.L.
     value: Mapped[Decimal | None] = mapped_column(BigNumType())
-    # 'D', 'I', and 'D/I' (XOM) -> VARCHAR(2) was too narrow.
+    # 'D', 'I', or 'D/I'.
     ownership: Mapped[str | None] = mapped_column(AsciiKeyType(8))
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
 class InsiderRosterHolder(Base):
-    """Current insider roster (9-10 people).
+    """Current insider roster.
 
-    Source column set is 7/9/11 depending on symbol, and order is not
-    fixed either -> normalize uses row.get(...). positionSummary /
-    positionSummaryDate were seen only for NVDA, where they were a
-    person's only share data; omitting the column would leave every
-    share field NULL for that row.
-    """
+    Source column set and order vary by symbol, so normalize uses
+    row.get(...). positionSummary / positionSummaryDate can be a person's
+    only share data, so the columns are kept."""
 
     __tablename__ = "insider_roster"
     __table_args__ = (
@@ -182,8 +160,8 @@ class InsiderRosterHolder(Base):
     position: Mapped[str | None] = mapped_column(KeyTextType(64))
     url: Mapped[str | None] = mapped_column(Text)
     most_recent_transaction: Mapped[str | None] = mapped_column(String(64, collation="C"))
-    # Can arrive as datetime64 or raw epoch float64 (measured populated
-    # float in 6 symbols); kinds.py::_to_datetime accepts both forms.
+    # Can arrive as datetime64 or raw epoch float64; kinds.py::_to_datetime
+    # accepts both forms.
     latest_transaction_date: Mapped[datetime | None] = mapped_column(TsType())
     position_direct_date: Mapped[datetime | None] = mapped_column(TsType())
     position_indirect_date: Mapped[datetime | None] = mapped_column(TsType())

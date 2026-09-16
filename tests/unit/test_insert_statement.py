@@ -1,15 +1,7 @@
-"""What the writer's INSERT compiles to, with a collector and without one.
-
-The change-events design adds three things to the upsert -- `RETURNING *`,
-a distinctness predicate and a volatile touch -- and every one of them is a
-change to the statement that writes 68 tables. So the first thing this file
-does is lock in that WITHOUT a collector nothing moved: the three shapes
-compile to the same text they compiled to before, compared as strings.
-
-The rest covers the shapes a collector produces, including the two that
-must NOT acquire a predicate: an infrastructure table, and a write whose
-only updatable column is volatile.
-"""
+"""What the writer's INSERT compiles to, with a collector and without one. Without a
+collector the three shapes must compile to exactly the text they did before, compared as
+strings; with one, an infrastructure table and a write whose only updatable column is
+volatile must NOT acquire a predicate."""
 
 from __future__ import annotations
 
@@ -204,14 +196,9 @@ class TestTheTwoShapesThatStayAsTheyAre:
 
 class TestGuardsAreRefused:
     def test_a_guard_column_on_a_published_table_raises(self) -> None:
-        """A guard-rejected row and an unchanged row are indistinguishable in
-        `RETURNING`, so the event would claim a write that did not happen.
-
-        Defensive rather than reachable today: the only guard in the codebase
-        is the stream writer's on `live_quotes`, which is infrastructure and
-        never collected. This is the check that would catch a pipeline table
-        growing one.
-        """
+        """A guard-rejected row and an unchanged row are indistinguishable in `RETURNING`,
+        so the event would claim a write that did not happen. No collected table has a guard
+        today; this catches one growing it."""
         with pytest.raises(ValueError, match="guard_column"):
             _sql(_target_write(guard_column="as_of_date"), collector=_collector())
 

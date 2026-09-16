@@ -1,9 +1,7 @@
 """Read-only providers the worker threads call.
 
-All three exist for the same reason: `SyncContext` carries no database
-handle, and a fresh context is built per symbol. Each opens its own short
-session behind a lock, so a worker thread can ask a question without
-touching the main transaction or holding it open.
+`SyncContext` carries no database handle; each provider opens its own
+short session behind a lock, so the main transaction is never touched.
 """
 
 from __future__ import annotations
@@ -48,12 +46,9 @@ class WatermarkReader:
 
 
 class ScopeReader:
-    """Resolves intraday_scope.
+    """Resolves intraday_scope, reading each interval once per run.
 
-    SyncContext has no DB access and `_worker` builds a fresh SyncContext
-    per symbol, so caching the scope query on ctx would mean ~5,000
-    queries per run. This instance reads it once per run instead; each
-    shard child process gets its own instance.
+    A fresh SyncContext is built per symbol, so the cache cannot live there.
     """
 
     def __init__(self, factory: sessionmaker[Session]) -> None:
@@ -64,10 +59,8 @@ class ScopeReader:
     def _symbols_for(self, interval: str) -> frozenset[str] | None:
         """Scope set for an interval; None = the full universe.
 
-        Applied per bar_interval, independent of `enabled`: the rule is
-        "does at least one row exist for this interval?". An interval
-        with only enabled=0 rows still counts as "has rows" and runs no
-        symbols.
+        "Has rows" is independent of `enabled`: an interval with only
+        enabled=0 rows runs no symbols.
         """
         if interval in self._cache:
             metrics.inc("yfin_sync_cache_ops_total", cache="scope_reader", result="hit")
@@ -101,9 +94,7 @@ class ScopeReader:
 class GapReader:
     """Reads open (unresolved) gaps.
 
-    Without this feedback loop bar_gaps would just be a tombstone: if a
-    middle slice fails and later slices succeed, the watermark moves past
-    the gap and that window is never requested again.
+    Once the watermark moves past a failed slice, only this brings it back.
     """
 
     def __init__(self, factory: sessionmaker[Session]) -> None:

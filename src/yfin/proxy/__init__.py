@@ -1,9 +1,7 @@
 """The proxy pool.
 
-Responsibilities live in separate modules: `dsn` (value object), `crypto`
-(encryption), `health` (a PURE state machine), `repository` (DB), `check`
-(network). From the outside a single surface is visible.
-"""
+`dsn` (value object), `crypto` (encryption), `health` (a PURE state machine),
+`repository` (DB), `check` (network); from the outside a single surface."""
 
 from __future__ import annotations
 

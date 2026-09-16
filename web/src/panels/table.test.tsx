@@ -121,12 +121,10 @@ describe("DatasetTable", () => {
   });
 
   it("scrolls the selection into view when the reader moves it, and never on mount", () => {
-    // Mounting used to scroll row 0 into view, which threw a reader past
-    // everything above a table that did not start at the top of its
-    // panel -- the officers table inside DES's Reference tab.
-    // Restored in the same test: a spy left on `Element.prototype`
-    // outlives this file's `cleanup` and would follow every other suite
-    // in the worker.
+    // Mount must not scroll row 0 into view: a table lower in its panel
+    // would throw the reader past everything above it. The spy is
+    // restored in the test because one left on `Element.prototype`
+    // outlives `cleanup` and follows every other suite in the worker.
     const scrolled = vi.spyOn(Element.prototype, "scrollIntoView");
     try {
       render(<DatasetTable columns={COLUMNS} rows={ROWS} />);

@@ -1,22 +1,7 @@
 """Runs the connection set and feeds the writer.
 
-The supervisor owns the event loop. It holds no SQL of its own (that is
-`repository.py`) and decodes nothing (that is `protocol.py`); what it
-owns is the part that has to be right for the process to keep collecting
-data: how many connections exist, what each one is subscribed to, and
-what happens when the writer falls behind.
-
-Two structures matter more than the rest.
-
-**The queue** carries ticks to the writer thread and is bounded. When it
-fills, ticks are dropped and counted -- see `_offer` for why blocking and
-pausing are both worse.
-
-**The last-value box** is separate from the queue on purpose. `live_quotes`
-is fed from here, not from the writer, so the "what is the price now"
-answer stays current even while the archive is shedding load. An earlier
-design had it downstream of the queue and claimed quotes survived an
-overflow; they could not have, because the queue was the only channel.
+Owns the event loop. The tick queue is bounded and drops under load; the
+last-value box sits beside it, so `live_quotes` stays current meanwhile.
 """
 
 from __future__ import annotations
@@ -47,12 +32,7 @@ class StreamCounters:
     rejected: int = 0
 
     def take(self) -> StreamCounters:
-        """Returns the accumulated counts and resets them.
-
-        Read-and-reset rather than a running total: the writer adds these
-        to the session row, so holding a cumulative value here would
-        double-count on every flush.
-        """
+        """Returns the accumulated counts and resets them; the writer adds them to the row."""
         snapshot = StreamCounters(self.messages, self.dropped, self.rejected)
         self.messages = self.dropped = self.rejected = 0
         return snapshot
@@ -61,14 +41,8 @@ class StreamCounters:
 class LatestBox:
     """The most recent tick per symbol, for `live_quotes`.
 
-    Written from the event loop and read from the writer thread, so it
-    takes a lock. The lock is held only around a dict assignment and a
-    dict swap -- never around I/O.
-
-    `drain` empties the box: a symbol that has not ticked since the last
-    flush does not need writing again, and re-writing it would burn the
-    most expensive part of the batch (measured: the quotes upsert alone
-    cost 34% of the write path).
+    Written from the event loop, read from the writer thread; the lock is
+    never held around I/O. `drain` empties it so unchanged symbols skip.
     """
 
     def __init__(self) -> None:
@@ -100,20 +74,8 @@ class LatestBox:
 class HealthBox:
     """The latest health row per connection, for `stream_connection_health`.
 
-    The same shape as `LatestBox` above and for the same reason. Health
-    is emitted from the event loop -- on every state change and on every
-    canary message, and the canary (`BTC-USD`) ticks around the clock on
-    every connection -- while the row it produces is an `INSERT ... ON
-    CONFLICT`. Writing that where it is emitted puts a synchronous
-    database round trip in the middle of the read loop, which is exactly
-    what `_offer` below refuses to do for ticks: block the loop and
-    ping/pong goes unanswered, Yahoo drops the connection, and EVERY
-    symbol stops.
-
-    A COPY is stored, not the connection's own object. `ConnectionHealth`
-    is mutable and the connection keeps mutating it; handing the writer
-    thread a live reference would let it read a row half-way through a
-    state change.
+    Emitted from the event loop, which must not block on the database. A
+    copy is stored: `ConnectionHealth` is mutable and may change mid-read.
     """
 
     def __init__(self) -> None:
@@ -137,14 +99,10 @@ class HealthBox:
 
 @dataclass
 class SupervisorConfig:
-    """The settings the supervisor actually reads.
+    """The settings the supervisor reads.
 
-    A plain dataclass rather than the pipeline `Settings` object: the
-    supervisor re-reads its configuration on every rescan, and
-    `get_settings()` is a process-lifetime singleton that never re-reads
-    the settings table. Passing the resolved values in keeps that
-    distinction visible instead of hiding a stale singleton behind a
-    property.
+    A plain dataclass, not `Settings`: the supervisor re-reads its
+    configuration on every rescan, and `get_settings()` is a singleton.
     """
 
     max_connections: int = 256
@@ -210,9 +168,7 @@ class StreamSupervisor:
 
         missing = self._repository.count_symbols_missing_exchange()
         if missing:
-            # Same warning the sync CLI gives: `yfin symbols add` leaves
-            # exchange NULL until the first sync, and those symbols all
-            # land on one connection without anyone being told.
+            # Unsynced symbols all land on one connection.
             log.warning("scoped symbols have no exchange yet", count=missing)
 
         try:
@@ -262,10 +218,8 @@ class StreamSupervisor:
     async def _rescan(self) -> None:
         """Re-reads scope and settings, then adjusts the connection set.
 
-        Surgical by design: a connection whose membership did not change
-        is left alone. Every reconnect is a gap in the archive, and
-        re-sending a subscription re-applies Yahoo's 100-symbol
-        truncation.
+        A connection whose membership did not change is left alone:
+        every reconnect is a gap in the archive.
         """
         if self._config_loader is not None:
             self._config = self._config_loader()
@@ -292,11 +246,8 @@ class StreamSupervisor:
             entry.plan = next(p for p in desired if p.key == key)
             log.info("subscription changed", connection=key,
                      added=len(added), removed=len(removed))
-            # Restarting the connection is the honest way to change a
-            # subscription set: Yahoo's `unsubscribe` frees slots, but the
-            # combination of a partial unsubscribe and a re-subscribe is
-            # what re-triggers truncation. A single clean re-subscribe is
-            # both simpler and quota-correct.
+            # A partial unsubscribe plus re-subscribe re-triggers Yahoo's
+            # truncation; a clean restart is quota-correct.
             await self._close(key)
             self._start(entry.plan)
 
@@ -333,19 +284,8 @@ class StreamSupervisor:
     def _offer(self, row: dict[str, Any]) -> None:
         """Hands a tick to the writer, or drops it and counts.
 
-        Three options when the queue is full, and the third is chosen:
-
-          1. Block. `pipeline/runner.py` does this and is right to -- its
-             producer is our own worker. Here the producer is the event
-             loop: blocking it means ping/pong goes unanswered, Yahoo
-             drops the connection, and EVERY symbol stops.
-          2. Stop reading (TCP backpressure). Same outcome, slower.
-          3. Drop and count. The tick is lost; the fact that it was lost
-             is not.
-
-        The third is not a compromise on completeness -- the alternative
-        is crashing and losing all of them. What must never happen is
-        losing them silently.
+        Never blocks: the producer is the event loop, and blocking it
+        leaves ping/pong unanswered, so Yahoo drops the connection.
         """
         try:
             self.queue.put_nowait(row)
@@ -360,12 +300,9 @@ class StreamSupervisor:
             self.rejects.put_nowait(reject)
 
     def _on_health(self, health: ConnectionHealth) -> None:
-        """Records health in memory. The writer thread puts it on disk.
+        """Records health in memory; the writer thread puts it on disk.
 
-        Called from the event loop, so nothing here may touch the
-        database: the canary ticks on every connection around the clock,
-        and a synchronous `INSERT` per canary message is a round trip
-        inside the read loop.
+        Called from the event loop, so nothing here may touch the database.
         """
         entry = self._running.get(health.connection_key)
         if entry is not None:

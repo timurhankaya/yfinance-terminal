@@ -1,9 +1,4 @@
-"""The seed planner is a pure function. No DB.
-
-Keeping the planner separate and pure lets `seed`/`unset` interaction be
-tested with no network -- in v1 the two commands undid each other's work,
-and the bug was only visible against a real DB.
-"""
+"""The seed planner is a pure function; `seed`/`unset` interaction is tested without a DB."""
 
 from __future__ import annotations
 

@@ -1,23 +1,8 @@
-"""The read layer. Every SQL statement in the API lives here.
-
-Keeping it in one layer is what makes the rest of the rules enforceable:
-routers cannot quietly grow a query, the cursor keys and the sort orders
-sit next to each other, and a later move to async touches this file
-rather than every endpoint.
-
-Two shapes recur and are worth stating once.
-
-Rows come back as plain dicts, not ORM objects. The three bar tables have
-different columns -- `price_history` is keyed on the exchange session
-date and carries adj_close; `price_bars` carries bar_interval, local_date
-and is_extended; `periodic_bars` has no is_extended because "outside
-regular hours" is meaningless above daily -- and a dict lets one response
-schema describe all three with the absent fields as null.
-
-Every list query asks for one row more than the page size. If that row
-comes back there is a next page, and its key becomes the cursor; that is
-one query per page instead of a second count query.
-"""
+"""The read layer; every SQL statement in the API lives here. Rows come
+back as plain dicts so one response schema can describe the three bar
+tables with absent fields as null. Every list query asks for one row more
+than the page size: if it comes back there is a next page and its key
+becomes the cursor, with no count query."""
 
 from __future__ import annotations
 
@@ -103,32 +88,11 @@ def list_symbols(
 
 
 def search_symbols(session: Session, *, query: str, limit: int) -> list[dict[str, Any]]:
-    """Symbols whose CODE starts with the query or whose NAME contains it.
-
-    `/v1/symbols?q=` matches the symbol column only, and says so in its
-    contract -- which is right for an API a client pages through, and
-    useless to a person who knows a company by its name. Typing AKBANK
-    there returns nothing while `AKBNK.IS`, "Akbank T.A.S.", sits in the
-    table; typing APPLE returns a joke coin whose ticker happens to start
-    that way. So the terminal has its own read, and the published
-    contract does not move.
-
-    Ordered by how well the row answers what was typed: the exact ticker,
-    then names that START with it, then tickers that start with it, then
-    names that merely contain it. Inside each band, by symbol, so the
-    order is stable.
-
-    Names before tickers in the middle two bands, and that ordering was
-    measured rather than assumed: on APPLE a ticker-first rank put
-    `APPLE31391-USD` ("dog with apple in mouth USD") above Apple Inc.
-    An exact ticker still wins outright, so AAPL is unaffected.
-
-    The name half is a leading-wildcard LIKE and therefore a scan. That
-    is affordable because this table is the UNIVERSE -- thousands of
-    rows, not the archive's millions -- and because `limit` is small. A
-    universe an order of magnitude larger wants a trigram index on the
-    two name columns before this route does.
-    """
+    """Symbols whose code starts with the query or whose name contains it,
+    for the terminal (`/v1/symbols?q=` matches the symbol column only).
+    Ranked: exact ticker, name prefix, ticker prefix, name contains. The
+    name half is a leading-wildcard LIKE; affordable only because the
+    universe is small, and a much larger one wants a trigram index."""
     upper = query.upper()
     name_text = func.upper(func.coalesce(Symbol.long_name, Symbol.short_name, ""))
     like_name = "%" + limits.escape_prefix(upper) + "%"
@@ -150,13 +114,8 @@ def search_symbols(session: Session, *, query: str, limit: int) -> list[dict[str
         select(*SYMBOL_COLUMNS)
         .where(Symbol.is_active.is_(True))
         .where(or_(starts, named))
-        # Then the PRIMARY listing, then the tightest name, then the
-        # symbol. Both middle terms were measured against the archive:
-        # ordering a band by symbol alone put "Appletree Subordinatd
-        # Debt A" above Apple Inc. on APPLE, and ordering it by name
-        # length alone put `4AAPL.TI` (name: "APPLE") above `AAPL`.
-        # A suffix is the exchange's -- `AAPL` is the listing a reader
-        # typing APPLE means, `AAPL.MX` is the same company in Mexico.
+        # Then the primary (unsuffixed) listing, then the shortest name,
+        # then the symbol; each tiebreak alone ranks the wrong row first.
         .order_by(rank, suffixed, func.length(name_text), Symbol.symbol)
         .limit(limit)
     ).all()
@@ -175,12 +134,8 @@ def get_symbol(session: Session, symbol: str) -> dict[str, Any] | None:
 
 
 def _latest_info(session: Session, symbol: str) -> dict[str, Any] | None:
-    """The identity snapshot, if one has been fetched.
-
-    A separate query rather than a join: `ticker_info` is wide, and a
-    symbol that has never synced simply has no row -- which is a normal
-    state, not an error.
-    """
+    """The identity snapshot, if one has been fetched. A separate query, not
+    a join: `ticker_info` is wide and a never-synced symbol has no row."""
     row = session.execute(
         select(ticker_info).where(ticker_info.c.symbol == symbol)
     ).one_or_none()
@@ -205,12 +160,8 @@ def symbol_exists(session: Session, symbol: str) -> bool:
 
 
 def _bar_selection(interval: str) -> tuple[Any, tuple[Any, ...], Any]:
-    """(model, columns, time column) for an interval.
-
-    The table comes from `bars_table_for`, which is the single source the
-    write path uses too; the API does not keep a second mapping that could
-    drift from it.
-    """
+    """(model, columns, time column) for an interval, via `bars_table_for`
+    so the API keeps no second mapping that could drift from the writer."""
     table = bars_table_for(interval)
     if table == "price_history":
         return (

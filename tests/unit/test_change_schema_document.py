@@ -1,14 +1,6 @@
-"""`docs/changes/schema.json` describes what consumers actually receive.
-
-The envelope's `row` IS the table row, so this document is the schema of 64
-tables. Committing it and diffing it in CI is what turns a column added
-anywhere into a reviewable change to the event stream rather than a
-surprise in someone's consumer.
-
-These are the fast half of that lock: the committed file matches what the
-models produce, and the document says the things a consumer needs before it
-can read a topic at all.
-"""
+"""`docs/changes/schema.json` describes what consumers receive: the envelope's `row` IS the
+table row, so committing and diffing it makes a column added anywhere a reviewable change
+to the event stream. The committed file must match the models."""
 
 from __future__ import annotations
 

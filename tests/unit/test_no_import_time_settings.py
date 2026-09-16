@@ -1,15 +1,7 @@
-"""`ast` fence: NO `get_settings()` call in a module body.
-
-This trap was set up TWICE in the codebase (`yf_discovery_enabled`, then
-`yf_probe_sustainability`). This test prevents a third occurrence.
-
-Why it's fatal: the `cli.py -> yfin.datasets -> ... -> <module>` chain
-would force even `yfin --help` to build Settings. With the DB layer live,
-this means (1) commands that never touch the DB end up connecting to it,
-(2) RECOVERY commands also fail to run while the DB is down, and (3) test
-isolation cannot be established -- pytest imports modules first, fixtures
-run afterward.
-"""
+"""`ast` fence: no `get_settings()` call in a module body. Through the `cli.py ->
+yfin.datasets -> ...` import chain it would force even `yfin --help` to build Settings and
+connect to the database, break recovery commands while the DB is down, and defeat test
+isolation (pytest imports before fixtures run)."""
 
 from __future__ import annotations
 

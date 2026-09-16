@@ -1,9 +1,7 @@
-// The home page: what the archive holds, right now, in one screen.
-//
-// Six blocks, each with its own read, its own loading and its own
-// failure -- one slow calendar must not blank the markets. Everything
-// below the fold waits until it is scrolled to, because the page opens
-// in a dock panel as often as in a full window.
+// The home page: six blocks, each with its own read, loading and failure,
+// so one slow calendar does not blank the markets. Everything below the
+// fold waits until it is scrolled to: the page opens in a dock panel as
+// often as in a full window.
 import { Layout, type PanelProps, type PanelSpec } from "../../commands/types";
 import { usePanelRun } from "../../workspace/frame";
 import { Guide } from "./Guide";

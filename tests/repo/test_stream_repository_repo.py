@@ -1,9 +1,7 @@
 """The stream package's SQL, against a real database.
 
-The supervisor tests fake this layer; these check the queries themselves.
-Two of them matter more than the rest: the scope join has to exclude
-deactivated symbols, and the health table has to make a crashed process
-distinguishable from a running one.
+The scope join has to exclude deactivated symbols, and the health table has
+to make a crashed process distinguishable from a running one.
 """
 
 from __future__ import annotations
@@ -24,12 +22,9 @@ TS = datetime(2026, 9, 7, 14, 30, tzinfo=UTC)
 
 @pytest.fixture
 def repository(db_session: Session) -> StreamRepository:
-    """Bound to the test's own connection, not a fresh one.
-
-    `db_session` runs each test inside a transaction it rolls back at the
-    end. A repository with its own engine would open a second connection,
-    see none of the test's rows, and commit its own for real -- so it
-    joins the outer transaction and its commits become savepoints.
+    """Bound to the test's own connection: `db_session` rolls back per test, so
+    a repository with its own engine would see none of the rows and commit for
+    real. Joined, its commits become savepoints.
     """
     return StreamRepository(
         sessionmaker(
@@ -124,9 +119,7 @@ def test_the_archive_flag_is_carried_per_symbol(
 ) -> None:
     """archive=false means quoted but not kept.
 
-    Read off `load_scope`, which is what the writer actually consults per
-    tick. The set-level `archived_symbols()` accessor this used to call had
-    no other caller."""
+    Read off `load_scope`, which is what the writer consults per tick."""
     archived = {entry.symbol for entry in repository.load_scope() if entry.archive}
     assert "AAPL" in archived
     assert "MSFT" not in archived

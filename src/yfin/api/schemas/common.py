@@ -1,15 +1,7 @@
-"""Response envelopes and the shared query parameters.
-
-The envelope is two shapes, not one. A collection carries `next_cursor`;
-a single resource does not, and pretending otherwise would leave every
-client checking a field that is structurally always null.
-
-`as_of` says when the data was last verified against the source, and it
-is null wherever the schema does not record that. It is deliberately not
-filled in with the newest row's timestamp: data time and fetch time are
-different questions, and this project has already paid for confusing them
-once (see the session_date / local_date note in models/bars.py).
-"""
+"""Response envelopes and the shared query parameters. `as_of` is when the
+data was last verified against the source, null where the schema does not
+record that; never the newest row's timestamp, which is a different
+question."""
 
 from __future__ import annotations
 

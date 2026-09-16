@@ -1,9 +1,5 @@
-"""Decoding Yahoo's pricing protobuf.
-
-The first test is the important one: it fails when upstream adds a field
-to pricing.proto, which is the only way a new field can be noticed before
-it is silently dropped.
-"""
+"""Decoding Yahoo's pricing protobuf. The first test fails when upstream adds a field to
+pricing.proto, which is the only way a new field is noticed before it is silently dropped."""
 
 from __future__ import annotations
 
@@ -38,12 +34,8 @@ def _decoded(**fields: object) -> dict:
 
 
 def test_every_proto_field_is_mapped() -> None:
-    """A new upstream field breaks the build instead of vanishing.
-
-    Without this, adding a field to pricing.proto would mean the value
-    lands in `unknown_fields` at best and is lost at worst -- and nobody
-    would find out until someone asked why a column is empty.
-    """
+    """A new upstream field breaks the build instead of landing in `unknown_fields` or
+    being lost."""
     proto_fields = {f.name for f in PricingData.DESCRIPTOR.fields}
     assert proto_fields == set(pr.FIELD_COLUMNS), (
         f"unmapped: {proto_fields - set(pr.FIELD_COLUMNS)}, "
@@ -115,12 +107,8 @@ def test_absent_fields_become_null() -> None:
 
 
 def test_market_hours_zero_is_stored_not_nulled() -> None:
-    """PRE_MARKET is code 0, so the generic presence rule would blank it.
-
-    is_extended is derived from this column and price_bars.is_extended is
-    NOT NULL -- nulling it would break exactly the pre-market rows that
-    need the flag most.
-    """
+    """PRE_MARKET is code 0, so the generic presence rule would blank it; is_extended
+    derives from this column and price_bars.is_extended is NOT NULL."""
     row = _decoded(price=1.0)
     assert row["market_hours_code"] == pr.MARKET_HOURS_PRE
     assert row["quote_type_code"] == 0
@@ -366,8 +354,8 @@ def test_validate_subscription_normalises_and_keeps_order() -> None:
 
 
 def test_validate_subscription_drops_none() -> None:
-    """Measured: `{"subscribe": [null]}` closes the socket with no status
-    code. One None would take down every symbol on the connection."""
+    """`{"subscribe": [null]}` closes the socket with no status code; one
+    None would take down every symbol on the connection."""
     clean, rejects = pr.validate_subscription(["AAPL", None, "MSFT"])  # type: ignore[list-item]
     assert clean == ["AAPL", "MSFT"]
     assert [r.reason for r in rejects] == [pr.REJECT_MALFORMED_SUBSCRIPTION]

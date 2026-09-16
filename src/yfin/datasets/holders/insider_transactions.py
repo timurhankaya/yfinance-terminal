@@ -1,16 +1,7 @@
 """insider_transactions dataset.
 
-NOT AS-OF: the source gives a transaction date. Plain upsert.
-
-EXACT DEDUPLICATION IS MANDATORY. `fact_hash` alone is not enough: PFE
-measured two rows IDENTICAL ON ALL NINE COLUMNS (BOSHOFF CHRISTOFFEL, 8741
-shares, value 263716, 2025-02-21), hashes included. Without dedup, 34 rows
-read would write 33, and `rows_verified != rows_attempted` would wrongly
-produce `failed` on every run -- same rule as `earnings_dates`.
-
-The source limit is 150 ROWS, NOT a time window: 12 of 24 symbols measured
-returned exactly 150 rows, with the window shrinking to 12.4 months for WMT.
-`--start 2024-01-01` does not extend this data further back.
+Not as-of: plain upsert. The source can return fully identical rows; without
+dedup `rows_verified != rows_attempted` marks the cell `failed`. Caps at 150 rows.
 """
 
 from __future__ import annotations
@@ -113,15 +104,15 @@ class InsiderTransactionsDataset(Dataset[RangedFramePayload]):
 
             values: dict[str, Any] = {
                 "insider": nz.to_str(record.get("Insider"), max_len=255),
-                # '' -> NULL: measured an empty Position for BP.L.
+                # '' -> NULL: the source sends an empty Position.
                 "position": blank_to_none(record.get("Position"), max_len=64),
                 "text": blank_to_none(record.get("Text"), max_len=255),
                 "transaction_label": blank_to_none(record.get("Transaction"), max_len=64),
                 "url": blank_to_none(record.get("URL")),
                 "shares": to_big_value(record.get("Shares")),
-                # NaN in ALL rows for DIS and BP.L.
+                # Can be NaN in every row of a symbol.
                 "value": to_big_value(record.get("Value")),
-                # 'D', 'I', and 'D/I' (XOM). Feeds `fact_hash`, i.e. a PK
+                # 'D', 'I', and 'D/I'. Feeds `fact_hash`, i.e. a PK
                 # component -> NOT TRUNCATED: truncation could merge two
                 # DIFFERENT ownership types into the same hash.
                 "ownership": key_value(
@@ -134,16 +125,8 @@ class InsiderTransactionsDataset(Dataset[RangedFramePayload]):
                 if record.get("Ownership") not in (None, "")
                 else None,
             }
-            # Hash is computed in PYTHON from the raw string, so 'Sale' and
-            # 'sale' are TWO SEPARATE rows. This is DELIBERATE and
-            # unaffected by engine changes: the PK component is `fact_hash`,
-            # and the comparison already happens here, in Python.
-            #
-            # MySQL's collation (utf8mb4_0900_ai_ci) would have seen the two
-            # as equal, but the hash already distinguished them; PostgreSQL's
-            # column is COLLATE "C" so the schema reaches the same result.
-            # Normalization is NOT ADDED -- doing so would collapse two
-            # events currently counted as distinct into one row.
+            # Hashed from the raw string: 'Sale' and 'sale' are distinct
+            # rows regardless of the DB collation. Do not normalize case.
             digest = nz.content_hash(
                 {
                     name: (str(values[name]) if values[name] is not None else None)

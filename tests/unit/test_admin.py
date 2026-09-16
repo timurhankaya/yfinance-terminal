@@ -85,17 +85,10 @@ def test_working_the_page_does_not_spend_the_login_window(
 
 
 class TestCrossSiteWrites:
-    """Basic auth says WHO; nothing in a cross-site form POST says the
-    operator asked for it. The browser attaches the cached credential
-    automatically -- there is no cookie, so `SameSite` applies to
-    nothing, and the CSP's `form-action 'self'` restricts where OUR
-    forms may post, not where another origin's may post to us.
-
-    The concrete write it stops: a page anywhere posting
-    `url=http://attacker:secret@evil/` to /admin/proxies, after which
-    `yfin sync` routes Yahoo traffic through a host the attacker owns
-    and the operator sees nothing but their own settings page.
-    """
+    """Basic auth cannot prove the operator sent a cross-site form POST: the browser
+    attaches the credential itself, there is no cookie for `SameSite`, and `form-action
+    'self'` limits our forms, not another origin's. Without this, any page could rewrite
+    /admin/proxies."""
 
     def _post(self, client: TestClient, **headers: str) -> Any:
         return client.post(

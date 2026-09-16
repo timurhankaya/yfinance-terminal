@@ -1,22 +1,7 @@
 """institutional_holders + mutualfund_holders -> institutional_holders.
 
-The two datasets write to the SAME table; column sets measured identical
-across 14 symbols. Their scopes are separated by
-`scope_columns=(symbol, as_of_date, holder_type)` -- this is exactly why
-`scope_columns` exists. They stay separate registrations because each needs
-its own `sync_run_items` cell and its own `--datasets` selectability.
-
-`scope_values` is given EXPLICITLY: if scope were derived from the rows,
-dropping one holder from the source would leave its stale row outside scope
-forever.
-
-KNOWN LIMITATION: if the source comes back entirely empty (empty frame or
-404), `normalize` returns early and `AsOfDataset.upsert` sees `is_empty` and
-writes nothing; that day's EXISTING rows are NOT cleared. This is
-DELIBERATE: `call_optional` cannot tell a transient 404 apart from a genuine
-"zero holders" state, and deleting would destroy that as-of day's data on a
-transient outage. The cost: running twice in one day where the second run
-comes back empty leaves the morning's rows under that day's label.
+One table, separated by `holder_type`; `scope_values` is explicit so a dropped
+holder is still cleared. An empty result leaves that day's rows (404 may be transient).
 """
 
 from __future__ import annotations
@@ -98,8 +83,8 @@ class _HolderListDataset(AsOfDataset[AsOfFramePayload]):
                 # silent column-level conversion ('INSTITUTION' -> 'institution').
                 "holder_type": self.holder_type.value,
                 "holder": holder,
-                # Varies PER ROW: AAPL's mutualfund list has four different
-                # dates in one listing. Calendar label -> no tz conversion.
+                # Varies per row within one listing. Calendar label -> no tz
+                # conversion.
                 "date_reported": nz.to_local_date(record.get("Date Reported")),
                 "pct_held": nz.to_decimal(record.get("pctHeld")),
                 "pct_change": nz.to_decimal(record.get("pctChange")),

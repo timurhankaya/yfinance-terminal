@@ -1,13 +1,6 @@
 // The property a watchlist depends on: one symbol ticking must not
-// re-render the rows of the other 199.
-//
-// The store bench (`store.bench.ts`) says the buffer and the flush cost
-// 0.024 ms for 200 symbols, which is nothing. What that cannot measure
-// is React, and React is where a watchlist would actually fall over --
-// if every subscriber re-rendered on every tick, 200 symbols at one
-// update a second would be 40,000 renders a second. This asserts the
-// selector subscription that stops it, deterministically, rather than
-// timing it.
+// re-render the rows of the others. Asserted through the selector
+// subscription, deterministically, rather than timed.
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useQuote } from "./hooks";

@@ -1,22 +1,8 @@
-"""Client secret hashing.
-
-Two decisions here are easy to get wrong in opposite directions.
-
-**The parameters are deliberately light.** A client secret is 256 bits of
-`secrets.token_urlsafe(32)`, so brute force is not a threat model; the
-hash exists to protect the values if the database leaks. A heavier
-profile buys effectively nothing against a random 256-bit secret while
-multiplying the cost of the one endpoint an attacker can call for free.
-At argon2-cffi's default (~64 MiB) a full thread pool would reserve
-~2.5 GB; at the profile below it is ~760 MiB.
-
-**The verification path is constant in shape, not just in the happy
-case.** Every call runs exactly two verifications regardless of how many
-live secrets the client has, and revocation and expiry are checked only
-*after* the hashing, never as an early return. Otherwise the response
-time answers questions the response body refuses to: does this client
-exist, does it have one secret or two, is that secret revoked.
-"""
+"""Client secret hashing. Parameters are deliberately light: the secret is a
+random 256-bit value, so the hash only guards a leaked database, and the
+token endpoint is callable unauthenticated. Every verification runs the
+same number of hashings and checks revocation/expiry only afterwards, so
+timing cannot reveal whether a client or secret exists."""
 
 from __future__ import annotations
 
@@ -60,9 +46,8 @@ _DECOY_HASH = _hasher.hash(secrets.token_urlsafe(SECRET_BYTES))
 VERIFICATIONS_PER_ATTEMPT = 2
 
 #: Concurrent hashings allowed in this process. Each one reserves
-#: `MEMORY_COST_KIB`, so without a cap the memory ceiling is set by the
-#: size of the thread pool -- that is, by an attacker's request rate.
-#: With this bound it is a fixed ~150 MiB.
+#: `MEMORY_COST_KIB`, so without a cap the memory ceiling would be set by
+#: the thread pool size -- that is, by an attacker's request rate.
 MAX_CONCURRENT_HASHINGS = 8
 _hash_slots = threading.BoundedSemaphore(MAX_CONCURRENT_HASHINGS)
 
@@ -86,12 +71,8 @@ def hash_secret(secret: str) -> str:
 
 
 def verify_secret(secret: str, secret_hash: str) -> bool:
-    """False for every failure, including a malformed stored hash.
-
-    `InvalidHashError` is not a `VerificationError` -- it derives from
-    ValueError. Left uncaught, one corrupt row would turn a routine
-    authentication failure into a 500 on the token endpoint.
-    """
+    """False for every failure, including a malformed stored hash
+    (`InvalidHashError` derives from ValueError, not `VerificationError`)."""
     with _hash_slots:
         try:
             return _hasher.verify(secret_hash, secret)
@@ -109,14 +90,10 @@ class Candidate:
 
 
 def verify_against(secret: str, candidates: list[Candidate]) -> int | None:
-    """Returns the id of the matching usable secret, or None.
-
-    Always performs `VERIFICATIONS_PER_ATTEMPT` hashings: fewer
-    candidates are padded with the decoy, more are truncated (the
-    repository never returns more than two). Usability is applied to the
-    result, not used to skip work -- skipping is exactly what would make
-    a revoked secret distinguishable by timing from a wrong one.
-    """
+    """Returns the id of the matching usable secret, or None. Always performs
+    `VERIFICATIONS_PER_ATTEMPT` hashings (padded with the decoy) and applies
+    usability to the result rather than skipping work, so a revoked secret
+    is not distinguishable by timing from a wrong one."""
     padded = list(candidates[:VERIFICATIONS_PER_ATTEMPT])
     matched: int | None = None
 

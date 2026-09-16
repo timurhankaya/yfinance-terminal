@@ -1,22 +1,8 @@
-"""The generic dataset surface: catalogue and data.
-
-Two endpoints stand in for dozens. The scope a request needs is not fixed
-per route here -- it depends on which dataset is asked for -- so the
-guard cannot be declared in the signature the way the hand-written
-endpoints declare theirs. It is resolved from the catalogue and applied
-inside the handler instead, in the same order the rest of the API uses:
-authenticate, then scope, then existence.
-
-That ordering is about the answer a caller gets, not about hiding names:
-dataset names are public (`?all=true` lists them, and so does the
-OpenAPI description), and a scope failure is reported as a scope failure
-rather than as a 404 that would send the caller looking for a typo.
-
-OpenAPI describes one path with one parameter shape rather than a schema
-per dataset. A schema per dataset would make the frozen openapi.json
-change every time a dataset was added, which would turn the contract lock
-into noise nobody reads.
-"""
+"""The generic dataset surface: catalogue and data. The scope depends on
+which dataset is asked for, so it is resolved from the catalogue inside
+the handler (authenticate, then scope, then existence). One path with one
+parameter shape, not a schema per dataset, so the frozen openapi.json
+does not churn on every dataset added."""
 
 from __future__ import annotations
 
@@ -150,11 +136,7 @@ def list_datasets(
     data they cannot fetch is noise. `?all=true` is the documented way to
     see the rest -- a deliberate choice, not an accident of implementation.
     """
-    # Metered like everything else. It was not, and a token holder could
-    # therefore drive this route at any rate they liked -- it still costs a
-    # signature check, a Redis read and a worker thread each time. `meta`
-    # is the family reserved for exactly this: a surface that belongs to
-    # no data family.
+    # `meta` is the family for a surface that belongs to no data family.
     meter(request, response, principal, META_FAMILY)
     entries = catalog.visible_to(principal.scopes, everything=all_datasets)
     response.headers["Cache-Control"] = "private, max-age=300"
@@ -203,28 +185,16 @@ def read_dataset(
     dropping a filter returns more data than the caller asked for and
     looks like it worked.
     """
-    # Metered BEFORE the catalogue is consulted, and deliberately so. The
-    # refusals below are the cheapest thing a caller can ask for and were
-    # the only unmetered path in the API: unlimited 403s and 404s, none of
-    # them counted, each one a signature check and a Redis read. The real
-    # family is attributed once the name resolves.
+    # Metered before the catalogue is consulted so the 403/404 refusals
+    # below are not free; the real family is attributed once the name
+    # resolves.
     meter(request, response, principal, META_FAMILY)
     entry = catalog.CATALOG.get(name)
 
-    # Scope before existence, and NOT to hide which names exist: an
-    # unknown name falls straight through to the 404 below, so the pair
-    # of answers is an oracle either way. It is not one worth closing --
-    # `GET /v1/datasets?all=true` hands every name to any token holder by
-    # design, and the OpenAPI description lists them all. The ordering
-    # exists so a scope failure is reported as a scope failure: a caller
-    # with the wrong token learns that, rather than being told the
-    # dataset does not exist.
+    # Scope before existence so a scope failure is reported as one. Names
+    # are public anyway (`?all=true`), so this hides nothing.
     required = entry.scope if entry is not None else None
     if required is not None and required not in principal.scopes:
-        # The same factory the scoped routes raise, not a second copy: the
-        # type was a bare string here and the challenge header a verbatim
-        # duplicate, so renaming the constant would have left two
-        # different 403 bodies in one API.
         raise insufficient_scope(required)
     if entry is None:
         raise ApiProblem(404, TYPE_NOT_FOUND, "No such dataset")

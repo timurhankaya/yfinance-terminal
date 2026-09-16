@@ -1,15 +1,8 @@
 """proxies table: proxy pool, enablement, and health.
 
-Enablement is deliberately two columns:
-
-  * `is_enabled` is the operator's decision; the system never changes it.
-  * `health` is the system's observation; only `proxy reset` clears it via the CLI.
-
-A single `is_active` column would conflate them: automatic ban detection
-could re-enable a proxy the operator deliberately disabled, after one
-successful request. Same split as the symbols table
-(`is_active` is a user decision, `unknown_streak` a system counter).
-"""
+`is_enabled` is the operator's decision and the system never changes it;
+`health` is the system's observation, cleared only by `proxy reset`. One
+column would let ban detection re-enable a deliberately disabled proxy."""
 
 from __future__ import annotations
 
@@ -57,11 +50,8 @@ class ProxyHealth(enum.StrEnum):
 def _enum(cls: type[enum.StrEnum], name: str) -> Enum:
     """Project convention: writes the enum VALUES, not the Python names.
 
-    `name` is given explicitly. Left unnamed, SQLAlchemy derives it from
-    the Python class (`proxyscheme`) -- no error, but the generated name
-    breaks the project's snake_case convention, and on PostgreSQL this
-    name is a permanent type name (CREATE TYPE).
-    """
+    `name` is explicit: SQLAlchemy would otherwise derive a non-snake_case
+    name from the class, and on PostgreSQL it is a permanent type name."""
     return Enum(cls, values_callable=lambda e: [m.value for m in e], name=name)
 
 
@@ -126,20 +116,10 @@ class Proxy(Base):
         TsType(),
         nullable=False,
         server_default=func.now(),
-        # PostgreSQL has no `ON UPDATE CURRENT_TIMESTAMP` column clause;
-        # the MySQL definition would be a DDL syntax error here. Python-side
-        # update chosen over a trigger: an invisible schema side effect for
-        # one column conflicts with the project's "behavior stays visible
-        # in code" line.
-        #
-        # Accepted cost: only raw SQL (`text("UPDATE proxies SET ...")`)
-        # would not refresh this column. SQLAlchemy applies `onupdate` on
-        # ORM flush and in Core `update()`.
-        #
-        # Audited: three places write to proxies -- cli.py:1052,
-        # cli.py:1067, and proxy/repository.py:114 -- all three use Core
-        # `update(Proxy)`, so `onupdate` applies. No raw-SQL writer exists
-        # today; one added later must set `updated_at` explicitly.
+        # PostgreSQL has no `ON UPDATE CURRENT_TIMESTAMP` clause, and a
+        # trigger would hide the behavior in the schema. `onupdate` applies
+        # to ORM flush and Core `update()` only: a raw-SQL writer must set
+        # `updated_at` explicitly.
         onupdate=lambda: datetime.now(UTC),
     )
 

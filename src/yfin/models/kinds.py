@@ -1,10 +1,7 @@
 """Single definition point for field kinds.
 
-A kind decides three things: the SQL column type, how a source value is
-converted, and whether the column carries a CHECK. Spreading those across
-separate if-chains would mean touching several files to add a kind, and
-they could drift apart. Adding a kind here is adding one row to KINDS.
-"""
+A kind decides the SQL column type, how a source value is converted, and
+whether the column carries a CHECK; adding a kind is one row in KINDS."""
 
 from __future__ import annotations
 
@@ -29,12 +26,8 @@ def _non_negative(column: str) -> str:
 
 
 def _c_string(length: int) -> Callable[[], TypeEngine[Any]]:
-    """String columns carry COLLATE "C" too.
-
-    Easy to miss and silent: without it these columns fall back to the
-    database collation, which covers most of ticker_info,
-    ticker_fast_info and history_metadata.
-    """
+    """String columns carry COLLATE "C" too; without it they silently
+    fall back to the database collation."""
     return lambda: String(length, collation="C")
 
 
@@ -48,12 +41,9 @@ def _string_converter(max_len: int) -> Callable[[Any], Any]:
 def _to_big(value: Any) -> Decimal | None:
     """NUMERIC(38,0): a fractional value is reduced to an integer.
 
-    localcontext(prec=BIG_PRECISION) is required. Python's default
-    context carries 28 significant digits while the column holds 38, so
-    anything from 1e28 up would raise InvalidOperation on a value the
-    column accepts. The exception escapes through normalize and would
-    drop every row of that (symbol x dataset) cell.
-    """
+    localcontext(prec=BIG_PRECISION) is required: Python's default context
+    has 28 digits, so a value the column accepts could raise InvalidOperation
+    and drop every row of that (symbol x dataset) cell."""
     dec = nz.to_decimal(value)
     if dec is None:
         return None
@@ -82,12 +72,9 @@ def _to_epoch_millis(value: Any) -> Any:
 def _to_datetime(value: Any) -> Any:
     """Accepts a Timestamp/datetime, or an epoch number.
 
-    numbers.Real rather than `int | float`: np.float64 subclasses float
-    but np.int64 does not subclass int. With a plain isinstance check an
-    int64 pandas column (insider_roster, when every date is populated)
-    would fall through to to_datetime_utc and come back None -- a silent
-    NULL. bool is excluded: it is Integral but not a date.
-    """
+    numbers.Real rather than `int | float`: np.int64 does not subclass int,
+    so an int64 column would fall through and come back None. bool is
+    excluded: it is Integral but not a date."""
     if isinstance(value, numbers.Real) and not isinstance(value, bool):
         return nz.epoch_to_datetime(value, unit="s")
     return nz.to_datetime_utc(value)

@@ -1,13 +1,6 @@
-"""The core read endpoints.
-
-One router rather than four files: they share the same envelope, the same
-cursor handling and the same caching rules, and splitting them would put
-that shared machinery either in a fifth module or in four copies.
-
-Each endpoint declares `guard(family)` and nothing else about
-authorisation: the scope required, the usage counter and the plan limits
-all come from that one argument.
-"""
+"""The core read endpoints. Each declares `guard(family)` and nothing else
+about authorisation: scope, usage counter and plan limits all come from
+that one argument."""
 
 from __future__ import annotations
 
@@ -115,21 +108,10 @@ def _respond[T: BaseModel](
     settled: bool,
     payload_key: str,
 ) -> T | Response:
-    """Cache headers, the freshness stamp, and the conditional answer.
-
-    The validator is derived from the serialised BODY, not from the
-    request alone. An earlier version hashed the request identity and the
-    freshness stamp only, which made the ETag a pure function of the
-    query -- it never changed when the data did. That is survivable while
-    nothing revalidates; the moment `If-None-Match` is honoured it becomes
-    a client pinned to one page forever. Hashing the body costs one pass
-    over a page already built and makes the header mean what HTTP says.
-
-    `Cache-Control: private` always: these responses vary by scope and by
-    the plan's page size, so a shared cache holding one and serving it to
-    another client would be a data leak, not just a stale answer.
-    `Vary: Authorization` says the same to caches that only read headers.
-    """
+    """Cache headers, the freshness stamp, and the conditional answer. The
+    ETag hashes the serialised body, so it changes when the data does.
+    `Cache-Control: private` always: responses vary by scope and page size,
+    so a shared cache would leak data between clients."""
     stamp = as_of.isoformat() if as_of else "-"
     digest = hashlib.sha256(
         f"{payload_key}|{stamp}|{payload.model_dump_json()}".encode()

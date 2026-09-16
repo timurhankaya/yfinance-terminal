@@ -1,22 +1,8 @@
-"""API clients, their secrets and their scopes.
-
-Three tables rather than one, and each split earns its keep.
-
-Secrets are their own table because rotation must not require downtime.
-A client may hold two live secrets at once: the new one is issued, the
-old one gets an expiry, and the client switches on its own schedule. A
-single `secret_hash` column on the client would make every rotation a
-forced outage.
-
-Scopes are rows because that is how the rest of the schema models sets,
-and because "who holds this scope" stays a query rather than a scan.
-
-`auth_epoch` is what makes revocation immediate. Verification does not
-touch the database, so a leaked secret, a narrowed scope or a downgraded
-plan would otherwise stay effective for the life of an already-issued
-token. Every such change bumps this counter; tokens carry the value they
-were minted with and are rejected once they fall behind.
-"""
+"""API clients, their secrets and their scopes. Secrets are a separate table
+so a client can hold two live ones during rotation. `auth_epoch` makes
+revocation immediate without a database read on verification: every
+change bumps it, tokens carry the value they were minted with and are
+rejected once they fall behind."""
 
 from __future__ import annotations
 
@@ -99,12 +85,9 @@ class ApiClient(Base):
 
 
 class ApiClientSecret(Base):
-    """One row per issued secret. Only the hash is stored.
-
-    The "at most two live secrets" rule is enforced in the repository,
-    not here: no unique index can express a per-parent count. The partial
-    index below is for looking live secrets up quickly, not for the cap.
-    """
+    """One row per issued secret; only the hash is stored. The "at most two
+    live secrets" cap is enforced in the repository: no unique index can
+    express a per-parent count."""
 
     __tablename__ = "api_client_secrets"
     __table_args__ = (

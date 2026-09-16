@@ -247,10 +247,8 @@ describe("a tick on a page of panels", () => {
   }
 
   it("redraws the panels about that symbol and no others", async () => {
-    // The measurement's question (spec, "Ölçümler"): with four panels
-    // open, how many does one symbol's tick cost. The answer is a
-    // property rather than a timing -- the store keys quotes by symbol
-    // and each panel selects only its own -- so it is asserted here.
+    // The store keys quotes by symbol and each panel selects only its
+    // own, so a tick redraws exactly the panels about that symbol.
     renders.clear();
     let frames: Array<() => void> = [];
     vi.stubGlobal("requestAnimationFrame", (callback: () => void) => {

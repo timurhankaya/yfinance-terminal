@@ -1,14 +1,6 @@
-"""Plans and measured usage.
-
-Plan limits live in a table, not in code, for the same reason the
-pipeline's settings do: changing what a plan allows must not require a
-deploy. They are read through a short-lived process cache, so this costs
-no per-request query and needs no restart to take effect.
-
-`api_usage_daily` is filled from day one even though billing is a
-separate subsystem. The alternative is to start measuring on the day
-billing arrives and have no history to bill or reason about.
-"""
+"""Plans and measured usage. Plan limits live in a table, read through a
+short-lived process cache, so changing them needs neither a deploy nor a
+per-request query."""
 
 from __future__ import annotations
 
@@ -36,12 +28,8 @@ PLAN_NAME_LENGTH = 16
 
 
 def _enum(cls: type[enum.StrEnum], name: str) -> Enum:
-    """Writes enum VALUES and names the PostgreSQL type explicitly.
-
-    Same convention as `models/proxies.py`: an unnamed Enum takes its type
-    name from the Python class, which on PostgreSQL becomes a permanent
-    CREATE TYPE with the wrong casing.
-    """
+    """Writes enum VALUES and names the PostgreSQL type explicitly; an unnamed
+    Enum becomes a permanent CREATE TYPE with the Python class's casing."""
     return Enum(cls, values_callable=lambda e: [m.value for m in e], name=name)
 
 
@@ -81,13 +69,9 @@ class ApiPlan(Base):
 
 
 class ApiUsageDaily(Base):
-    """Request counts per client, day and family.
-
-    `estimated` marks a row the counters could not measure exactly --
-    Redis was unreachable and rate limiting failed open. Billing must be
-    able to tell a measured row from a reconstructed one rather than
-    quietly treating both as fact.
-    """
+    """Request counts per client, day and family. `estimated` marks a row the
+    counters could not measure exactly (Redis unreachable, limiter failed
+    open), so billing can tell a measured row from a reconstructed one."""
 
     __tablename__ = "api_usage_daily"
 

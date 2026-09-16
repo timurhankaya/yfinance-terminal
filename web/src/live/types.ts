@@ -29,12 +29,8 @@ export enum LinkState {
   Closed = "closed",
 }
 
-/** Yahoo's market_hours codes, as `mh` carries them.
- *
- *  The chart needs these by name: a `session=regular` series must drop
- *  pre- and post-market ticks, and comparing against a bare 1 in three
- *  places is how that rule drifts. Names and numbers are Yahoo's
- *  (`stream/protocol.py` keeps the same mapping on the Python side). */
+/** Yahoo's market_hours codes, as `mh` carries them. Names and numbers
+ *  are Yahoo's; `stream/protocol.py` keeps the same mapping. */
 export enum MarketHours {
   PreMarket = 0,
   Regular = 1,
@@ -42,12 +38,9 @@ export enum MarketHours {
   ExtendedHours = 3,
 }
 
-/** One tick, exactly as `publish.py` sends it.
- *
- *  Short keys because a body goes out per tick per subscriber; the
- *  generated table is where each one is spelled out. Decimals arrive as
- *  STRINGS: these are NUMERIC(28,12) in the archive and a JSON number
- *  would round them here. */
+/** One tick, exactly as `publish.py` sends it. Short keys because a body
+ *  goes out per tick per subscriber. Decimals arrive as STRINGS: they are
+ *  NUMERIC(28,12) in the archive and a JSON number would round them. */
 export interface Tick {
   /** symbol */
   s: string;
@@ -91,13 +84,10 @@ export enum WireKind {
   Dec = "dec",
 }
 
-/** Every wire key with its encoding, as a value.
- *
- *  Two fences meet here. `Record<keyof Tick, WireKind>` is the compile-time
- *  one: a key added to `Tick` and not to this map, or the other way
- *  round, stops type-checking. `tick-fields.json` is the runtime one, and
- *  `types.test.ts` compares the two -- so a key renamed in Python breaks
- *  a test rather than silently arriving as `undefined` on a chart. */
+/** Every wire key with its encoding. `Record<keyof Tick, WireKind>` is the
+ *  compile-time fence; `tick-fields.json` is the runtime one, and
+ *  `types.test.ts` compares the two, so a key renamed in Python breaks a
+ *  test rather than arriving as `undefined`. */
 export const TICK_WIRE: Record<keyof Tick, WireKind> = {
   s: WireKind.Str,
   t: WireKind.Ms,

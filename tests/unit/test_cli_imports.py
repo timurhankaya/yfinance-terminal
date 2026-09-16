@@ -1,14 +1,6 @@
-"""What `yfin --help` is allowed to import, and what the CLI may derive.
-
-Printing a list of command names used to build the entire dataset registry
-and import SQLAlchemy's model package: 1529 modules and ~950ms, on every
-invocation, including tab-completion and `--help`. The command modules now
-import that machinery inside the command bodies.
-
-A guard rather than a note, because the failure is invisible: adding one
-module-level `from yfin.models import ...` to any command module puts the
-cost back and nothing else notices.
-"""
+"""What `yfin --help` may import. Command modules import the dataset registry and the model
+package inside command bodies; one module-level `from yfin.models import ...` would put the
+full import cost back on every invocation and nothing else would notice."""
 
 from __future__ import annotations
 
@@ -18,12 +10,8 @@ import textwrap
 
 
 def _import_probe(module: str) -> set[str]:
-    """Imports `module` in a FRESH interpreter and reports what came with it.
-
-    A subprocess, not `importlib`, because this test suite has already
-    imported half the package by the time it runs -- checking `sys.modules`
-    in-process would pass no matter what the CLI does.
-    """
+    """Imports `module` in a fresh interpreter and reports what came with it. A subprocess,
+    because this process has already imported half the package."""
     code = textwrap.dedent(f"""
         import sys
         import {module}

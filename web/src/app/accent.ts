@@ -1,14 +1,7 @@
-// The one colour the reader gets to choose.
-//
-// The accent is emphasis: focus rings, the active function, the command
-// line, a chart's own line. It is deliberately not direction (green and
-// red say that) and not identity (the seven group colours say that), so
-// changing it cannot make a fall look like a rise or two groups look
-// like one.
-//
-// It is a data attribute on the document rather than a class or an inline
-// style: `styles.css` owns every value, and the page carries only which
-// set is in force.
+// The one colour the reader gets to choose. The accent is emphasis only:
+// not direction (green and red) and not identity (the seven group
+// colours), so changing it cannot make a fall look like a rise. It is a
+// data attribute on the document: `styles.css` owns every value.
 import { resetVizTheme } from "../panels/viz/colors";
 
 export enum Accent {
@@ -34,12 +27,9 @@ export function readAccent(): Accent {
   }
 }
 
-/** Puts an accent in force and remembers it.
- *
- *  The SVG primitives read colour from the stylesheet once and cache it
- *  -- two hundred sparklines cannot each ask the browser to recompute a
- *  style -- so the cache is dropped here. What is already drawn on a
- *  canvas redraws when its panel next renders. */
+/** Puts an accent in force and remembers it. The SVG primitives cache
+ *  the stylesheet's colours, so the cache is dropped here; a canvas
+ *  redraws when its panel next renders. */
 export function applyAccent(accent: Accent): void {
   document.documentElement.dataset.accent = accent;
   resetVizTheme();

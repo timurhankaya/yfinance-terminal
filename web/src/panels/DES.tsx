@@ -1,17 +1,8 @@
 // DES: the symbol's identity and EVERY field of its latest `info`
-// snapshot.
-//
-// The promise is unchanged -- a key the sections do not name lands in
-// "Other" rather than being dropped, and only null fields are left out,
-// and they are counted. What changed is the order the reader meets them
-// in: an overview first (identity, six cards, the pictures the snapshot
-// can already draw), then the whole snapshot behind four tabs. One
-// column of a hundred and fifty rows was everything the panel knew and
-// nothing it had decided.
-//
-// The panel is three files because it does three things: `des/info.ts`
-// says what a key means, `des/layout.ts` says where it goes, and the two
-// components draw it. This file only wires them to the address.
+// snapshot. A key the sections do not name lands in "Other" rather than
+// being dropped; only null fields are left out, and they are counted.
+// `des/info.ts` says what a key means, `des/layout.ts` where it goes;
+// this file only wires the components to the address.
 import { usePanelRun } from "../workspace/frame";
 import type { ReactElement } from "react";
 import { getSymbol, type SymbolDetail } from "../api/client";
@@ -35,12 +26,9 @@ export const DEFAULT_RANGE = TrendRange.M1;
 export const DES_ARGS = `DES [${Object.values(FieldTab).join("|")}] [${Object.values(TrendRange).join("|")}]`;
 const DES_USAGE = `Usage: ${DES_ARGS}`;
 
-/** A tab and a trend window, in either order and both optional.
- *
- *  Order-independent because the two sets of names are disjoint, and a
- *  reader typing `DES 1y` should not have to remember that the tab comes
- *  first. A bare `DES` names neither: the panel opens on the first tab
- *  the snapshot filled, which is a decision only the data can make. */
+/** A tab and a trend window, in either order (the two name sets are
+ *  disjoint) and both optional. A bare `DES` names neither: the panel
+ *  opens on the first tab the snapshot filled. */
 function parseArgs(tokens: string[]): PanelArgs {
   const args: PanelArgs = {};
   for (const token of tokens) {

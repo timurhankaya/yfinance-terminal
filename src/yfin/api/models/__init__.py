@@ -1,10 +1,6 @@
-"""API tables. Importing this module registers them on Base.metadata.
-
-They share the pipeline's `Base` on purpose: one database, one metadata,
-one Alembic history. `migrations/env.py` imports this package for exactly
-that reason -- without the import, autogenerate would see the API tables
-as absent and cheerfully write a migration that drops them.
-"""
+"""API tables, on the pipeline's `Base`: one metadata, one Alembic history.
+`migrations/env.py` imports this package so autogenerate does not see the
+API tables as absent and write a migration that drops them."""
 
 from __future__ import annotations
 

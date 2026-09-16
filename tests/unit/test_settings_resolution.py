@@ -1,9 +1,5 @@
-"""Resolution order and the loader's filters. No network.
-
-Never connects to a DB: `settings_store.fetch_rows` is patched. Patching
-`fetch_rows` rather than `load_overrides` is deliberate -- this way all
-three filters actually run, and the tests verify the filters exist.
-"""
+"""Resolution order and the loader's filters. `settings_store.fetch_rows` is patched rather
+than `load_overrides`, so all three filters actually run."""
 
 from __future__ import annotations
 
@@ -24,13 +20,8 @@ DEFAULT = 4
 
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Every test starts with a clean singleton and an open DB layer.
-
-    `conftest.py` sets YF_SETTINGS_SOURCE=env; this file, which exercises
-    the DB path, deliberately removes it. Without the reset, the singleton
-    would come in populated from the previous test and the loader would
-    never run -- tests would stay green for the wrong reason.
-    """
+    """Every test starts with a clean singleton and an open DB layer: `conftest.py` sets
+    YF_SETTINGS_SOURCE=env, and without the reset the loader would never run."""
     monkeypatch.delenv(SETTINGS_SOURCE_VAR, raising=False)
     config_mod.reset_settings()
     yield

@@ -1,9 +1,5 @@
-# Three datasources and the two links between them.
-#
-# The links are the reason this file is worth reading: a metric that spikes
-# is a question, and the answer is in a log line or a trace. Without
-# `derivedFields` and `tracesToLogsV2` an operator copies a trace id
-# between two tabs by hand at 3am.
+# Three datasources and the two links between them (`derivedFields` and
+# `tracesToLogsV2`), so a trace id is a click rather than a copy.
 
 apiVersion: 1
 

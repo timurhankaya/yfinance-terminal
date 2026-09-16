@@ -1,17 +1,7 @@
-"""Proof of the source of industry keys.
-
-This file is the reason the spec exists and was written before any
-implementation code. What it proves: industry keys derived from
-`SECTOR_INDUSTY_MAPPING_LC` do NOT match the live API -- `const.py:313-318`
-applies `k.lower().replace('& ','')...` but does not touch the em-dash or
-ampersand characters.
-
-If the library ever fixes this, this test breaks, and taking industry keys
-from the constant (like `SECTOR_KEYS`) becomes worth reconsidering. Until
-it's fixed, a future change that seeds from the constant would silently
-write 32 industries as `empty`, leave the DB with 113 industries instead of
-145, and an audit would say "no error".
-"""
+"""Industry keys derived from `SECTOR_INDUSTY_MAPPING_LC` do NOT match the live API: the
+library's lowercasing leaves em-dash and ampersand characters untouched. Seeding from the
+constant would silently write those industries as `empty`. If the library fixes this, this
+test breaks and the constant becomes worth reconsidering."""
 
 from __future__ import annotations
 
@@ -78,11 +68,8 @@ def test_utilities_is_the_core_evidence() -> None:
 
 
 def test_industry_keys_are_never_imported_from_the_library() -> None:
-    """The library's industry map is not imported by any application module.
-
-    The check runs on the AST, not a text search: `common.py` mentions this
-    constant's name in a comment to explain why it is not used, which is
-    fine. What is forbidden is pulling data from it.
+    """The library's industry map is not imported by any application module. Checked on the
+    AST, not by text search: naming the constant in a comment is fine, pulling data is not.
     """
     root = pathlib.Path(__file__).resolve().parents[2] / "src" / "yfin"
     offenders: list[str] = []

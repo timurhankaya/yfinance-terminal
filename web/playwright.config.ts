@@ -1,18 +1,7 @@
-// The end-to-end run, and it does NOT run in CI.
-//
-// It needs three things CI does not have: a PostgreSQL with an archive
-// in it, a built `dist`, and a symbol with intraday bars. A suite that
-// can only pass on a developer's machine is a suite that goes red in CI
-// for reasons nobody can act on, so this is the local acceptance
-// criterion for the charts instead:
-//
-//     npm run build
-//     uv run yfin api            # or docker compose up api
-//     npx playwright install chromium   # once
-//     npm run e2e
-//
-// `E2E_BASE_URL` points it somewhere else (a compose stack, a staging
-// host); the default is the API's own dev port.
+// Local acceptance run, not a CI job: it needs an archive with intraday
+// bars, a built `dist` and a running API (`npm run build`, `uv run yfin api`,
+// `npx playwright install chromium`, `npm run e2e`). `E2E_BASE_URL`
+// overrides the target.
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({

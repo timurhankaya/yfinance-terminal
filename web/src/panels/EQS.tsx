@@ -1,18 +1,8 @@
 // EQS: equity screening. Without a name it lists the screens this
 // deployment runs; with one it shows what that screen matched, in the
-// screen's own order.
-//
-// `DS` reaches the same four tables through the generic dataset
-// surface, one flat table each. That is the guarantee that nothing is
-// unreachable; this is the panel that makes them mean something
-// together -- a roster you can read down, with a price beside each row
-// and Enter opening the symbol. (`SCR` used to be a third way to the
-// same four tables and was retired for exactly that reason.)
-//
-// The rank order is the point. A screener's roster carries one thing
-// beyond a list of tickers, which is the order the screen put them in,
-// and the header says what that order is sorted by so the sequence is
-// not unexplained.
+// screen's own rank order -- the one thing a roster carries beyond a
+// list of tickers, so the header says what it is sorted by. `DS` reaches
+// the same four tables flat; this is where they mean something together.
 import { useMemo, useState } from "react";
 import type { ReactElement } from "react";
 import { SCREEN_PAGE, getScreen, getScreens } from "../api/client";
@@ -214,12 +204,9 @@ function ScreenHead(props: {
   );
 }
 
-/** This screen's run history, through the generic dataset surface.
- *
+/** This screen's run history, through the generic dataset surface:
  *  `screen_runs` is already a catalogue entry filtered by `screen_key`,
- *  so the typed table draws every column of it -- the roster's size over
- *  time, the page count, and Yahoo's echoed criteria. A hand-written
- *  route here would be a second way to read one table. */
+ *  and a hand-written route would be a second way to read one table. */
 function Runs({ name, symbol }: { name: string; symbol: string | null }): ReactElement {
   return (
     <DatasetView

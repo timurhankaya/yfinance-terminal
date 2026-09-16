@@ -1,14 +1,8 @@
-// The arguments, as things to click.
-//
-// Every one of these edits the SAME args the command line edits: a
-// control calls `run` with the panel's own code and the arg it changed,
-// so the address (or the saved page) is still the only place the state
-// lives. Nothing here holds a value of its own -- except the text box,
-// which holds what is being typed until it is worth a new request.
-//
-// That is why they are not "filters" or "settings": `PX 5m 500` and
-// clicking 5m then typing 500 are the same command, and HELP still
-// documents one syntax.
+// The arguments, as things to click. Every control calls `run` with the
+// panel's own code and the arg it changed, so the address (or the saved
+// page) stays the only place the state lives; only the text box holds
+// what is being typed until it is worth a request. `PX 5m 500` and
+// clicking 5m then typing 500 are the same command.
 import { useEffect, useId, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import type { PanelArgs } from "../commands/types";

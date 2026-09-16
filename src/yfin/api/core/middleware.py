@@ -1,17 +1,8 @@
 """Request context, client IP resolution and security headers.
 
-The client IP question is the load-bearing one here. Get it wrong in one
-direction -- no proxy configuration -- and every request in the world
-shares the reverse proxy's single address, so an IP-keyed limit either
-blocks everyone or nobody. Get it wrong in the other -- trusting
-`X-Forwarded-For` blindly -- and an attacker writes the header themselves
-to slip past the limit, or writes a victim's address to get them blocked
-and to poison the logs.
-
-So the header is honoured only when the connection itself comes from a
-configured proxy network, and the address is taken by walking the chain
-from the right, skipping as many hops as we trust.
-"""
+`X-Forwarded-For` is honoured only when the connection comes from a
+configured proxy network, walking the chain from the right past trusted
+hops; otherwise the header is attacker-writable."""
 
 from __future__ import annotations
 
@@ -66,16 +57,9 @@ def _is_trusted(
 def resolve_client_ip(
     request: HTTPConnection, nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network]
 ) -> str:
-    """The address rate limits and logs are keyed on.
-
-    With no trusted networks configured the forwarded header is ignored
-    outright -- an unconfigured deployment must not be a bypass.
-
-    Typed as `HTTPConnection`, the base of both `Request` and
-    `WebSocket`, because `/ui/ws` keys its connection limit on the same
-    address: a socket is exactly as forgeable as a request and must not
-    be the one surface that reads the forwarded header naively.
-    """
+    """The address rate limits and logs are keyed on. No trusted networks
+    means the forwarded header is ignored outright. Typed as `HTTPConnection`
+    because `/ui/ws` keys its connection limit on the same address."""
     peer = request.client.host if request.client else _UNKNOWN_IP
     if not nets or not _is_trusted(peer, nets):
         return peer
@@ -92,19 +76,9 @@ def resolve_client_ip(
 
 
 class SettingsMiddleware(BaseHTTPMiddleware):
-    """A `BaseHTTPMiddleware` that is constructed with `ApiSettings`.
-
-    The whole of it is the constructor, and the constructor exists for
-    the annotation on `app`. Starlette types the parameter as its own
-    `ASGIApp` alias, but `add_middleware` hands over whatever the
-    previous layer is, so every subclass had to widen it to
-    `Callable[..., object]` and suppress the resulting mismatch. That
-    suppression was written out twice, identically, with no reason
-    attached; here it is written once, with the reason.
-
-    Subclasses resolve their own configuration in `__init__` and keep it,
-    so nothing reads `ApiSettings` per request.
-    """
+    """A `BaseHTTPMiddleware` constructed with `ApiSettings`. Subclasses
+    resolve their configuration in `__init__` so nothing reads settings per
+    request."""
 
     def __init__(self, app: Callable[..., object], settings: ApiSettings) -> None:
         # `app` is deliberately wider than Starlette's `ASGIApp` alias:
@@ -115,12 +89,9 @@ class SettingsMiddleware(BaseHTTPMiddleware):
 
 
 class RequestContextMiddleware(SettingsMiddleware):
-    """Assigns a request id, binds log context, times the request.
-
-    The log line carries the route *template*, never the query string: a
-    client that puts a secret in the query string would otherwise write
-    it into our logs, where it long outlives the request.
-    """
+    """Assigns a request id, binds log context, times the request. The log
+    line carries the route template, never the query string, which may
+    hold a client's secret."""
 
     def __init__(self, app: Callable[..., object], settings: ApiSettings) -> None:
         super().__init__(app, settings)
@@ -158,24 +129,14 @@ class RequestContextMiddleware(SettingsMiddleware):
         return response
 
 
-#: Paths whose requests are not logged. At a fifteen-second scrape and a
-#: ten-second probe, these would be 14,000 lines a day saying nothing, and
-#: they would be 14,000 lines a day in Loki's retention window making the
-#: lines that DO say something harder to find.
-#:
-#: The request id header is still set, and a failure on either path is
-#: still visible -- as a metric, and as the alert on the scrape going away.
+#: Paths whose requests are not logged: scrape and probe traffic would
+#: drown the lines that say something. The request id header is still set
+#: and a failure is still visible as a metric.
 _UNLOGGED = ("/metrics", "/health")
 
 
 def _is_noise(path: str) -> bool:
-    """`/health`, `/health/ready` and `/metrics`; nothing else by prefix.
-
-    `/health` matches its sub-paths on purpose and `/metrics` has none.
-    A route like `/healthcheck-report` would not exist here, and if one
-    ever did, being unlogged is the failure this comment exists to make
-    visible in review.
-    """
+    """`/health`, `/health/ready` and `/metrics`; nothing else by prefix."""
     return path in _UNLOGGED or path.startswith("/health/")
 
 

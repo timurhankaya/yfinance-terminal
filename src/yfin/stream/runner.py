@@ -1,15 +1,7 @@
 """Wires the stream process together and runs it.
 
-The supervisor owns the event loop and the writer owns the database; this
-owns neither, and exists so the CLI does not have to. What it decides:
-
-  * that only one stream process runs at a time (advisory lock);
-  * that the writer thread dying stops the process rather than letting it
-    idle while dropping everything;
-  * that a stop signal drains the queue before exiting.
-
-The last two are the same concern from opposite ends -- the process must
-never be up and silently collecting nothing.
+One process at a time (advisory lock); a dead writer thread stops the
+process rather than idling while dropping; a stop drains the queue first.
 """
 
 from __future__ import annotations
@@ -115,16 +107,12 @@ async def _watch(
 ) -> bool:
     """Stops the supervisor on a stop signal or a dead writer.
 
-    Returns True when the writer was the reason. A dead writer is not
-    recoverable in place: the queue fills, every tick is dropped, and the
-    process keeps looking healthy -- so it ends the run instead.
+    Returns True when the writer was the reason: with a dead writer the
+    process would keep looking healthy while dropping every tick.
     """
     while True:
-        # The supervisor opens the session row (it knows the connection
-        # count); the writer needs its id to flush counters onto. The
-        # writer thread starts first, so the id is handed over here as
-        # soon as it exists -- without this the session ends up reporting
-        # zero messages and zero rows no matter what was written.
+        # The writer thread starts before the supervisor opens the session
+        # row, so the id is handed over here as soon as it exists.
         if writer._session_id is None and supervisor._session_id is not None:
             writer.set_session(supervisor._session_id)
         if stop.is_set():
@@ -159,10 +147,8 @@ def run_stream(
 ) -> StreamRun:
     """Runs the stream until stopped. Returns an exit code.
 
-    Holds `yfin_stream` for the duration. That is a different lock from
-    `yfin_sync` on purpose: the two write different tables and may run at
-    the same time. `yfin stream reconcile` is the exception and takes the
-    sync lock, because it writes price_bars.
+    Holds `yfin_stream`, not `yfin_sync`: the two write different tables
+    and may run at the same time.
     """
     if not settings.yf_stream_enabled:
         raise StreamDisabled(
@@ -174,9 +160,7 @@ def run_stream(
     repository = StreamRepository(factory)
 
     with advisory_lock(engine, STREAM_LOCK_NAME):
-        # A previous process killed hard leaves its session `running`
-        # forever; without this the table fills with sessions that look
-        # live and nothing distinguishes this one from three crashed ones.
+        # A hard-killed process leaves its session `running` forever.
         stale = repository.close_stale_sessions()
         if stale:
             log.warning("closed sessions left running by a previous process", count=stale)

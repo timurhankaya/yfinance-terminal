@@ -47,10 +47,8 @@ POLICY = ProxyPolicy(failure_threshold=3, cooldown_seconds=900, dead_rounds=3)
 NOW = datetime.now(UTC)
 
 
-# Hosts are generated deterministically. The previous version used
-# abs(hash(label)); Python's string hash is seeded differently per process,
-# so two labels could land on the same host and violate the UNIQUE
-# (scheme, host, port, username) constraint -- a real source of flakiness.
+# Hosts are generated deterministically: two labels on one host would violate
+# UNIQUE (scheme, host, port, username).
 _HOSTS = itertools.count(1)
 
 
@@ -163,10 +161,8 @@ class TestUniqueness:
     ) -> None:
         """Hostnames are case-insensitive (RFC 4343).
 
-        MySQL enforced this in the schema via `ascii_general_ci`; the column
-        is now COLLATE "C", so case-insensitivity moved to the write path
-        (scripts/seed_proxies.py). This test proves that move works against
-        the real schema: two normalized forms land on the same row.
+        The column is COLLATE "C", so case folding happens on the write path
+        (scripts/seed_proxies.py); two forms must land on the same row.
         """
         from yfin.models import ProxyScheme as _Scheme
 
@@ -275,13 +271,9 @@ class TestRunAggregation:
         assert labels == {"eu-1", None}
 
     def test_symbols_missing_from_audit_cannot_exit_zero(self, test_engine: Engine) -> None:
-        """A symbol held by a crashed/timed-out shard.
-
-        `shard.py` only drains what remains in the queue; a symbol the child
-        picked up but never finished produces no `sync_run_items` row.
-        Without reconciliation, aggregation would treat the missing data as
-        complete and return EXIT_OK -- breaking the guarantee that the exit
-        code is never 0 while a symbol was left unprocessed.
+        """`shard.py` only drains what remains in the queue; a symbol the child
+        picked up but never finished produces no `sync_run_items` row and must
+        still keep the exit code non-zero.
         """
         from sqlalchemy.orm import sessionmaker
 

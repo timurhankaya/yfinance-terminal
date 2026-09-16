@@ -1,30 +1,8 @@
-"""Create the constraints and indexes the schema declares but no migration made.
-
-The models declare 47 CHECK constraints. Twelve reached the database; the
-other 39 never did, and the reason is that alembic's autogenerate does not
-compare CHECK constraints at all -- so `alembic check` stayed green while a
-migrated database accepted negative volumes, a share count below zero, a
-holding rank outside 0-255 and a proxy port outside 1-65535.
-
-The gap was invisible from the test suite too, in the direction that hides
-it: `tests/conftest.py` builds its schema with `create_all`, which DOES
-emit them. Every constraint was enforced in tests and absent in production.
-
-Three indexes have the same shape for a different reason. `migrations/env.py`
-excludes them from autogenerate because alembic cannot read an expression
-index back to compare it, and says they are "managed by hand" -- but no hand
-ever created them, so `ticker_info_history` and `ticker_fast_info_history`
-were answering "the latest snapshot for this symbol" with a sequential scan.
-
-Adding them validated rather than NOT VALID is deliberate. A row that
-violates one of these is wrong, and a migration that reports it is the
-cheapest place to find out; leaving it unvalidated would carry the same
-silence forward under a different name.
+"""Create the CHECK constraints and expression indexes autogenerate cannot compare.
 
 Revision ID: 8f3b1c07a41d
 Revises: 62259f494923
-Create Date: 2026-09-07 17:10:00.000000
-"""
+Create Date: 2026-09-07 17:10:00.000000"""
 
 from __future__ import annotations
 

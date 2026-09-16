@@ -1,14 +1,7 @@
-"""The exporter loop, and the arithmetic its queries do without a database.
-
-Two separate claims live here. The first is that the loop behaves the way
-an observability component has to: a failing query blinds one gauge family
-and nothing else, the success timestamp is what goes stale, and a label
-combination only disappears when the query that owns it succeeded. The
-second is that the SQL is at least a statement PostgreSQL's parser would
-accept -- the numbers themselves are checked against real rows in
-`tests/repo/test_exporter_queries_repo.py`, which is the only place they
-can be.
-"""
+"""The exporter loop, and the arithmetic its queries do without a database: a failing query
+blinds one gauge family only, the success timestamp is what goes stale, a label combination
+disappears only when its owning query succeeded, and the SQL parses. The numbers themselves
+are checked against real rows in `tests/repo/test_exporter_queries_repo.py`."""
 
 from __future__ import annotations
 
@@ -33,13 +26,8 @@ class _Recorder:
 
 @pytest.fixture
 def recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
-    """The Prometheus side, replaced by a list.
-
-    Patched in `exporter`, where the names are bound. Reaching into the
-    real registry instead would make each test depend on what the previous
-    one left in it, which is exactly the property the exporter is supposed
-    to control.
-    """
+    """The Prometheus side, replaced by a list. Patched in `exporter`, where the names are
+    bound; the real registry would make each test depend on what the previous one left."""
     rec = _Recorder(sets=[], cleared=[])
 
     def set_gauge(name: str, value: float, **labels: str) -> None:
@@ -189,12 +177,8 @@ class TestTheContext:
 
 
 class TestTheStatusRanking:
-    """The universe rule, which is the part of freshness a reader gets wrong.
-
-    Ordering matters in exactly one place -- reducing a multi-table
-    dataset's items to one status per run with a `MAX` -- and each of these
-    is a case that reduction has to survive.
-    """
+    """The universe rule: reducing a multi-table dataset's items to one status per run with
+    a `MAX` is the one place ordering matters, and each case here must survive it."""
 
     def test_failed_beats_everything(self) -> None:
         assert q.STATUS_RANK["failed"] == max(q.STATUS_RANK.values())
@@ -214,14 +198,9 @@ class TestTheStatusRanking:
         }
 
     def test_out_of_scope_ranks_below_a_write(self) -> None:
-        """The ordering is what keeps a partly out-of-scope cell in: `MAX`
-        over the per-table ranks has to pick the write, not the skip, or a
-        multi-table dataset would drop out of the universe as soon as one of
-        its tables went out of scope.
-
-        The behaviour against real rows is
-        `tests/repo/test_exporter_queries_repo.py::TestTheUniverse::test_one_written_table_keeps_a_partly_out_of_scope_cell`.
-        """
+        """`MAX` over the per-table ranks has to pick the write, not the skip, or a
+        multi-table dataset would drop out of the universe as soon as one table went out of
+        scope. Real rows: `tests/repo/test_exporter_queries_repo.py::TestTheUniverse`."""
         assert q.STATUS_RANK["out_of_scope"] < q.STATUS_RANK["ok"]
 
     def test_a_skip_counts_as_a_write(self) -> None:
@@ -266,11 +245,9 @@ class TestTheStatements:
         assert "NOT IN (0, 1)" in sql
 
     def test_freshness_reduces_a_cell_in_one_pass(self) -> None:
-        """Two `DISTINCT ON` CTEs joined back together were measured at
-        4.24 s against this one's 2.35 s -- the join could only merge on
-        `symbol` and discarded 23 million rows in a filter. If a rewrite
-        brings the join back, it brings that back with it.
-        docs/measurements/observability.md."""
+        """One aggregation pass, not two `DISTINCT ON` CTEs joined back
+        together: that join can only merge on `symbol` and discards most
+        rows in a filter."""
         sql = q.freshness_sql()
         assert "DISTINCT ON" not in sql
         assert sql.count("GROUP BY") == 3

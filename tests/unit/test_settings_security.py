@@ -1,10 +1,5 @@
-"""Security boundary: `ENV_ONLY_FIELDS` cannot be overridden from the DB.
-
-This filter is not a nice-to-have. If it could be bypassed, anyone with
-write access to the `settings` table could change `db_host` and redirect
-the entire connection to another server, or overwrite
-`yf_proxy_secret_key` and take over proxy credential decryption.
-"""
+"""Security boundary: `ENV_ONLY_FIELDS` cannot be overridden from the DB, or write access
+to the `settings` table could redirect `db_host` or replace `yf_proxy_secret_key`."""
 
 from __future__ import annotations
 

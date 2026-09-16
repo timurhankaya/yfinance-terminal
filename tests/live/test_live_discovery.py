@@ -1,10 +1,6 @@
-"""Live Yahoo verifications -- Search / Lookup / Screener.
+"""Live Yahoo verifications -- Search / Lookup / Screener (`-m live`).
 
-Off in CI: requires `-m live`.
-
-Most tests here assert a relationship, not a number. Counts move during the
-day (`day_gainers` went 122 -> 117 between two measurements); what's pinned
-down is the behavior the design relies on.
+Tests assert a relationship, not a number: counts move during the day.
 """
 
 from __future__ import annotations
@@ -38,9 +34,8 @@ def _mctx(variant: str) -> MarketContext:
 
 # --- Lookup: two sides of the same behavior --------------------------------
 #
-# Both tests are required together. The design was originally measured and
-# generalized from the narrow-term case alone, which locked in a wrong
-# invariant; the narrow test by itself would reproduce that same mistake.
+# Both tests are required together: the narrow-term case alone would lock in
+# a wrong invariant.
 
 
 def test_narrow_term_all_equals_typed_union() -> None:
@@ -62,11 +57,7 @@ def test_narrow_term_all_equals_typed_union() -> None:
 def test_broad_term_all_is_truncated_and_typed_union_is_wider() -> None:
     """Broad term: `all` is truncated around 1000, typed union is far wider.
 
-    Measured (2026-09-05): GOLD -> `lookupTotals.all` 7273, `all` returns 995
-    documents, typed union 3313; diff is two-way (354 / 2671).
-
-    If this test goes red, the adaptive branch it protects has become
-    unnecessary and should be removed, not silently kept.
+    If this goes red, the adaptive branch it protects should be removed.
     """
     term = "GOLD"
     block = _fetch_type(term, ALL_TYPE, 1000)
@@ -95,11 +86,8 @@ def test_lookup_dataset_writes_totals_for_nine_types() -> None:
 
 
 def test_research_requires_an_explicit_flag() -> None:
-    """`include_research` defaults to False (search.py:32-34).
-
-    Without it, `research_reports` and `search_report_hits` get no rows at
-    all -- and a completeness check would not catch this, since "source
-    returned empty" and "we didn't ask" look identical.
+    """`include_research` defaults to False; a completeness check can't tell
+    "source returned empty" from "we didn't ask".
     """
     default = yf.Search("AAPL").response
     explicit = yf.Search("AAPL", include_research=True).response
@@ -160,7 +148,7 @@ def test_predefined_first_page_carries_metadata() -> None:
 
 
 def test_screener_dataset_paginates_to_total() -> None:
-    """`tr_equity` total was measured at 628; four pages must fetch it all."""
+    """Four pages must fetch the whole `tr_equity` total."""
     from yfin.core.config import get_settings
 
     cfg = get_settings().model_copy(update={"yf_screen_max_pages": 4, "yf_screen_size": 250})

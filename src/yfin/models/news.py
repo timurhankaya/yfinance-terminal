@@ -44,11 +44,8 @@ class News(Base):
 class NewsSymbol(Base):
     """No FK on `symbol`.
 
-    Source data includes symbols outside the universe (an AAPL story
-    tagging 005930.KS, ^GSPC, IRTC). An FK would roll back an entire
-    article's data over one unknown symbol, since all its symbols write
-    in one transaction.
-    """
+    Source data tags symbols outside the universe, and an FK would roll
+    back an entire article's data over one unknown symbol."""
 
     __tablename__ = "news_symbols"
     __table_args__ = (

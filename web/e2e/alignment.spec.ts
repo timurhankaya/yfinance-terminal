@@ -1,13 +1,8 @@
-// Every heading sits over its own column.
-//
-// This is a browser test because it is a question about layout, and
-// jsdom has none: a `<th>` and its `<td>` can carry the right classes
-// and still be pushed apart by a rule that only applies to one of them,
-// which is exactly the bug this was written after. The check is the same
-// one a reader makes by eye -- where does the text in the heading start,
-// and where does the text in the cell start -- so it is measured with a
-// Range over the contents of each, and against the edge the alignment
-// pushes them to.
+// Every heading sits over its own column. A browser test because jsdom
+// has no layout: a `<th>` and its `<td>` can carry the right classes and
+// still be pushed apart by a rule that applies to one of them. Checked
+// with a Range over the contents of each, against the edge the
+// alignment pushes them to.
 import { expect, test } from "@playwright/test";
 
 const SYMBOL = process.env.E2E_SYMBOL ?? "AAPL";

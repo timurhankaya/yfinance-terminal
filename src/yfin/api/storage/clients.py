@@ -1,14 +1,6 @@
-"""Client repository: the single write gate for API credentials.
-
-The CLI is a thin shell over this module, and the self-service portal
-(subsystem 2) will be another. Putting the rules in the command instead
-would mean the portal either re-implements them or reaches past them into
-raw SQL -- the same trap `settings_store` was built to avoid.
-
-Every operation that changes what a token is allowed to do bumps
-`auth_epoch`. That single invariant is what makes revocation immediate,
-so it belongs here rather than in each caller.
-"""
+"""Client repository: the single write gate for API credentials. Every
+operation that changes what a token may do bumps `auth_epoch`, which is
+what makes revocation immediate."""
 
 from __future__ import annotations
 
@@ -88,12 +80,9 @@ def live_secrets(session: Session, client_id: str) -> list[ApiClientSecret]:
 
 
 def candidates_for(session: Session, client_id: str) -> list[Candidate]:
-    """Everything the verifier needs, usable or not.
-
-    Revoked and expired secrets are returned too, flagged unusable: the
-    verifier still hashes against them so that a revoked secret cannot be
-    told apart from a wrong one by how long the answer takes.
-    """
+    """Everything the verifier needs, including revoked and expired secrets
+    flagged unusable, so a revoked secret is not distinguishable from a
+    wrong one by timing."""
     now = _now()
     rows = session.scalars(
         select(ApiClientSecret)
@@ -147,12 +136,8 @@ def rotate_secret(
     *,
     grace: timedelta = DEFAULT_ROTATION_GRACE,
 ) -> str:
-    """Issues a new secret and puts the current one on a deadline.
-
-    Refuses when the client already holds the maximum: two live secrets
-    mean an unfinished rotation, and quietly issuing a third would make
-    it unclear which one the client is actually using.
-    """
+    """Issues a new secret and puts the current one on a deadline. Refuses
+    when two are already live: that is an unfinished rotation."""
     client = _get(session, client_id)
     existing = live_secrets(session, client_id)
     if len(existing) >= MAX_LIVE_SECRETS:
@@ -226,12 +211,8 @@ class AuthRecord:
 
 
 def load_for_auth(session: Session, client_id: str) -> AuthRecord | None:
-    """Loads a client for authentication, or None if there is no such id.
-
-    Returning None rather than raising is deliberate: the caller still has
-    to perform the same hashing work for an unknown client as for a known
-    one, so "not found" is a value to carry, not a shortcut to take.
-    """
+    """Loads a client for authentication, or None if there is no such id;
+    the caller must still do the same hashing work for an unknown client."""
     client = session.get(ApiClient, client_id)
     if client is None:
         return None

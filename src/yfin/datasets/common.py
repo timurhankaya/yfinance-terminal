@@ -78,23 +78,16 @@ def data_columns(fields: tuple[Field, ...], *, extra: tuple[str, ...] = ()) -> t
 
 # --- shared AH normalization rules --------------------------------
 
-# NUMERIC(38,10): PostgreSQL silently rounds the 11th digit (measured), so
-# rounding is done deliberately on the Python side instead.
+# NUMERIC(38,10): PostgreSQL silently rounds the 11th digit, so rounding
+# is done on the Python side instead.
 FACT_QUANTUM = Decimal("1E-10")
 
 
 def to_fact_value(value: Any) -> Decimal | None:
     """Quantizes a value for FactValueType() = DECIMAL(38,10).
 
-    `localcontext(prec=FACT_PRECISION)` is required: Python's default
-    context carries 28 significant digits while the column holds 38 (28
-    integer + 10 fractional). With the default, 1e18 raises
-    `InvalidOperation` even though the column accepts up to 1e28. That
-    exception would escape `normalize` into `runner` and drop every row of
-    that (symbol x dataset) cell -- one oversized value costing the whole
-    period's line items. With prec=38, Python's limit matches the column's
-    actual limit; only a value that truly overflows drops its row, and the
-    cell of the dataset stays `ok` (the `key_value` pattern).
+    `localcontext(prec=FACT_PRECISION)` matches the column's 38 digits; the
+    default 28 raises `InvalidOperation` on accepted values and drops the cell.
     """
     dec = nz.to_decimal(value)
     if dec is None:
@@ -111,10 +104,7 @@ def to_fact_value(value: Any) -> Decimal | None:
 def blank_to_none(value: Any, *, max_len: int | None = None) -> str | None:
     """Sentinel blank string -> NULL.
 
-    The source signals "no value" as `''` for `ToGrade`, `Position`,
-    `Transaction`, `URL`, and `priceTargetAction`. A plain `to_str` would
-    write that as an empty string, losing the distinction between "blank"
-    and "unknown".
+    The source signals "no value" as `''` for several text fields.
     """
     text = nz.to_str(value, max_len=max_len)
     if text is None:
@@ -133,10 +123,8 @@ def key_value(
 ) -> str | None:
     """Text going into a PK component; returns None + warns if over the limit.
 
-    Never truncated: a truncated key would collapse two distinct records
-    into one row, a silent data loss. Dropping the row is the pattern
-    instead -- the cell is not marked `failed` just because one key is bad,
-    so the same call's valid rows are not lost with it; the loss is logged.
+    Never truncated: a truncated key would collapse distinct records into
+    one row. The row is dropped and logged; the cell is not failed.
     """
     text = nz.to_str(value, max_len=None)
     if text is not None:
@@ -173,32 +161,22 @@ def in_range(value: date | None, start: date | None, end: date | None) -> bool:
 def to_big_value(value: Any) -> Any:
     """BigNumType() = DECIMAL(38,0); the fractional part is rounded in Python.
 
-    PostgreSQL silently rounds the fractional part (measured); rounding
-    here instead keeps `kinds.py`'s `big` rule as the single source of truth.
+    PostgreSQL silently rounds the fractional part; rounding here keeps
+    `kinds.py`'s `big` rule as the single source of truth.
     """
     return KINDS["big"].convert(value)
 
 
 def to_datetime_value(value: Any) -> Any:
-    """TsType() column; the source sends either `datetime64` or raw epoch `float64`.
-
-    `kinds.py`'s `dt` rule accepts both forms; `insider_roster`'s Position
-    Direct/Indirect Date fields switch between them depending on the
-    symbol (measured populated float on 6 symbols).
-    """
+    """TsType() column; the source sends either `datetime64` or raw epoch `float64`."""
     return KINDS["dt"].convert(value)
 
 
 def date_range_kwargs(start: date | None, end: date | None) -> dict[str, str]:
     """yfinance call arguments for `date_range="api"` datasets.
 
-    The lower bound is set explicitly: calling with `start=None` makes
-    yfinance apply its own default window (`end - 548 days` for
-    `get_shares_full`), which would silently narrow a run that only gave
-    `--end`.
-
-    The upper bound is shifted one day forward: Yahoo reads `period2` as
-    exclusive, but `--end 2018-12-31` must include that day.
+    `start` is always set, else yfinance applies its own default window.
+    `end` is shifted a day forward because Yahoo reads `period2` as exclusive.
     """
     kwargs = {"start": (start or EPOCH_START).isoformat()}
     if end is not None:
@@ -214,19 +192,8 @@ def mark_known(
 ) -> list[TableWrite]:
     """Fills `is_known` for symbols that may sit outside the universe.
 
-    Five datasets need this, because five tables carry a symbol with NO
-    foreign key: news_symbols, fund_top_holdings, the two domain ranking
-    tables, and the market status/summary boards. The FK is absent on
-    purpose -- each symbol runs in a single transaction, so one foreign
-    symbol would roll back everything else that symbol wrote.
-
-    It was written five times in two different shapes: three returned new
-    TableWrites, two mutated `result.writes` in place. Same policy, two
-    semantics, and the copying ones each rebuilt TableWrite field by field
-    and dropped `monotonic_columns` in the process. This is the copying
-    shape for all five; nothing mutates its input.
-
-    One `known_symbols` call covers every write, not one per write.
+    For tables that carry a symbol with no FK (a foreign symbol would roll
+    back the whole transaction). Returns new writes; input is not mutated.
     """
     candidates = {row[column] for write in writes for row in write.rows if row.get(column)}
     known = writer.known_symbols(candidates) if candidates else set()

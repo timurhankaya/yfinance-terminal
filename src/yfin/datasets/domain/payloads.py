@@ -1,9 +1,7 @@
 """Fetch outputs of domain datasets.
 
-`normalize` touches neither the DB nor the network; everything it needs
-comes from here. `fetched_at` and `as_of_date` travel in the payload
-because both are generated once per run -- if `normalize` called
-`datetime.now()` itself, tests would become nondeterministic.
+`fetched_at` and `as_of_date` travel in the payload so `normalize` never
+calls `datetime.now()` itself.
 """
 
 from __future__ import annotations

@@ -1,12 +1,7 @@
 """Seventeen datasets writing to actual PostgreSQL.
 
-Unit tests verify the row `normalize` produces; here that row is actually
-written. Different failure classes: a bad ENUM value, DECIMAL overflow, a
-NOT NULL violation, a reserved word, a type mismatch -- these only show up
-in a real INSERT, and since each symbol is one transaction, any one of them
-would drop the entire symbol.
-
-The single assertion for every dataset: `rows_verified == rows_attempted`.
+ENUM, DECIMAL overflow, NOT NULL, reserved-word and type errors only surface in
+a real INSERT, and each symbol is one transaction, so any one drops the symbol.
 """
 
 from __future__ import annotations
@@ -231,7 +226,7 @@ def test_major_holders_writes(db_session: Session, symbol: str) -> None:
 def test_institutional_holders_write_largest_measured_values(
     db_session: Session, symbol: str
 ) -> None:
-    """Measured max: shares 1.94e9, value 1.76e13 (JPM); why it's DECIMAL(38,0)."""
+    """The largest holder values seen must fit DECIMAL(38,0)."""
     frame = pd.DataFrame(
         {
             "Date Reported": [pd.Timestamp("2026-06-30"), pd.NaT],
@@ -247,7 +242,7 @@ def test_institutional_holders_write_largest_measured_values(
 
 
 def test_insider_purchases_writes_negative_values(db_session: Session, symbol: str) -> None:
-    """Measured net -547,806 on KO; net_trans can go negative -> SIGNED."""
+    """net_trans can go negative, so the column is signed."""
     frame = pd.DataFrame(
         {
             "Insider Purchases Last 6m": [

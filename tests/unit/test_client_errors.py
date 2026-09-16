@@ -1,10 +1,5 @@
-"""classify_error case table.
-
-The most critical rule is ORDER: curl_cffi's RequestException derives from
-OSError (HTTPError -> RequestException -> CurlError -> OSError), so an
-"OSError -> NETWORK" rule would also treat 403s as NETWORK and unfairly
-punish the proxy.
-"""
+"""classify_error case table. Rule ORDER matters: curl_cffi's RequestException derives from
+OSError, so an "OSError -> NETWORK" rule would also treat 403s as NETWORK."""
 
 from __future__ import annotations
 

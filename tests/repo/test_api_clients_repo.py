@@ -1,9 +1,7 @@
 """Client repository against a real PostgreSQL schema.
 
-The invariant under test throughout is `auth_epoch`: every change that
-narrows what a token may do has to bump it, because token verification
-never reads the database and the epoch is the only thing that can make
-such a change effective before the token expires.
+The invariant throughout is `auth_epoch`: token verification never reads the
+database, so every change narrowing a token must bump it to take effect.
 """
 
 from __future__ import annotations

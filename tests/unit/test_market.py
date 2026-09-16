@@ -103,8 +103,7 @@ class TestCalendars:
         assert all(r["event_start_ts_utc"].tzinfo is UTC for r in rows)
 
     def test_economic_calendar_triple_key_is_unique(self) -> None:
-        """Index (Event) is not unique (29 repeats in 100 rows); the
-        three-column key was measured unique for 100/100."""
+        """Index (Event) is not unique; the three-column key is."""
         raw = _market_fixture("economic_calendar")
         rows = _rows(self._result("economic_calendar", "economic_calendar"), "calendar_economic")
         keys = {(r["region"], r["event_time_utc"], r["event_name"]) for r in rows}
@@ -117,7 +116,7 @@ class TestCalendars:
         assert "last_value" not in rows[0]
 
     def test_ipo_calendar_handles_nat(self) -> None:
-        """Filing/Amended Date was measured NaT in 3 of 3 rows."""
+        """Filing/Amended Date can be NaT."""
         rows = _rows(self._result("ipo_calendar", "ipo_calendar"), "calendar_ipo")
         assert rows
         assert all(r["filing_date"] is None or isinstance(r["filing_date"], date) for r in rows)
@@ -265,12 +264,9 @@ class TestHashGate:
 
 
 class TestSnapshotGate:
-    """`snapshot_upsert` compares the history row against the snapshot row.
-
-    The comparison is what `--full-refresh` has to be able to bypass: the
-    snapshot row is exactly the one that survives when the _history rows
-    are lost, so it keeps matching and the repair never writes anything.
-    """
+    """`snapshot_upsert` compares the history row against the snapshot row. `--full-refresh`
+    must bypass it: the snapshot row survives when the _history rows are lost, so it keeps
+    matching and the repair never writes."""
 
     @staticmethod
     def _result() -> NormalizedResult:

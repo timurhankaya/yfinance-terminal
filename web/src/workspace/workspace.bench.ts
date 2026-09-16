@@ -1,21 +1,8 @@
 // @vitest-environment jsdom
 //
-// What persistence costs a page.
-//
-// The spec's question (`Ölçümler`): how long does restoring a saved
-// layout take, and how much does keeping one written out cost. A page is
-// read once on the way in and written on every arrangement, so those are
-// the two numbers that decide whether the store can be as simple as it
-// is -- a whole document, stringified, on a debounce.
-//
-// Run it with:
-//   npm --prefix web exec -- vitest bench --run src/workspace/workspace.bench.ts
-// Results: docs/measurements/web-viz.md
-//
-// The render half is NOT here. "A tick redraws one panel, not four" is a
-// property rather than a timing, and it is asserted in
-// `live/hooks.test.tsx` and `panels/spark.test.tsx` the way the
-// watchlist's own isolation is.
+// What persistence costs a page: one read on the way in, one write per
+// arrangement (a whole document, stringified, on a debounce).
+// Run it with:  npm --prefix web exec -- vitest bench --run src/workspace/workspace.bench.ts
 import { bench, describe } from "vitest";
 import type { SerializedDockview } from "dockview-react";
 import { decodePage, encodePage, seedsFromDock } from "./page";

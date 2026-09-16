@@ -64,12 +64,8 @@ def test_one_resolved_one_not_is_not_exit_one() -> None:
 
 
 def test_a_not_attempted_cell_can_never_report_success() -> None:
-    """A run that left work undone must not exit 0, even with no failures.
-
-    This is the rule the retired RunSummary.exit_code() did not have: it
-    returned EXIT_OK here, so a shard that died before touching its queue
-    looked like a clean run.
-    """
+    """A run that left work undone must not exit 0, even with no failures: a shard that
+    died before touching its queue is not a clean run."""
     tally = _tally([("A", ItemStatus.OK), ("B", ItemStatus.NOT_ATTEMPTED)], symbol_count=2)
     assert tally.exit_code() == EXIT_PARTIAL
 

@@ -1,10 +1,7 @@
-"""`error_kind` and `job_run_id`: the two columns that make the audit queryable.
+"""`error_kind` and `job_run_id`: the columns that make the audit queryable.
 
-`error` is for a human. Grouping a dashboard by it would give one bucket per
-Yahoo error string, which is one bucket per failure. `error_kind` is what a
-dashboard can actually group by -- and NULL where nothing classified it,
-because a guessed kind would file a failure under a cause nobody
-established.
+`error_kind` is NULL where nothing classified the failure, because a guessed
+kind would file it under a cause nobody established.
 """
 
 from __future__ import annotations
@@ -63,11 +60,10 @@ class TestErrorKind:
     def test_one_row_per_table_carries_it(
         self, factory: sessionmaker[Session], db_session: Session
     ) -> None:
-        """A single `table_name=NULL` row would leave "when did this table
-        last fail" unanswerable, so the kind has to be on each of them.
+        """Every table's failure row carries the kind, not one `table_name=NULL` row.
 
-        The dataset is found in the registry rather than named, so this
-        keeps testing a MULTI-table failure as the registry changes.
+        The dataset is found in the registry rather than named, so this keeps
+        testing a MULTI-table failure as the registry changes.
         """
         from yfin.datasets import SYMBOL_DATASETS
 

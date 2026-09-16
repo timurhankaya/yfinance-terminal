@@ -1,15 +1,7 @@
-"""Two backends behind one counter API, and the closed label set.
-
-A long-lived service (the API, `stream run`, either relay, the scheduler)
-serves `/metrics` and its counters live in a Prometheus registry. A sync
-shard is a SHORT-LIVED PROCESS: it exits long before any scrape could reach
-it, so its counters go into an in-process accumulator that is flushed into
-`run_metrics` on the way out, and the database is what the exporter reads.
-
-Both are the same call at the point of instrumentation, which is the point:
-`readers.py` counting a cache hit should not know which kind of process it
-is running in.
-"""
+"""Two backends behind one counter API, and the closed label set. A long-lived service
+holds its counters in a Prometheus registry; a sync shard exits before any scrape, so its
+counters go to an in-process accumulator flushed into `run_metrics`. The instrumentation
+point must not know which kind of process it is in."""
 
 from __future__ import annotations
 
@@ -152,13 +144,8 @@ class TestServeMetrics:
         assert serve_metrics(0) is False
 
     def test_a_port_that_cannot_be_bound_is_a_warning(self) -> None:
-        """A metrics port already in use must not stop a sync.
-
-        The blocker listens on the SAME address the server would use;
-        `127.0.0.1` and `0.0.0.0` are different bindings and would not
-        collide, which is a way to write this test that passes without
-        testing anything.
-        """
+        """A metrics port already in use must not stop a sync. The blocker listens on the
+        SAME address the server would use; `127.0.0.1` and `0.0.0.0` do not collide."""
         import socket
 
         from yfin.core.metrics import serve_metrics
@@ -183,13 +170,9 @@ class TestCountException:
 
 
 class TestGauges:
-    """The exporter's side of the API.
-
-    A gauge is a NUMBER READ FROM A TABLE, republished on the scheduler's
-    `/metrics`. It has no `_total`, it can go down, and the set of label
-    combinations it carries changes between refreshes -- a dataset can leave
-    the universe, a proxy can be deleted, a stream connection can close.
-    """
+    """The exporter's side of the API: a gauge is a number read from a table, republished
+    on the scheduler's `/metrics`. No `_total`, it can go down, and its label combinations
+    change between refreshes."""
 
     def test_gauges_do_not_carry_the_total_suffix(self) -> None:
         """`yfin_cells_total` is the one exception, and it is the spec's own
@@ -201,15 +184,9 @@ class TestGauges:
                 assert not spec.name.endswith("_total"), spec.name
 
     def test_no_name_is_both_a_counter_and_a_gauge(self) -> None:
-        """The whole reason the exported names drop `_total`: one name with
-        two label sets cannot be registered, and would not mean one thing.
-
-        Comparing `{spec.name}` against `len(METRICS)` cannot fail: METRICS
-        is five dicts merged and every one is keyed by `spec.name`, so a
-        collision does not show up as a duplicate -- it silently OVERWRITES,
-        and the count matches either way. Counting the sources instead is
-        what makes the collision visible.
-        """
+        """One name with two label sets cannot be registered, which is why exported names
+        drop `_total`. Counted per source rather than `{spec.name}` against `len(METRICS)`:
+        the merged dict silently overwrites a collision, so the count matches either way."""
         from yfin.core.metrics import (
             _EXPORTER_GAUGES,
             _PROCESS_METRICS,
@@ -255,13 +232,9 @@ class TestGauges:
         from yfin.core.metrics import _object, clear_gauge, set_gauge
 
         def series() -> list[tuple[str, ...]]:
-            """This gauge's label combinations, and no other metric's.
-
-            Read off the object rather than out of `generate_latest()`: the
-            whole registry is process-wide, so any other test that ever
-            published a `market_status` label would make a text search pass
-            or fail for reasons that have nothing to do with clearing.
-            """
+            """This gauge's label combinations, read off the object: the registry is
+            process-wide, so a text search of `generate_latest()` would depend on other
+            tests."""
             return [
                 tuple(sample.labels.values())
                 for metric in _object("yfin_cells_total").collect()
@@ -275,12 +248,8 @@ class TestGauges:
 
 
 class TestTheRepublishedSyncCounters:
-    """What a shard accumulated, read back out of `run_metrics`.
-
-    The exporter publishes them as GAUGES with an extra `scope` label, and
-    without `_total`: the value is the latest run's, not a monotonic total
-    of this process's, and a name must never carry two label sets.
-    """
+    """What a shard accumulated, read back out of `run_metrics`: published as gauges with a
+    `scope` label and without `_total`, since a name must never carry two label sets."""
 
     def test_every_shard_counter_has_an_exported_gauge(self) -> None:
         from yfin.core.metrics import exported_name
@@ -344,17 +313,9 @@ class TestTheServiceCounters:
 
 
 class TestTheReservedLabels:
-    """`job` and `instance` belong to Prometheus, not to us.
-
-    A scrape stamps both from the scrape config. A metric that carries its
-    own is not rejected -- it is silently RENAMED to `exported_job` while
-    `job` becomes the scrape job's name, so every `by (job)` in a dashboard
-    groups by a label with one value and every alert that filters on it
-    matches nothing.
-
-    Found on the running stack, not in review: the series looked right in
-    the exposition text and wrong only after Prometheus had ingested it.
-    """
+    """`job` and `instance` belong to Prometheus: a metric carrying its own is silently
+    renamed to `exported_job` on ingest, so every `by (job)` and every alert filtering on it
+    breaks. The exposition text looks right; only the ingested series is wrong."""
 
     def test_no_metric_uses_a_reserved_label(self) -> None:
         for spec in METRICS.values():

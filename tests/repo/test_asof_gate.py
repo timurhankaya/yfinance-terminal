@@ -1,10 +1,7 @@
 """AsOfDataset's actual behavior against PostgreSQL.
 
-`tests/unit/test_asof_base.py` pins the gate's decision logic with a fake
-writer; here the same flow runs through `PostgresRowWriter`. Separate
-questions: is the decision correct (unit) vs. does the database actually
-apply it (repo) -- upsert scope, replace_scope deletion, and `first_seen_at`
-preservation only show up here.
+`tests/unit/test_asof_base.py` pins the gate's decision with a fake writer; here
+it runs through `PostgresRowWriter`, where scope and `first_seen_at` show up.
 """
 
 from __future__ import annotations

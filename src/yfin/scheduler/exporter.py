@@ -1,32 +1,7 @@
 """A daemon thread that turns the database into gauges.
 
-Prometheus scrapes the scheduler every fifteen seconds. If a scrape ran the
-queries in `queries.py`, fifteen seconds would buy a full pass over
-`sync_run_items` -- and a second Prometheus, a curl, or a dashboard's
-"refresh now" would each buy another. So the queries run on their OWN clock,
-every `yf_exporter_interval_seconds`, and a scrape reads the last values
-they left behind. The endpoint never touches a connection.
-
-Three consequences, all deliberate:
-
-  * A gauge is up to one interval old. That is stated on the dashboards
-    rather than hidden, and 300 seconds is a fraction of every cadence the
-    numbers are about.
-  * A query that fails keeps its previous values. The alert is
-    `yfin_exporter_last_success_timestamp` going stale, not a gauge
-    dropping to zero -- a zero would fire every alert that reads it at once
-    and say nothing true.
-  * A label combination only disappears when its query SUCCEEDS: each query
-    clears the gauges it owns immediately before republishing them. That is
-    what retires a dataset that left the universe or a proxy that was
-    deleted, and what stops a failed query from wiping numbers another one
-    just filled.
-
-The thread lives in the scheduler process because that process already
-exists, already has an engine, and is the one thing in the stack that is
-running whether or not anything else is. It is a daemon thread: an exporter
-that kept the scheduler alive at shutdown would be an exporter that has to
-be killed.
+Queries run on their own clock, never per scrape. A failed query keeps its
+previous values; a query clears the gauges it owns only right before republishing.
 """
 
 from __future__ import annotations
@@ -65,10 +40,8 @@ def publish(samples: Iterable[Sample]) -> int:
 class Exporter:
     """The refresh loop, and one pass of it.
 
-    Constructed with an engine rather than a session factory so it owns its
-    own sessions: the queries are read-only and long, and sharing the
-    scheduler's would put a reporting scan in the same connection as the
-    row that records a job start.
+    Owns its own sessions: a long reporting scan must not share the
+    connection that records a job start.
     """
 
     def __init__(
@@ -105,11 +78,8 @@ class Exporter:
     def refresh(self) -> int:
         """One full pass. Returns the number of queries that failed.
 
-        Every query is attempted even after one fails: they read different
-        tables and a stream outage has nothing to say about whether the
-        freshness numbers can be produced. The success timestamp only moves
-        when the count is zero, which is what makes `ExporterStale` mean
-        "some part of this is blind" rather than "all of it is".
+        Every query is attempted even after one fails; the success
+        timestamp only moves when none did.
         """
         ctx = self.context()
         failed = 0
@@ -151,11 +121,10 @@ class Exporter:
     # --- the thread --------------------------------------------------------
 
     def start(self) -> threading.Thread:
-        """Starts the loop and returns its thread. Refreshes immediately.
+        """Starts the loop and returns its thread.
 
-        The first pass happens before the first sleep, so a scrape arriving
-        one second after start-up sees numbers rather than an empty
-        endpoint that reads as "everything is zero".
+        The first pass runs before the first sleep, so an early scrape
+        does not read an empty endpoint as "everything is zero".
         """
         thread = threading.Thread(target=self._loop, name="yfin-exporter", daemon=True)
         thread.start()

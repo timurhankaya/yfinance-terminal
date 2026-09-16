@@ -1,25 +1,8 @@
-"""Authenticating a request and enforcing scope.
-
-Two things happen per request and both are cheap by design: a signature
-check, and one Redis read that the rate limiter needs anyway. No database
-query is on this path.
-
-That single Redis read is what closes the gap left by not querying the
-database. It answers three questions at once -- is the client disabled,
-has its authorisation generation moved on, was this specific credential
-revoked -- so a leaked credential or a narrowed scope stops working in
-seconds rather than at the end of the token's life.
-
-If Redis is unreachable the check fails open, deliberately: refusing all
-traffic because a counter store is down would be a far larger outage than
-the window it protects, and that window is bounded by the token lifetime
-anyway. Every occurrence is logged at error level.
-
-Scopes are declared through FastAPI's `Security(...)`, which is what puts
-them in the OpenAPI document. The same declaration is what this module
-enforces, so the published contract and the running check cannot drift
-apart -- an endpoint cannot advertise one scope and require another.
-"""
+"""Authenticating a request and enforcing scope: a signature check plus one
+Redis read (disabled client, moved epoch, revoked secret), no database.
+Redis down fails open, logged at error; the window is bounded by the token
+lifetime. Scopes are declared via `Security(...)` so the OpenAPI document
+and the enforced check come from one declaration."""
 
 from __future__ import annotations
 

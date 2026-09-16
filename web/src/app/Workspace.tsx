@@ -1,14 +1,8 @@
-// The one place dockview is touched.
-//
-// dockview owns the layout: which panels exist, how they are split, which
-// one is active. What a panel *shows* rides in that panel's `params`, so
-// there is one copy of it and `api.toJSON()` already carries it -- a
-// second map of panel state beside the layout would drift apart on the
-// first drag.
-//
-// Popouts are off: they rebuild the page's stylesheets as inline <style>
-// in a second window and want a nonce for it, and `/ui`'s CSP issues
-// none (`ui/pages.py`).
+// The one place dockview is touched. dockview owns the layout; what a
+// panel shows rides in that panel's `params`, so `api.toJSON()` already
+// carries it and there is no second map of panel state to drift.
+// Popouts are off: they inject inline <style> in a second window and
+// want a nonce for it, and `/ui`'s CSP issues none (`ui/pages.py`).
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { DockviewDefaultTab, DockviewReact } from "dockview-react";
 import type {
@@ -43,12 +37,9 @@ export interface PanelSeed extends PanelParams {
 
 const COMPONENT = "panel";
 
-/** What a panel does when it runs a command.
- *
- *  Carried by context rather than in `params`: it is not state, it must
- *  not reach `toJSON()`, and dockview re-renders a panel when its
- *  parameters change -- a function in there would re-render everything on
- *  every render of the page. */
+/** What a panel does when it runs a command. Carried by context rather
+ *  than in `params`: it must not reach `toJSON()`, and dockview
+ *  re-renders a panel when its parameters change. */
 const RunContext = createContext<(id: string, command: Command) => void>(() => undefined);
 
 /** What each letter is pointed at. In a context rather than in `params`
@@ -88,11 +79,9 @@ function Body({ code, symbol, args, group }: PanelParams) {
       {spec.needsSymbol && shown !== null && (
         <SymbolBand symbol={shown} code={code} live={spec.layout === Layout.Headed} />
       )}
-      {/* The padding is the BODY's, not the panel's. It used to be on
-          `.dock-panel`, and the band undid it with a negative margin to
-          reach the panel's edge -- which `position: sticky` then cancelled,
-          because sticky refuses to place an element above its scrollport's
-          top and left a ten-pixel gap over the band on every panel. */}
+      {/* The padding is the BODY's, not the panel's: a sticky band cannot
+          be placed above its scrollport's top, so padding on the panel
+          leaves a gap over the band. */}
       <div className="panel-body">
         <Component symbol={shown} args={args} />
       </div>
@@ -151,15 +140,10 @@ function PanelTab(props: IDockviewPanelHeaderProps<PanelParams>) {
   return <DockviewDefaultTab {...props} title={undefined} data-tooltip={panel ? functionHelp(panel) : props.params.code} />;
 }
 
-/** The one thing on screen that says a page can hold more than one panel.
- *
- *  It copies the panel it sits on -- same function, same symbol, beside
- *  it, which is the split a terminal reader wants most (one chart, two
- *  symbols) and needs no empty state to design. It goes through the
- *  shell rather than adding a panel here: on a page that is an address,
- *  splitting is what MOVES the reader to a layout, and only the shell
- *  knows that. The title carries the keyboard way, so the button teaches
- *  the shortcut. */
+/** Copies the panel it sits on -- same function, same symbol, beside it.
+ *  It goes through the shell rather than adding a panel here: on a page
+ *  that is an address, splitting MOVES the reader to a layout, and only
+ *  the shell knows that. The title carries the keyboard shortcut. */
 function AddPanel(props: IDockviewHeaderActionsProps) {
   const split = useContext(SplitContext);
   const active = props.group.activePanel;
@@ -245,9 +229,8 @@ export function Workspace(props: WorkspaceProps) {
     apiOut.current?.(event.api);
     event.api.onDidActivePanelChange((change) => activeRef.current?.(change.panel?.id ?? null));
     // A saved layout is restored whole -- sizes, splits and the active
-    // panel -- because those are exactly what an address could not carry.
-    // Only dockview can say whether a stored document loads, so this is
-    // where a page-level failure is caught (spec, "Kararlar" 9).
+    // panel. Only dockview can say whether a stored document loads, so
+    // this is where a page-level failure is caught.
     const stored = initialRef.current;
     if (stored !== undefined) {
       try {

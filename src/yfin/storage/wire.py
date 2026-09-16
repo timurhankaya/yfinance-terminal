@@ -1,14 +1,7 @@
 """How a stored column arrives on the wire.
 
-The wire type, not the SQL type: a caller does not care that a price is
-Numeric(28,12), only that it arrives as a string it must not parse as a
-float.
-
-This lives under `storage/` rather than in `api/` because two documents
-describe the same columns and must not disagree about them: the API's
-dataset catalogue, and the change-event schema, which describes rows the
-pipeline publishes for tables the API may not serve at all. A second copy
-of the mapping would be a second answer to one question.
+Under `storage/`, not `api/`: the API's dataset catalogue and the
+change-event schema describe the same columns and must not disagree.
 """
 
 from __future__ import annotations
@@ -24,12 +17,7 @@ from sqlalchemy import types as sqltypes
 def wire_type(column: Column[Any]) -> str:
     """The JSON shape of one column, or a refusal.
 
-    An unknown type raises, and it raises at import like every other bad
-    declaration in the catalogue. The alternative -- emitting "unknown", or
-    500ing on the first request to /v1/datasets -- would publish a column
-    shape nobody had checked. Today the exposed tables use eleven types and
-    none of them is JSONB, ARRAY or bytea; the first one that is should stop
-    the process, not reach a client.
+    An unknown type raises at import, so an unchecked column shape never reaches a client.
     """
     kind = column.type
     if isinstance(kind, sqltypes.Boolean):

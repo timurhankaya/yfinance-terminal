@@ -45,15 +45,9 @@ def aapl() -> Any:
 
 class TestCrunchbaseFilter:
     def test_symbolless_rows_are_dropped(self, aapl: Any) -> None:
-        """Regression guard.
-
-        The `include_cb=True` default returns Crunchbase private-company
-        records: `{index, name, permalink, isYahooFinance}` -- no `symbol`.
-        yfinance's `.quotes` property filters these out, but this code uses
-        the raw `.response` body. A blind `q["symbol"]` would raise
-        KeyError; writing it with `.get()` would try to insert NULL into
-        the PK.
-        """
+        """`include_cb=True` returns Crunchbase records with no `symbol`; this code uses
+        the raw `.response` body, not the filtered `.quotes`, so a blind `q["symbol"]` would
+        raise and `.get()` would insert NULL into the PK."""
         payload = _payload("search_AAPL", "AAPL")
         symbolless = [q for q in payload.quotes if "symbol" not in q]
         assert symbolless, "fixture must include a row without a symbol"
@@ -117,12 +111,8 @@ class TestListsTwoShapes:
 
 class TestNews:
     def test_update_scope_is_narrow(self) -> None:
-        """Regression guard.
-
-        Search news shares the same PK as `Ticker.news` but has a narrower
-        body: 8 keys versus 17. A blind upsert would null out
-        `summary`/`description`.
-        """
+        """Search news shares `Ticker.news`'s PK but has a narrower body; a blind upsert
+        would null out `summary`/`description`."""
         from yfin.datasets.discovery.search import NEWS_UPDATE
         from yfin.datasets.news import _NEWS_UPDATE
 
@@ -177,13 +167,8 @@ class TestFreeTextQuery:
 
 class TestGateScope:
     def test_ungated_tables_are_declared(self) -> None:
-        """Regression guard.
-
-        Four tables do not carry `query_term`; if they were on the gated
-        side, `gate_row` would return the wrong row and the gate write
-        would raise a KeyError. `research_reports` was added to this list
-        during an audit -- the original design counted only three.
-        """
+        """Four tables do not carry `query_term`; on the gated side `gate_row` would return
+        the wrong row and the gate write would raise a KeyError."""
         assert {"symbols", "news", "news_symbols", "research_reports"} == UNGATED_TABLES
 
     def test_gated_tables_all_carry_gate_columns(self, aapl: Any) -> None:

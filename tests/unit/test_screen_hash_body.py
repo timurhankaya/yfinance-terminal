@@ -1,11 +1,6 @@
-"""`screen_runs.content_hash` covers only the roster, not the quotes.
-
-This file exists solely to prevent a regression. If quote metrics entered
-the hash body, `regularMarketPrice` moving on every run would mean the
-hash never matches, `skipped` would never be produced, and the gate
-mechanism would silently die -- unnoticed, because the observed result
-would be "every row rewritten every day", which looks correct.
-"""
+"""`screen_runs.content_hash` covers only the roster, not the quotes: a moving
+`regularMarketPrice` in the hash body would mean it never matches, and the gate would
+silently die while looking correct."""
 
 from __future__ import annotations
 

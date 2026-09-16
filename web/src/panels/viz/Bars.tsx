@@ -1,10 +1,7 @@
 // Categorical bars: a value per period, one or more series, on a shared
-// zero baseline.
-//
-// Zero is always in the domain, and that is the whole point of a bar --
-// its length IS the value, so a chart whose axis starts at the smallest
-// bar draws a loss as a short rise. `lightweight-charts` is not this: it
-// draws time, and a fiscal quarter is a category rather than an instant.
+// zero baseline. Zero is always in the domain: a bar's length IS the
+// value, so an axis starting at the smallest bar draws a loss as a short
+// rise. `lightweight-charts` draws time, and a quarter is a category.
 import type { ReactElement } from "react";
 import { useChartSize } from "./useChartSize";
 import { seriesColors } from "./colors";
@@ -191,7 +188,7 @@ export function Bars(props: BarsProps): ReactElement | null {
 }
 
 /** A legend key. An `<svg>` rather than a styled `<span>`: colour goes on
- *  a `fill` attribute, and `web/src` writes no `style` (Decision 6). */
+ *  a `fill` attribute, and `web/src` writes no `style`. */
 export function Swatch({ colour }: { colour: string }): ReactElement {
   return (
     <svg className="viz-swatch" viewBox="0 0 10 10" aria-hidden="true">

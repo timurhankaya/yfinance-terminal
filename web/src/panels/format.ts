@@ -1,9 +1,7 @@
-// The formatting primitives the tables and the panels share.
-//
-// They live here, not inside a panel: `table.tsx` is the generic typed
-// table every dataset renders through, and a dependency from the engine
-// onto one concrete panel (DES) would mean deleting or renaming that
-// panel breaks the engine, `FA` and `ANR` with it.
+// The formatting primitives the tables and the panels share. Here rather
+// than inside a panel: `table.tsx` is the generic typed table, and a
+// dependency from it onto one concrete panel would couple the engine to
+// that panel's existence.
 import type { Row } from "../api/client";
 
 /** A fixed locale: the terminal reads the same on a tr-TR machine as on

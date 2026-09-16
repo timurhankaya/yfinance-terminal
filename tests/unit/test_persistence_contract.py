@@ -1,9 +1,5 @@
-"""Verifies dataset write logic is independent of the database.
-
-None of the tests in this file touch a real database. That is possible
-because `Dataset.upsert` now depends on the `RowWriter` protocol rather
-than a SQLAlchemy Session (SRP/DIP separation).
-"""
+"""Dataset write logic without a database: `Dataset.upsert` depends on the `RowWriter`
+protocol rather than a SQLAlchemy Session."""
 
 from __future__ import annotations
 
@@ -165,11 +161,8 @@ def _valid_key_sets(table_name: str) -> list[set[str]]:
 
 
 def _resolve_key_columns(node: Any, module: Any) -> tuple[str, ...] | None:
-    """Resolve column names from an AST node; None if it cannot be resolved.
-
-    A plain tuple, a reference to a module constant, and a starred
-    expansion (`(*GATE_KEY, "item_key")`) are supported -- the latter two
-    are where static scanning alone falls short.
+    """Resolve column names from an AST node; None if it cannot be resolved. A plain tuple,
+    a module constant reference and a starred expansion (`(*GATE_KEY, "item_key")`) resolve.
     """
     import ast
 
@@ -198,17 +191,9 @@ def _resolve_key_columns(node: Any, module: Any) -> tuple[str, ...] | None:
 
 
 def test_every_declared_key_matches_a_real_unique_constraint() -> None:
-    """`ON CONFLICT (cols)` requires an exact set match.
-
-    Both a subset and a superset raise "there is no unique or exclusion
-    constraint matching the ON CONFLICT specification" (order does not
-    matter; measured). MySQL's `ON DUPLICATE KEY UPDATE` never checked its
-    target, so this constraint is new.
-
-    Without this invariant, a dataset added with the wrong `key_columns`
-    would only blow up in production -- and only show up in tests if that
-    dataset happened to have a fixture. This test needs no fixture.
-    """
+    """`ON CONFLICT (cols)` requires an exact set match: subset and superset both raise "no
+    unique or exclusion constraint matching". A dataset with the wrong `key_columns` would
+    otherwise only blow up in production; this needs no fixture."""
     import ast
     import importlib
     from pathlib import Path
@@ -247,36 +232,19 @@ def test_every_declared_key_matches_a_real_unique_constraint() -> None:
                 )
 
     assert not problems, problems
-    # Measured: 38 calls resolve statically, 34 do not (a tuple coming from
-    # a variable, a conditional branch, a dynamic table name). The
-    # thresholds are not loose: if coverage drops or the unresolved count
-    # grows, this goes red -- otherwise the invariant would weaken silently.
-    #
-    # One of the unresolved calls is deliberate: `datasets/bars.py` picks
-    # its table via `bars_table_for(interval)` (intraday -> price_bars,
-    # 1wk/1mo -> periodic_bars). That call cannot be resolved statically;
-    # instead, the test below proves the two tables share an identical PK,
-    # so `key_columns` stays valid whichever branch routing takes.
-    # Was 38 before the four snapshot datasets stopped writing their
-    # TableWrite pairs out by hand. Those eight calls are not unaudited --
-    # `test_every_snapshot_pair_matches_a_real_unique_constraint` below
-    # checks the same thing about them, and does it against the class
-    # attributes the writes are now built from, which is the pair that has
-    # to agree for the gate to look at the right table at all.
+    # The thresholds are not loose: coverage dropping or the unresolved count growing goes
+    # red, or the invariant would weaken silently. `datasets/bars.py` picks its table via
+    # `bars_table_for(interval)` and cannot be resolved statically; the test below proves
+    # both tables share a PK. Snapshot writes built from class attributes are covered by
+    # `test_every_snapshot_pair_matches_a_real_unique_constraint`.
     assert checked >= 30, f"number of audited calls DROPPED: {checked}"
     assert len(unresolved) <= 34, f"number of unresolved calls GREW: {unresolved}"
 
 
 def test_both_bar_tables_share_the_same_primary_key() -> None:
-    """The validity of `bars_table_for` routing relies on this.
-
-    `datasets/bars.py` can write to two tables (price_bars / periodic_bars)
-    with one `key_columns`. If their PKs diverged, `ON CONFLICT` would blow
-    up on one branch with "no unique or exclusion constraint matching" --
-    and only when that interval runs, i.e. late. Static scanning cannot
-    resolve the dynamic table name, so the invariant is guarded here
-    instead.
-    """
+    """`datasets/bars.py` writes price_bars or periodic_bars with one `key_columns`; if
+    their PKs diverged, `ON CONFLICT` would fail on one branch only when that interval runs.
+    Static scanning cannot resolve the table name, so the invariant is guarded here."""
     from yfin.models import Base, bars_table_for
 
     pk = {
@@ -298,9 +266,8 @@ def test_the_daily_interval_resolves_to_its_own_table() -> None:
 
 
 def test_an_unknown_interval_RAISES_instead_of_guessing() -> None:
-    """This used to fall through to periodic_bars for anything it did not
-    recognise, so `bars_table_for("1d")` quietly named the wrong table:
-    no error, no warning, just a query against a different primary key."""
+    """Falling through to periodic_bars would quietly name a table with a
+    different primary key."""
     import pytest
 
     from yfin.models import bars_table_for
@@ -310,20 +277,9 @@ def test_an_unknown_interval_RAISES_instead_of_guessing() -> None:
 
 
 def test_every_snapshot_pair_matches_a_real_unique_constraint() -> None:
-    """The other half of the audit above, for writes built by `snapshot_writes`.
-
-    Those four datasets used to spell their table names and key columns out
-    as literals inside `normalize`, where the static scan could read them.
-    They now come from the class attributes instead -- which is the point,
-    since `snapshot_upsert` looks the content hash up in
-    `dataset.snapshot_table` and a literal that drifted from it would leave
-    the gate comparing against a table nobody writes.
-
-    So the check moves with them: the snapshot key must be a real
-    constraint on the snapshot table, and the same key plus `fetched_at` a
-    real constraint on the history table. That second one is the rule the
-    helper encodes, and it is worth proving rather than trusting.
-    """
+    """The other half of the audit above, for writes built by `snapshot_writes` from class
+    attributes: the snapshot key must be a real constraint on the snapshot table, and the
+    same key plus `fetched_at` a real constraint on the history table."""
     import yfin.datasets  # noqa: F401  - registers everything
     from yfin.datasets.market.base import SnapshotGlobalDataset
     from yfin.datasets.registry import MARKET_DATASETS, SYMBOL_DATASETS

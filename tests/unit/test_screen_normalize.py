@@ -69,7 +69,7 @@ class TestScreenMetadata:
 
     def test_custom_screen_falls_back_to_screendef(self) -> None:
         """A custom screen's first page is also a POST and carries no
-        metadata (measured: 5 keys). `ScreenDef` speaks instead."""
+        metadata. `ScreenDef` speaks instead."""
         result = ScreenerDataset().normalize(_payload("tr_equity_p0", key="tr_equity"))
         screen = _rows(result, "screens")[0]
         assert screen["title"] == "BIST Equities"
@@ -113,7 +113,7 @@ class TestQuoteProjection:
         values = [
             r["ipo_expected_date"] for r in _rows(result, "screen_quotes") if r["ipo_expected_date"]
         ]
-        if values:  # field is ~6% populated; test is moot if absent here
+        if values:  # sparsely populated; test is moot if absent here
             assert all(hasattr(v, "year") for v in values)
 
 

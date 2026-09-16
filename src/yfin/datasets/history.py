@@ -23,7 +23,7 @@ CACHE_HISTORY = "history_df"
 
 log = get_logger(__name__)
 
-# Measured once; unchanged for the process lifetime.
+# Probed once; unchanged for the process lifetime.
 _REPAIR_AVAILABLE: bool | None = None
 
 _ZERO = Decimal(0)
@@ -57,37 +57,18 @@ UPDATE_COLUMNS = (
 # is_repaired is never written BACK to False; it only moves 0 -> 1.
 MONOTONIC_COLUMNS = ("is_repaired",)
 
-# Excluded from the change-event distinctness predicate, and MEASURED into
-# this list rather than guessed at.
-#
-# Yahoo recomputes the back-adjusted close on every call and returns a
-# slightly different float each time: 0.098122388124 then 0.098122373223 for
-# the same 1980 session, a drift in the eighth significant digit. Nothing
-# about the day changed. Without this, a settled daily sync of AAPL alone
-# published ~9,600 `update` events -- its entire history, every night -- and
-# the count moved run to run because the noise does
-# (docs/measurements/database.md, "Change-event volume").
-#
-# The column is still WRITTEN: volatile means "excluded from the predicate",
-# and the writer touches it separately, so the archive keeps the newest
-# value. What a consumer loses is notification of an adj_close-only change,
-# which is what a dividend does to every historical row. The remedy for a
-# consumer that needs it is to recompute from `close`, `dividend` and
-# `split_ratio` -- all of which it receives -- or to re-read the span from
-# the API.
+# Excluded from the change-event distinctness predicate, still written.
+# Yahoo recomputes `adj_close` with float noise on every call, which would
+# otherwise publish an `update` event for every historical row each night.
+# A consumer can recompute it from `close`, `dividend` and `split_ratio`.
 VOLATILE_COLUMNS = (*CONTRACT_VOLATILE_COLUMNS, "adj_close")
 
 
 def repair_enabled() -> bool:
     """Repair requested AND the [repair] extra installed?
 
-    yfinance LAZILY imports scipy.ndimage and sklearn.cluster.DBSCAN in its
-    repair heuristics (scrapers/history.py:820, 1338). If the extra is
-    missing, the call fails with ModuleNotFoundError, which fails
-    `history` + `dividends` + `splits` + `capital_gains` cells all at once
-    for every symbol -- price_history never gets written at all. A working
-    run without repair is preferred over a total data outage; the gap is
-    logged once, VISIBLY.
+    yfinance imports scipy/sklearn lazily inside repair; a missing extra
+    would fail every history-fed cell, so a run without repair is preferred.
     """
     if not get_settings().yf_history_repair:
         return False
@@ -110,9 +91,7 @@ def repair_enabled() -> bool:
 def frame_consumers() -> dict[str, tuple[str, str]]:
     """(dataset -> table, date column) for every consumer of the shared frame.
 
-    Collected from the registry, not from a list kept here: a dataset that
-    starts consuming the frame declares `shared_frame_watermark` on itself
-    and is picked up with nothing else to remember.
+    Collected from the registry via `shared_frame_watermark` declarations.
     """
     return {
         name: mark
@@ -221,12 +200,9 @@ class HistoryDataset(Dataset[FramePayload]):
                 "dividend": _ZERO,
                 "split_ratio": _ZERO,
                 "capital_gain": _ZERO,
-                # Kept in a FIXED dict, NOT put in _COLUMN_MAP: the generic
-                # loop would process it with to_decimal in the `else` branch
-                # and write a Decimal into a BOOLEAN column. Also, since it's
-                # present in every row here, it never enters the `present`
-                # intersection; if it did, a run where the column is absent
-                # would also drop it from the ON DUPLICATE KEY UPDATE scope.
+                # Not in _COLUMN_MAP: the generic loop would write a Decimal
+                # into a BOOLEAN column, and it must stay in the update
+                # scope even on a run where the source column is absent.
                 "is_repaired": bool(nz.to_bool(record.get("Repaired?"))),
             }
             for src, dst in present.items():

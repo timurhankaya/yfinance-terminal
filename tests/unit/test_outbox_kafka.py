@@ -1,14 +1,7 @@
-"""Topic naming, delivery tracking and the publish contract.
-
-No broker here: what these cover is the logic that decides where a message
-goes and whether the relay is allowed to move on. The end-to-end path is
-exercised in tests/repo against a real broker.
-
-Two outboxes drive the same code, so the spec's own vocabulary is under
-test too: the tick spec must produce exactly what it produced before the
-extraction, and a spec that asks for the dedupe header must be the only one
-that sends it.
-"""
+"""Topic naming, delivery tracking and the publish contract, without a broker (the
+end-to-end path lives in tests/repo). Two outboxes drive the same code: the tick spec must
+produce what it did before the extraction, and only a spec asking for the dedupe header
+sends it."""
 
 from __future__ import annotations
 

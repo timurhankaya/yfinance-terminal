@@ -234,13 +234,9 @@ class TestGateSource:
     """The gate row's stamp has a declared origin, not a positional one."""
 
     def test_the_declared_table_is_used_even_when_another_comes_first(self) -> None:
-        """The bug this replaced.
-
-        `_gate_write` took the first row in `writes` order, so a dataset
-        that put another table first produced its gate row from the wrong
-        one -- a wrong `as_of_date` written silently, after which the gate
-        compares against it forever and reports "unchanged".
-        """
+        """`_gate_write` must not take the first row in `writes` order: a dataset that puts
+        another table first would write a wrong `as_of_date`, and the gate would compare
+        against it forever."""
         dataset = Holders()
         result = NormalizedResult(
             writes=[
@@ -313,13 +309,9 @@ def test_every_registered_asof_dataset_declares_tables_it_writes() -> None:
 
 
 def test_full_refresh_writes_the_data_even_when_the_hash_matches() -> None:
-    """What `--full-refresh` could not do before.
-
-    The flag only zeroed the watermark, and `asof_base` never looked at it:
-    a symbol whose data rows were lost while its `asof_state` row survived
-    refetched from Yahoo, matched the stored hash, reported `skipped`, and
-    wrote nothing -- run after run, with the flag on.
-    """
+    """`--full-refresh` must bypass the stored hash: a symbol whose data rows were lost
+    while its `asof_state` row survived would otherwise match, report `skipped` and write
+    nothing."""
     rows = _rows("Vanguard")
     writer = FakeWriter({(GATE_TABLE, "AAPL|institutional_holders"): _hash(rows)})
     stats = Holders().upsert(writer, _result(rows), full_refresh=True)

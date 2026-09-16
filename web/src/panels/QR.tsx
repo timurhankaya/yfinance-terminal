@@ -1,15 +1,8 @@
-// QR: time and sales. The archive's last few hundred ticks, and then
-// whatever the socket says, in one list.
-//
-// One row shape for both halves. `/ui/api/.../ticks` returns exactly the
-// body the socket sends, from the same field table, so the opening page
-// and the live rows are indistinguishable once rendered -- there is no
-// seam at the join, and no second formatter to keep in step.
-//
-// A break line marks where this page lost its socket. Ticks that arrived
-// during an outage were never delivered and are not backfilled: the tape
-// is what this connection saw, and a silent join across a gap would read
-// as a quiet market.
+// QR: time and sales. The archive's last few hundred ticks, then the
+// socket, in one list. `/ui/api/.../ticks` returns exactly the body the
+// socket sends, so there is one row shape and one formatter. A break line
+// marks where this page lost its socket: ticks missed during an outage
+// are not backfilled, and a silent join would read as a quiet market.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getTicks, TICKS_DEFAULT } from "../api/client";
 import { useLinkState, useLiveEnabled, useTape } from "../live/hooks";

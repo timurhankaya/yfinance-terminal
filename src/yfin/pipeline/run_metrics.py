@@ -1,12 +1,7 @@
-"""Getting a shard's counters into `run_metrics`.
+"""Getting a shard's counters into `run_metrics` for the exporter.
 
-A shard is a short-lived process: it exits long before any scrape could
-reach it, so its counters go into memory and are written here on the way
-out. The exporter reads the table and turns it into gauges.
-
-Written in its OWN short transaction, after the symbol transactions are
-done. A metrics failure must not roll back data, and it must not be able to
-fail a run either: `flush` swallows its own errors and says so in the log.
+Written in its own short transaction after the symbol transactions: a
+metrics failure must neither roll back data nor fail the run.
 """
 
 from __future__ import annotations
@@ -28,9 +23,7 @@ def flush(
 ) -> int:
     """Writes this process's counters. Returns the number of rows.
 
-    `ON CONFLICT DO UPDATE` rather than plain INSERT: a shard that somehow
-    flushed twice should leave the value it last held, not fail the process
-    on a primary-key violation at the very end of a successful run.
+    `ON CONFLICT DO UPDATE`: a second flush must not fail the run at its end.
     """
     accumulator = accumulator or current_accumulator()
     if accumulator is None:

@@ -1,11 +1,4 @@
-"""`datasets/` must not depend on SQLAlchemy.
-
-The claim "the dataset layer talks to storage through a protocol" is only
-worth something if it is enforced. It was not: `market/base.py` took a
-`sqlalchemy.orm.Session` in the `variants()` contract and `screener.py`
-ran its own SELECT, so the boundary held everywhere except the one place
-that mattered.
-"""
+"""`datasets/` must not depend on SQLAlchemy; the layer talks to storage through a protocol."""
 
 from __future__ import annotations
 
@@ -17,14 +10,9 @@ from yfin.storage.variants import ScreenVariantState
 
 DATASETS = pathlib.Path(__file__).resolve().parents[2] / "src" / "yfin" / "datasets"
 
-#: Storage modules a dataset may not reach for.
-#:
-#: `contracts` is the protocol the boundary is stated in, and the eight
-#: `models.*` constant modules datasets import carry field and kind names
-#: rather than machinery, so both stay allowed. These three are the
-#: machinery: the SQL the writer emits, where a row's event is routed, and
-#: how one is captured. A dataset that imported any of them would be
-#: deciding how it is written, which is the storage layer's decision.
+#: Storage modules a dataset may not reach for: the SQL the writer emits, where a row's
+#: event is routed, and how one is captured. `contracts` (the protocol) and the `models.*`
+#: constant modules stay allowed.
 FORBIDDEN_MODULES = (
     "yfin.storage.persistence",
     "yfin.storage.routing",
@@ -65,13 +53,8 @@ def test_no_dataset_module_imports_sqlalchemy() -> None:
 
 
 def test_no_dataset_module_imports_the_write_machinery() -> None:
-    """The protocol is the boundary; the implementation behind it is not.
-
-    Stated as three named modules rather than "anything under storage"
-    because `storage.contracts` is exactly what a dataset is supposed to
-    import -- the rule has to be able to say which side of the line each
-    module is on.
-    """
+    """Three named modules rather than "anything under storage": `storage.contracts` is
+    exactly what a dataset is supposed to import."""
     offenders = [
         f"{p.relative_to(DATASETS)}: {module}"
         for p in DATASETS.rglob("*.py")
@@ -81,13 +64,7 @@ def test_no_dataset_module_imports_the_write_machinery() -> None:
 
 
 def test_the_storage_implementation_satisfies_the_protocol() -> None:
-    """A structural protocol is only a contract if something is checked
-    against it; nothing else in the codebase would catch a rename.
-
-    There used to be a second implementation here, `NoVariantState`, a null
-    object standing for "no database". It was never constructed outside
-    this test: `GlobalDataset.variants` takes `VariantState | None` and
-    already treats None as "nothing disabled", so the null object was a
-    second spelling of the same case."""
+    """A structural protocol is only a contract if something is checked against it; nothing
+    else in the codebase would catch a rename."""
     checked: list[VariantState] = [ScreenVariantState(None)]  # type: ignore[arg-type]
     assert all(hasattr(state, "disabled_variants") for state in checked)

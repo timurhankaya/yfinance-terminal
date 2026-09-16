@@ -1,11 +1,7 @@
 """earnings_history dataset.
 
-Not as-of: the source returns a quarter end. `quarter_end` is taken from a
-tz-naive Timestamp via `.date()` with no timezone conversion -- a fiscal
-quarter is a calendar label, not an instant.
-
-The source returns exactly four quarters per symbol (measured (4, 4) on
-17 symbols); `--start` does not extend that history, it only filters rows.
+Not as-of: `quarter_end` is a calendar label taken via `.date()` with no tz
+conversion. The source caps history at four quarters; `--start` only filters.
 """
 
 from __future__ import annotations

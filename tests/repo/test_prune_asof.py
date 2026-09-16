@@ -1,12 +1,7 @@
 """As-of pruning. Real PostgreSQL.
 
-The one special rule here is "keep the latest day", for a mechanical reason:
-even if the data row is deleted, the `asof_state` gate row stays, so the next
-run finds the hash unchanged, the dataset says `skipped`, and nothing gets
-written. If the latest day were deleted, the loss would be permanent even
-while the source still has the data. The last test in this file runs exactly
-that scenario.
-"""
+"Keep the latest day" exists because the `asof_state` gate row survives the data
+row: the next run sees the hash unchanged, says `skipped`, and rewrites nothing."""
 
 from __future__ import annotations
 
@@ -94,18 +89,9 @@ def test_gate_table_is_never_pruned() -> None:
 
 
 def test_asof_table_count_matches_the_sixteen_as_of_tables() -> None:
-    """Discovery tables have their own gate family, separate from this count.
-
-    `asof_table_datasets` filters by gate table; `search`/`lookup` are also
-    `AsOfGate` but do not count here. Without the filter this count would
-    jump from 16 to 26, and `prune_asof(asof_state)` would try to prune
-    discovery tables using the wrong gate.
-
-    Fourteen until `option_expirations` and `option_quotes` joined them
-    (2026-09-08). Nothing was configured for them: the table list is
-    derived from the dataset's base class, so an as-of table is pruned by
-    being one -- which is the retention an option chain wants, since only
-    the recent surface is read and the newest day is always kept.
+    """`asof_table_datasets` filters by gate table: `search`/`lookup` are also
+    `AsOfGate` but have their own gate family, and `prune_asof(asof_state)`
+    must not prune them.
     """
     assert len(asof_table_datasets()) == 16
 
@@ -170,12 +156,10 @@ def test_report_total_includes_asof(db_session: Session, symbol: str) -> None:
 
 
 def test_pruning_the_latest_day_would_be_permanent(db_session: Session, symbol: str) -> None:
-    """Why the rule exists: because the gate never reopens, deleted data never comes back.
+    """Because the gate never reopens, deleted data never comes back.
 
-    The latest day is deleted by hand here and the same content re-synced.
-    Since the hash is unchanged, the dataset says `skipped` and the table
-    stays empty -- exactly what would happen if `prune_asof` did not
-    protect the latest day.
+    The latest day is deleted by hand and the same content re-synced; the
+    hash is unchanged, so the dataset says `skipped` and the table stays empty.
     """
     _write_day(db_session, NOW, ["A", "B"])
     db_session.execute(text(f"DELETE FROM {TABLE} WHERE symbol = :s"), {"s": symbol})
@@ -208,11 +192,8 @@ def test_prune_asof_leaves_the_gate_row_intact(db_session: Session, symbol: str)
 class TestSharedTableProtection:
     """`institutional_holders` is written by two datasets.
 
-    If `mutualfund_holders`'s latest day is older than `institutional_holders`'s,
-    a protection computed via `GROUP BY symbol` alone would leave it unprotected
-    and delete its one, most-recent row. The loss is permanent: since the
-    `asof_state` gate row is not deleted, the next run finds the hash
-    unchanged, says `skipped`, and writes nothing.
+    A protection computed via `GROUP BY symbol` alone would leave the older
+    dataset's latest row unprotected, and the loss is permanent.
     """
 
     MUTUAL = SYMBOL_DATASETS["mutualfund_holders"]

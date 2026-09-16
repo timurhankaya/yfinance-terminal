@@ -1,25 +1,8 @@
 """Discovery tables: Search, Lookup, Screener.
 
-Ten tables in three groups:
-
-1. Gate -- `discovery_asof_state`. `asof_state` cannot be reused: its
-   `symbol` column is `symbol_fk_column`, carrying an ON DELETE RESTRICT
-   FK to `symbols.symbol`. A free-text term (`"Turkish Airlines"`) is
-   not in `symbols`, so the gate row would hit an FK violation (23503).
-   Domain hit the same wall and opened `domain_asof_state` for it.
-
-2. Search / Lookup -- term-scoped, as-of. Keyed on `query_term`, not
-   `symbol`: one search term's result carries multiple symbols.
-
-3. Screener -- `screen_runs` (gate + data), `screen_members` (child),
-   and `screen_quotes` (independent of any screen).
-
-Symbol columns carry no FK: discovery datasets return symbols outside
-the universe by definition. An FK would roll back a cell's entire data
-whenever a `symbols` write failed for any reason -- same reasoning as
-news_symbols (models/news.py:45-51). Since there is no FK, every symbol
-column gets an explicit index.
-"""
+`discovery_asof_state` is separate from `asof_state` because a free-text
+term is not in `symbols` and would fail the FK. Symbol columns carry no FK
+(discovery returns symbols outside the universe) and are indexed instead."""
 
 from __future__ import annotations
 
@@ -57,20 +40,12 @@ from yfin.models.columns import make_column
 from yfin.models.domains import REPORT_ID_LENGTH
 from yfin.models.fields import SCREENER_QUOTE_FIELDS
 
-# Free-text search term. Its length matches `SYMBOL_LENGTH` by necessity,
-# not preference: the term is also written to `sync_run_items.symbol`
-# (= `SymbolType()`) as an audit record. A wider limit was tried and
-# overflowed (22001) -- after the data was already written, at
-# `write_items`, the latest possible point in the run.
-#
-# An earlier design used 64 and assumed the audit record would truncate
-# it; truncation was never implemented, and the two constants drifting
-# apart hid the bug. One shared constant makes the class of bug
-# structurally impossible.
+# Free-text search term. Must equal `SYMBOL_LENGTH`: the term is also
+# written to `sync_run_items.symbol` (`SymbolType()`) as an audit record,
+# and a wider term overflows there after the data is already written.
 QUERY_TERM_LENGTH = SYMBOL_LENGTH
 
 # `slug` for `ALGO_WATCHLIST`, `canonicalName` for `PREDEFINED_SCREENER`.
-# Measured max: `most-bought-by-activist-hedge-funds` = 35.
 LIST_KEY_LENGTH = 128
 
 # `lookupTotals` reports nine types; the `LOOKUP_TYPES` constant lists
@@ -143,11 +118,8 @@ class DiscoveryAsOfState(Base):
 class SearchQuote(Base):
     """`Search.quotes` -- symbols returned by a term.
 
-    Rows without a symbol never enter this table: the `include_cb=True`
-    default also returns Crunchbase private-company records
-    (`{index, name, permalink, isYahooFinance}`), and normalize filters
-    them out.
-    """
+    Rows without a symbol never enter this table: `include_cb=True` also
+    returns Crunchbase private-company records, which normalize drops."""
 
     __tablename__ = "search_quotes"
     __table_args__ = (Index("ix_search_quotes_symbol", "symbol"),)
@@ -159,7 +131,6 @@ class SearchQuote(Base):
     # 0-based order in the response. The source's own ordering is a
     # score; rows without a symbol are numbered after being filtered out.
     rank_index: Mapped[int] = mapped_column(SmallInteger, nullable=False)
-    # Measured range 12.2 - 16,067,500.0.
     score: Mapped[Decimal | None] = mapped_column(PriceType())
     quote_type: Mapped[str | None] = mapped_column(String(32, collation="C"))
     type_disp: Mapped[str | None] = mapped_column(String(64, collation="C"))
@@ -186,18 +157,9 @@ class SearchQuote(Base):
 class SearchList(Base):
     """`Search.lists` -- a block with two shapes.
 
-    `list_type` discriminates: `ALGO_WATCHLIST` (12 keys, `slug`+`pfId`)
-    vs. `PREDEFINED_SCREENER` (9 keys, `canonicalName`+`total`). Only four
-    fields are shared; separate tables would duplicate those. Follows the
-    codebase's own rule for related-but-non-identical shapes (one table +
-    an ENUM discriminator), the same pattern as
-    institutional_holders+mutualfund_holders.
-
-    No membership row: the block carries no symbol. But it is not "just a
-    count" either -- the row carries the identity needed to resolve
-    membership (`pfId`+`userId` or `canonicalName`). It is out of scope
-    because of cost (a second request), not absence of data.
-    """
+    `list_type` discriminates `ALGO_WATCHLIST` (`slug`+`pfId`) from
+    `PREDEFINED_SCREENER` (`canonicalName`+`total`). No membership row:
+    resolving membership would cost a second request."""
 
     __tablename__ = "search_lists"
 
@@ -230,11 +192,8 @@ class SearchList(Base):
 class SearchReportHit(Base):
     """Term <-> report link.
 
-    Sibling of `domain_report_links`. Carries an FK here, unlike symbol
-    columns: `report_id` is not a symbol, so there is no out-of-universe
-    problem, and the parent row is written in the same transaction,
-    before the gated writes.
-    """
+    Sibling of `domain_report_links`. Carries an FK, unlike symbol columns:
+    `report_id` is not a symbol and the parent row is written first."""
 
     __tablename__ = "search_report_hits"
 
@@ -262,8 +221,7 @@ class LookupResult(Base):
     # 0-based order in the response.
     rank_index: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     # The source's own `rank_index` field -- not an order but Yahoo's
-    # ranking score (measured example 30007). A shared name would
-    # collide with `rank_index` above.
+    # ranking score. A shared name would collide with `rank_index` above.
     source_rank: Mapped[int | None] = mapped_column(Integer)
     # Which call this came from. Required because of the adaptive call
     # strategy: the same symbol can be returned by both `equity` and
@@ -290,28 +248,17 @@ class LookupResult(Base):
 class LookupTotal(Base):
     """`lookupTotals` -- carries the completeness evidence.
 
-    Comes free in the same response. The gap between `total` and the
-    actual document count documents truncation: measured, `GOLD`'s
-    `lookupTotals.all` reported 7,273 while `documents` returned 995.
-    This same gap is the signal that triggers the adaptive call branch.
-    """
+    The gap between `total` and the actual document count documents
+    truncation and triggers the adaptive call branch."""
 
     __tablename__ = "lookup_totals"
 
     query_term: Mapped[str] = _query_term_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
-    # Deliberately not normalized. COLLATE "C", like every other key
-    # column here.
-    #
-    # The value is exactly Yahoo's response dict key
-    # (`raw.totals.items()`: 'equity', 'mutualfund', 'privateCompany').
-    # `.lower()` is not applied, for two reasons:
-    #   1. `privateCompany` is camelCase; lowercasing it breaks the
-    #      source identifier and any code matching on that key.
-    #   2. The behavior difference is visible, not silent: a source
-    #      reporting 'Equity' one day creates a second row under "C" and
-    #      the mismatch shows up in an audit, instead of silently
-    #      updating the same row. A loud failure is the intended tradeoff.
+    # Not normalized: the value is exactly Yahoo's response dict key
+    # (`privateCompany` is camelCase). A source spelling change creates a
+    # second row under "C" and shows up in an audit rather than silently
+    # updating the same row.
     lookup_type: Mapped[str] = mapped_column(
         String(LOOKUP_TYPE_LENGTH, collation="C"), primary_key=True
     )
@@ -325,11 +272,8 @@ class LookupTotal(Base):
 class Screen(Base):
     """A screen's static identity -- sibling of the `domains` table.
 
-    Seeded from the `ScreenDef` set in `screens.py`. That file is the
-    source of the definition; this table's `is_enabled` column is the
-    source of runtime activity -- once an operator disables it in the
-    DB, the file does not turn it back on.
-    """
+    Seeded from `ScreenDef` in `screens.py`; `is_enabled` here is the
+    runtime source, so the file does not re-enable a DB-disabled screen."""
 
     __tablename__ = "screens"
 
@@ -356,14 +300,9 @@ class Screen(Base):
 class ScreenRun(Base):
     """A screen's daily header -- both gate and data.
 
-    `HashGatedDataset`'s `financial_periods` pattern: the gate is itself
-    a data table, and the child (`screen_members`) is not written at all
-    when `content_hash` is unchanged.
-
-    `content_hash` covers only the roster. If quote metrics entered the
-    hash body, daily price movement would mean the hash never matched,
-    silently killing the mechanism.
-    """
+    `content_hash` covers only the roster: quote metrics move daily and
+    would make the hash never match. `screen_members` is not written at
+    all when the hash is unchanged."""
 
     __tablename__ = "screen_runs"
     __table_args__ = (Index("ix_screen_runs_date", "as_of_date"),)
@@ -390,12 +329,8 @@ class ScreenRun(Base):
 class ScreenMember(Base):
     """A screen's roster for the day -- the gate's child.
 
-    `replace_scope` is `(screen_key, as_of_date)`: when the roster
-    changes within a day (measured: `day_gainers` 122 -> 117), the day's
-    last run wins. A plain upsert would leave a symbol that appeared in
-    the morning and dropped by noon permanently, incorrectly, in that
-    day's roster.
-    """
+    `replace_scope` is `(screen_key, as_of_date)`: the day's last run wins,
+    so a symbol that dropped out intraday is not left in the roster."""
 
     __tablename__ = "screen_members"
     __table_args__ = (Index("ix_screen_members_symbol", "symbol"),)
@@ -412,16 +347,10 @@ class ScreenMember(Base):
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)
 
 
-# `screen_quotes` -- independent of any single screen.
-#
-# PK (symbol, as_of_date): a symbol appearing in five screens does not
-# get its 102 fields written five times. Not covered by the gate's
-# delete scope, deliberately -- a symbol's quote does not belong to one
-# screen, so dropping out of a roster does not delete its quote.
-#
-# 75 of the columns are generated from the same source keys as
-# `INFO_FIELDS`, so they share column names with `ticker_info` and the
-# two tables can be compared without a JOIN.
+# `screen_quotes` -- independent of any single screen: PK (symbol,
+# as_of_date), so a symbol in five screens is written once, and not in the
+# gate's delete scope, so leaving a roster does not delete the quote.
+# Columns generated from `INFO_FIELDS` keys share names with `ticker_info`.
 screen_quotes = Table(
     "screen_quotes",
     Base.metadata,

@@ -1,9 +1,5 @@
-"""The predefined screen set is derived from the library, not hand-written.
-
-Same reasoning as the rule for the `domain_key` set: don't silently drift
-the day the library adds or removes a screen. A hand-written list would
-only reveal that once someone noticed.
-"""
+"""The predefined screen set is derived from the library, not hand-written, so it cannot
+silently drift when the library adds or removes a screen."""
 
 from __future__ import annotations
 
@@ -17,12 +13,9 @@ def test_predefined_keys_match_library() -> None:
 
 
 def test_predefined_sort_matches_library() -> None:
-    """`sort_field` / `sort_asc` exactly match the library's definition.
-
-    Sort order is given explicitly. Deviating from the library's order
-    would make our roster differ from Yahoo's own screen, and
-    `screen_members.rank` would measure something else.
-    """
+    """`sort_field` / `sort_asc` exactly match the library's definition, or the roster
+    would differ from Yahoo's own screen and `screen_members.rank` would measure something
+    else."""
     for screen in PREDEFINED_SCREENS:
         spec = PREDEFINED_SCREENER_QUERIES[screen.key]
         assert screen.sort_field == spec["sortField"]

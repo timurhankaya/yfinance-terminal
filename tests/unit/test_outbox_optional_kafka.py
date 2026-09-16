@@ -1,14 +1,7 @@
-"""The Kafka extra has to stay optional, and only a test keeps it that way.
-
-CI installs `dev` and `api`, not `kafka`. So every one of these passes
-today by accident: a single top-level `import confluent_kafka` anywhere in
-`yfin.stream` would break `yfin stream run` for everyone who never asked
-for Kafka, and the failure would land at import time on a data-pipeline
-host that has no use for a broker.
-
-The import is deferred into `build_producer` / `existing_topics`
-deliberately, and that placement is what these tests pin.
-"""
+"""The Kafka extra has to stay optional: CI installs `dev` and `api`, not `kafka`, so a
+top-level `import confluent_kafka` anywhere in `yfin.stream` would break `yfin stream run`
+for everyone at import time. The import is deferred into `build_producer` /
+`existing_topics`, and that placement is what these pin."""
 
 from __future__ import annotations
 
@@ -44,15 +37,9 @@ def _is_stream_module(name: str) -> bool:
 
 @contextmanager
 def _without_confluent_kafka() -> Iterator[None]:
-    """Makes `import confluent_kafka` fail, the way a plain install does.
-
-    Also restores every `yfin.stream` module afterwards. These tests have
-    to re-import those modules to observe import-time behaviour, and a
-    re-imported module is a DIFFERENT object: an exception class defined
-    in it no longer matches the one another test imported at collection
-    time, so `pytest.raises(StreamDisabled)` stops matching and unrelated
-    tests fail. Found exactly that way -- two runner tests broke as soon
-    as this file joined the suite.
+    """Makes `import confluent_kafka` fail, and restores every `yfin.stream` module after.
+    A re-imported module is a different object: its exception classes stop matching the
+    ones other tests imported at collection time, so `pytest.raises(StreamDisabled)` breaks.
     """
     real_import = builtins.__import__
     hidden = {
@@ -123,12 +110,8 @@ def test_kafka_unavailable_is_importable_either_way() -> None:
 
 
 def test_no_stream_module_imports_confluent_kafka_at_module_level() -> None:
-    """Reads the source rather than relying on import order.
-
-    The deferred import is easy to 'tidy up' to the top of the file
-    during an unrelated change; this says out loud that it is placed
-    where it is on purpose.
-    """
+    """Reads the source rather than relying on import order: the deferred import is easy to
+    'tidy up' to the top of the file, and this says it is placed on purpose."""
     import inspect
 
     for module_name in STREAM_MODULES:

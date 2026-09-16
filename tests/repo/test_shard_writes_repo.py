@@ -96,11 +96,8 @@ class TestMonotonicRepairColumn:
 
 
 class _FakeDbapiError(Exception):
-    """Mimics the shape of `DBAPIError.orig`.
-
-    SQLAlchemy exposes the driver exception under `.orig`, and psycopg3
-    exceptions carry `.sqlstate`; classification looks at this, not the
-    error text.
+    """Mimics `DBAPIError.orig`: psycopg3 exceptions carry `.sqlstate`, and
+    classification looks at this rather than the error text.
     """
 
     def __init__(self, sqlstate: str) -> None:

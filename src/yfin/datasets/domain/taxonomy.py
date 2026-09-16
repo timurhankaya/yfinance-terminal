@@ -1,11 +1,7 @@
 """domain_taxonomy -- bootstrap dataset.
 
-Region-less and not as-of: a plain upsert. Name, description, symbol, and
-parent change a few times a year; taking a daily snapshot buys nothing.
-
-Runs in a single pass (`per_key = False`): 156 `symbols` rows and 156
-`domains` rows are written in one transaction -- the taxonomy is either
-consistent as a whole or not written at all.
+Region-less, plain upsert, single pass (`per_key = False`): the taxonomy
+is written in one transaction, consistent as a whole or not at all.
 """
 
 from __future__ import annotations
@@ -32,9 +28,8 @@ from yfin.storage.contracts import TableWrite
 
 log = get_logger(__name__)
 
-# Measured identical across all 6 domain symbols (a separate live
-# `fast_info` measurement; these fields are absent from the sector/industry
-# response).
+# Identical for every domain symbol; these fields are absent from the
+# sector/industry response.
 DOMAIN_QUOTE_TYPE = "INDEX"
 DOMAIN_EXCHANGE = "YHD"
 DOMAIN_CURRENCY = "USD"
@@ -123,13 +118,8 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
             # is a self-FK, so the sector's row must come before its own
             # industries. `apply_write` sends rows in the order given.
             for row in data.get("industries") or []:
-                # Rule for filtering out "All Industries": the absence of a
-                # `key` field. yfinance filters by
-                # `i.get('name') != 'All Industries'` instead, a
-                # name-based, language-dependent rule. Measured: 12 of 13
-                # rows have both `key` and `symbol`; that one row has
-                # neither. No data is lost by filtering it: its values were
-                # measured identical to the `performance` block.
+                # The "All Industries" aggregate row has no `key`; filtering
+                # on that avoids yfinance's language-dependent name check.
                 industry_key = text_of(row, "key", 48)
                 if industry_key is None:
                     continue
@@ -179,11 +169,8 @@ class DomainTaxonomyDataset(DomainDataset[TaxonomyPayload]):
 def _symbol_row(symbol: str, name: str, fetched_at: Any) -> dict[str, Any]:
     """`symbols` row; `is_active` is explicitly set to 0 (server_default is '1').
 
-    Sector/industry indices are excluded from the default `yfin sync`
-    universe; a user can still collect their price history and
-    `info`/`fast_info` data with the existing datasets via
-    `--include-inactive` or `--quote-type INDEX` (measured
-    `^YH311.history(period='5d')` -> (5, 7)).
+    Sector/industry indices stay out of the default `yfin sync` universe;
+    `--include-inactive` or `--quote-type INDEX` still reaches them.
     """
     return {
         "symbol": symbol,

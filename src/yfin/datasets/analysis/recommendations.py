@@ -1,12 +1,7 @@
 """recommendations dataset.
 
-`recommendations_summary` is not a separate dataset: the source's
-`get_recommendations_summary` body is just
-`return self.get_recommendations(...)`. It exists in the registry as an
-alias.
-
-Row count varies: of 19 symbols measured, 10 returned 4 periods and 9
-returned 3.
+`recommendations_summary` is only a registry alias: the source method is a
+pass-through to `get_recommendations`.
 """
 
 from __future__ import annotations
@@ -33,7 +28,7 @@ class RecommendationsDataset(PeriodFrameDataset):
         Column("sell", "sell", nz.to_int),
         Column("strongSell", "strong_sell", nz.to_int),
     )
-    # All five counters are NOT NULL; measured int64 with no NaN on 19/19 symbols.
+    # All five counters are NOT NULL.
     required = ("strong_buy", "buy", "hold", "sell", "strong_sell")
     api = (
         ApiExposure(

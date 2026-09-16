@@ -1,14 +1,7 @@
-"""Market sync orchestration.
+"""Market sync orchestration: one process, one proxy, no symbol loop.
 
-No symbol loop: 6 datasets, ~20 requests typically. Parallelism, a
-queue, and backpressure machinery would be unwarranted complexity here.
-
-Transaction boundary is per turn (dataset x region): if
-economic_calendar fails, splits_calendar stays written; if
-market_summary's EUROPE turn fails, its US turn stays written.
-
-Lock name is 'yfin_market_sync', distinct from symbol sync's
-'yfin_sync', so the two commands can run concurrently.
+Transaction boundary is one turn (dataset x region), so one failing turn
+leaves the others written.
 """
 
 from __future__ import annotations
@@ -53,9 +46,7 @@ GLOBAL_SCOPE_MARKER = "*"
 def market_regions(settings: Settings | None = None) -> list[str]:
     """Regions from config, validated against the MarketRegion enum.
 
-    An invalid region raises ValueError here rather than inside
-    Market(...), so it's `failed`, not `empty`, and caught at the
-    configuration stage.
+    Raised here so an invalid region is `failed` at config time, not `empty`.
     """
     from yfinance import MarketRegion
 

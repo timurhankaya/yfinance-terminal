@@ -1,9 +1,7 @@
 """`replace_scope` as a diff, and bar writes as spans.
 
-Both exist for the same reason: the naive shape publishes far more than
-changed. Delete-and-reinsert would republish every row of ten dataset
-modules' tables on every sync, and a first bar sync would emit one event per
-bar to say "the history is here".
+Both exist because the naive shape publishes far more than changed: a full
+reinsert republishes every row per sync and a first bar sync emits an event per bar.
 """
 
 from __future__ import annotations

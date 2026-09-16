@@ -1,9 +1,7 @@
 """The collecting writer against a real database.
 
-The unit tests read the statement; these run it. What matters here is the
-part that cannot be read off a compiled string: which rows PostgreSQL
-actually hands back, and whether the volatile columns still end up where a
-plain upsert would have put them.
+The unit tests read the statement; these run it: which rows PostgreSQL hands
+back, and whether volatile columns still land where a plain upsert puts them.
 """
 
 from __future__ import annotations
@@ -217,18 +215,10 @@ class TestWithoutACollector:
 
 
 class TestAllVolatileWrite:
-    """The shape that has no RETURNING at all, EXECUTED rather than compiled.
-
-    A write whose update map is entirely volatile gets no predicate and so
-    no returning clause -- the hash gate's `UNCHANGED_UPDATE_COLUMNS =
-    ("fetched_at",)` write, on a DATA table, which is collected in principle
-    and returns nothing in practice. Reading that result raises
-    `ResourceClosedError` and takes the whole symbol transaction with it.
-
-    A compile-time test cannot see this: the statement was right, the code
-    around it was not. It took a live AAPL sync to surface, with 84 of 84
-    cells failed.
-    """
+    """An all-volatile update map gets no predicate and no RETURNING clause (the
+    hash gate's `fetched_at`-only write on a data table). Reading that result
+    raises `ResourceClosedError` and takes the whole symbol transaction with it;
+    only execution, not compilation, can show it."""
 
     def _write(self) -> TableWrite:
         return TableWrite(

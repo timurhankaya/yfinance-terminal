@@ -1,14 +1,7 @@
-"""Proof that extracting `AsOfGate` changed zero behavior.
-
-The mixin was split out of the `Dataset` hierarchy and `first_seen_at` was
-added to `VOLATILE_COLUMNS`. This file proves two things:
-
-1. The existing 13 as-of datasets' gate table, key columns, and gate
-   identity are exactly what they were before.
-2. Adding `first_seen_at` cannot change any existing hash -- because no
-   data table on the symbol side carries that column. The proof is derived
-   from the schema, not from a hand-written list.
-"""
+"""Extracting `AsOfGate` changed no behavior: the `asof_state` datasets' gate table, key
+columns and gate identity are unchanged, and adding `first_seen_at` to `VOLATILE_COLUMNS`
+cannot change any hash because no symbol-side data table carries that column. Derived from
+the schema, not a hand-written list."""
 
 from __future__ import annotations
 
@@ -61,13 +54,8 @@ def _golden_result(order: tuple[str, ...]) -> NormalizedResult:
 
 
 def _asof_datasets() -> list[AsOfDataset[Any]]:
-    """The `asof_state` gate family -- the 13 datasets this file is about.
-
-    Filtered by gate table, not just by type: `search`/`lookup` are also
-    `AsOfDataset`s but use their own gate (`discovery_asof_state`).
-    Filtering by type alone would break this file's "the 13 datasets'
-    contract is unchanged" claim every time an unrelated family grows.
-    """
+    """The `asof_state` gate family. Filtered by gate table, not by type: `search`/`lookup`
+    are `AsOfDataset`s too but use `discovery_asof_state`."""
     return [
         SYMBOL_DATASETS[name]
         for name in SYMBOL_DATASETS
@@ -89,13 +77,7 @@ def _discovery_datasets() -> list[AsOfDataset[Any]]:
 
 
 def test_there_are_still_fourteen_symbol_side_asof_datasets() -> None:
-    """A count, so that adding one is a decision rather than a diff.
-
-    Thirteen until `options` joined them (2026-09-08): it is as-of by the
-    same argument as the holder lists -- one row per contract per day,
-    and the gate says when the chain was last verified rather than when
-    it last moved.
-    """
+    """A count, so that adding one is a decision rather than a diff."""
     assert len(_asof_datasets()) == 14
 
 
@@ -155,13 +137,8 @@ def test_first_seen_at_cannot_affect_any_existing_hash() -> None:
 
 
 def test_discovery_family_uses_its_own_gate() -> None:
-    """`asof_state` cannot be used here.
-
-    That table's `symbol` column carries an FK to `symbols.symbol`; a free
-    search term is not in there, so a gate row would raise `ERROR 1452`.
-    This test stops someone moving discovery datasets to the old gate "for
-    consistency".
-    """
+    """`asof_state.symbol` carries an FK to `symbols.symbol`; a free search term is not in
+    there, so a gate row would raise. Discovery datasets cannot move to the old gate."""
     from yfin.datasets.discovery.base import (
         DISCOVERY_GATE_KEY_COLUMNS,
         DISCOVERY_GATE_TABLE,
@@ -176,14 +153,8 @@ def test_discovery_family_uses_its_own_gate() -> None:
 
 
 def test_discovery_first_seen_at_carrier_is_ungated() -> None:
-    """`research_reports` carries `first_seen_at` and is in `search`'s
-    `produces`, but sits outside the gate.
-
-    So it never enters the hash body, and `first_seen_at`'s "changes every
-    run" nature cannot break the gate. This is the discovery-family
-    counterpart of the test above; the proof is derived from
-    `UNGATED_TABLES`, not a hand-written exception list.
-    """
+    """`research_reports` carries `first_seen_at` and is in `search`'s `produces`, but sits
+    outside the gate, so it never enters the hash body. Derived from `UNGATED_TABLES`."""
     from yfin.datasets.discovery.base import UNGATED_TABLES
 
     carriers = {

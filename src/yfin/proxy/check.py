@@ -47,14 +47,11 @@ def _new_check_session(endpoint: ProxyEndpoint | None) -> tuple[object, bool]:
 
 
 def check_endpoint(endpoint: ProxyEndpoint, timeout: float) -> CheckResult:
-    """Not yfinance: yf.config is process-global, so checking N proxies in
-    parallel through it would need N processes. The raw request runs in a
-    plain thread pool instead.
+    """Raw request, not yfinance: yf.config is process-global, so checking N
+    proxies in parallel through it would need N processes.
 
-    Limitation: the raw request has an empty cookie jar, unlike real
-    traffic. `check` is complementary; the primary health signal is
-    passive observation of sync results.
-    """
+    The raw request has an empty cookie jar, unlike real traffic, so this is
+    complementary to passive observation of sync results."""
     label = endpoint.host
     session, impersonated = _new_check_session(endpoint)
     detail = "" if impersonated else "curl_cffi absent: measured without TLS impersonation"

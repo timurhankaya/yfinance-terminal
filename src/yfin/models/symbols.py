@@ -31,16 +31,10 @@ class Symbol(Base):
     first_trade_date: Mapped[datetime | None] = mapped_column(TsType())
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
-    # Who brought the symbol into the universe. Discovery paths (`search`,
-    # `lookup`, `screener`) write new symbols with `is_active=0`;
-    # activation is manual (`yfin symbols activate --discovered-by ...`).
-    #
-    # This column and `discovered_at` are kept out of discovery writes'
-    # `update_columns` scope, along with `is_active` and `unknown_streak`.
-    # Otherwise a symbol an operator manually activated would silently
-    # flip back to `is_active=0` the next time discovery saw it again, and
-    # `yfin sync` would stop pulling it. Same "written only on INSERT"
-    # rule as `first_seen_at`.
+    # Who brought the symbol into the universe. Discovery paths write new
+    # symbols with `is_active=0`; activation is manual. This column,
+    # `discovered_at`, `is_active` and `unknown_streak` stay out of discovery
+    # writes' `update_columns`, or re-discovery would deactivate a symbol.
     discovered_by: Mapped[str] = mapped_column(
         String(16, collation="C"), nullable=False, server_default="manual"
     )
@@ -50,9 +44,7 @@ class Symbol(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(TsType())
 
     # `func.now()`, not `func.now(6)`: PostgreSQL's `now()` takes no
-    # argument, and `now(6)` raises "function now(integer) does not exist"
-    # (measured, during migration). Precision comes from the column type
-    # (TsType = TIMESTAMP(6) WITH TIME ZONE), not the function.
+    # argument; precision comes from the column type.
     created_at: Mapped[datetime] = mapped_column(
         TsType(), nullable=False, server_default=func.now()
     )

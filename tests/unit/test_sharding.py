@@ -249,18 +249,10 @@ class TestRepairExtra:
 
 class TestFrameConsumers:
     def test_every_consumer_of_the_shared_frame_declares_its_watermark(self) -> None:
-        """Guards the direction that actually goes wrong.
-
-        The shared frame's `start` is the MINIMUM of the watermarks its
-        consumers declare. A dataset that starts feeding from the frame and
-        does not declare one is filled from a window narrowed by its
-        siblings -- permanently, and silently.
-
-        Asserting a fixed set of names caught the opposite case: ADDING a
-        consumer broke the test, FORGETTING to broke nothing. Here the
-        source of truth is which datasets actually call
-        `fetch_history_frame`, so the omission is what fails.
-        """
+        """The shared frame's `start` is the MINIMUM of the watermarks its consumers
+        declare, so a consumer that declares none is silently filled from a narrowed window.
+        The source of truth is which datasets call `fetch_history_frame`, so an omission
+        is what fails."""
         from yfin.datasets.history import fetch_history_frame, frame_consumers
         from yfin.datasets.registry import SYMBOL_DATASETS
 

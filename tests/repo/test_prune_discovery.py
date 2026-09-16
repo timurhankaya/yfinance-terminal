@@ -34,12 +34,8 @@ def _seed_report(db_session: Session, report_id: str) -> None:
 
 class TestOrphanReports:
     def test_search_linked_report_survives(self, db_session: Session) -> None:
-        """Regression test for a data-loss bug.
-
-        Orphan cleanup used to look only at `domain_report_links`. Any
-        report found via the search path -- having no domain-side link --
-        was counted as orphaned and deleted. Silently: the report gets
-        re-fetched the next day, `first_seen_at` resets, and nobody notices.
+        """A report reachable only via the search path has no domain-side link
+        and must not be counted as orphaned.
         """
         _seed_report(db_session, "SEARCH_ONLY")
         db_session.execute(
@@ -111,12 +107,9 @@ class TestPruneScreens:
         )
 
     def test_quotes_keep_their_own_last_day(self, db_session: Session) -> None:
-        """`screen_quotes` has no gate: it has no `screen_key` column.
-
-        It cannot be grouped by scope column, so the latest day is kept
-        per symbol instead. If pruned via `prune_asof`, this table would be
-        silently skipped by the `scope_column not in table.c` branch and
-        never pruned at all.
+        """`screen_quotes` has no `screen_key` column, so the latest day is kept
+        per symbol; `prune_asof` would skip it via the `scope_column not in
+        table.c` branch.
         """
         self._seed_screen(db_session, OLD, ("ZZQ",))
         self._seed_screen(db_session, NEW, ("ZZQ",))

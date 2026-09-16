@@ -1,17 +1,7 @@
-"""The terminal's own data mount: the `/v1` routers, served again under
-`/ui/api/v1` without the OAuth2 gate.
-
-Why a second mount rather than opening `/v1` itself: `/v1` is the
-metered, contracted API that paying clients call with a Bearer token, and
-its `openapi.json` is locked in CI. The browser page needs the same
-reads without a credential, so it gets the same routers on a sub-app
-whose only differences are the principal (a fixed `ui` identity that the
-metering layer already skips) and a per-IP brake. The public contract,
-its quotas and its document do not change.
-
-The terminal is public: every request on this mount runs as that one
-identity, with nothing to present and nothing to check.
-"""
+"""The terminal's own data mount: the `/v1` routers served again under
+`/ui/api/v1` without the OAuth2 gate, as a sub-app whose only differences
+are a fixed unmetered `ui` principal and a per-IP brake, so the public
+contract, its quotas and its document do not change."""
 
 from __future__ import annotations
 
@@ -61,15 +51,9 @@ BRAKE_PREFIX = "/ui/api"
 
 class RequestBrake(SettingsMiddleware):
     """Per-IP fixed window over every request under BRAKE_PREFIX; anything
-    else passes untouched (`/v1` has its own limiter).
-
-    It resolves the address itself rather than reading
-    `request.state.client_ip`. `add_middleware` prepends, so this one --
-    added last, from `install` -- runs OUTSIDE `RequestContextMiddleware`
-    and that attribute does not exist yet. Reading it would have every
-    request in the world share the "unknown" bucket, which is a brake
-    that is either off or shut, never per address.
-    """
+    else passes untouched. Resolves the address itself: added last, it
+    runs outside `RequestContextMiddleware`, so `request.state.client_ip`
+    does not exist yet."""
 
     def __init__(self, app: Callable[..., object], settings: ApiSettings) -> None:
         super().__init__(app, settings)

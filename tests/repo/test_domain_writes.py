@@ -100,14 +100,9 @@ def test_numeric_round_trip_is_lossless(db_session: Session) -> None:
 
 
 def test_extreme_growth_estimate_round_trips(db_session: Session) -> None:
-    """Lossless at DECIMAL(28,12) scale.
-
-    The source can return double-precision remainders like
-    `0.7656249999999998`; the column rounds to 12 digits. That is not a
-    loss, it is the column's declared scale -- `PriceType` carries the same
-    contract everywhere in the codebase. The test quantizes to the same
-    scale for this reason.
-    """
+    """Lossless at DECIMAL(28,12) scale: the source returns double-precision
+    remainders and rounding to the column's declared 12 digits is not a loss,
+    so the test quantizes to the same scale."""
     run_taxonomy(db_session)
     run_dataset(db_session, "industry_rankings", "industry", "electronic-components")
     raw = domain_data("industry", "electronic-components")
@@ -155,7 +150,7 @@ def test_regional_rows_carry_their_region(db_session: Session) -> None:
 
 
 def test_domain_metrics_have_no_region_column(db_session: Session) -> None:
-    """`overview`/`performance` measured identical across all 5 regions."""
+    """`overview`/`performance` do not vary by region."""
     columns = set(
         db_session.execute(
             text(

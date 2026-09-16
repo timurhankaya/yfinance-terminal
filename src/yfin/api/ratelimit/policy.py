@@ -1,16 +1,7 @@
-"""Plan limits, cached for the request path.
-
-Limits live in `api_plans` so changing what a plan allows needs no
-deploy. The request path must not pay a query for that, so both the
-client's plan and the plan's limits are cached in-process behind a short
-TTL: at most one lookup per client per minute, and an edit takes effect
-within that minute without a restart.
-
-The token deliberately does not carry the plan (see `auth/jwt.py`). If it
-did, a downgrade would be ineffective for the life of every token already
-issued, and there would be two answers to "which plan is this" with no
-rule for which wins.
-"""
+"""Plan limits from `api_plans`, cached in-process behind a short TTL so the
+request path pays no query and an edit needs no restart. The token does
+not carry the plan: a downgrade must not wait for issued tokens to
+expire."""
 
 from __future__ import annotations
 

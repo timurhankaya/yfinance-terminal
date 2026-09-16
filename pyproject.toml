@@ -63,15 +63,10 @@ api = [
 # Optional publish path. librdkafka rather than a pure-Python client: the
 # relay is a synchronous process, so an async client would buy nothing.
 kafka = ["confluent-kafka>=2.5"]
-# Tracing. Optional for the same reason as `kafka`: without a collector to
-# send to there is nothing to install these for, and `configure_tracing`
-# and the log chain's trace context are both no-ops when they are absent.
-#
-# The instrumentations are pinned to the 0.65b0 line that matches SDK
-# 1.44.0 -- they are versioned separately and a mismatched pair fails at
-# import, not at first span. `-psycopg` is deliberately absent: it would
-# nest a second span under every SQLAlchemy span and double the trace
-# volume to say the same thing twice.
+# Tracing; no-ops when absent. The instrumentations must stay on the 0.65b0
+# line that matches SDK 1.44.0: a mismatched pair fails at import.
+# `-psycopg` is deliberately absent: it would nest a second span under every
+# SQLAlchemy span.
 otel = [
     "opentelemetry-sdk>=1.44.0",
     "opentelemetry-exporter-otlp-proto-grpc>=1.44.0",

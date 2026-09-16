@@ -1,9 +1,5 @@
-"""COPY text encoding and the JSON rendering that rides along with it.
-
-These moved here with `copy_body` when the pipeline's change outbox needed
-the same encoder the stream writer had: one format, one place, one set of
-escaping rules. The stream's own batching stays in `test_stream_writer.py`.
-"""
+"""COPY text encoding and the JSON rendering that rides along with it: one encoder shared by
+the stream writer and the change outbox. Stream batching stays in `test_stream_writer.py`."""
 
 from __future__ import annotations
 

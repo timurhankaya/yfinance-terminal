@@ -1,10 +1,6 @@
 // Log shipping, trace collection and the two infrastructure exporters.
-//
-// Alloy rather than Promtail: Promtail reached end of life on 2026-03-02.
-// Rather than the Docker Loki log driver, because that driver is
-// "third-party client" support and can block the daemon on retries -- a
-// logging backend that can stall the thing it logs is a worse failure than
-// losing lines.
+// Alloy, not the Docker Loki log driver: that driver can block the daemon
+// on retries.
 
 logging {
 	level  = "warn"
@@ -21,14 +17,9 @@ discovery.docker "containers" {
 discovery.relabel "yfin" {
 	targets = discovery.docker.containers.targets
 
-	// Only this stack's containers. Without it, every container on the
-	// developer's machine ships its logs here -- which is both a surprise
-	// and, for anything with credentials in its output, a leak into a store
-	// nobody expected to hold them.
-	// Two rules, not a duplicated pair: the first DROPS everything that is
-	// not ours, the second NAMES what survives. `action = "keep"` ignores
-	// `target_label` and `replacement`, so the labelling cannot ride along
-	// on the same rule.
+	// Only this stack's containers, or every container on the host would
+	// ship its logs here. Two rules because `action = "keep"` ignores
+	// `target_label`, so the labelling cannot ride on the same rule.
 	rule {
 		source_labels = ["__meta_docker_container_name"]
 		regex         = "/(yfin-.*)"

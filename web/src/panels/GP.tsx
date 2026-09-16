@@ -1,19 +1,8 @@
-// GP: the chart. One code, every interval the archive keeps.
-//
-// It was two panels. `GP` drew daily candles and `GIP` drew intraday
-// ones, and a reader wanting five-minute bars had to know that the
-// terminal called that a different function -- which is a fact about
-// how the code was arranged, not about charts. One mnemonic, and the
-// interval is an argument like every other argument.
-//
-// What did NOT get merged is the drawing. The two windows are two
-// pipelines: `price_history`/`periodic_bars` with corporate actions and
-// a session-bucketed live bar, against `price_bars` with `bar_gaps`, a
-// regular-session filter and an interval-bucketed one. Folding them
-// into one function with a flag would have added branches, not removed
-// them, so this file owns the code, the arguments and the controls, and
-// each body owns one way of drawing (`chart-daily.tsx`,
-// `chart-intraday.tsx`).
+// GP: the chart. One code, every interval the archive keeps; the
+// interval is an argument like any other. The drawing is two bodies
+// (`chart-daily.tsx`, `chart-intraday.tsx`): two tables, two live
+// buckets, corporate actions against `bar_gaps`. One function with a
+// flag would add branches, not remove them.
 import type { ReactElement } from "react";
 import { BAR_INTERVALS, Interval, isInterval } from "../api/client";
 import type { PanelArgs, PanelProps, PanelSpec } from "../commands/types";

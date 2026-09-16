@@ -1,9 +1,5 @@
-"""The test infrastructure itself: per-process schema.
-
-If this logic silently breaks, two concurrent pytest runs will again drop
-each other's tables, and the bug will be looked for in the CODE; that is
-why this is tested.
-"""
+"""The test infrastructure itself: per-process schema, so two concurrent pytest runs cannot
+drop each other's tables."""
 
 from __future__ import annotations
 

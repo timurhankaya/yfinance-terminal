@@ -1,21 +1,7 @@
-# What is worth waking someone for.
-#
-# Every threshold here is a STARTING VALUE, not a measurement. The design
-# says so and README repeats it: nothing in this file has been calibrated
-# against a month of real data yet, and the first thing to do after that
-# month is to replace these numbers and delete this paragraph.
-#
-# Two rules the whole file follows.
-#
-# **Nothing alerts on a service that may legitimately be off.** The relays
-# and the whole observability profile are opt-in; `up == 0` for them is a
-# panel on Overview, not a page. The scheduler and the exporter are
-# different -- if either is down, everything else here goes quiet and says
-# nothing, which is the worst failure mode a monitoring stack has.
-#
-# **`for:` is long on purpose.** A sync run takes hours and a scrape takes
-# fifteen seconds; almost every expression below is briefly true during a
-# normal run. The wait is what tells a transient from a condition.
+# Every threshold here is a starting value, not yet calibrated against
+# real data. Nothing alerts on a service that may legitimately be off (the
+# relays, the observability profile). `for:` is long on purpose: a sync run
+# takes hours, so most expressions are briefly true during a normal run.
 
 apiVersion: 1
 

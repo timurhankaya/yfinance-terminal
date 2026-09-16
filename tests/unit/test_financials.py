@@ -1,9 +1,4 @@
-"""Financials normalization tests.
-
-Each test guards a rule or disproves an assumption uncovered by earlier
-measurement. Fixtures are captured from the real API; there is no network
-access here.
-"""
+"""Financials normalization tests, against captured fixtures. No network."""
 
 from __future__ import annotations
 
@@ -54,8 +49,8 @@ class TestStatements:
         assert {str(p["freq"]) for p in periods} == {"annual"}
 
     def test_nan_cells_produce_no_row(self) -> None:
-        """AAPL income has 45 of 195 cells NaN: "item absent that period"
-        is represented by the row's absence."""
+        """A NaN cell means "item absent that period" and is represented by
+        the row's absence."""
         result = _statement_result("AAPL", "income_stmt")
         facts = _rows(result, "financial_facts")
         periods = _rows(result, "financial_periods")
@@ -72,8 +67,8 @@ class TestStatements:
         assert biggest > Decimal("1e11")
 
     def test_values_are_quantized_in_python(self) -> None:
-        """PostgreSQL silently rounds the 11th digit (measured); rounding is
-        deliberately done in Python instead."""
+        """PostgreSQL silently rounds the 11th digit; rounding is done in
+        Python instead."""
         facts = _rows(_statement_result("AAPL", "income_stmt"), "financial_facts")
         assert all(-value.as_tuple().exponent == 10 for value in (f["value"] for f in facts))
 
@@ -222,12 +217,8 @@ class TestValuation:
         assert periods[0]["period_end"] == date(2025, 9, 30)
 
     def test_currency_is_quotation_not_reporting(self) -> None:
-        """THYAO.IS: financialCurrency=USD but Market Cap is in TRY.
-
-        Measured: valuation Market Cap 4.14e11 ~ info.marketCap 4.08e11
-        (TRY); the USD equivalent would be about 1/30 of that. Using
-        `financial_currency` would write the wrong unit into the column.
-        """
+        """THYAO.IS: financialCurrency=USD but Market Cap is in TRY, so `financial_currency`
+        would write the wrong unit into the column."""
         from yfin.datasets.base import SyncContext
         from yfin.datasets.financials.valuation import quote_currency
 
@@ -385,18 +376,14 @@ class TestSecFilings:
 
 class TestItemKeyGuard:
     def test_closed_label_universe_fits_the_column(self) -> None:
-        """The label universe is closed: `const.fundamentals_keys`.
-
-        A synthetic test proves the safety valve works; this test proves
-        the valve should never trigger today, and would break if a library
-        upgrade introduces a label longer than 128 characters.
-        """
+        """The label universe is closed (`const.fundamentals_keys`): the safety valve must
+        never trigger today; a library upgrade adding a label over 128 chars breaks this."""
         from yfinance import const
 
         from yfin.models.financials import ITEM_KEY_LENGTH
 
         labels = [key for group in const.fundamentals_keys.values() for key in group]
-        assert len(labels) == 375  # measured closed universe
+        assert len(labels) == 375
         longest = max(labels, key=len)
         assert len(longest) == 60, f"source universe changed: {longest}"
         assert len(longest) <= ITEM_KEY_LENGTH

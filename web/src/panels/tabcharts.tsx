@@ -1,13 +1,8 @@
-// The charts a curated tab can declare.
-//
-// `HDS` and its siblings are configuration rather than code
-// (`curated.tsx:1-3`), and this keeps them that way: a tab names the
-// chart it wants and `DatasetView` draws it from the rows it already
-// loaded. No tab becomes a hand-written panel, and no chart fetches
-// anything of its own.
-//
-// Every one of them sits ABOVE its table, never instead of it (spec,
-// "Kararlar" 3).
+// The charts a curated tab can declare. `HDS` and its siblings are
+// configuration rather than code: a tab names the chart it wants and
+// `DatasetView` draws it from the rows it already loaded, so no chart
+// fetches anything of its own. Every one sits ABOVE its table, never
+// instead of it.
 import type { ReactElement } from "react";
 import type { Row } from "../api/client";
 import { asNumber, formatBig } from "./format";
@@ -63,12 +58,9 @@ export interface InsiderFlow {
 }
 
 /** The newest insider-activity snapshot: bought, sold, and the net.
- *
- *  `insider_activity`, not `insider_transactions`. The transaction table
- *  has no column saying which side a row was -- the direction is inside
- *  a free-text `text` field -- while this one is Yahoo's own aggregate
- *  and carries `purchases_shares`, `sales_shares` and `net_shares`
- *  outright. A net flow parsed out of English prose would be a guess. */
+ *  `insider_activity`, not `insider_transactions`: the transaction table
+ *  carries direction only inside free text, while this one is Yahoo's
+ *  own aggregate with the share counts outright. */
 export function insiderFlow(rows: Row[]): InsiderFlow | null {
   const newest = rows[0];
   if (newest === undefined) return null;

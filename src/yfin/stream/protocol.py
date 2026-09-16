@@ -1,43 +1,7 @@
 """Yahoo's pricing protobuf -> a row for `live_ticks`.
 
-The only module in `yfin.stream` with a yfinance import statement, and it
-imports exactly one thing: the generated `PricingData` message.
-Everything the upstream client does around it (connecting, reconnecting,
-heartbeats) is reimplemented in `connection.py` -- see the design's K2
-for why.
-
-That import statement being the only one does NOT mean the package is
-free of yfinance, and the difference is worth stating because it is easy
-to assume otherwise. `connection.py` imports `decode_envelope` from here
-to read a frame, `supervisor.py` imports `connection.py`, and `writer.py`
-imports `supervisor.py` to drain its queue -- so importing the writer
-loads yfinance and protobuf too (measured). That chain is functional and
-not worth breaking.
-
-What was worth breaking: `Reject` and `DecodeResult` used to live here,
-which meant every module that merely NAMED a dropped tick imported the
-decoder. They are in `rejects.py` now, a leaf with no `yfin` imports.
-Keep them there.
-
-This module opens no session and emits no SQL, but "knows nothing about
-the database" would be false twice over. `SYMBOL_LENGTH` comes from
-`models/base.py`, and `yfin.models` eagerly imports every model module to
-populate `Base.metadata` -- so importing this module loads SQLAlchemy and
-the full ORM to obtain one integer. Conceptually it is also the authority
-on the `live_ticks` row shape: the reject strings are
-`stream_rejects.reason` values, `FIELD_COLUMNS` names `live_ticks`
-columns, and the range guards are PostgreSQL's INTEGER bounds.
-`tests/unit/test_stream_schema.py` holds the two halves to each other.
-
-Two rules in here are load-bearing and easy to get wrong later:
-
-1. **float32.** Every price field is IEEE binary32 on the wire. Protobuf
-   widens it to a Python float, so 232.35 arrives as 232.35000610351562
-   and NUMERIC(28,12) would store that faithfully. `f32_decimal` undoes
-   the widening.
-2. **Presence.** proto3 scalars have no field presence, so `bid = 0.0`
-   and "bid was never sent" are the same bytes. Absent fields become
-   NULL, with two deliberate exceptions (see MEANINGFUL_ZERO).
+Price fields are binary32 on the wire (`f32_decimal` undoes the widening).
+proto3 scalars have no presence: absent means NULL, except MEANINGFUL_ZERO.
 """
 
 from __future__ import annotations
@@ -73,14 +37,9 @@ from yfin.stream.rejects import (
 ENVELOPE_TYPE_PRICING: Final = "pricing"
 
 # --- enum codes ------------------------------------------------------------
-#
-# These are NOT in pricing.proto -- there both fields are a bare int32, so
-# the mapping has to live on the client. Values come from Yahoo's own
-# schema as published in yliveticker/yaticker.proto; quote_type 41 and
-# market_hours 1 were confirmed against the live stream (BTC-USD).
-#
-# Kept as a Python constant rather than a database enum for the same
-# reason BAR_INTERVALS is: a second copy in the schema would drift.
+# Not in pricing.proto (both fields are a bare int32 there); values come
+# from Yahoo's yaticker.proto. A Python constant, not a database enum, so
+# there is no second copy to drift.
 
 MARKET_HOURS_PRE: Final = 0
 MARKET_HOURS_REGULAR: Final = 1
@@ -105,15 +64,8 @@ QUOTE_TYPE_NAMES: Final[dict[int, str]] = {
 def is_extended_session(market_hours_code: int) -> bool:
     """Anything that is not the regular session counts as extended.
 
-    Called by `reconcile.py` to fill `price_bars.is_extended`, which is
-    NOT NULL. This is the reason market_hours is in MEANINGFUL_ZERO:
-    PRE_MARKET is code 0, so the generic "default value -> NULL" rule
-    would blank out exactly the rows that most need the flag.
-
-    It classifies the code Yahoo sent, which is not the same as the
-    market's real state: every message in the 2026-09-07 round carried
-    REGULAR on a day the US market was closed for a holiday (see
-    docs/measurements/websocket.md).
+    Classifies the code Yahoo sent, which may differ from the market's
+    real state. Fills `price_bars.is_extended` (NOT NULL).
     """
     return market_hours_code != MARKET_HOURS_REGULAR
 
@@ -201,23 +153,10 @@ _EXPIRE_MAX: Final = 4_102_444_800  # 2100-01-01
 
 
 def f32_decimal(value: float) -> Decimal:
-    """The SHORTEST decimal that round-trips back to the same float32.
+    """The shortest decimal that round-trips back to the same float32.
 
-    Protobuf widens the wire's binary32 to a Python binary64, so a price
-    sent as 232.35 reads back as 232.35000610351562. Storing that in
-    NUMERIC(28,12) would permanently pollute the archive with an artefact
-    of the transport.
-
-    Nine digits is not arbitrary: IEEE 754 guarantees binary32
-    round-trips in at most 9 significant digits, so the loop always
-    terminates. The final return is unreachable and exists only so the
-    function is total.
-
-    The OverflowError guard is not defensive padding: near the float32
-    ceiling a rounded-up short form (4e38 for a value just under
-    3.4028235e38) does not fit in a float32 at all, and struct.pack
-    raises rather than returning something comparable. That candidate is
-    simply not a round-trip, so the loop moves on.
+    binary32 round-trips in at most 9 significant digits. Near the ceiling
+    a rounded-up candidate overflows `struct.pack`; it is not a round-trip.
     """
     for digits in range(1, 10):
         text = f"{value:.{digits}g}"
@@ -230,23 +169,12 @@ def f32_decimal(value: float) -> Decimal:
 
 
 def _present_fields(message: PricingData) -> set[str]:
-    """Field names actually set on the wire.
-
-    proto3 has no presence for scalars, so this is really "fields whose
-    value is not the type default". A field that arrives as an explicit
-    zero is indistinguishable from one that was never sent -- see the
-    module docstring.
-    """
+    """Fields whose value is not the type default; proto3 scalars have no presence."""
     return {descriptor.name for descriptor, _ in message.ListFields()}
 
 
 def _canonical_payload(row: dict[str, Any]) -> str:
-    """Stable text for payload_hash.
-
-    Sorted keys and str() for Decimal/datetime: the hash is a primary key
-    component, so the same message has to hash the same way in every
-    process and every release.
-    """
+    """Stable text for payload_hash, a primary key component: sorted keys, str() values."""
     return json.dumps(
         {k: (str(v) if isinstance(v, Decimal | datetime) else v) for k, v in sorted(row.items())},
         separators=(",", ":"),
@@ -257,10 +185,8 @@ def _canonical_payload(row: dict[str, Any]) -> str:
 def payload_hash(row: dict[str, Any]) -> str:
     """First 16 hex digits of the SHA-256 over the mapped fields.
 
-    Includes unknown_fields on purpose. Left out, a message whose 33
-    known fields match an earlier one but which carries a NEW proto field
-    would be discarded by ON CONFLICT DO NOTHING -- and unknown_fields
-    exists precisely to catch that case.
+    Includes unknown_fields, or a message differing only in a new proto
+    field would be discarded by ON CONFLICT DO NOTHING.
     """
     payload = {
         k: v for k, v in row.items() if k not in ("payload_hash", "received_at")
@@ -272,15 +198,8 @@ def payload_hash(row: dict[str, Any]) -> str:
 def _decode_symbol(message: PricingData, rejects: list[Reject]) -> str | None:
     """`id` -> a symbol that can be compared against `symbols`.
 
-    Normalisation is not optional: SymbolType() is COLLATE "C" and
-    case-sensitive, and the codebase's rule is that case folding happens
-    on the write path (datasets/symbols.py). Without it a perfectly good
-    'aapl' would be rejected as unknown.
-
-    Over-long symbols are rejected rather than truncated. nz.to_str would
-    silently cut to 32 chars, which would write the tick under a
-    DIFFERENT symbol -- and with no raw_json column there would be no way
-    back.
+    SymbolType() is COLLATE "C", so case folding must happen here. Over-long
+    symbols are rejected, not truncated, or the tick changes symbol.
     """
     raw = message.id or ""
     symbol = nz.normalize_symbol(raw)
@@ -299,12 +218,7 @@ def _decode_symbol(message: PricingData, rejects: list[Reject]) -> str | None:
 def _decode_timestamp(
     message: PricingData, symbol: str, rejects: list[Reject]
 ) -> datetime | None:
-    """`time` is MILLIseconds since epoch.
-
-    A missing or non-positive timestamp is fatal for the row: ts_utc is
-    part of the primary key and substituting received_at would be making
-    data up.
-    """
+    """`time` is MILLIseconds since epoch; missing means no row, as ts_utc is part of the key."""
     millis = int(message.time)
     if millis <= 0:
         rejects.append(Reject(REJECT_NO_TIMESTAMP, symbol=symbol, detail=str(millis)))
@@ -317,10 +231,7 @@ def _decode_expire_date(
 ) -> datetime | None:
     """`expire_date` is SECONDS since epoch, unlike `time`.
 
-    The two fields disagreeing on units is the trap here: reading it as
-    milliseconds puts every option expiry in 1970. Until that is
-    confirmed against a live options feed, anything outside 1970..2100 is
-    treated as a unit mix-up and dropped rather than stored.
+    Anything outside 1970..2100 is treated as a unit mix-up and dropped.
     """
     if "expire_date" not in present:
         return None
@@ -368,9 +279,8 @@ def decode_pricing_data(
 ) -> DecodeResult:
     """One PricingData -> one live_ticks row.
 
-    Returns a row of None when the message cannot be keyed (no usable
-    symbol or timestamp); every other problem nulls a single column and
-    keeps the row.
+    Row is None when the message cannot be keyed; any other problem nulls
+    a single column and keeps the row.
     """
     rejects: list[Reject] = []
     now = received_at or datetime.now(UTC)
@@ -429,22 +339,10 @@ def decode_pricing_data(
 
 
 def decode_envelope(raw: str | bytes, *, received_at: datetime | None = None) -> DecodeResult:
-    """One websocket frame -> a live_ticks row.
+    """One websocket frame (JSON wrapping a base64 protobuf) -> a live_ticks row.
 
-    The `version=2` frame is JSON wrapping a base64 protobuf::
-
-        {"type": "pricing", "message": "CgdCVEMtVVNEFX03nEcY..."}
-
-    Every failure here is recorded with the original base64 attached.
-    That matters because there is no raw_json column on live_ticks: if a
-    frame cannot be decoded, `stream_rejects.raw_base64` is the only
-    surviving evidence of what arrived.
-
-    The `type` check is not upstream behaviour -- yfinance reads
-    `message` and ignores `type` entirely, so a frame of some other type
-    is handed to the protobuf parser as an empty string and silently
-    produces an empty record. Anything that is not "pricing" is rejected
-    loudly instead.
+    Every failure carries the original base64: with no raw_json column,
+    `stream_rejects.raw_base64` is the only evidence of what arrived.
     """
     text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
     try:
@@ -501,14 +399,8 @@ def decode_envelope(raw: str | bytes, *, received_at: datetime | None = None) ->
 def validate_subscription(symbols: list[str]) -> tuple[list[str], list[Reject]]:
     """Filters a subscription list down to what is safe to send.
 
-    Measured: a malformed frame closes the connection with no status code
-    and no error message. `{"subscribe": [null]}`, a bare string instead
-    of a list, and an unknown action key each killed the socket
-    silently. One None leaking into the list therefore takes down every
-    symbol on that connection.
-
-    So the list is validated before it goes out, not after something
-    breaks -- there is no "after" to observe.
+    One malformed entry closes the socket silently, taking down every
+    symbol on that connection, so validation happens before sending.
     """
     clean: list[str] = []
     rejects: list[Reject] = []

@@ -1,9 +1,7 @@
 """Typed contracts between fetch and normalize.
 
-Without these types, ad-hoc dicts pass between the two steps
-({"info": ..., "fetched_at": ...}) and `mypy --strict` verifies nothing.
-The `Dataset[RawT]` generic makes fetch's return type and normalize's
-expected type match at compile time.
+`Dataset[RawT]` makes fetch's return type and normalize's input match
+under `mypy --strict`.
 """
 
 from __future__ import annotations
@@ -121,11 +119,9 @@ NewsPayload = list[dict[str, Any]]
 
 @dataclass(frozen=True, slots=True)
 class AsOfFramePayload:
-    """A frame carrying no date; meaning is complete only with `fetched_at`.
+    """A frame carrying no date; `as_of_date` derives from `fetched_at`.
 
-    `fetched_at` is CARRIED in the payload because the `normalize(raw,
-    symbol)` signature does not see ctx, and as_of_date derives from this
-    timestamp.
+    Carried in the payload because `normalize` does not see ctx.
     """
 
     frame: pd.DataFrame | None
@@ -152,11 +148,8 @@ class FundsPayload:
 class RangedFramePayload:
     """A frame that CARRIES its own source date + a `--start/--end` range.
 
-    The range is carried in the payload because `date_range="filter"`
-    filtering happens inside `normalize`, which does NOT see ctx. The
-    source returns a fixed window (upgrades_downgrades ~1000 rows, insider
-    transactions 150 rows); the range does NOT fetch more data, it only
-    narrows scope.
+    The range only narrows a fixed source window; it is carried here
+    because `date_range="filter"` is applied in `normalize`, without ctx.
     """
 
     frame: pd.DataFrame | None

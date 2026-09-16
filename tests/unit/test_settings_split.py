@@ -1,10 +1,5 @@
-"""Four guards on the field split.
-
-`DB_MANAGED_FIELDS` is not a hand-written list, it is the complement of
-`ENV_ONLY_FIELDS`. This makes it impossible for a new field to silently
-fall into neither set -- but the tradeoff is fail-open: a new field is
-exposed to the DB by default. The four guards here close that gap.
-"""
+"""Four guards on the field split. `DB_MANAGED_FIELDS` is the complement of
+`ENV_ONLY_FIELDS`, which is fail-open: a new field is exposed to the DB by default."""
 
 from __future__ import annotations
 
@@ -19,12 +14,9 @@ from yfin.core.config import (
     Settings,
 )
 
-# Numbers are a 2026-09-08 snapshot and the mechanism does not depend on
-# them; they are kept so that adding a field forces this file to be read.
-# The live stream added 17 fields in the `stream` group on 2026-09-07; the
-# browser publish path added two more on 2026-09-08, and they went to
-# DIFFERENT sides -- the switch is DB-managed, the Redis URL is env-only
-# because it carries a credential.
+# Snapshot counts; the mechanism does not depend on them. They are kept so that adding a
+# field forces this file to be read: a switch is DB-managed, a credential-bearing URL is
+# env-only.
 SNAPSHOT_TOTAL = 84
 SNAPSHOT_ENV_ONLY = 11
 SNAPSHOT_DB_MANAGED = 73
@@ -73,22 +65,14 @@ def test_gruplar_hepsi_kullaniliyor() -> None:
 
 @pytest.mark.parametrize("key", sorted(Settings.model_fields))
 def test_sir_adi_citi(key: str) -> None:
-    """Guard 3 -- secret-name pattern.
-
-    If a field whose name matches `secret|password|token|credential` is not
-    in `ENV_ONLY_FIELDS`, the complement derivation would expose it to the
-    DB, putting the secret next to the data it protects.
-    """
+    """Guard 3, secret-name pattern: a field matching `secret|password|token|credential`
+    outside `ENV_ONLY_FIELDS` would be exposed to the DB next to the data it protects."""
     if SECRET_NAME_RE.search(key):
         assert key in ENV_ONLY_FIELDS, f"{key} is named like a secret but is DB-managed"
 
 
 @pytest.mark.parametrize("key", sorted(DB_MANAGED_FIELDS))
 def test_skaler_citi(key: str) -> None:
-    """Guard 4 -- scalar-ness.
-
-    The `value` column is text, and the serialization rule is defined only
-    for scalars. If a field ever becomes a list/dict, this test breaks and
-    forces the rule to be updated.
-    """
+    """Guard 4, scalar-ness: the `value` column is text and the serialization rule is
+    defined only for scalars."""
     assert Settings.model_fields[key].annotation in (bool, int, float, str)

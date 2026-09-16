@@ -1,8 +1,7 @@
 """intraday_scope resolution and the scope gate.
 
-The asymmetry is deliberate and dangerous, hence pinned by tests:
-  1m       -> empty table means NO symbol is in scope (1.21B rows/year)
-  others   -> empty table means the WHOLE universe is in scope
+The asymmetry is deliberate: for 1m an empty table means NO symbol is in
+scope; for every other interval it means the WHOLE universe is.
 """
 
 from __future__ import annotations
@@ -43,8 +42,8 @@ def _scope(session: Session, symbol: str, interval: str, *, enabled: bool = True
 def test_1m_with_empty_table_covers_nobody(
     db_session: Session, factory: sessionmaker[Session]
 ) -> None:
-    """1m opening to the whole universe on an empty table would mean 1.21B
-    rows/year; failing to run is the safe side to fall to."""
+    """1m must not open to the whole universe on an empty table; failing to
+    run is the safe side to fall to."""
     _symbol(db_session, "AAPL")
 
     assert ScopeReader(factory)("AAPL", "1m") is False
@@ -138,15 +137,8 @@ def test_out_of_scope_exception_is_not_a_value_error() -> None:
 
 
 def test_purge_removes_price_bars_leaving_no_orphans(db_session: Session) -> None:
-    """price_bars carries an FK to symbols, so purge finds it by following
-    FK edges and deletes the bars with the symbol.
-
-    It did not always: while the table was partitioned it could not carry
-    an FK, so purge had to be told about it by hand or the bars were left
-    orphaned with no warning -- while bar_rescales, which did have an FK,
-    was deleted and took the rescale ledger with it. A hypertable can be
-    the referencing side, so that special case is gone.
-    """
+    """price_bars carries an FK to symbols, so purge finds it by following FK
+    edges and deletes the bars with the symbol; no special case is needed."""
     from sqlalchemy import delete
 
     from yfin.models import Base, PriceBar, symbol_scoped_tables

@@ -1,28 +1,7 @@
 """Common base for discovery datasets.
 
-Does two things:
-
-1. Swaps the gate table. `asof_state` cannot be used: that table's
-   `symbol` column is defined with `symbol_fk_column`, i.e. it carries an
-   `ON DELETE RESTRICT` FK to `symbols.symbol`. A free-text search term
-   (`"Turkish Airlines"`) does not exist in `symbols`, so the gate row
-   would hit an FK violation (23503). A length limit does not fix this.
-   Domain hit the same wall and opened `domain_asof_state`; here
-   `discovery_asof_state` is opened instead, reusing `AsOfGate`'s
-   `asof_gate_table` / `asof_gate_key_columns` / `gate_identity` extension
-   points -- no new gate class is written.
-
-2. Splits the gate scope. `AsOfGate._gate_write` reads the gate row's
-   `as_of_date` and `fetched_at` from `gate_row(result)`, and the
-   `gate_identity` override expects `query_term` from that same row. Four
-   tables do not satisfy this contract (see below), so they are kept out
-   of the gated side entirely.
-
-   That split is what makes the DECLARATION possible, not a substitute for
-   it: even among the gated tables no single one is guaranteed to carry
-   rows -- `search_quotes` is empty while `research_reports` has three for
-   "Turkish Airlines" -- which is why `gate_source_tables` is a tuple in
-   declared order rather than one table name.
+Own gate table: `asof_state.symbol` carries an FK to `symbols`, and a search
+term is not a symbol. Tables without `query_term` are written ungated.
 """
 
 from __future__ import annotations
@@ -36,18 +15,8 @@ from yfin.storage.contracts import RowWriter, WriteStats, apply_write
 DISCOVERY_GATE_TABLE = "discovery_asof_state"
 DISCOVERY_GATE_KEY_COLUMNS = ("query_term", "dataset")
 
-# Tables left out of the gate.
-#
-# `symbols` is the universe record; `news`/`news_symbols`/`research_reports`
-# are shared entities with their own identity space. A search term's
-# content hash cannot decide whether they get written -- `Ticker.news`
-# writes the same news item, and `Sector.research_reports` writes the same
-# report.
-#
-# All four share one technical trait: no `query_term` column (the first
-# three also lack `as_of_date`/`fetched_at`). Inside the gated side,
-# `gate_row` would return the wrong row and the gate write would raise
-# KeyError.
+# Shared entities with their own identity space, also written by other
+# datasets; a search term's hash cannot decide whether they get written.
 UNGATED_TABLES = frozenset({"symbols", "news", "news_symbols", "research_reports"})
 
 
@@ -56,12 +25,7 @@ class DiscoveryDataset[RawT](AsOfDataset[RawT]):
     asof_gate_key_columns = DISCOVERY_GATE_KEY_COLUMNS
 
     def gate_identity(self, result: NormalizedResult) -> dict[str, Any]:
-        """Gate key: (query_term, dataset).
-
-        The default would read `gate_row(result)["symbol"]`; here the
-        scope is the search term, not a symbol -- one search term's result
-        can carry multiple symbols.
-        """
+        """Gate key: (query_term, dataset); one term's result carries many symbols."""
         return {"query_term": self.gate_row(result)["query_term"], "dataset": self.name}
 
     def upsert(
@@ -76,13 +40,9 @@ class DiscoveryDataset[RawT](AsOfDataset[RawT]):
         for write in ungated:
             apply_write(writer, write, stats)
 
-        # 2. `skipped` is passed empty. Two reasons:
-        #    (a) the outer `stats` already seeded it; summing both would
-        #        double the `rows_skipped` count.
-        #    (b) `NormalizedResult.is_empty` means "no rows AND skipped is
-        #        empty" (base.py). If `gated` has no rows but `skipped` is
-        #        populated, `is_empty` is False, `gate_row` raises
-        #        ValueError, and the cell would be wrongly marked `failed`.
+        # 2. `skipped` is passed empty: the outer `stats` already carries it,
+        #    and a populated `skipped` with no gated rows would make
+        #    `is_empty` False and `gate_row` raise.
         gated_result = NormalizedResult(writes=gated, skipped={})
         return merge_stats(
             stats, super().upsert(writer, gated_result, full_refresh=full_refresh)

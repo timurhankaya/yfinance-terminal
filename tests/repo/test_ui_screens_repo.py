@@ -1,11 +1,8 @@
 """`/ui/api/screens`: the four-table join the public surface will not do.
 
-What is pinned here is what the generic dataset surface cannot express:
-the latest run per screen in one query, the roster in the SCREEN's order
-rather than by symbol, and an outer join that keeps a member whose quote
-row is missing. Each of those is a place where a plausible
-implementation quietly returns something that reads as data.
-"""
+Pinned: the latest run per screen in one query, the roster in the SCREEN's
+order rather than by symbol, and an outer join that keeps a member whose
+quote row is missing."""
 
 from __future__ import annotations
 
@@ -62,11 +59,8 @@ def _run(key: str, day: date, **over: Any) -> dict[str, Any]:
 
 
 def _quote(symbol: str, day: date, **over: Any) -> dict[str, Any]:
-    """One quote row with a UNIFORM key set.
-
-    `executemany` compiles one statement for the whole list, so a row
-    that omits a column its neighbour has is a StatementError rather
-    than a NULL.
+    """One quote row with a UNIFORM key set: `executemany` compiles one
+    statement for the list, so a missing column is a StatementError, not NULL.
     """
     row: dict[str, Any] = {
         "symbol": symbol,

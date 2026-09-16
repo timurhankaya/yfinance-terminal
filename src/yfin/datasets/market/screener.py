@@ -1,15 +1,7 @@
-"""screener dataset -> screens | screen_runs | screen_members |
-screen_quotes | symbols.
+"""screener dataset -> screens | screen_runs | screen_members | screen_quotes | symbols.
 
-`scope="variant"`: the screen loop runs OUTSIDE the dataset, same as the
-region loop. This makes `sync_run_items` granularity naturally
-(dataset x screen x table), and one screen failing doesn't mark a
-neighboring screen `failed`.
-
-The gate is built with the `HashGate` mixin, NOT `HashGatedDataset`: that
-class sits under `Dataset[RawT]` with the `fetch(SyncContext)` signature,
-while this uses the `GlobalDataset` hierarchy. The gate logic is identical
-in both, hence the shared mixin.
+`scope="variant"`: the screen loop runs outside the dataset, so one screen
+failing does not fail its neighbours. Gated via the `HashGate` mixin.
 """
 
 from __future__ import annotations
@@ -87,13 +79,9 @@ _QUOTE_UPDATE = tuple(f.column for f in SCREENER_QUOTE_FIELDS) + (
     "raw_json",
 )
 
-# The discovery write does NOT update `is_active`, `unknown_streak`,
-# `discovered_by`, or `discovered_at`. Otherwise a symbol an operator
-# manually reactivated would SILENTLY go inactive again the next day it
-# shows up in the same screen.
-#
-# The list is limited to columns the screener ACTUALLY populates: a shared
-# list would make the `lookup` path NULL out `long_name`/`currency`.
+# Not `is_active`/`unknown_streak`/`discovered_*`: an operator's manual
+# reactivation must survive the next screen hit. Only columns the screener
+# populates, so it never NULLs what other paths wrote.
 SYMBOL_UPDATE = (
     "short_name",
     "long_name",
@@ -134,15 +122,8 @@ def _fetch_page(
 ) -> ScreenPage:
     """Fetches one page.
 
-    The FIRST page uses `count`, later ones use `size`. When `offset` is
-    given, `yf.screen` switches from the predefined GET path to the custom
-    POST path and SILENTLY ignores `count`: `offset=250, count=250`
-    returned 25 rows, `size=250` returned 250. No error is raised; using a
-    single parameter name throughout would silently drop 225 rows per page.
-
-    `sortField`/`sortAsc` are given EXPLICITLY on every request. `sortAsc`
-    defaults to None -> descending; if the order isn't stable across pages,
-    pages overlap or symbols get skipped.
+    First page `count`, later ones `size`: with `offset`, `yf.screen` takes the
+    POST path and ignores `count`. Sort is explicit so pages never overlap or skip.
     """
     query: Any = spec.key if spec.kind == "predefined" else spec.query
     if offset is None:
@@ -235,10 +216,8 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
     def variants(self, settings: Settings, state: VariantState | None) -> list[str]:
         """The screen set comes from `screens.py`; enabled state from the DB.
 
-        Direction matters: the set comes from CODE, the DB only FILTERS.
-        The reverse (set from DB) would deadlock bootstrap with an empty
-        `screens` table before it's ever seeded -- since the table only
-        fills during a run, the lock would never open.
+        The set comes from code and the DB only filters, or bootstrap could
+        never seed an empty `screens` table.
         """
         cfg = settings
         wanted = comma_list(cfg.yf_screen_keys)
@@ -274,11 +253,9 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
             page = _fetch_page(spec, offset=None if pages == 0 else offset, size=cfg.yf_screen_size)
             pages += 1
             if pages == 1:
-                # The FIRST page is special: `title`, `description`,
-                # `rawCriteria`, `lastUpdated` exist only in the predefined
-                # GET response. For a custom screen, the first page is also
-                # POST and metadata does NOT come back (measured) -- then
-                # `ScreenDef` is the source of truth instead.
+                # Metadata (`title`, `description`, `rawCriteria`, `lastUpdated`)
+                # exists only in the predefined GET response of the first page;
+                # for a custom screen `ScreenDef` is the source of truth.
                 metadata = page.metadata
                 total = page.total
             quotes.extend(page.quotes)
@@ -314,8 +291,7 @@ class ScreenerDataset(HashGate, GlobalDataset[ScreenPayload]):
         for index, quote in enumerate(raw.quotes):
             symbol = nz.to_str(quote.get("symbol"))
             if symbol is None:
-                # `screen` returned `symbol` on all 300 rows measured; still,
-                # dropping the row beats writing NULL into the PK.
+                # Dropping the row beats writing NULL into the PK.
                 continue
             is_known = symbol_is_writable(symbol)
             members.append(
@@ -403,14 +379,8 @@ def _screen_row(spec: ScreenDef, raw: ScreenPayload) -> dict[str, Any]:
 def _run_row(raw: ScreenPayload, members: list[dict[str, Any]]) -> dict[str, Any]:
     """Gate + data row.
 
-    `content_hash` covers ONLY THE ROSTER: `(symbol, rank_index)` pairs. If
-    quote metrics were included, `regularMarketPrice` moves on every run, so
-    the hash would NEVER match, `skipped` would never occur, and the
-    mechanism would silently die -- unnoticed, because the result would
-    just look like "every row rewritten every day".
-
-    `rank_index` IS in the body: when the roster stays the same but ORDER
-    changes, that is a REAL change and must be written.
+    `content_hash` covers only `(symbol, rank_index)`: quote metrics move
+    every run and would keep the gate from ever matching.
     """
     body = [{"symbol": m["symbol"], "rank_index": m["rank_index"]} for m in members]
     meta = raw.metadata

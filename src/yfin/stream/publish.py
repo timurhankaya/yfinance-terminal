@@ -1,21 +1,7 @@
 """Committed ticks, fanned out to open browser tabs over Redis pub/sub.
 
-This is not a second archive and not the Kafka path. Kafka is durable,
-transactional and consumed by other systems; this is at-most-once
-fan-out whose whole audience is a web page that is currently open. The
-archive is `session.commit()`, and it has already happened by the time
-anything here runs -- so every failure below is swallowed, counted, and
-logged once. A browser that misses a tick repaints on the next one; a
-writer that dies over a publish loses the batch it was writing.
-
-The field table is the contract with the page, and it lives here once.
-`scripts/dump_tick_fields.py` writes it to `web/src/live/tick-fields.json`
-and CI checks the committed copy is current, the same way `openapi.json`
-is checked -- so a renamed key breaks the build rather than the chart.
-
-Why the keys are one and two letters: a tick body is sent per tick per
-subscriber, and `previous_close` costs seven times what `pc` does on
-every one of them. The table below is where they are spelled out.
+At-most-once, after the commit: every failure is swallowed, counted, and
+logged once. TICK_FIELDS is the page contract (`tick-fields.json`, CI-checked).
 """
 
 from __future__ import annotations
@@ -45,16 +31,8 @@ OPERATION_TIMEOUT_SECONDS: Final = 1.0
 class FieldKind(StrEnum):
     """How a value reaches the wire.
 
-    `Ms` rather than an ISO string because `canonical_json` renders a
-    datetime as isoformat and the page would have to parse it; epoch
-    milliseconds is what `new Date(t)` already takes. `Dec` stays a
-    STRING: these are NUMERIC(28,12) in the database and a JSON number
-    would round them in the browser's binary64 on the way in.
-
-    A `StrEnum` rather than a `Literal` so the four values are named
-    once and referenced, never retyped at a comparison. The member's
-    value is what reaches `tick-fields.json`, so the wire shape is
-    unchanged by the enum.
+    `Ms` is epoch milliseconds, what `new Date(t)` takes. `Dec` stays a
+    string: a JSON number would round NUMERIC(28,12) in binary64.
     """
 
     Str = "str"
@@ -90,23 +68,15 @@ CHANNEL_PREFIX: Final = "yfin:tick:"
 
 
 def channel(symbol: str) -> str:
-    """One channel per symbol: a subscriber pays only for what it watches.
-
-    A single channel with the symbol in the body would send every tick of
-    the universe to every open tab and make it filter, which is the whole
-    cost of the stream moved into the browser.
-    """
+    """One channel per symbol, so a subscriber pays only for what it watches."""
     return f"{CHANNEL_PREFIX}{symbol}"
 
 
 def _epoch_ms(value: datetime) -> int:
     """Milliseconds since the epoch, UTC.
 
-    A naive datetime is read as UTC rather than as local time. Every
-    timestamp in this codebase is UTC (`TsType` is timestamptz), but a
-    row that arrived through a driver or a fixture without a tzinfo would
-    otherwise be shifted by the writer host's offset -- a silent error
-    that only shows up on a machine that is not on UTC.
+    A naive datetime is read as UTC, not local time, or a fixture row
+    without tzinfo would shift by the writer host's offset.
     """
     stamped = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
     return int(stamped.timestamp() * 1000)
@@ -118,18 +88,8 @@ def _encode(value: object, kind: FieldKind) -> str | int:
     if kind is FieldKind.Int:
         return value if isinstance(value, int) else int(str(value))
     if kind is FieldKind.Dec and isinstance(value, Decimal):
-        # Two corrections, both of them about what the page ends up
-        # showing and sending.
-        #
-        # `normalize()` first: these columns are NUMERIC(28,12), so a
-        # price read back from `live_quotes` is `232.500000000000` and
-        # every tick would carry twelve zeros that say nothing -- on the
-        # wire and in the time-and-sales list.
-        #
-        # `format(..., "f")` second: `normalize()` renders 100 as `1E+2`
-        # and `str(Decimal)` switches to exponents below the
-        # coefficient's scale. JS parses those, but the page SHOWS this
-        # string, and a crypto price would read as `1E-12` there.
+        # `normalize()` strips NUMERIC(28,12)'s trailing zeros; `format("f")`
+        # keeps the result out of exponent notation, which the page shows as-is.
         return format(value.normalize(), "f")
     # A string, not a JSON number: a JSON number would round
     # NUMERIC(28,12) in the browser's binary64 on the way in.
@@ -137,12 +97,10 @@ def _encode(value: object, kind: FieldKind) -> str | int:
 
 
 def _read(row: object, column: str) -> object:
-    """One accessor for both shapes a tick arrives in.
+    """One accessor for writer row dicts and `live_quotes` ORM objects.
 
-    The writer holds row dicts; `live_quotes` snapshots are ORM objects.
-    Both produce byte-identical bodies from the one table above -- a
-    `snap` that disagreed with the `tick`s following it would show as a
-    jump on every chart at subscribe time.
+    Both must produce identical bodies, or a `snap` would disagree with
+    the `tick`s that follow it.
     """
     if isinstance(row, Mapping):
         return row.get(column)
@@ -150,13 +108,7 @@ def _read(row: object, column: str) -> object:
 
 
 def tick_body(row: object) -> dict[str, str | int] | None:
-    """One tick as the page reads it, or None when it cannot be drawn.
-
-    None means a required field was absent. In practice that is `price`:
-    the column is nullable, and a tick with no price has nothing to put on
-    a chart or in a time-and-sales list. Publishing it would make the page
-    handle a case it can do nothing with.
-    """
+    """One tick as the page reads it, or None when a required field is absent."""
     body: dict[str, str | int] = {}
     for key, column, kind, required in TICK_FIELDS:
         value = _read(row, column)
@@ -171,23 +123,16 @@ def tick_body(row: object) -> dict[str, str | int] | None:
 class TickPublisher:
     """Fan-out for one writer process. Fail-open, always.
 
-    The client is built lazily and rebuilt after a failure: `from_url`
-    does not connect, so a URL pointing at a Redis that is down costs
-    nothing until the first batch, and a Redis that comes back is picked
-    up without restarting the stream.
-
-    Off is a first-class state. With `enabled` false or no URL, `publish`
-    counts `disabled` and returns -- no client, no import, no socket.
+    The client is built lazily and rebuilt after a failure, so a Redis
+    that comes back is picked up without restarting the stream.
     """
 
     def __init__(self, *, enabled: bool, url: str) -> None:
         self._on = enabled and bool(url)
         self._url = url
         self._client: redis.Redis | None = None
-        #: Whether the last batch got through. Only a CHANGE is logged: a
-        #: Redis that is down for an hour is 14,000 batches, and a warning
-        #: per batch would bury the log line that says the stream itself
-        #: is fine.
+        #: Whether the last batch got through. Only a change is logged,
+        #: so a Redis outage does not produce a warning per batch.
         self._healthy = True
 
     @property
@@ -207,12 +152,7 @@ class TickPublisher:
         return self._client
 
     def publish(self, rows: Sequence[object]) -> None:
-        """Publishes one committed batch. Never raises.
-
-        Counted per batch rather than per tick: the question is whether
-        the fan-out is working, and a batch of 500 that failed is one
-        failure, not 500.
-        """
+        """Publishes one committed batch. Never raises. Metrics count per batch, not per tick."""
         if not rows:
             return
         if not self._on:
@@ -220,11 +160,8 @@ class TickPublisher:
             return
         try:
             client = self._connect()
-            # One round trip for the batch. The alternative -- one array
-            # per symbol -- is left to measurement (spec, "Canlı veri
-            # yolu"); what is NOT an option is publishing before the
-            # commit, which would show the page a tick the archive does
-            # not have.
+            # One round trip per batch, and only after the commit: the
+            # page must never see a tick the archive does not have.
             pipeline = client.pipeline(transaction=False)
             for row in rows:
                 body = tick_body(row)

@@ -1,23 +1,8 @@
-# Single binary, filesystem storage; OTLP gRPC only.
-#
-# Alloy receives OTLP from the services and forwards it here, so this
-# listens on the internal network alone -- the services never talk to Tempo
-# directly, which keeps the collector the one place sampling and batching
-# are configured.
-#
-# **This is a Tempo 3.x config and it is not a 2.x one.** 3.0 replaced the
-# ingester/compactor pair with a block-builder, a live-store and a
-# backend scheduler/worker, and the old top-level `ingester:` and
-# `compactor:` keys are now a hard parse error rather than a deprecation:
-#
-#     failed parsing config: field ingester not found in type app.Config
-#
-# The container then restarts forever, which is how this was found. Every
-# key below was verified against `grafana/tempo:3.0.3` itself.
-#
-# `target` is left at its default of `all`: one process runs every
-# component. The "Worker address is empty in single binary mode" warning
-# at start-up is Tempo wiring itself to 127.0.0.1 and is expected here.
+# Single binary, filesystem storage; OTLP gRPC only. Alloy forwards traces
+# here, so this listens on the internal network alone.
+# Tempo 3.x config: the 2.x top-level `ingester:` and `compactor:` keys are a
+# hard parse error here. `target` stays `all`; the "Worker address is empty
+# in single binary mode" start-up warning is expected.
 
 server:
   http_listen_port: 3200

@@ -1,12 +1,5 @@
-"""Behavior differences from removing MySQL's utf8mb4_0900_ai_ci default.
-Does not touch a database.
-
-MySQL's table default was case-insensitive and carried real semantics in
-two places. PostgreSQL columns are COLLATE "C" (case-sensitive); the
-insensitivity moved into the write and query paths. These tests pin that
-move in place -- otherwise the symptom is silent: `--exchange nms` returns
-an empty result one day, or the same proxy gets inserted twice.
-"""
+"""Case-insensitivity lives in the write and query paths; PostgreSQL columns are
+COLLATE "C". Does not touch a database."""
 
 from __future__ import annotations
 
@@ -32,13 +25,7 @@ def _load_seed_proxies() -> Any:
 
 
 class TestSymbolFieldsAreUppercased:
-    """`--exchange nms` and `--exchange NMS` must give the same result.
-
-    In MySQL the columns were ai_ci, so the comparison was already
-    case-insensitive, and `_filtered_symbols` explicitly cited that as the
-    reason it didn't use `func.upper`. In PostgreSQL that reason no longer
-    holds.
-    """
+    """`--exchange nms` and `--exchange NMS` must give the same result."""
 
     def test_normalize_upper_cases_exchange_and_quote_type(self) -> None:
         from yfin.datasets.symbols import SymbolsDataset, SymbolsPayload
@@ -65,13 +52,8 @@ class TestSymbolFieldsAreUppercased:
 
 
 class TestProxyHostIsLowercased:
-    """Hostnames are case-insensitive (RFC 4343).
-
-    MySQL guaranteed this in the schema via `ascii_general_ci`, and
-    `uq_proxies_endpoint (scheme, host, port, username)` relied on it. In
-    PostgreSQL, insensitivity is enforced on the write path instead;
-    otherwise the same proxy would get inserted twice with different casing.
-    """
+    """Hostnames are case-insensitive (RFC 4343); `uq_proxies_endpoint` relies on the write
+    path normalizing them, or the same proxy would be inserted twice."""
 
     def test_seed_line_lowercases_host(self) -> None:
         from yfin.models import ProxyScheme

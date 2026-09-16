@@ -1,23 +1,7 @@
-"""Retention (pruning) operations.
+"""Retention (pruning) operations. Off by default: pruned rows cannot be refetched.
 
-Design decision: pruning is off by default. Any command that takes a date
-cutoff requires `YF_PRUNE_ENABLED=true` (or `--force`), otherwise it raises
-`PruneDisabledError`. Reason: these tables cannot be refetched. Calendar
-data is window-based (there is no "all history" endpoint), so a deleted
-calendar row is gone for good; `_history` rows are, by definition, past
-snapshots with no counterpart at the source.
-
-Orphan news cleanup is excluded from this rule: `news` cannot be cleaned via
-an FK, and a news row whose last link disappears carries a raw_json payload
-that is not cheap to let accumulate, so it runs by default.
-
-AS-OF PRUNING forms a third class with its own safety logic: each symbol's
-most recent as-of day is always kept. The reason is mechanical, beyond the
-general "can't be refetched" concern: as-of tables have a trap where, even
-if the data row is deleted, the `asof_state` gate row survives, the next run
-sees unchanged content and an equal hash, and the dataset reports `skipped`
-without writing anything. So deleting the latest day would be a permanent
-loss even while the source still serves that data.
+Each scope's latest as-of day is always kept: the gate row would survive
+the delete, the next run would see an equal hash and skip, and the day is lost.
 """
 
 from __future__ import annotations
@@ -67,8 +51,7 @@ class PruneReport:
     # the default would produce the wrong protected set.
     discovery_asof: dict[str, int] = field(default_factory=dict)
     screens: dict[str, int] = field(default_factory=dict)
-    # The run audit itself. Nothing pruned it before, so it grew without
-    # bound -- and the freshness query reads it every five minutes.
+    # The run audit itself; the freshness query reads it, so it must not grow unbounded.
     audit: dict[str, int] = field(default_factory=dict)
     dry_run: bool = False
 
@@ -101,12 +84,7 @@ def history_tables() -> list[str]:
 
 
 def _symbol_registry() -> Registry[Any]:
-    """Local import to avoid a module-level dependency on the `datasets` package.
-
-    The import is local; the TYPE is not. `Any` here meant a caller
-    passing a dict, or the wrong registry, failed as an AttributeError
-    deep inside `asof_table_datasets` -- on a path that deletes rows.
-    """
+    """Local import: this module must not depend on `datasets` at runtime."""
     from yfin.datasets import SYMBOL_DATASETS
 
     return SYMBOL_DATASETS
@@ -118,25 +96,8 @@ def asof_table_datasets(
 ) -> dict[str, list[str]]:
     """As-of table -> names of the datasets that write to it.
 
-    Which tables count is not hand-maintained, and `Base.metadata` alone is
-    not enough either: not every table with `as_of_date` in its PK is as-of
-    -- `shares_full` carries the source's own date and, if deleted, is
-    refetched via its watermark. The distinguishing signal is the dataset
-    base class, not the column name. The gate table itself is out of scope:
-    deleting a gate row would lose `first_seen_at` and rewrite the whole
-    history on the next run.
-
-    Most tables are written by one dataset, but `institutional_holders` is
-    written by two (`institutional_holders` + `mutualfund_holders`,
-    distinguished by `holder_type`); on the domain side,
-    `domain_top_companies` is written jointly by `sector_rankings` and
-    `industry_rankings`. Protection must know this distinction; see
-    `_asof_protected` for why.
-
-    Parameters default to the symbol side, so existing callers behave
-    identically. The base-class check goes through `AsOfGate`: `AsOfDataset`
-    and `DomainAsOfDataset` share a mixin but have no common `Dataset`
-    ancestor.
+    Decided by the `AsOfGate` base class, not an `as_of_date` column. The
+    gate table itself is excluded: deleting a gate row loses `first_seen_at`.
     """
     from yfin.datasets.asof_base import AsOfGate
 
@@ -146,23 +107,16 @@ def asof_table_datasets(
         dataset = reg[name]
         if not isinstance(dataset, AsOfGate):
             continue
-        # Filtered by gate table, not just by type.
-        #
-        # The registry holds two gate families side by side: `search` and
-        # `lookup` are also `AsOfGate` but use `discovery_asof_state`.
-        # Without this filter, `prune_asof(gate_table="asof_state")` would
-        # try to prune their tables against the wrong gate: the protected
-        # set would be read from `asof_state`, which has no discovery rows
-        # at all -- so even the latest day would go unprotected.
+        # `search` / `lookup` are also `AsOfGate` but gate on
+        # `discovery_asof_state`; pruning them against another gate would
+        # leave even their latest day unprotected.
         if dataset.asof_gate_table != gate_table:
             continue
         for table in dataset.produces:
             if table == gate_table:
                 continue
-            # Targets without `as_of_date` (`symbols`, `news`,
-            # `news_symbols`, `research_reports`) aren't subject to as-of
-            # pruning; `prune_asof` would skip them anyway, but showing them
-            # in the map would look like they're being pruned.
+            # Targets without `as_of_date` are not subject to as-of pruning;
+            # listing them here would make them look pruned.
             if "as_of_date" not in Base.metadata.tables[table].c:
                 continue
             mapping.setdefault(table, []).append(name)
@@ -178,20 +132,10 @@ def _asof_protected(
     gate_table: str = _DEFAULT_GATE,
     scope_column: str = _DEFAULT_SCOPE_COLUMN,
 ) -> list[tuple[str, date]]:
-    """(scope, as_of_date) pairs to protect -- the union of two sources.
+    """(scope, as_of_date) pairs to protect: gate rows plus GROUP BY over the table.
 
-    1. `asof_state` gate rows (latest day per dataset). This is authoritative
-       when more than one dataset writes the table: a plain
-       `GROUP BY symbol` over the table would leave `mutualfund_holders`
-       unprotected whenever its latest day is older than
-       `institutional_holders`'s, and its rows would be deleted. That loss
-       is permanent, since the gate row isn't deleted, the next run finds
-       an equal hash, reports `skipped`, and writes nothing -- the exact
-       trap described in this module's docstring.
-    2. `GROUP BY symbol` over the table (legacy behavior). Included in the
-       union so protection isn't lost if the gate row is missing for any
-       reason (hand-written data, rows written before the gate table
-       existed); extra protection only makes pruning more conservative.
+    The gate is authoritative when several datasets write one table; the
+    GROUP BY stays in the union for rows that have no gate row.
     """
     gate = Base.metadata.tables[gate_table]
     # `domain_asof_state`'s PK also has `region`; protected pairs collapse to
@@ -225,21 +169,14 @@ def prune_asof(
 ) -> dict[str, int]:
     """Delete as-of rows older than `before`; the latest day is always kept.
 
-    For the domain side, call with
-    `(DOMAIN_DATASETS, "domain_asof_state", "domain_key")` -- grouping by
-    `symbol` would produce the wrong protected scope there: `symbol` in
-    domain tables is the company's symbol.
+    Domain side: `(DOMAIN_DATASETS, "domain_asof_state", "domain_key")`;
+    `symbol` in domain tables is the company's symbol, not the scope.
     """
     removed: dict[str, int] = {}
     for name, datasets in sorted(asof_table_datasets(registry, gate_table).items()):
         table = Base.metadata.tables[name]
-        # Scope filtering is structural, not a hand-maintained list: pruning
-        # operates on (scope_column, as_of_date), so a target missing either
-        # column is already excluded.
-        #   * `research_reports`: keyed on report_id, no `domain_key` column
-        #     -- this table is shared. Orphans are cleaned by
-        #     `prune_orphan_reports`.
-        #   * `domains`: no `as_of_date` column; a static identity table.
+        # Pruning operates on (scope_column, as_of_date); a target missing
+        # either column (shared `research_reports`, static `domains`) is excluded.
         if scope_column not in table.c or "as_of_date" not in table.c:
             continue
         where = table.c["as_of_date"] < before
@@ -272,18 +209,13 @@ def prune_orphan_reports(
 ) -> int:
     """Delete reports with no remaining link in `domain_report_links`.
 
-    `research_reports` is never pruned, but as `domain_report_links` gets
-    pruned, reports with no remaining link accumulate. The FK's
-    `ON DELETE CASCADE` runs in the opposite direction (deleting a report
-    deletes its links), so this needs its own step, like
-    `prune_orphan_news` does for `news`.
+    The FK cascade runs from report to links, not the other way, so
+    unlinked reports need their own step.
     """
     from yfin.models import DomainReportLink, ResearchReport, SearchReportHit
 
-    # Two link tables are checked. Without `search_report_hits`, every
-    # report found via the Search path -- having no domain link -- would be
-    # wrongly considered orphaned and deleted. The table is still named
-    # `domain_report_links`, but it's no longer the only link.
+    # Both link tables count: a report found only via Search has no domain
+    # link and must not be treated as orphaned.
     domain_linked = select(DomainReportLink.report_id)
     search_linked = select(SearchReportHit.report_id)
     unlinked = ResearchReport.report_id.not_in(domain_linked) & ResearchReport.report_id.not_in(
@@ -366,18 +298,10 @@ def prune_history(
 
 
 def prune_screens(session: Session, before: date, *, dry_run: bool = False) -> dict[str, int]:
-    """Prune screen tables.
+    """Prune screen tables; the latest day per screen (per symbol for quotes) is kept.
 
-    `prune_asof` cannot be reused here, for two independent reasons:
-
-    1. `screener` is a `HashGate`, not an `AsOfGate` -- `asof_table_datasets`
-       never sees it and the function would return an empty dict.
-    2. `screen_runs` has no `dataset` column; `gate.c["dataset"]` would
-       raise KeyError.
-
-    `screen_quotes` is also gateless: it has no `screen_key` column (a quote
-    is screen-independent), so it can't be grouped by a scope column.
-    Instead, the latest day per symbol is kept.
+    `prune_asof` does not apply: `screener` is a `HashGate`, `screen_runs`
+    has no `dataset` column, and `screen_quotes` has no scope column.
     """
     from yfin.models.discovery import ScreenMember, ScreenRun, screen_quotes
 
@@ -449,20 +373,8 @@ def prune_audit(
 ) -> dict[str, int]:
     """Deletes finished runs older than `before`, and their scheduler rows.
 
-    Nothing pruned these before, so they grew without bound -- and they are
-    not idle tables: the freshness query walks `sync_run_items` every five
-    minutes, and `scheduler_runs` backs the job dashboard.
-
-    `sync_run_items` and `run_metrics` are NOT deleted here. Both cascade
-    from `sync_runs`, so deleting them explicitly would do the same work
-    twice and could only disagree with the FK about what happened.
-
-    A RUNNING row is never deleted, whatever its age. A run older than the
-    window that has not finished is either still going or was interrupted,
-    and both are things an operator needs to still be able to see.
-
-    No change events: the audit tables are infrastructure, and `delete_rows`
-    would refuse to publish them anyway.
+    Items and run_metrics cascade from `sync_runs`. A RUNNING row is never
+    deleted, whatever its age: an operator must still be able to see it.
     """
     removed: dict[str, int] = {}
     runs = Base.metadata.tables["sync_runs"]
@@ -546,13 +458,8 @@ def run_prune(
             scope_column="domain_key",
             collector=collector,
         )
-        # Third pass, with the discovery triple. All five discovery tables
-        # carry `query_term` + `as_of_date`, and the gate carries `dataset`,
-        # so the existing function works unchanged. Calling with the default
-        # `scope_column="symbol"` would silently skip `search_lists` and
-        # `lookup_totals` (no `symbol` column), while `search_quotes` /
-        # `lookup_results` would be pruned against the wrong scope: the
-        # protected set would be chosen by symbol instead of by term.
+        # Third pass, with the discovery triple: discovery tables scope on
+        # `query_term`; the default `symbol` scope would skip or misprotect them.
         report.discovery_asof = prune_asof(
             session,
             asof_before.date(),

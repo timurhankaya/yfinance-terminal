@@ -22,7 +22,7 @@ runner = CliRunner()
 
 def test_comma_list_trims_uppercases_and_drops_empties() -> None:
     """The dropped-empty is the part that matters: a trailing comma in a
-    hand-edited `.env` used to reach a region loop as `""`."""
+    hand-edited `.env` must not reach a region loop as `""`."""
     from yfin.core.text import comma_list
 
     assert comma_list(" nms , nyq ,, ist ", upper=True) == ["NMS", "NYQ", "IST"]

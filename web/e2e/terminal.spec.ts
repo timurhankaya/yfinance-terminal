@@ -1,18 +1,8 @@
-// The one scenario the charts have to pass before 1d is done: type a
-// command, get candles.
-//
-// It asserts against the real canvas rather than the props a mock saw,
-// which is the whole reason it exists -- `charts.test.tsx` proves the
-// panel hands the right series over, and only a browser proves
-// `lightweight-charts` then draws them. In particular it proves the page
-// draws under `style-src 'self'`: the library styles its canvases
-// through the CSSOM, and a `<style>` element would be blocked and the
-// chart would come out unsized.
-//
-// `E2E_SYMBOL` picks the symbol; the default is one every archive of a
-// US universe has. It has to be a symbol with intraday bars -- an
-// archive that has never run `yfin bars sync --interval 5m` has nothing
-// for this to draw, and the panel correctly says so.
+// Type a command, get candles. Asserted against the real canvas: only a
+// browser proves `lightweight-charts` draws under `style-src 'self'` (it
+// styles its canvases through the CSSOM; a `<style>` element would be
+// blocked and the chart unsized). `E2E_SYMBOL` picks the symbol; it needs
+// intraday bars (`yfin bars sync --interval 5m`) or the panel says so.
 import { expect, test } from "@playwright/test";
 
 const SYMBOL = process.env.E2E_SYMBOL ?? "AAPL";

@@ -1,27 +1,7 @@
 """One upstream WebSocket connection, kept alive.
 
-This replaces `yfinance.WebSocket` / `AsyncWebSocket` rather than wrapping
-them, for reasons that are all defects in the upstream client (verified
-against yfinance 1.7.0, `live.py`):
-
-  * `AsyncWebSocket`'s reconnect is dead code. Its `except` branch calls
-    `_connect()`, but `_connect()` only dials when `self._ws is None` and
-    the error path never sets it back to None -- so a dropped socket
-    produces an infinite error loop and never reconnects.
-  * The synchronous `WebSocket.listen()` simply `break`s out of its loop
-    on any exception and stops, silently.
-  * Whether exceptions are swallowed depends on `YfConfig.debug.hide_exceptions`,
-    a library-wide flag, and `verbose=True` prints to stdout by default.
-  * It re-sends the full subscription every 15 seconds, which is both
-    unnecessary (a connection stays open for at least 4 minutes with no
-    traffic -- measured) and harmful: every re-send re-applies Yahoo's
-    100-symbol truncation.
-
-The server never reports errors. Not for an invalid symbol, not for a
-subscription past the quota, not for a dropped subscription. So this class
-cannot detect trouble by listening for it; it watches for *silence*
-instead, in three independent ways -- protocol ping/pong, an idle
-watchdog, and a canary symbol at the end of the subscription list.
+The server never reports errors, so trouble is detected as silence:
+ping/pong, an idle watchdog, and a canary at the end of the subscription.
 """
 
 from __future__ import annotations
@@ -57,12 +37,7 @@ STATE_CLOSED: Final = "closed"
 
 
 class WebSocketLike(Protocol):
-    """The slice of `websockets` this module uses.
-
-    Narrow on purpose: the loopback tests supply their own implementation,
-    and a reconnect that is only exercised against a mock is a reconnect
-    that has never been tested.
-    """
+    """The slice of `websockets` this module uses; loopback tests supply their own."""
 
     async def send(self, message: str) -> None: ...
     async def recv(self) -> str | bytes: ...
@@ -88,12 +63,7 @@ class ConnectionHealth:
 
 @dataclass
 class _Backoff:
-    """Full-jitter exponential backoff.
-
-    Full jitter rather than plain doubling: ~106 connections reconnecting
-    after a network blip would otherwise retry in lockstep and arrive as
-    one burst.
-    """
+    """Full-jitter exponential backoff, so reconnecting connections do not retry in lockstep."""
 
     ceiling: float
     base: float = 1.0
@@ -114,11 +84,10 @@ class _IdleTimeout(Exception):
 
 
 class StreamConnection:
-    """Keeps one subscription alive until it is told to stop.
+    """Keeps one subscription alive until `stop()`.
 
-    Never raises out of `run()`: a connection dying must take down its own
-    symbols and nothing else, so every error is recorded and retried. The
-    only way out is `stop()`.
+    Never raises out of `run()`: a dying connection must take down its own
+    symbols and nothing else, so every error is recorded and retried.
     """
 
     def __init__(
@@ -196,12 +165,8 @@ class StreamConnection:
     async def _subscribe(self, ws: WebSocketLike) -> None:
         """Sends the subscription, after validating every entry.
 
-        Validation is not politeness. Measured: a malformed frame closes
-        the connection with no status code and no message -- a bare string
-        instead of a list, an unknown action key, or a single `null` in
-        the list each killed the socket. One bad entry therefore takes
-        down every symbol on this connection, and there is no error to
-        observe afterwards.
+        One malformed entry closes the socket with no status code or
+        message, taking down every symbol on this connection.
         """
         symbols, rejects = validate_subscription(list(self.subscription()))
         for reject in rejects:
@@ -217,10 +182,8 @@ class StreamConnection:
     async def _read_forever(self, ws: WebSocketLike) -> None:
         """Reads until told to stop, the socket dies, or it goes quiet.
 
-        The stop signal is awaited alongside the read rather than checked
-        between reads. `recv()` blocks until a message arrives, so a
-        loop-top check alone would leave a stop request waiting out the
-        idle timeout -- five minutes by default -- on a quiet connection.
+        The stop signal is awaited alongside the blocking `recv()`; a
+        loop-top check would leave a stop waiting out the idle timeout.
         """
         stop_wait = _spawn(self._stopping.wait())
         try:
@@ -236,11 +199,8 @@ class StreamConnection:
                     return
                 if read not in done:
                     await _discard(read)
-                    # A connection that has never delivered anything is
-                    # not evidence of a problem -- it is a closed market.
-                    # Cycling it would mean an endless reconnect loop
-                    # every weekend. Once it HAS delivered, silence is a
-                    # real signal.
+                    # Silence before the first message is a closed market,
+                    # not a fault; cycling it would reconnect endlessly.
                     if self.health.last_message_at is None:
                         continue
                     raise _IdleTimeout(f"no message for {self._idle_timeout:.0f}s")
@@ -266,10 +226,7 @@ class StreamConnection:
                 # Pure instrument: appended by us, not asked for, so it is
                 # not data and is not archived.
                 return
-            # ...but if the operator also put this symbol in scope, it is
-            # BOTH. Returning here would make a canary symbol impossible to
-            # stream, which is a strange thing for the health probe to
-            # decide.
+            # A canary that is also in scope is data too, and falls through.
 
         self._report(result)
 
@@ -302,15 +259,8 @@ class StreamConnection:
 def _consume_result(task: asyncio.Future[Any]) -> None:
     """Reads a finished task's exception so asyncio does not log it.
 
-    A `recv()` that lost the race to the stop signal usually finishes
-    with ConnectionClosedOK a moment later. Nobody awaits it by then, and
-    asyncio reports "Task exception was never retrieved" -- a traceback
-    in the operator's log for the most ordinary event there is, a socket
-    closing at the end of a session.
-
-    A done-callback rather than an await in `finally`: when the
-    supervisor cancels the whole connection task, `finally` never gets to
-    reach the pending read, but the callback still fires.
+    A done-callback, not an await in `finally`: when the connection task
+    is cancelled, `finally` never reaches the pending read.
     """
     if not task.cancelled():
         task.exception()
@@ -330,12 +280,7 @@ async def _discard(task: asyncio.Future[Any]) -> None:
 
 
 async def _default_connector(url: str) -> WebSocketLike:
-    """The real client.
-
-    Imported lazily so the pure-logic tests do not need `websockets`
-    installed to import this module, and so a connection failure surfaces
-    here rather than at import time.
-    """
+    """The real client; imported lazily so importing this module needs no `websockets`."""
     from websockets.asyncio.client import connect
 
     return await connect(

@@ -110,8 +110,8 @@ describe("insiderFlow", () => {
   });
 
   it("keeps a negative net, which is the usual case", () => {
-    // Signed on purpose in the schema (KO measured -547,806); a bar
-    // below the baseline is the answer, not a bug.
+    // Signed on purpose in the schema; a bar below the baseline is the
+    // answer, not a bug.
     expect(insiderFlow([{ net_shares: "-547806" }])?.shares[2]).toBe(-547806);
   });
 

@@ -1,9 +1,6 @@
 """Normalization of analyst datasets. No network, no database.
 
-Hand-built frames are used instead of fixtures: each frame encodes an edge
-case measured live, and the source of that measurement lives in the test
-name. This lets the tests run without `scripts/capture_fixtures.py`, and
-the code is the only place documenting the measurement.
+Hand-built frames rather than fixtures: each encodes one edge case, named by the test.
 """
 
 from __future__ import annotations
@@ -59,7 +56,7 @@ def test_recommendations_reads_period_from_column_not_index() -> None:
 
 
 def test_recommendations_accepts_three_row_frame() -> None:
-    """10 of 19 symbols got 4 periods, 9 got 3; the count is not fixed."""
+    """The period count is not fixed."""
     dataset = SYMBOL_DATASETS["recommendations"]
     payload = AsOfFramePayload(frame=_recommendations_frame(["0m", "-1m", "-2m"]), fetched_at=NOW)
 
@@ -132,7 +129,7 @@ def test_estimate_year_ago_source_differs_per_metric() -> None:
 
 
 def test_estimate_zero_is_not_null() -> None:
-    """Measured revenue avg = 0 for THYAO's 0q/+1q periods; not NULL."""
+    """An estimate of 0 is a value, not NULL."""
     revenue = SYMBOL_DATASETS["revenue_estimate"]
     rows = _by(
         _rows(
@@ -211,12 +208,8 @@ def test_eps_trend_maps_numeric_prefixed_columns() -> None:
 
 
 def test_eps_revisions_reads_capital_d_in_downlast7days() -> None:
-    """`downLast7Days` capitalizes the D (measured on 19 of 19 symbols).
-
-    Reading it with a lowercase `d` would leave the column silently NULL
-    forever; the docs write all four in lowercase. That mismatch is exactly
-    why this test exists.
-    """
+    """`downLast7Days` capitalizes the D, unlike the docs; a lowercase read would leave the
+    column silently NULL."""
     dataset = SYMBOL_DATASETS["eps_revisions"]
     frame = pd.DataFrame(
         {
@@ -271,8 +264,8 @@ def test_growth_estimates_accepts_ltg_period_and_missing_trends() -> None:
 
 
 def test_price_targets_keeps_zero_and_allows_low_above_current() -> None:
-    """Measured low(330) > current(294) for THYAO; there is no consistency
-    constraint. `currentPriceTarget = 0.0` is also a real value."""
+    """No consistency constraint between low and current;
+    `currentPriceTarget = 0.0` is also a real value."""
     dataset = SYMBOL_DATASETS["analyst_price_targets"]
     payload = AsOfMappingPayload(
         payload={"current": 294, "low": 330, "high": 400, "mean": 0.0, "median": 350},
@@ -312,7 +305,7 @@ def _grade_frame() -> pd.DataFrame:
 
 
 def test_grade_changes_maps_seven_columns_and_blanks_to_null() -> None:
-    """Docs list four columns; measurement found seven. `''` -> NULL."""
+    """Seven columns; `''` -> NULL."""
     dataset = SYMBOL_DATASETS["upgrades_downgrades"]
     rows = _by(
         _rows(
@@ -389,8 +382,7 @@ def _earnings_history_frame() -> pd.DataFrame:
 
 
 def test_earnings_history_keeps_fiscal_quarter_without_tz_conversion() -> None:
-    """`quarter_end` is a calendar label, not an instant; NVDA/WMT's fiscal
-    calendar drifts (2025-10-31 ... 2026-07-31)."""
+    """`quarter_end` is a calendar label, not an instant; fiscal calendars drift."""
     dataset = SYMBOL_DATASETS["earnings_history"]
     rows = _by(
         _rows(
@@ -414,8 +406,8 @@ def test_earnings_history_filters_by_range() -> None:
 
 
 def test_analysis_alias_excludes_sustainability() -> None:
-    """`sustainability` is a watch dataset: it has no table and returned 404
-    on 19 of 19 symbols, so it is excluded from the alias."""
+    """`sustainability` is a watch dataset with no table, so it is excluded
+    from the alias."""
     assert "sustainability" not in SYMBOL_DATASETS.aliases["analysis"]
 
 

@@ -1,17 +1,7 @@
-"""Live integration test for analysis + holders + funds.
+"""Live integration test for analysis + holders + funds (`-m live`, not in CI).
 
-Skipped by default. Run manually with: pytest -m live
-Uses the real Yahoo API and a real PostgreSQL; not run in CI.
-
-Two claims can only be checked against the live source:
-
-1. Request count -- 16 datasets on one symbol make 7 requests (8 for
-   funds). If the count silently grows (e.g. a dataset builds its own
-   fresh `Ticker`), this test breaks -- that's the point.
-2. The 404 rule -- with `hide_exceptions=False`, all of ^GSPC's cells come
-   back `empty`, not `failed`, and the run exit code stays 0.
-
-No cell expected to come back empty is asserted "should be non-empty".
+Checks the per-symbol request count and the 404 rule (missing data is
+`empty`, not `failed`), which only the live source can prove.
 """
 
 from __future__ import annotations
@@ -40,13 +30,8 @@ EXPECTED_REQUESTS = 7
 
 @pytest.fixture(scope="module", autouse=True)
 def configured() -> None:
-    """The 404 rule only holds with this setting applied.
-
-    Calling `run_sync` directly does not call `configure_yfinance` -- that is
-    done by `shard.run_sharded` and `market_runner`. Without it, yfinance's
-    default (`hide_exceptions=True`) applies, a network error silently
-    returns an empty result, and "no cell is failed" would actually be
-    approving data loss.
+    """`run_sync` alone doesn't call `configure_yfinance`; without it yfinance
+    hides exceptions and "no cell is failed" would approve data loss.
     """
     configure_yfinance(None, proxy_key="direct")
 

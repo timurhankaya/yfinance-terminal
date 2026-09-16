@@ -31,10 +31,7 @@ def test_user_visible_includes_alias_excludes_bootstrap() -> None:
     assert "actions" in names
     assert BOOTSTRAP not in names
     assert "financials" in names
-    # `all` is one of them. It used to be a special case inside `resolve`
-    # rather than a name, so it was missing from the very list the
-    # unknown-name error prints -- a caller who mistyped `all,search` was
-    # told `all` was not valid either.
+    # `all` is a name, so it appears in the unknown-name error's list.
     assert "all" in names
     assert set(names) == (set(REGISTRY) - {BOOTSTRAP}) | set(ALIASES) | {"all"}
 
@@ -45,12 +42,8 @@ def test_bootstrap_always_first() -> None:
 
 
 def test_all_resolves_every_dataset() -> None:
-    """`all` = every dataset that is NOT opt-in.
-
-    `opt_in` is the inverse of `bootstrap`: one is added to every
-    resolution, the other is excluded from `all`. Excluding both leaves
-    the full set of records.
-    """
+    """`all` = every dataset that is NOT opt-in. `opt_in` is the inverse of `bootstrap`: one
+    is added to every resolution, the other excluded from `all`."""
     opt_in = {n for n in REGISTRY if REGISTRY.is_opt_in(n)}
     assert opt_in, "expected at least one opt-in dataset (search/lookup)"
     assert {d.name for d in resolve(None)} == set(REGISTRY) - opt_in
@@ -140,20 +133,9 @@ def test_series_datasets_declare_produces_explicitly() -> None:
 
 
 def test_symbol_scoped_tables_covers_every_fk_child() -> None:
-    """`yfin symbols purge`'s list is derived entirely from the FK graph.
-
-    In the MySQL era there was an exception: `price_bars` was partitioned
-    and could not carry an FK, so it never appeared in the FK graph and was
-    covered by a hand-maintained `_FK_LESS_SYMBOL_TABLES` list. A
-    TimescaleDB hypertable can be the referencing side, so that exception is
-    gone; the list and its special-case branch were removed (YAGNI -- no
-    empty extension point kept for something that no longer exists).
-
-    The test is now one-directional but stronger: the derived list must
-    equal the FK children exactly. If a symbol-scoped table that cannot
-    carry an FK is ever added, purge will silently skip it -- that blind
-    spot is documented here and in `symbol_scoped_tables`'s docstring.
-    """
+    """`yfin symbols purge`'s list is derived entirely from the FK graph and must equal the
+    FK children exactly. A symbol-scoped table that cannot carry an FK would be silently
+    skipped by purge; that blind spot is documented in `symbol_scoped_tables`."""
     from yfin.models import Base, symbol_scoped_tables
 
     derived = set(symbol_scoped_tables())
@@ -210,12 +192,9 @@ def test_new_datasets_are_registered() -> None:
 
 
 def test_a_dataset_that_MISSPELLS_api_is_refused() -> None:
-    """The registry read `api` reflectively, so `apis = (...)` created a new
-    attribute instead: mypy silent, `validate()` skipped, and the resource
-    simply absent from the catalogue with nothing to say why. The protocol
-    declares every field the registry reads, so the type checker sees it --
-    and an exposure naming a table the dataset does not produce is refused
-    at registration, which is what proves validation ran at all."""
+    """The registry reads `api` reflectively, so a misspelt attribute would be silently
+    ignored. The protocol declares every field the registry reads, and an exposure naming a
+    table the dataset does not produce is refused at registration."""
     from yfin.core.families import DataFamily
     from yfin.datasets.exposure import ApiExposure
     from yfin.datasets.registry import Registry
@@ -280,8 +259,7 @@ def test_a_family_cannot_shadow_an_explicit_alias() -> None:
 
 def test_all_can_be_COMBINED_with_an_opt_in_dataset() -> None:
     """`--datasets all,search` is the natural way to add an opt-in dataset
-    to the usual set. It used to fail as an unknown name, because `all` was
-    recognised only when it stood alone."""
+    to the usual set."""
     names = [d.name for d in resolve(["all", "search"])]
     assert "search" in names
     assert "info" in names

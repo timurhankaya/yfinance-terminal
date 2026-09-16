@@ -1,16 +1,7 @@
-"""Writes the OpenAPI document, or checks the committed one is current.
+"""Writes the OpenAPI document, or checks the committed one is current (--check).
 
-The contract only means something if changing it is visible. FastAPI
-generates the document from the code, so without this the document would
-change whenever a Pydantic field was renamed and nobody would see it
-until a client broke. Committing the generated file and diffing it in CI
-turns every contract change into a reviewable diff -- deliberate when it
-should be, and caught when it should not.
-
-Usage:
-    python scripts/dump_openapi.py            # write openapi.json
-    python scripts/dump_openapi.py --check    # exit 1 if it is stale
-"""
+Committing the generated file and diffing it in CI turns every contract
+change into a reviewable diff."""
 
 from __future__ import annotations
 
@@ -28,10 +19,8 @@ TARGET = REPO_ROOT / "openapi.json"
 def build_document() -> dict[str, Any]:
     """The document as the running application would serve it.
 
-    Settings are supplied explicitly rather than read from the
-    environment: the document must not depend on whose machine generated
-    it, and a missing YFAPI_ variable should not change the contract.
-    """
+    Settings are supplied explicitly: the document must not depend on whose
+    machine generated it."""
     from yfin.api.app import create_app
     from yfin.api.core.config import ApiSettings
 

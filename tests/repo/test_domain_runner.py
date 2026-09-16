@@ -1,8 +1,7 @@
 """`run_domain_sync` end-to-end: ordering, cell counts, region axis.
 
-No network: `fetch_domain` is replaced by a fake that serves from fixtures.
-Everything else is the production path -- real datasets, real runner, real
-PostgreSQL, real `sync_run_items`.
+No network: `fetch_domain` is replaced by a fake serving fixtures; everything
+else is the production path -- real datasets, runner, PostgreSQL, `sync_run_items`.
 """
 
 from __future__ import annotations
@@ -296,14 +295,10 @@ def test_sector_datasets_run_before_industry_datasets(
 def test_one_key_and_region_is_a_single_http_request(
     test_engine: Engine, fake_fetch: FakeYahoo
 ) -> None:
-    """One (key, region) pair is a single request that feeds all of that
-    pair's datasets.
-
-    A failed fetch is not cached, and the next dataset retries it; this is
-    intentional -- a per-kind error boundary drops the whole (key, region)
-    round on a transient network error, not just one dataset, and the
-    sibling dataset's retry is a cheap chance at recovery.
-    """
+    """One (key, region) pair is a single request feeding all of that pair's
+    datasets. A failed fetch is not cached: the per-kind error boundary drops
+    the whole round on a transient error, so a sibling's retry is a cheap
+    chance at recovery."""
     _run(test_engine)
     successful = [
         call
@@ -319,18 +314,10 @@ def test_one_key_and_region_is_a_single_http_request(
 def test_a_crash_mid_run_leaves_the_finished_turns_in_the_audit(
     test_engine: Engine, fake_fetch: FakeYahoo, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each turn commits its data in its own transaction, so the audit rows
-    have to be committed on the same rhythm.
-
-    Collecting them in a list and writing once at the end meant a process
-    that died mid-run left the data written and NOT ONE audit row for the
-    run, with `sync_runs` stuck in `running` -- the run looked like it had
-    never done anything.
-
-    `KeyboardInterrupt` rather than `Exception`: `run_turn` is the error
-    boundary and would swallow the latter into a `failed` cell, which is
-    the orderly path, not the one being tested.
-    """
+    """Each turn commits its data in its own transaction, so the audit rows must
+    be committed on the same rhythm or a process dying mid-run leaves data with
+    no audit row and `sync_runs` stuck in `running`. `KeyboardInterrupt` rather
+    than `Exception`: `run_turn` would swallow the latter into a `failed` cell."""
     import yfin.pipeline.domain_runner as runner_mod
 
     real_run_turn = runner_mod.run_turn

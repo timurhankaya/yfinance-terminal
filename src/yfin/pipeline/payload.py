@@ -1,7 +1,6 @@
 """What one symbol's work hands from the worker threads to the writer.
 
-Its own module because both sides need it and neither owns it: the
-worker threads fill it with no database open, the persist step drains it
+Worker threads fill it with no database open; the persist step drains it
 inside one transaction.
 """
 
@@ -21,11 +20,8 @@ class SymbolPayload:
 
     symbol: str
     resolved: bool
-    # Carried to the write step: `--full-refresh` has to reach the gates,
-    # not stop at the watermark. Zeroing the watermark alone refetched the
-    # data and then let the hash gate call it unchanged, so the one failure
-    # the flag exists for -- data rows lost, gate row intact -- was the one
-    # it could not repair.
+    # `--full-refresh` has to reach the gates, not stop at the watermark:
+    # zeroing the watermark alone leaves the hash gate calling the data unchanged.
     full_refresh: bool = False
     results: list[tuple[Dataset[Any], NormalizedResult, int, int]] = field(default_factory=list)
     # (dataset, message, kind). The kind is what a dashboard can group by;

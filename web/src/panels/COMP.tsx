@@ -1,20 +1,8 @@
 // COMP: several symbols on one axis, each indexed to 100 at its own
-// first session.
-//
-// The one question a table of prices cannot answer: which of these went
-// further. Prices in different currencies at different magnitudes have
-// no common axis -- a $600 stock and a $12 one drawn together is one
-// line and a flat smear -- so what is drawn is the RATIO to where each
-// series began.
-//
-// `single`, not `headed`, and that is deliberate. A headed panel opens a
-// live subscription for the strip's symbol, and this page has no one
-// symbol: `COMP AAPL MSFT` shared as a link would carry whichever symbol
-// happened to be on the strip when it was typed. `WLA` settled the same
-// question the same way.
-//
-// Seven symbols, because there are seven group colours and an eighth is
-// not distinguishable -- the limit is legibility, not arithmetic.
+// first session, since prices in different currencies and magnitudes
+// have no common axis. `single`, not `headed`: this page has no one
+// symbol, and a headed panel would subscribe the strip's. Seven symbols
+// because there are seven group colours; the limit is legibility.
 import { useMemo } from "react";
 import type { ReactElement } from "react";
 import { Interval, daysAgo, getBarsWindow, ApiError, type Row } from "../api/client";
@@ -64,12 +52,9 @@ function isPeriod(token: string): token is CompPeriod {
   return (PERIODS as string[]).includes(token);
 }
 
-/** The symbols in an args value, cleaned up but NOT cut.
- *
- *  Unlike `WLA`, whose cap is the socket's and cannot be exceeded at
- *  all, this one is a limit on what a reader can tell apart. So the
- *  extra symbols survive normalisation and the component drops them
- *  where it can say so. */
+/** The symbols in an args value, cleaned up but NOT cut: the cap is a
+ *  limit on what a reader can tell apart, so the component drops the
+ *  extras where it can say so. */
 export function parseSymbols(value: string | undefined): string[] {
   if (value === undefined) return [];
   const seen = new Set<string>();
@@ -104,12 +89,9 @@ interface Comparison {
   missing: string[];
 }
 
-/** One symbol's window, or null when the archive has none of it.
- *
- *  A 404 and an empty window are both "no bars for this symbol" and are
- *  reported as such. Anything else -- a 500, a timeout -- is left to
- *  reject: a failure the reader can retry must not be shown as a symbol
- *  that does not exist. */
+/** One symbol's window, or null when the archive has none of it. A 404
+ *  and an empty window are both "no bars"; anything else is left to
+ *  reject, since a retryable failure must not read as a missing symbol. */
 async function loadOne(symbol: string, from: string): Promise<ComparisonSeries | null> {
   let rows: Row[];
   try {

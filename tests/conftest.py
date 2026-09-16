@@ -4,21 +4,9 @@ from __future__ import annotations
 
 import os
 
-# Module level, before any `yfin` import.
-#
-# An autouse session fixture is not enough: pytest imports all test
-# modules first, fixtures run after -- a `Settings` loader set up at
-# import time would already have fired. Also a session-scoped fixture
-# can't depend on a function-scoped `monkeypatch` (ScopeMismatch).
-#
-# Required because `load_overrides` binds to `db_name`, i.e. the
-# production schema, while tests run in a process-specific schema
-# (`tests/helpers.py`). Uses `setdefault` so repo tests exercising the DB
-# path can deliberately lift this guard via `monkeypatch.delenv` +
-# `config.reset_settings()`.
-#
-# Spawned children inherit `os.environ` (shard.py), so the variable
-# propagates to them too.
+# Must run before any `yfin` import: `load_overrides` binds to the production
+# schema at import time, before any fixture. `setdefault` lets repo tests lift
+# the guard via `monkeypatch.delenv` + `config.reset_settings()`.
 os.environ.setdefault("YF_SETTINGS_SOURCE", "env")
 
 from collections.abc import Iterator  # noqa: E402
@@ -54,12 +42,8 @@ def test_schema(settings: Settings) -> str:
 def bootstrap_engine(settings: Settings) -> Iterator[Engine]:
     """`postgres` maintenance database, for `CREATE DATABASE` only.
 
-    Schema operations can't use this engine: `information_schema` is
-    database-specific, so a connection opened here can't see schemas
-    inside `yfinance_test`.
-
-    AUTOCOMMIT is required: `CREATE DATABASE` cannot run in a transaction
-    block.
+    Not usable for schema operations (`information_schema` is per-database).
+    AUTOCOMMIT because `CREATE DATABASE` cannot run in a transaction block.
     """
     engine = create_engine(settings.bootstrap_url(), isolation_level="AUTOCOMMIT")
     yield engine
@@ -70,10 +54,7 @@ def bootstrap_engine(settings: Settings) -> Iterator[Engine]:
 def test_db_engine(settings: Settings, bootstrap_engine: Engine) -> Iterator[Engine]:
     """Engine bound to the test database (no schema selected).
 
-    Used for schema create/drop and stale-schema cleanup. The extension
-    is installed here because `CREATE EXTENSION` is database-scoped;
-    skipping it makes `create_hypertable` fail with "function
-    by_range(unknown, interval) does not exist".
+    `CREATE EXTENSION` is database-scoped, so timescaledb is installed here.
     """
     try:
         with bootstrap_engine.connect() as conn:
@@ -105,10 +86,8 @@ def test_engine(
         conn.execute(text(f'DROP SCHEMA IF EXISTS "{test_schema}" CASCADE'))
         conn.execute(text(f'CREATE SCHEMA "{test_schema}"'))
 
-    # `public` must stay on the search_path: the timescaledb extension
-    # lives there, and create_hypertable / timescaledb_information.* can't
-    # resolve otherwise. Omitting it makes tests silently fall back to a
-    # plain table.
+    # `public` must stay on the search_path: timescaledb lives there, and
+    # without it create_hypertable silently leaves a plain table.
     engine = create_db_engine(
         settings,
         settings.db_test_name,
@@ -119,18 +98,13 @@ def test_engine(
     with engine.connect() as conn:
         conn.execute(text(V_ACTIONS_CREATE))
         conn.execute(text(V_PRICE_BARS_REGULAR_CREATE))
-        # create_all() doesn't know about hypertables (Alembic can't
-        # autogenerate them either). Without applying the same DDL as the
-        # migration, price_bars stays a plain table and chunk behavior
-        # can never be verified.
+        # create_all() doesn't know about hypertables; apply the migration DDL.
         for stmt in all_timescale_ddl():
             conn.execute(text(stmt))
         conn.commit()
     yield engine
     engine.dispose()
 
-    # `DROP SCHEMA ... CASCADE` also cleans up chunks (observed: "drop
-    # cascades to table _timescaledb_internal._hyper_1_1_chunk").
     with test_db_engine.connect() as conn:
         conn.execute(text(f'DROP SCHEMA IF EXISTS "{test_schema}" CASCADE'))
 
@@ -153,9 +127,8 @@ def db_session(test_engine: Engine) -> Iterator[Session]:
 def committed_session(test_engine: Engine) -> Iterator[Session]:
     """Session that actually commits, for concurrency tests.
 
-    `db_session` opens one connection and rolls back at the end, so a
-    second session never sees its writes and no deadlock can occur. This
-    fixture cleans up its own rows.
+    `db_session` rolls back, so a second session never sees its writes.
+    Tests using this fixture clean up their own rows.
     """
     session = Session(bind=test_engine, expire_on_commit=False)
     try:
@@ -182,17 +155,8 @@ def cleanup_tables(test_engine: Engine) -> Iterator[list[str]]:
 def _guard_concurrent_live_runs(request: pytest.FixtureRequest) -> None:
     """Stop a second concurrent live run with a clear message.
 
-    `run_sync` takes the 'yfin_sync' advisory lock; two overlapping live
-    runs make the second fail with LockNotAcquired, which shows up as
-    ERROR in file fixtures and inconsistent row counts in tests -- looks
-    like a code bug. This happened once: a live run started while another
-    was already in progress and produced 5 failed + 18 error, none of it
-    a real regression.
-
-    The guard only runs when live tests are actually selected. That's
-    decided from the collected tests, not the `-m` expression text:
-    `"live" in markexpr` would also be true for `-m "not live"` and would
-    needlessly block the unit run.
+    Overlapping live runs fail with LockNotAcquired, which looks like a code
+    bug. Selection is decided from collected items, not the `-m` text.
     """
     if not any(item.get_closest_marker("live") for item in request.session.items):
         return
@@ -201,11 +165,8 @@ def _guard_concurrent_live_runs(request: pytest.FixtureRequest) -> None:
     from yfin.core.config import get_settings
     from yfin.storage.db import SYNC_LOCK_NAME, lock_holder
 
-    # Connects to the live database, not the test database. PostgreSQL
-    # advisory locks are database-scoped (unlike MySQL's server-wide
-    # GET_LOCK): `run_sync` takes its lock on the live database, so the
-    # guard must check there too. Checking the test database would never
-    # see the lock and the guard would silently do nothing.
+    # Advisory locks are database-scoped and `run_sync` takes its lock on the
+    # live database, so the guard must check there, not the test database.
     engine = create_engine(get_settings().db_url())
     try:
         with engine.connect() as conn:
@@ -227,10 +188,7 @@ def _guard_concurrent_live_runs(request: pytest.FixtureRequest) -> None:
 def pytest_addoption(parser: pytest.Parser) -> None:
     """`--snapshot-update` rewrites the captured API examples.
 
-    A flag rather than an environment variable so it shows up in `--help`
-    next to the suite that uses it: the published examples are locked like
-    `openapi.json` is, and a lock nobody knows how to update is one people
-    delete.
+    A flag rather than an environment variable so it shows up in `--help`.
     """
     parser.addoption(
         "--snapshot-update",
@@ -243,12 +201,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def _isolate_metrics() -> Iterator[None]:
     """No test inherits another's counters.
 
-    `core/metrics` keeps the accumulator as PROCESS state, which is right in
-    production -- a shard installs one at start-up and every `metrics.inc`
-    anywhere in it lands there, with no handle threaded through five layers.
-    In a test process that same property means a runner test leaves one
-    installed for whatever runs next, and `flush(..., None)` then finds rows
-    it never wrote.
+    `core/metrics` keeps the accumulator as process state, so a runner test
+    would otherwise leave one installed for whatever runs next.
     """
     from yfin.core import metrics
 

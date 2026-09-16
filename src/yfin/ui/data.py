@@ -1,30 +1,8 @@
-"""Read routes that exist only for the browser terminal.
-
-Three reads the public surface does not offer, for three different
-reasons.
-
-`news` because `/v1` deliberately does not join: "news about AAPL" is two
-calls there (`news_symbols` for the ids, then `news`). The page wants one
-list, newest first.
-
-`ticks` because the tick archive has no `/v1` route at all -- `QR` opens
-on the last few hundred rows and then follows the socket, and paging a
-hypertable through a cursor is not that question.
-
-`gaps` because `bar_gaps` is in `NEVER_EXPOSED` (`tests/unit/test_api_contract.py`):
-it is operational bookkeeping, not market data, and the intraday chart is
-the one reader that needs it -- an hour with no candles means either a
-closed market or a missed fetch, and only this table can tell them apart.
-
-`sparklines` because a watchlist draws one line per row and `/v1` has no
-batch: 200 rows through `/v1/symbols/{s}/bars` is 200 requests to show
-200 tiny lines. One statement over `price_history` answers all of them.
-
-All four sit outside the OpenAPI document and outside the metered
-surface -- reachable by anyone, like the rest of the terminal, with
-`RequestBrake` the only thing in front of them. Promoting any of them to
-`/v1` is a separate decision (spec, "Kararlar" 8).
-"""
+"""Read routes that exist only for the browser terminal: reads `/v1` does
+not offer because it neither joins (`news`) nor batches (`sparklines`),
+plus `ticks` and `gaps`, which have no public route. All sit outside the
+OpenAPI document and the metered surface, with `RequestBrake` the only
+thing in front of them."""
 
 from __future__ import annotations
 
@@ -63,10 +41,8 @@ SessionDep = Annotated[Session, Depends(session_scope)]
 NEWS_DEFAULT_LIMIT = 50
 NEWS_MAX_LIMIT = 200
 
-#: `QR` opens on this many rows and then follows the socket. The ceiling
-#: is what one screenful of scrollback is worth: a tick body is ~150
-#: bytes, so 2,000 rows is a 300 kB response, and past that the page is
-#: paying to hold history nobody scrolls to.
+#: `QR` opens on this many rows and then follows the socket; past this the
+#: page is paying to hold history nobody scrolls to.
 TICKS_DEFAULT_LIMIT = 500
 TICKS_MAX_LIMIT = 2000
 
@@ -133,13 +109,9 @@ def symbol_news(
 
 
 def list_quotes(session: Session, symbols: Sequence[str]) -> list[dict[str, Any]]:
-    """The latest tick per symbol, as the socket's `snap` frames.
-
-    `live_quotes` rather than the newest `live_ticks` row: it exists so a
-    reader can answer "what is the price now" without scanning a
-    hypertable, and it is fed from the supervisor's last-value box, so it
-    stays current even when the writer queue overflows.
-    """
+    """The latest tick per symbol, as the socket's `snap` frames. From
+    `live_quotes`, not the newest `live_ticks` row: no hypertable scan, and
+    it stays current even when the writer queue overflows."""
     if not symbols:
         return []
     stmt = select(LiveQuote).where(LiveQuote.symbol.in_(sorted(set(symbols))))
@@ -148,12 +120,8 @@ def list_quotes(session: Session, symbols: Sequence[str]) -> list[dict[str, Any]
 
 
 def list_ticks(session: Session, symbol: str, limit: int) -> list[dict[str, Any]]:
-    """The newest ticks for one symbol, NEWEST FIRST.
-
-    The same body the socket sends, from the same field table, so `QR`
-    has one row shape rather than two: the opening page and everything
-    that arrives afterwards are indistinguishable once rendered.
-    """
+    """The newest ticks for one symbol, NEWEST FIRST, in the same body the
+    socket sends so `QR` has one row shape."""
     stmt = (
         select(LiveTick)
         .where(LiveTick.symbol == symbol)
@@ -187,12 +155,6 @@ def symbol_ticks(
 
 
 # --- sparklines -------------------------------------------------------------
-#
-# The batch `/v1` deliberately does not offer. Every other read here exists
-# because the public surface does not join; this one exists because it does
-# not BATCH -- and the arithmetic is what makes that a route rather than a
-# loop in the browser: a 200-symbol watchlist is 200 requests for 200 lines
-# of thirty numbers each.
 
 #: The same ceiling one live socket connection may subscribe to
 #: (`ui/live.py`, MAX_SYMBOLS), for the same reason: this is the other half
@@ -213,12 +175,8 @@ SPARKLINE_CALENDAR_FACTOR = 2
 
 
 class SparklineSeries(BaseModel):
-    """One symbol's closes, oldest first.
-
-    The dates bracket the series rather than labelling each point: a
-    sparkline has no axis, and what a reader needs to know is which window
-    the shape covers.
-    """
+    """One symbol's closes, oldest first. The dates bracket the series rather
+    than labelling each point: a sparkline has no axis."""
 
     symbol: str
     closes: list[str]
@@ -236,12 +194,8 @@ class SparklineSet(BaseModel):
 
 
 def parse_sparkline_symbols(value: str) -> list[str]:
-    """The `symbols` parameter as a list, in the order it was asked for.
-
-    Deduplicated because a repeated symbol is one series, and normalised
-    through the same function every other route uses so `aapl` and `AAPL`
-    are not two queries.
-    """
+    """The `symbols` parameter as a list, in the order it was asked for,
+    deduplicated and normalised like every other route's symbol."""
     seen: dict[str, None] = {}
     for token in value.split(","):
         stripped = token.strip()
@@ -251,17 +205,10 @@ def parse_sparkline_symbols(value: str) -> list[str]:
 
 
 def read_sparklines(session: Session, symbols: Sequence[str], points: int) -> SparklineSet:
-    """The last `points` daily closes for each symbol.
-
-    `price_history`, not `price_bars`: the daily close of a session lives
-    in the former and the latter is the intraday archive
-    (`models/bars.py:99-102`). The primary key is `(symbol, session_date)`,
-    so the filter below is a prefix scan of it.
-
-    The window is found from the archive's own latest session rather than
-    from today: an archive that has not synced since Friday should draw
-    Friday's month, not four empty days.
-    """
+    """The last `points` daily closes for each symbol, from `price_history`
+    (the session close; `price_bars` is intraday). The window is anchored
+    on the archive's own latest session, not today, so a stale archive
+    draws its last month rather than empty days."""
     latest = session.scalar(
         select(func.max(PriceHistory.session_date)).where(PriceHistory.symbol.in_(symbols))
     )
@@ -361,15 +308,8 @@ def search(
     session: SessionDep,
     q: Annotated[str, Query()],
 ) -> Collection[SymbolSummary]:
-    """Symbols by code OR by name, for the terminal's picker.
-
-    `/v1/symbols?q=` matches the symbol column and says so in its
-    published contract. That is right for an API and wrong for a person:
-    a reader who knows "Akbank" does not know that Yahoo files it under
-    `AKBNK.IS`, and one who types APPLE gets a joke coin whose ticker
-    starts that way rather than Apple Inc. This is the terminal's own
-    read, like `sparklines` and `news`, and `/v1` does not move.
-    """
+    """Symbols by code OR by name, for the terminal's picker; the published
+    `/v1/symbols?q=` matches the symbol column only."""
     query = q.strip()
     if len(query) < SEARCH_MIN_LENGTH:
         raise ApiProblem(
@@ -391,12 +331,9 @@ def search(
 
 
 class GapOut(BaseModel):
-    """One window the archive knows it is missing.
-
-    `reason` is `fetch_failed` or `retention_expired`; the chart shows
-    both the same way, but the distinction is what tells an operator
-    whether a refetch can still close it.
-    """
+    """One window the archive knows it is missing. `reason` is `fetch_failed`
+    or `retention_expired`: only the former can still be closed by a
+    refetch."""
 
     bar_interval: str
     gap_start_utc: datetime
@@ -412,13 +349,9 @@ def list_gaps(
     start: datetime | None,
     limit: int,
 ) -> list[GapOut]:
-    """OPEN gaps only, oldest first.
-
-    A resolved gap is a window the archive since filled, so the bars are
-    there and shading them would be a lie. `resolved_at IS NULL` is the
-    whole filter -- including `retention_expired` rows, which stay open
-    until `yfin stream reconcile` closes them from the tick archive.
-    """
+    """OPEN gaps only, oldest first. `resolved_at IS NULL` is the whole
+    filter; `retention_expired` rows stay open until `yfin stream
+    reconcile` closes them from the tick archive."""
     stmt = (
         select(BarGap)
         .where(
@@ -468,24 +401,14 @@ def symbol_gaps(
 
 
 # --- the screener -----------------------------------------------------------
-#
-# A fourth read the public surface does not offer, and for the same
-# reason as `news`: `/v1` does not join. A screen is four tables --
-# `screens` says what it is, `screen_runs` when it last ran,
-# `screen_members` who matched and in what order, `screen_quotes` what
-# each of them was worth -- and reading a screener through the generic
-# surface means four calls plus a client-side join over 107 columns of
-# quote data to show twelve of them.
+# A screen is four tables (`screens`, `screen_runs`, `screen_members`,
+# `screen_quotes`) and `/v1` does not join.
 
 
 class ScreenSummary(BaseModel):
-    """One screen and its most recent run.
-
-    `as_of_date` and the counts are null for a screen that has never
-    run: it is enabled and configured, and nothing has fetched it yet.
-    Dropping such a screen from the list would hide a misconfiguration
-    behind an absence.
-    """
+    """One screen and its most recent run. `as_of_date` and the counts are
+    null for a screen that has never run; it is still listed, or a
+    misconfiguration would hide behind an absence."""
 
     screen_key: str
     title: str
@@ -510,12 +433,8 @@ class ScreenSummary(BaseModel):
 
 
 class ScreenRow(BaseModel):
-    """One matched symbol, in the screen's own order.
-
-    Twelve columns of the hundred-odd `screen_quotes` holds. The rest
-    stay one keystroke away -- `DS screen_quotes symbol=X` -- so nothing
-    is hidden; this is the grid a screener is read in.
-    """
+    """One matched symbol, in the screen's own order. A subset of the
+    `screen_quotes` columns; the rest are reachable via `DS screen_quotes`."""
 
     rank_index: int
     symbol: str
@@ -545,22 +464,13 @@ class ScreenDetail(BaseModel):
     truncated: bool
 
 
-#: Rows per page. A roster is bigger than this by default and by design:
-#: `yf_screen_size` is 250 and `yf_screen_max_pages` is 4, so a screen
-#: can hold 1,000 members, and `most_shorted_stocks` matched 4,022 when
-#: it was measured. Showing the first N and stopping would hide the rest
-#: of a list whose length the header states -- hence `offset`.
+#: Rows per page. A roster can hold `yf_screen_size * yf_screen_max_pages`
+#: members, more than this, hence `offset`.
 SCREEN_ROWS_MAX = 250
 
 
 def _latest_runs(session: Session) -> dict[str, ScreenRun]:
-    """The most recent run of each screen, in one query.
-
-    `DISTINCT ON` rather than a correlated subquery per screen: the list
-    is drawn on every visit to the panel, and one round trip that reads
-    an index is the difference between a page that opens and one that
-    thinks about it.
-    """
+    """The most recent run of each screen, in one `DISTINCT ON` query."""
     stmt = (
         select(ScreenRun)
         .distinct(ScreenRun.screen_key)
@@ -586,13 +496,9 @@ def _summary(screen: Screen, run: ScreenRun | None) -> ScreenSummary:
 
 
 def list_screens(session: Session) -> list[ScreenSummary]:
-    """Enabled screens, by title, each with its latest run.
-
-    Disabled ones are left out: `screens.is_enabled` is the operator's
-    switch (the admin page writes it), and a screen turned off stops
-    being fetched, so its roster goes stale from that day on. Listing it
-    would offer a page of data with an invisible expiry date.
-    """
+    """Enabled screens, by title, each with its latest run. A disabled screen
+    stops being fetched, so listing it would offer a roster with an
+    invisible expiry date."""
     runs = _latest_runs(session)
     stmt = select(Screen).where(Screen.is_enabled.is_(True)).order_by(Screen.title)
     return [_summary(screen, runs.get(screen.screen_key)) for screen in session.scalars(stmt)]
@@ -601,18 +507,10 @@ def list_screens(session: Session) -> list[ScreenSummary]:
 def read_screen(
     session: Session, screen_key: str, limit: int, offset: int = 0
 ) -> ScreenDetail | None:
-    """One screen's latest roster, joined to that day's quotes.
-
-    None when there is no such screen. A screen that exists but has
-    never run comes back with an empty roster rather than a 404: those
-    are different problems and the panel says different things about them.
-
-    The join is an OUTER one on purpose. `screen_quotes` is keyed by
-    `(symbol, as_of_date)` and is NOT inside the gate's delete scope, so
-    a member can exist without a quote row -- an unknown symbol, or a
-    quote that failed to parse. Dropping those rows would quietly
-    shorten a roster whose length is itself reported.
-    """
+    """One screen's latest roster, joined to that day's quotes. None when
+    there is no such screen; a screen that has never run gets an empty
+    roster. The join is OUTER: a member can exist without a quote row, and
+    dropping it would shorten a roster whose length is itself reported."""
     screen = session.get(Screen, screen_key)
     if screen is None:
         return None
@@ -686,12 +584,8 @@ def read_screen(
 def _member_rows(
     session: Session, stmt: Select[Any]
 ) -> Iterator[tuple[ScreenMember, dict[str, Any]]]:
-    """The member and its quote columns as a plain mapping.
-
-    A `Table` in the select list comes back as loose columns rather than
-    an object, and an outer join makes every one of them nullable, so
-    the mapping is built here once instead of at each field below.
-    """
+    """The member and its quote columns as a plain mapping; a `Table` in the
+    select list comes back as loose, nullable columns."""
     for row in session.execute(stmt):
         member = row[0]
         quote = {column.name: row[index + 1] for index, column in enumerate(screen_quotes.c)}

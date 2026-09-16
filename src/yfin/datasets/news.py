@@ -48,7 +48,7 @@ def _url(value: Any) -> str | None:
 
 def _thumbnail(thumb: Any) -> tuple[str | None, int | None, int | None]:
     """The tag='original' resolution goes into columns; the rest stay in
-    raw_json. thumbnail may be None (5 of 50 articles measured)."""
+    raw_json. thumbnail may be None."""
     if not isinstance(thumb, dict):
         return None, None, None
     for res in thumb.get("resolutions") or []:
@@ -172,8 +172,7 @@ class NewsDataset(Dataset[NewsPayload]):
                     }
                 )
 
-            # The M:N link is real: content.finance.stockTickers was present
-            # in 50 of 50 articles, and 27 of 50 carried several symbols.
+            # An article can carry several symbols, hence the M:N link.
             finance = _as_dict(content.get("finance"))
             tickers = finance.get("stockTickers") or []
             symbols: list[str] = []

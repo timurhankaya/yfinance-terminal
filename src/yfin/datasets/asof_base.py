@@ -1,33 +1,7 @@
 """as-of dataset base.
 
-The codebase already has two hash gates; this is a third sibling. Why the
-others do not fit:
-
-- `SnapshotDataset`: the compared table (`snapshot_table`) and the written
-  table (`history_table`) differ, and what gets skipped is the history
-  table's rows. Here the gate is not even a data table, and there can be
-  1-4 target tables.
-- `HashGatedDataset`: the gate and the child share one key space
-  (`financial_periods` -> `financial_facts`), and the child's delete scope
-  derives from `gate_key_columns`. Here the gate key is (symbol, dataset);
-  children have no `dataset` column, and delete scope is the child's own
-  `scope_columns`.
-
-The shared rule holds: the gate row is always written; if the hash is
-unchanged, only `fetched_at` is updated. So `fetched_at` means "last time
-this was verified," not "last time this changed."
-
-Gate logic is split out of the `Dataset` hierarchy: `AsOfGate` is a mixin
-shared by `AsOfDataset` (symbol side) and `DomainAsOfDataset` (sector /
-industry side). The two hierarchies cannot merge: one has
-`fetch(SyncContext)` / `normalize(raw, symbol)`, the other
-`fetch(DomainContext)` / `normalize(raw, key)`. The mixin touches neither
-signature -- it only supplies `content_hash` and `upsert`.
-
-`asof_gate_table` cannot be named plain `gate_table`: `HashGatedDataset`
-already uses that name for something different (there the gate is a data
-table). Same name, different contract across sibling classes would be a
-silent trap.
+The gate row is always written; unchanged, only `fetched_at` ("last verified").
+`AsOfGate` is a mixin: the symbol and domain hierarchies cannot share a base.
 """
 
 from __future__ import annotations
@@ -53,15 +27,8 @@ DOMAIN_GATE_KEY_COLUMNS = ("domain_key", "dataset", "region")
 # (mirrors market_runner.GLOBAL_SCOPE_MARKER).
 GLOBAL_REGION_MARKER = "*"
 
-# Columns excluded from the hash. All three change on every run; if they
-# were part of the hash body it would never match, and every row would be
-# rewritten every day with nobody noticing.
-#
-# `first_seen_at` was added later. No data table has this column today
-# (only `asof_state` does, in models/asof.py), so the hash of the existing
-# 13 as-of datasets is unchanged. Without the exclusion,
-# `research_reports.first_seen_at` would change on every run, enter the
-# hash body, and the gate would never match.
+# Columns excluded from the hash: they change on every run, so including
+# them would make the gate never match.
 VOLATILE_COLUMNS = frozenset(_VOLATILE_COLUMNS)
 
 # Columns updated on the gate row when the hash changes. `first_seen_at` is
@@ -73,14 +40,8 @@ GATE_UPDATE_COLUMNS = ("as_of_date", "content_hash", "row_count", "fetched_at")
 def asof_produces(*tables: str, gate: str = GATE_TABLE) -> tuple[str, ...]:
     """Target tables plus the gate table.
 
-    The `produces` contract means "table names this dataset writes," and
-    the `_failed_records` error path relies on it; if the gate is not
-    declared, the `asof_state` row falls out of auditing and `produces`
-    diverges from actual output. This helper is the one place that knows
-    the gate table's name.
-
-    `gate` is a later addition; its default is unchanged, so all 13
-    existing call sites produce identical output.
+    `produces` must include the gate table or `_failed_records` drops the
+    gate row from auditing on the error path.
     """
     return (*tables, gate)
 
@@ -93,9 +54,7 @@ class AsOfGate:
     """as-of gate -- a mixin independent of the `Dataset` hierarchy.
 
     The subclass supplies `name`, `produces` and `gate_source_tables`; the
-    mixin only provides `content_hash` and `upsert`. `gate_identity()`
-    returns the gate row's key fields, defaulting to today's (symbol-side)
-    behavior.
+    mixin only provides `content_hash` and `upsert`.
     """
 
     # Supplied by the subclass. `produces` is declared here too: `prune.py`
@@ -106,47 +65,22 @@ class AsOfGate:
     asof_gate_table: str = GATE_TABLE
     asof_gate_key_columns: tuple[str, ...] = GATE_KEY_COLUMNS
 
-    #: Where the gate row's stamp comes from, in the order to try. The gate
-    #: needs `as_of_date`, `fetched_at` and the identity column, and it used
-    #: to take them from whichever row happened to come first in `writes` --
-    #: an unwritten precondition that three subclasses had already had to
-    #: work around, and that a new dataset would break by reordering its own
-    #: write list: either a `KeyError` after the fetch was paid for, or a
-    #: wrong `as_of_date` written silently, after which the gate says
-    #: "unchanged" forever.
-    #:
-    #: A tuple rather than one table because for two datasets no single
-    #: table is guaranteed to carry rows: `search_Turkish-Airlines` returns
-    #: no quotes and three research reports, and a lookup whose totals are
-    #: all zero has totals but no results. The ORDER is the declaration --
-    #: the point is that it is stated here rather than inherited from the
-    #: order `normalize` happens to build its writes in.
+    #: Tables the gate row takes `as_of_date`, `fetched_at` and identity from,
+    #: in the order to try. A tuple because for some datasets no single table
+    #: is guaranteed to carry rows; the order here, not the order of `writes`,
+    #: decides.
     gate_source_tables: tuple[str, ...] = ()
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
-        """A concrete gated dataset that declares no source fails to import.
+        """A concrete gated dataset that declares no source fails at import.
 
-        Import time, not first write: a missing declaration would otherwise
-        surface on the first symbol of a live run, after the Yahoo call was
-        already paid for. Abstract intermediates (`AsOfDataset`,
-        `DiscoveryDataset`, `DomainAsOfDataset`, the per-family bases) are
-        exempt -- they have no `normalize` yet, so they have no write list
-        to name a table in.
-
-        `__abstractmethods__` cannot be used to find them: `ABCMeta` fills
-        it in AFTER `type.__new__` has already called this hook, so it is
-        empty for every class here, abstract or not. The attributes are
-        resolved through `cls` rather than read out of each `__mro__`
-        entry's `vars()`, so a subclass that overrides an abstract method
-        counts as concrete.
+        `__abstractmethods__` is still empty here (ABCMeta fills it after this
+        hook), so abstractness is checked by resolving MRO attributes via `cls`.
         """
         super().__init_subclass__(**kwargs)
         if not isinstance(getattr(cls, "name", None), str):
-            # A class that has not named itself is a base: it cannot be
-            # registered, resolved or audited, so it has no run to break.
-            # `PeriodFrameDataset` is the case that matters -- it implements
-            # `fetch` and `normalize`, so it is concrete by every other
-            # measure, and still exists only to be subclassed.
+            # A class with no `name` is a base (cannot be registered), even
+            # when it already implements `fetch` and `normalize`.
             return
         names = {name for klass in cls.__mro__ for name in vars(klass)}
         if any(
@@ -163,10 +97,8 @@ class AsOfGate:
     def gate_row(self, result: NormalizedResult) -> dict[str, Any]:
         """First row of the first declared source table that has rows.
 
-        Raises when none of them does while the result is not empty: that
-        means the declaration names tables this dataset does not fill, and
-        producing a gate row from some other table's row is exactly the
-        silent corruption this replaced.
+        Raises on a non-empty result with no such row: the declaration then
+        names tables this dataset does not fill.
         """
         by_table = {write.table: write.rows for write in result.writes}
         for table in self.gate_source_tables:
@@ -185,11 +117,8 @@ class AsOfGate:
     def content_hash(self, result: NormalizedResult) -> str:
         """SHA-256 of the canonical body of `result.writes`.
 
-        Rows are sorted by `key_columns`. `nz.canonical_json` only sorts
-        dict keys (sort_keys=True); list order is preserved. If a source --
-        Yahoo's "top 10 institutions" list, insider_roster, domain
-        `topCompanies` -- reorders with the same content, the hash would
-        change and the gate would rewrite unnecessarily every day.
+        Rows are sorted by `key_columns` because `canonical_json` preserves
+        list order, and sources reorder rows with unchanged content.
         """
         payload: list[dict[str, Any]] = []
         for write in sorted(result.writes, key=lambda w: w.table):
@@ -236,12 +165,8 @@ class AsOfGate:
             return stats
 
         digest = self.content_hash(result)
-        # `--full-refresh` does not even ask. Zeroing the watermark (which
-        # is all `SyncContext.watermark` used to do for it) refetches the
-        # data and then hands it to a gate that still says "unchanged", so
-        # nothing is written -- and the one case the flag exists for, data
-        # rows lost while the gate row survived, is exactly the case it
-        # could not repair.
+        # `--full-refresh` bypasses the gate: it exists to repair data rows
+        # lost while the gate row survived.
         unchanged = False
         if not full_refresh:
             identity = self.gate_identity(result)
@@ -251,19 +176,15 @@ class AsOfGate:
         if unchanged:
             # Data tables are not written. `skipped` is recorded only for a
             # table that carries rows; a target with an empty TableWrite
-            # stays `empty` -- e.g. fund_top_holdings has 0 rows for BND.
+            # stays `empty`.
             for write in result.writes:
                 if write.rows:
                     stats.skipped[write.table] = stats.skipped.get(write.table, 0) + len(
                         write.rows
                     )
                 else:
-                    # A target carrying no rows would otherwise appear in no
-                    # counter, fall outside `stats.tables()`, and never reach
-                    # `_record_items` -- the table would drop out of
-                    # auditing for that run. Zero attempted + zero skipped =
-                    # `empty`: BND's fund_top_holdings is empty while its
-                    # three sibling tables are `skipped`.
+                    # Keep a row-less target in the counters so it stays in
+                    # auditing; zero attempted + zero skipped = `empty`.
                     stats.attempted.setdefault(write.table, 0)
                     stats.verified.setdefault(write.table, 0)
         else:
@@ -280,9 +201,4 @@ class AsOfGate:
 
 
 class AsOfDataset[RawT](AsOfGate, Dataset[RawT]):
-    """PK includes as_of_date; data tables are not written if content_hash is unchanged.
-
-    Behavior is unchanged from before the gate logic was split out: the
-    mixin's defaults (`GATE_TABLE`, `GATE_KEY_COLUMNS`, symbol identity) are
-    exactly the values that were previously hardcoded here.
-    """
+    """PK includes as_of_date; data tables are not written if content_hash is unchanged."""

@@ -1,9 +1,7 @@
 """Round-trip guarantee: `seed(export(state)) == state`.
 
-The serialization rule must be lossless for text/number/bool. If `bool`
-were ever written as `"True"`, pydantic would still parse it, but the
-export -> seed cycle would change the value, and the difference would only
-surface in production.
+Serialization must be lossless for text/number/bool: a `bool` written as
+`"True"` still parses, but the export -> seed cycle changes the value.
 """
 
 from __future__ import annotations
@@ -36,12 +34,8 @@ SAMPLE = {
 
 
 def _export(settings: Settings, *, all_keys: bool) -> dict[str, object]:
-    """Calls the same function as `yfin config export`.
-
-    This logic used to be duplicated here; the copy ended up testing
-    itself rather than the real output -- the same reason two separate
-    validations tend to drift apart.
-    """
+    """Calls the same function as `yfin config export`, so the test cannot
+    drift from the real output."""
     return export_values(settings_state(rows=fetch_rows(settings)), all_keys=all_keys)
 
 

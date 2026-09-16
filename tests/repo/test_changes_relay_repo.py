@@ -1,14 +1,7 @@
 """The `xid` cursor, against transactions that really commit.
 
-These cannot use `db_session`. Its outer transaction is never committed, so
-nothing it writes ever falls below `pg_snapshot_xmin` and the cursor would
-correctly refuse to publish any of it. Each test here opens its own
-connections from the test engine, commits for real, and truncates what it
-used.
-
-What is under test is the one failure the cursor exists to prevent: a
-transaction that takes its outbox ids early and commits late must be waited
-for, not stepped over. Its rows exist nowhere else.
+`db_session` never commits, so nothing it writes falls below `pg_snapshot_xmin`;
+each test opens its own connections, commits for real, and truncates after.
 """
 
 from __future__ import annotations
@@ -50,17 +43,9 @@ class FakeProducer:
 def factory(test_engine: Engine) -> Iterator[sessionmaker[Session]]:
     """Real sessions on the test engine; the tables are cleared afterwards.
 
-    The warm-up write is not decoration. `pipeline_outbox` is a hypertable,
-    and the FIRST insert into an empty one CREATES the chunk and holds a
-    lock on it until it commits. The tests below deliberately leave a
-    transaction open while a second one writes, so without an existing
-    chunk the second would block on the first and the suite would hang
-    rather than fail. One committed row, then deleted, leaves the chunk
-    behind and the tables empty.
-
-    `lock_timeout` turns any remaining contention into a fast failure
-    instead of a hang.
-    """
+    The warm-up write matters: the first insert into an empty hypertable creates
+    the chunk and locks it until commit, so tests that write from a second
+    transaction while one is open would hang. `lock_timeout` fails fast instead."""
     with test_engine.connect() as conn:
         conn.execute(
             text(
@@ -129,12 +114,9 @@ def test_an_uncommitted_transaction_is_not_published(
 def test_a_later_transaction_is_held_back_by_an_earlier_open_one(
     factory: sessionmaker[Session],
 ) -> None:
-    """The failure the whole cursor exists to prevent.
-
-    The first transaction takes its outbox ids first and commits LAST. An
+    """The first transaction takes its outbox ids first and commits LAST; an
     `id`-ordered walk would publish the second and move the offset past the
-    first, and the first's rows exist nowhere else.
-    """
+    first, whose rows exist nowhere else."""
     first = factory()
     _queue(first, "reference", "FIRST")
     first.flush()  # the xid is assigned here, before the second even starts

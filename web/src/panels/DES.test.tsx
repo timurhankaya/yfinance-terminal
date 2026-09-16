@@ -76,7 +76,7 @@ describe("DES", () => {
     mockApi();
     const { container } = renderDES("AAPL");
     expect(await screen.findByText("Apple Inc.")).toBeInTheDocument();
-    // The identity that used to be seven rows of a definition list.
+    // The identity chips.
     for (const chip of ["AAPL", "NasdaqGS", "EQUITY", "USD", "America/New_York"]) {
       expect(screen.getByText(chip)).toBeInTheDocument();
     }
@@ -188,7 +188,7 @@ describe("DES", () => {
     expect(formatInfo("dividend_yield", "0.34")).toBe("0.34%");
     // Yahoo is inconsistent inside one fund payload: a year-to-date
     // return arrives as a percentage and a three-year average as a
-    // fraction. Measured, not assumed -- see the comment in `des/info.ts`.
+    // fraction (see `des/info.ts`).
     expect(formatInfo("ytd_return", "13.07293")).toBe("13.07%");
     expect(formatInfo("three_year_average_return", "0.2100781")).toBe("21.01%");
     expect(formatInfo("net_expense_ratio", "0.0945")).toBe("0.09%");

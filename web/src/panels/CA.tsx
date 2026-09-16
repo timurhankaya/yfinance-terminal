@@ -40,14 +40,8 @@ export interface DividendChart {
 }
 
 /** Dividends summed per calendar year, oldest first, with splits marked.
- *
- *  Per YEAR rather than per payment: a quarterly payer has four bars a
- *  year that say nothing a reader wanted, and what the question is here
- *  is whether the payout is growing.
- *
- *  A split is not a bar. It has no amount -- drawn on the value scale it
- *  would claim one -- so it goes on the axis, where it explains why the
- *  bar beside it changed height. */
+ *  Per YEAR: the question is whether the payout is growing. A split has
+ *  no amount, so it goes on the axis rather than claiming a bar. */
 export function dividendChart(rows: Row[], maxYears: number = MAX_YEARS): DividendChart | null {
   const byYear = new Map<string, number>();
   const splits = new Map<string, string>();

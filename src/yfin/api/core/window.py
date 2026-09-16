@@ -1,23 +1,8 @@
-"""The per-IP cap the unauthenticated endpoints share.
-
-Two endpoints answer without a token: `/health/ready` and `/metrics`. Both
-are therefore the cheapest attack surface the API has, and both do real
-work -- readiness touches PostgreSQL and Redis, `/metrics` renders every
-series the process holds. Left uncapped, a few thousand requests a second
-on either would take real traffic down with it.
-
-The cap is IN-PROCESS, and that is the point rather than a shortcut. A
-readiness probe that needed Redis in order to report that Redis is down
-would be useless exactly when it matters, and a `/metrics` endpoint that
-needed Redis to answer would go blind in the outage a scrape is there to
-show. It also means the limit is per worker: four uvicorn workers allow
-four times the configured rate between them, which is the right answer for
-a limit whose job is to bound the damage rather than to bill anyone.
-
-Each endpoint gets its OWN window. Sharing one would let a Prometheus
-scraping every fifteen seconds eat a Kubernetes probe's budget, and the
-two failures would be indistinguishable.
-"""
+"""The per-IP cap for the unauthenticated endpoints (`/health/ready`,
+`/metrics`). In-process, so a readiness probe can report Redis down
+without needing Redis; hence per worker, which is fine for a limit that
+bounds damage rather than bills. Each endpoint gets its own window so a
+scraper cannot eat a probe's budget."""
 
 from __future__ import annotations
 
@@ -61,12 +46,9 @@ def check(name: str, request: Request) -> None:
 
 
 def guard(name: str) -> Callable[[Request], None]:
-    """The same check as a FastAPI dependency, for a route we do not write.
-
-    `/metrics` is mounted by the instrumentator, so there is no handler
-    body to put the call in; `dependencies=[Depends(metrics_window)]` is
-    the only place a cap can go.
-    """
+    """The same check as a FastAPI dependency, for a route we do not write:
+    `/metrics` is mounted by the instrumentator, so a cap can only go in
+    `dependencies=[...]`."""
 
     def dependency(request: Request) -> None:
         check(name, request)

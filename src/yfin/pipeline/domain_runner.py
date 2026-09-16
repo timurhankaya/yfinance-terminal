@@ -1,21 +1,7 @@
-"""Sector / industry sync orchestration.
+"""Sector / industry sync orchestration: one process, one proxy, no sharding.
 
-Structured like `market_runner.py`, but on a third axis: 156 keys, each its
-own HTTP request. `market_runner`'s "6 datasets, one turn" assumption
-doesn't hold here, and `SyncContext.ticker` is meaningless for a domain --
-hence a separate runner.
-
-No parallelism, no sharding: 156 requests, one process, one proxy. The
-symbol side's queue/backpressure machinery would be unneeded complexity
-here.
-
-Transaction boundary = turn = (dataset x key x region). A broken industry
-doesn't take down the other 144. The one exception is `domain_taxonomy`:
-156 `symbols` rows plus 156 `domains` rows are written in a single turn,
-single transaction -- the taxonomy is consistent as a whole or not at all.
-
-Lock is `yfin_domain_sync`; doesn't conflict with `yfin_sync` or
-`yfin_market_sync`, so all three commands can run concurrently.
+Transaction boundary is one turn (dataset x key x region), except
+`domain_taxonomy`, which writes the whole taxonomy in one transaction.
 """
 
 from __future__ import annotations
@@ -61,10 +47,8 @@ DOMAIN_LOCK_NAME = "yfin_domain_sync"
 # (YF_DOMAIN_REGIONS=XX), nothing would catch it.
 US = "US"
 
-# Measured `topCompanies` overlap with US for supported regions is exactly
-# 0 (GB, DE, JP, TR -- all four). In the fallback case overlap is 1.0. The
-# 50% threshold leaves ample margin between the two cases and is not
-# sensitive to ordering/set drift.
+# `topCompanies` overlap with US at or above this means Yahoo fell back to
+# US data for the region.
 FALLBACK_OVERLAP = 0.5
 
 _REGION_PATTERN = re.compile(r"[A-Z]{2}")
@@ -84,24 +68,10 @@ def domain_regions(
     cache: dict[str, Any] | None = None,
     fetch: Any = None,
 ) -> list[str]:
-    """Format check plus empirical validation.
+    """Format check plus an empirical probe against Yahoo.
 
-    Three measured traps:
-
-    1. An invalid region silently returns US (`XX`, `EUROPE`, `''`, `us`) --
-       no error. Format checking alone lets `XX` through, and US data would
-       get written under the `XX` label.
-    2. Using the primary region as the base misses an invalid primary
-       region entirely. The base must always be `US`.
-    3. List equality doesn't work: `topCompanies` order changed in 8 of 11
-       sectors within 15 minutes, and `technology`'s set itself changed.
-       If the list drifts between two consecutive requests, an invalid
-       region would pass validation -- exactly the scenario the probe
-       exists to catch. Set intersection is used instead.
-
-    Cost: 1 request per configured non-US region, plus 1 base request
-    unless US is configured. Zero extra requests when only `US` is
-    configured, and no guard is needed since US is the fallback itself.
+    Yahoo silently returns US data for an unsupported region, so each
+    region's reference sector is set-intersected with the US base.
     """
     cfg = settings or get_settings()
     getter = fetch or fetch_domain
@@ -149,9 +119,7 @@ def domain_targets(
 ) -> list[tuple[str, str]]:
     """(key, symbol) pairs, sourced from the DB.
 
-    Not held in memory, so partial runs like `--datasets industry_profile`
-    use the same path. The bootstrap turn runs first on every resolution,
-    so the list is always fresh.
+    The bootstrap turn runs first on every resolution, so the list is fresh.
     """
     with factory() as session:
         rows = session.execute(
@@ -212,19 +180,10 @@ def run_domain_sync(
     settings: Settings | None = None,
     acquire_lock: bool = True,
 ) -> RunTally:
-    """Order is load-bearing.
+    """Order: proxy, region validation, open_run, taxonomy turn, keys, sectors, industries.
 
-    1. `setup_single_proxy()` -- one proxy from the pool, `configure_yfinance`
-    2. `domain_regions()` -- region validation; after the proxy step
-       (otherwise the probe would go out over a direct connection, bypassing
-       pool policy), before `open_run` (so bad config doesn't leave a
-       `sync_runs` row stuck in `running`)
-    3. `open_run(scope=DOMAIN, symbol_count=0)`
-    4. `domain_taxonomy` turn
-    5. Keys read from the DB
-    6. `scope='sector'` datasets, then `scope='industry'`
-    7. Per dataset: `regional=False` -> one turn (`region='*'`);
-       `regional=True` -> one turn per region
+    Region validation runs after the proxy step (the probe must use the
+    pool) and before `open_run` (bad config must not leave a running row).
     """
     cfg = settings or get_settings()
     if acquire_lock:

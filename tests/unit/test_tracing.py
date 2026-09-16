@@ -1,11 +1,7 @@
-"""Tracing, which is optional twice over and must cost nothing when off.
-
-Without the `[otel]` extra every function is a no-op that imports nothing.
-With the extra but no `OTEL_EXPORTER_OTLP_ENDPOINT` it stays off, because
-a process nobody is collecting from should not pay to build spans it will
-throw away. Both are the normal case: a CLI run, a test, a developer's
-laptop.
-"""
+"""Tracing is optional twice over and must cost nothing when off: without the `[otel]`
+extra every function is a no-op that imports nothing, and without
+`OTEL_EXPORTER_OTLP_ENDPOINT` it stays off so an uncollected process does not build spans
+it will throw away."""
 
 from __future__ import annotations
 
@@ -17,13 +13,8 @@ from yfin.core import tracing
 
 
 def _code(function: object) -> str:
-    """A function's source with the comments and the docstring stripped.
-
-    The two assertions below are about what the code DOES, and both of the
-    strings they look for are named in prose right next to the line that
-    avoids them -- which is exactly where an explanation belongs and
-    exactly what a naive `in` check would trip over.
-    """
+    """A function's source with comments and docstring stripped: the strings the assertions
+    look for are named in prose next to the line that avoids them."""
     import ast
     import inspect
 
@@ -82,13 +73,9 @@ class TestWhenItIsOff:
         tracing.set_attributes(None, rows_written=17)
 
     def test_a_failing_attribute_does_not_break_the_block(self) -> None:
-        """Instrumentation that can fail is instrumentation that turns a
-        working sync into a broken one.
-
-        Here rather than under `TestWhenItIsOn`: the hostile object supplies
-        the whole span interface itself, so taking the `spans` fixture would
-        have skipped this without the `[otel]` extra -- exactly the
-        installation where a raising `set_attributes` matters most."""
+        """Instrumentation that can fail turns a working sync into a broken one. Not under
+        `TestWhenItIsOn`: the hostile object supplies the span interface itself, so this
+        runs without the `[otel]` extra, where a raising `set_attributes` matters most."""
 
         class _Hostile:
             def set_attribute(self, *_args: object) -> None:

@@ -1,9 +1,7 @@
 """The transaction boundary for one symbol, and the retry around it.
 
-One symbol is one transaction: a failure rolls back that symbol and
-nothing else. The audit rows are written separately, on purpose -- in the
-same transaction a rollback would erase the record of the failure exactly
-when it matters most.
+Audit rows are written separately: in the same transaction a rollback
+would erase the record of the failure.
 """
 
 from __future__ import annotations
@@ -32,30 +30,21 @@ def persist_symbol(
 ) -> list[ItemRecord]:
     """One transaction per symbol: written as a whole or not at all.
 
-    The collector, when there is one, is filled here and flushed as the LAST
-    statement before the caller commits. That ordering is what keeps the
-    outbox window small: the pipeline relay cannot pass an open writing
-    transaction, so the gap between the flush and the commit is the gap it
-    waits on.
+    The collector is flushed as the LAST statement before the commit; the
+    outbox relay waits on the gap between flush and commit.
     """
     records: list[ItemRecord] = []
     writer = PostgresRowWriter(session, collector=collector)
-    # One span per symbol, not per dataset write: this is the transaction
-    # boundary, and it is what a "why did AAPL take four seconds" question
-    # is actually asking about. `symbol` is an attribute here and is
-    # forbidden as a metric label -- a trace is sampled and discarded, a
-    # series is kept forever.
+    # One span per symbol: this is the transaction boundary. `symbol` is a
+    # span attribute and forbidden as a metric label (a series is kept forever).
     tracing_span = tracing.span(
         "sync.symbol",
         symbol=payload.symbol,
         dataset_count=len(payload.results),
     )
-    # Rescale hook runs before price_bars is written, in the same
-    # transaction. In the reverse order, bars written in this run (already
-    # at Yahoo's current scale) would get split again. A separate
-    # transaction doesn't work either: persist_with_retry replays the
-    # whole block on a lock conflict, and a rescale that already committed
-    # would muddy the accounting even if not reapplied.
+    # Rescale runs before price_bars is written, in the same transaction:
+    # bars written in this run are already at Yahoo's current scale, and
+    # persist_with_retry replays the whole block on a lock conflict.
     with tracing_span as current:
         rescale_before_bars(session, payload, collector)
         for dataset, result, fetched, duration in payload.results:
@@ -87,12 +76,8 @@ def rescale_before_bars(
 ) -> None:
     """Applies pending splits if any dataset writes to price_bars.
 
-    Only runs when price_bars will actually be written, so a run like
-    `--datasets info` doesn't needlessly query splits/bar_rescales.
-
-    It runs BEFORE the dataset loop, so the collector already exists here
-    and its `dataset` label is still None -- which is right: a rescale is
-    not something a dataset did.
+    Runs before the dataset loop, so the collector's `dataset` label is
+    still None: a rescale is not something a dataset did.
     """
     writes_bars = any(
         "price_bars" in dataset.produces for dataset, _result, _f, _d in payload.results
@@ -125,27 +110,16 @@ def mark_unknown(session: Session, symbol: str, threshold: int) -> None:
     )
 
 
-# PostgreSQL SQLSTATEs. Symbols are spread across shards, so two processes
-# can write the same news / news_symbols row; a single process had no such
-# risk.
-#   40001 serialization_failure
-#   40P01 deadlock_detected
-#
-# 55P03 (lock_not_available) is deliberately not listed: it can't occur on
-# this code path since NOWAIT / SKIP LOCKED are not used. Retrying an
-# unjustified SQLSTATE would silently legitimize the wrong behavior if
-# NOWAIT is ever added.
+# Shards can write the same news / news_symbols row concurrently, so
+# serialization_failure (40001) and deadlock_detected (40P01) are retried.
+# 55P03 is not listed: NOWAIT / SKIP LOCKED are not used on this path.
 _RETRYABLE_SQLSTATES = frozenset({"40001", "40P01"})
 
 
 def is_lock_conflict(exc: BaseException) -> bool:
-    """Checks SQLSTATE, not the error message.
+    """Checks SQLSTATE, not the error message, which varies by locale and driver.
 
-    Text matching is affected by localized messages and driver formatting
-    changes; SQLSTATE is structural and stable. psycopg3 exceptions carry
-    `sqlstate`, and SQLAlchemy exposes it under `DBAPIError.orig`. An
-    exception without `orig` (a programming error) makes the getattr
-    chain return None and correctly skips the retry.
+    An exception without `orig` (a programming error) yields None and skips the retry.
     """
     sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
     return sqlstate in _RETRYABLE_SQLSTATES
@@ -156,10 +130,8 @@ def persist_with_retry(
 ) -> list[ItemRecord]:
     """Symbol transaction with jittered retry on a lock conflict.
 
-    Safe to replay because the transaction is symbol-scoped and
-    idempotent. In PostgreSQL a failed transaction always enters aborted
-    state and accepts nothing but ROLLBACK, so the rollback before retry
-    is not optional -- the engine enforces it.
+    Safe to replay because the transaction is symbol-scoped and idempotent.
+    PostgreSQL requires the rollback before the retry.
     """
     last_error = ""
     for attempt in range(1, attempts + 1):
@@ -199,10 +171,7 @@ def persist_with_retry(
         # file a lock conflict under a Yahoo error class.
         for record in failed_records(payload.symbol, dataset.name, last_error, kind="write")
     ]
-    # The other three channels stay in the audit too. They don't depend on
-    # the write layer: `failures` blew up during fetch, `skipped` and
-    # `out_of_scope` never hit the network at all. Dropping them would
-    # leave no row for those cells -- not even `failed`, just absence --
-    # and silently mislead "when was this dataset last attempted".
+    # The other channels never depend on the write layer; dropping them
+    # would leave no row at all for those cells.
     records.extend(channel_records(payload))
     return records

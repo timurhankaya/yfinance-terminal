@@ -1,27 +1,8 @@
 // @vitest-environment jsdom
-//
-// Benchmarks default to the node environment even where the test suite
-// does not, and `colors.ts` reads the stylesheet through
-// `getComputedStyle(document.documentElement)`: without a DOM the render
-// half of this file measures nothing at all.
-// The gate on the treemap: how many cells can an SVG hold?
-//
-// The spec picks SVG over canvas and caps a treemap at 400 cells, and
-// says neither number is to be defended by argument (`Kararlar` 10,
-// `Ölçümler`). This is that measurement: the layout arithmetic and the
-// render, separately, so a slow answer says WHICH half is slow.
-//
+// Benchmarks default to the node environment, and `colors.ts` reads the
+// stylesheet through `getComputedStyle`. Layout and render are timed
+// separately so a slow answer says WHICH half is slow.
 // Run it with:  npx vitest bench src/panels/viz/treemap.bench.ts
-// Results:      docs/measurements/web-viz.md
-//
-// The sizes are the real ones. 50 is a sector map (`domain_metrics` holds
-// eleven sectors and ~140 industries); 200 is a screen roster page; 400
-// is the cap itself -- the size at which the tail becomes one "Other"
-// box, and therefore the largest treemap the terminal can ever draw.
-//
-// The render is measured through `renderToStaticMarkup` rather than a
-// jsdom mount: what is being asked is the cost of BUILDING 400 cells'
-// worth of elements, and a jsdom commit would measure jsdom instead.
 import { renderToStaticMarkup } from "react-dom/server";
 import { bench, describe } from "vitest";
 import { Treemap, capCells, squarify } from "./Treemap";

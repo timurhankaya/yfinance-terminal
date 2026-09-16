@@ -20,15 +20,8 @@ FIXTURE_ROOT = Path(__file__).parent / "fixtures"
 def schema_name(base: str) -> str:
     """Test schema is process-specific: `<base>_<pid>`.
 
-    With one fixed schema, two pytest runs (e.g. two editor sessions)
-    would `drop_all` each other's tables, showing up as concurrent DDL
-    errors and non-reproducible row-count mismatches. Tying the schema
-    name to the process rules this out.
-
-    Uses a schema, not a database: `CREATE DATABASE` must run outside a
-    transaction, copies the template database, and needs `CREATE
-    EXTENSION timescaledb` in every new database; `CREATE SCHEMA` is
-    ordinary DDL and `DROP SCHEMA ... CASCADE` also cleans up chunks.
+    Keeps concurrent pytest runs from dropping each other's tables. A schema,
+    not a database: `CREATE SCHEMA` is ordinary DDL and CASCADE drops chunks.
     """
     return f"{base}_{os.getpid()}"
 
@@ -44,18 +37,10 @@ def pid_is_alive(pid: int) -> bool:
 
 
 def drop_stale_schemas(engine: Engine, base: str) -> list[str]:
-    """Drops leftover `<base>_<pid>` schemas from interrupted runs.
+    """Drops leftover `<base>_<pid>` schemas whose PID is no longer alive.
 
-    Ctrl-C and crashes skip teardown; without this cleanup, schemas would
-    accumulate indefinitely. Only schemas whose PID is no longer alive
-    are dropped, so a concurrent run's schema is untouched. The base name
-    itself (`<base>`, no numeric suffix) is also preserved.
-
-    `engine` must be bound to the test database, not the bootstrap
-    (`postgres`) connection: `information_schema.schemata` is
-    database-specific, and the bootstrap connection can't see schemas in
-    the test database. With the wrong engine, cleanup silently does
-    nothing and schemas accumulate forever.
+    `engine` must be bound to the test database: `information_schema.schemata`
+    is per-database, so the bootstrap engine would silently see nothing.
     """
     prefix = f"{base}_"
     dropped: list[str] = []
@@ -164,10 +149,8 @@ def as_statement_frame(records: Any) -> Any:
 def as_valuation_frame(records: Any) -> Any:
     """Valuation fixture: column labels stay raw.
 
-    Differs from `as_statement_frame`: the source returns 'Current' and
-    'M/D/YYYY' strings, not period-end Timestamps. Converting columns to
-    Timestamp here would skip the very step (`period_columns`) the
-    dataset is meant to exercise.
+    Converting columns to Timestamp here would skip `period_columns`, the
+    step the dataset is meant to exercise.
     """
     import pandas as pd
 
@@ -194,9 +177,7 @@ def as_calendar_frame(records: Any) -> Any:
 def as_earnings_frame(payload: Any) -> Any:
     """earnings_dates fixture: {"tz": ..., "records": [...]}.
 
-    The real API returns a tz-aware DatetimeIndex, and the tz name matters
-    (even THYAO.IS uses America/New_York); an ISO string only carries the
-    offset.
+    The tz name matters and an ISO string only carries the offset.
     """
     import pandas as pd
 
@@ -219,13 +200,7 @@ _ISO_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}.*)?$")
 
 
 def _revive(value: Any) -> Any:
-    """Converts an ISO timestamp back into a Timestamp.
-
-    Fixtures are JSON, where `Timestamp` becomes a string; the real API
-    returns `Timestamp`. Without this conversion the test would run
-    against an input shape that never occurs in production -- passing
-    without proving anything.
-    """
+    """Converts an ISO timestamp back into the `Timestamp` the real API returns."""
     if isinstance(value, str) and _ISO_TIMESTAMP.match(value):
         import pandas as pd
 
@@ -239,11 +214,8 @@ def _revive(value: Any) -> Any:
 def as_dataset_frame(records: Any, *, datetime_index: bool = False) -> Any:
     """Converts `_frame_records` output to the shape the dataset sees.
 
-    Differs from `as_frame`: it doesn't unconditionally convert the index
-    to Timestamp. In this family the index is a date in one dataset
-    (upgrades_downgrades), a period label ('0q') in another, and a
-    sequence number in a third -- `pd.Timestamp('0')` would blow up on
-    the third.
+    Unlike `as_frame`, the index is only converted on request: in this
+    family it may be a period label or a sequence number, not a date.
     """
     import pandas as pd
 
@@ -273,18 +245,8 @@ def as_funds_data(payload: Any) -> Any:
 def expected_domain_cell_count(region_count: int, industry_count: int = 145) -> int:
     """Expected `sync_run_items` cell count for a domain run.
 
-    domain_taxonomy   : 2 tables x 1 kind
-    sector_profile    : 4 tables x 11 keys x 1 region
-    sector_rankings   : 3 tables x 11 keys x R
-    industry_profile  : 5 tables x N keys x 1 region
-    industry_rankings : 3 tables x N keys x R
-
-    R=1 -> 1239. Generated from the formula, not a hand-written constant.
-
-    It lives here, not in `pipeline/domain_audit.py`, because both of its
-    callers are tests: it is the ORACLE those tests check the runner
-    against, and an oracle that ships in the module under test can only
-    ever agree with it.
+    Kept in tests, not in `pipeline/domain_audit.py`: an oracle that ships
+    in the module under test can only ever agree with it.
     """
     from yfin.datasets.domain.common import SECTOR_KEYS
 

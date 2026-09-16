@@ -1,10 +1,8 @@
 """Analyst tables.
 
-Six of the eight tables are as-of: the source returns only "now", and the
-period label is relative (0q, +1y, 0m, -1m) -- data is meaningless
-without `as_of_date`. Two (analyst_grade_changes, earnings_history) are
-not as-of, since the source carries its own date.
-"""
+Six of the eight are as-of: the source returns only "now" with relative
+period labels (0q, +1y), so rows are meaningless without `as_of_date`.
+analyst_grade_changes and earnings_history carry their own dates."""
 
 from __future__ import annotations
 
@@ -40,9 +38,7 @@ class EstimateMetric(enum.StrEnum):
     REVENUE = "revenue"
 
 
-# Single source for the enum definition. PostgreSQL enum order is not
-# ordinal (the pg_enum OID is stored), so it lacks MySQL's silent-wrong-
-# value trap; a single source is still kept for maintainability.
+# Single source for the enum definition.
 METRIC_ENUM = Enum(
     EstimateMetric,
     values_callable=lambda e: [m.value for m in e],
@@ -52,7 +48,7 @@ METRIC_ENUM = Enum(
 
 
 class AnalystRecommendation(Base):
-    """strongBuy..strongSell counters; row count measured as 3 or 4."""
+    """strongBuy..strongSell counters."""
 
     __tablename__ = "analyst_recommendations"
     __table_args__ = (
@@ -62,7 +58,6 @@ class AnalystRecommendation(Base):
     symbol: Mapped[str] = symbol_fk_column(primary_key=True)
     as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     period: Mapped[str] = mapped_column(AsciiKeyType(PERIOD_LENGTH), primary_key=True)
-    # int64 with no NaN in all 19 symbols -> NOT NULL is defensible.
     strong_buy: Mapped[int] = mapped_column(Integer, nullable=False)
     buy: Mapped[int] = mapped_column(Integer, nullable=False)
     hold: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -88,11 +83,10 @@ class AnalystGradeChange(Base):
     # Source is tz-naive but derived from epochGradeDate in seconds -> UTC;
     # no second tz conversion is applied.
     grade_ts_utc: Mapped[datetime] = mapped_column(TsType(), primary_key=True)
-    # (GradeDate, Firm) measured dup=0 across 15 symbols / 8852 rows; max 26 chars.
     firm: Mapped[str] = mapped_column(KeyTextType(64), primary_key=True)
     to_grade: Mapped[str | None] = mapped_column(String(32, collation="C"))
     from_grade: Mapped[str | None] = mapped_column(String(32, collation="C"))
-    # Not an ENUM: 5 values measured, which does not prove Yahoo's list is closed.
+    # Not an ENUM: nothing proves Yahoo's list of values is closed.
     action: Mapped[str | None] = mapped_column(AsciiKeyType(16))
     price_target_action: Mapped[str | None] = mapped_column(String(16, collation="C"))
     # 0.0 is a real value ("no target"), not converted to NULL.
@@ -102,8 +96,8 @@ class AnalystGradeChange(Base):
 
 
 class AnalystPriceTarget(Base):
-    """current/low/high/mean/median. No consistency constraint: THYAO
-    measured low(330) > current(294); the source value is written as-is."""
+    """current/low/high/mean/median. No consistency constraint (the source
+    can report low > current); the source value is written as-is."""
 
     __tablename__ = "analyst_price_targets"
     __table_args__ = (
@@ -121,12 +115,10 @@ class AnalystPriceTarget(Base):
 
 
 class AnalystEstimate(Base):
-    """earnings_estimate + revenue_estimate in one table; identical column
-    sets, both from a single module.
+    """earnings_estimate + revenue_estimate in one table (identical columns).
 
     FactValueType (DECIMAL(38,10)) is required: the same column holds
-    AAPL EPS 1.97656 and THYAO revenue 1_285_436_390_920.
-    """
+    per-share EPS and whole-company revenue."""
 
     __tablename__ = "analyst_estimates"
     __table_args__ = (
@@ -173,11 +165,8 @@ class AnalystEpsTrend(Base):
 class AnalystEpsRevision(Base):
     """Up/down revision counters.
 
-    Source keys: upLast7days, upLast30days, downLast30days, and
-    downLast7Days -- the last one has a capital D (confirmed 19/19
-    symbols). Documentation shows all four lowercase; reading with a
-    lowercase `d` leaves the column silently NULL forever.
-    """
+    Source key `downLast7Days` has a capital D, unlike the other three and
+    unlike the documentation; reading it lowercase leaves the column NULL."""
 
     __tablename__ = "analyst_eps_revisions"
     __table_args__ = (
@@ -198,14 +187,9 @@ class AnalystEpsRevision(Base):
 class AnalystGrowthEstimate(Base):
     """Growth estimates; period 0q/+1q/0y/+1y/LTG.
 
-    industry_trend and sector_trend never appeared in 19 sample symbols,
-    but yfinance explicitly requests them (industryTrend, sectorTrend,
-    indexTrend); the columns exist now so a future value needs no migration.
-
-    index_trend is identical across all symbols (the market index trend);
-    storing it denormalized per symbol is deliberate -- a separate market
-    table for one column would be an abstraction with no other use.
-    """
+    industry_trend/sector_trend are requested by yfinance but rarely
+    populated. index_trend is the same across symbols and is stored
+    denormalized rather than in a one-column market table."""
 
     __tablename__ = "analyst_growth_estimates"
     __table_args__ = (
@@ -225,10 +209,8 @@ class AnalystGrowthEstimate(Base):
 class EarningsHistoryRow(Base):
     """Actual vs. estimated EPS. Not as-of: the source gives quarter-end.
 
-    quarter_end is taken from a tz-naive Timestamp via .date(); no tz
-    conversion is applied -- a fiscal quarter is a calendar label, not an
-    instant.
-    """
+    quarter_end is taken from a tz-naive Timestamp via .date() with no tz
+    conversion -- a fiscal quarter is a calendar label, not an instant."""
 
     __tablename__ = "earnings_history"
     __table_args__ = (

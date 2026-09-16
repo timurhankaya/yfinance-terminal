@@ -1,19 +1,8 @@
-"""The generic dataset surface.
-
-Five hand-written endpoints cover the resources people ask for by name.
-This covers the rest: one pattern over every dataset that opts in, so
-adding a dataset to the API is a declaration rather than a new module.
-
-Two things are resolved here and nowhere else.
-
-The catalogue is built once, at import, and validated against the real
-schema then. A dataset naming a column that does not exist is a startup
-failure, not a 500 on the first request that touches it.
-
-The scope comes from the dataset's family, so the catalogue and the
-authorisation check read the same declaration. A dataset cannot be listed
-as belonging to one family and served under another.
-"""
+"""The generic dataset surface: one pattern over every dataset that opts
+in. The catalogue is built at import and validated against the real
+schema then, so a bad column is a startup failure rather than a 500. The
+scope comes from the dataset's family, so listing and authorisation read
+one declaration."""
 
 from __future__ import annotations
 
@@ -52,13 +41,8 @@ class CatalogEntry:
 
     @property
     def served_columns(self) -> tuple[Column[Any], ...]:
-        """The columns a caller receives, in table order.
-
-        One definition, used by both the query and the catalogue's column
-        list -- otherwise the document would describe a row shape the
-        route does not send, which is the failure the whole exposure
-        mechanism exists to prevent.
-        """
+        """The columns a caller receives, in table order. Used by both the
+        query and the catalogue's column list so they cannot disagree."""
         hidden = set(self.exposure.hidden)
         return tuple(c for c in self.table.columns if c.name not in hidden)
 
@@ -100,12 +84,8 @@ def _add(
     dataset_name: str,
     exposure: ApiExposure,
 ) -> None:
-    """Registers one readable resource, checked against the real schema.
-
-    Validation happens here, at import, so a dataset naming a column its
-    table does not have stops the process from starting rather than
-    surfacing as a 500 to whoever calls it first.
-    """
+    """Registers one readable resource, checked against the real schema at
+    import so a bad column stops the process from starting."""
     resource = exposure.resource_name(dataset_name)
     if resource in entries:
         raise ValueError(
@@ -156,13 +136,9 @@ for _entry in CATALOG.values():
 
 
 def visible_to(scopes: frozenset[str], *, everything: bool) -> list[CatalogEntry]:
-    """The catalogue as one caller sees it.
-
-    Filtered to the caller's scopes by default. `everything` is the
-    documented opt-out, so "what else do you have" is answerable without
-    guessing at names -- but it is a choice, not the default, because the
-    default should not advertise data the caller cannot fetch.
-    """
+    """The catalogue as one caller sees it: filtered to the caller's scopes
+    unless `everything`, so the default does not advertise data the caller
+    cannot fetch."""
     entries = sorted(CATALOG.values(), key=lambda entry: entry.name)
     if everything:
         return entries
@@ -210,13 +186,9 @@ def query(
 def _keyset(
     columns: tuple[Column[Any], ...], after: tuple[Any, ...], descending: bool
 ) -> Any:
-    """Row-wise comparison, spelled out.
-
-    PostgreSQL supports `(a, b) > (:a, :b)` directly, but only for plain
-    ascending order; a descending key needs the comparison inverted, and
-    mixing the two silently returns the wrong page rather than an error.
-    Writing it out keeps both directions in one place.
-    """
+    """Row-wise comparison, spelled out: PostgreSQL's `(a, b) > (:a, :b)`
+    only covers ascending order, and a wrong direction silently returns the
+    wrong page rather than an error."""
     clauses = []
     for index, column in enumerate(columns):
         equals = [columns[i] == after[i] for i in range(index)]

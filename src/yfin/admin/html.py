@@ -1,20 +1,7 @@
-"""Server-rendered HTML for the admin page: one layout, a handful of
-helpers, no template engine. Every dynamic string passes through `esc`.
-Styles are a separate stylesheet route so the page can carry a CSP with
-no inline allowance.
-
-The look is the terminal's quieter sibling. The terminal shows live
-prices and earns its brightness; this page shows settings that are
-touched once a month, so colour is spent on one thing only: which value
-no longer matches its default. Amber means CHANGED here, never "click
-me" -- an operator scanning seventy rows needs the eye pulled to the
-three that someone edited, not to seventy identical Save buttons.
-
-Two typefaces, split by job. Keys, values and identifiers are monospace
-because they are compared character by character; prose is the system
-sans, because a paragraph explaining what `yf_stream_publish_enabled`
-does is read, not compared.
-"""
+"""Server-rendered HTML for the admin page, no template engine. Every dynamic
+string passes through `esc`. Styles are a separate stylesheet route so the
+page can carry a CSP with no inline allowance. Amber marks a value that
+differs from its default, never a call to action."""
 
 from __future__ import annotations
 
@@ -348,14 +335,9 @@ def button_form(
     confirm: bool = False,
     describes: str = "",
 ) -> str:
-    """A one-button POST form. `confirm` is a plain text hint, not a
-    script: the page ships no JavaScript.
-
-    `describes` names what the button acts on. Seventy buttons all
-    labelled "Save" are seventy identical stops in a screen reader, so
-    the accessible name carries the row's subject even though the
-    visible label stays short.
-    """
+    """A one-button POST form. `confirm` is a plain text hint (the page ships
+    no JavaScript). `describes` goes into the accessible name so identical
+    "Save" buttons are distinguishable in a screen reader."""
     cls = f' class="{kind.value}"' if kind is not ButtonKind.PLAIN else ""
     title = ' title="This cannot be undone"' if confirm else ""
     aria = f' aria-label="{esc(label)} {esc(describes)}"' if describes else ""

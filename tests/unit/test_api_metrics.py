@@ -1,11 +1,5 @@
-"""The API's own metrics: the endpoint, its cap, and what it counts.
-
-Three separate claims. That `/metrics` exists and is NOT part of the
-published contract; that it is capped like the other unauthenticated
-endpoint, because it is unauthenticated and renders every series the
-process holds; and that the counters are incremented where the decision is
-actually made rather than somewhere a refactor can quietly move them past.
-"""
+"""The API's own metrics: `/metrics` exists outside the contract, is capped like the other
+unauthenticated endpoint, and its counters increment where the decision is made."""
 
 from __future__ import annotations
 
@@ -75,16 +69,10 @@ class TestTheEndpoint:
 
 
 class TestWhatTheParametersDo:
-    """The four decisions, observed on an app with its own registry.
-
-    A private registry rather than the default one, and the reason is a
-    property of the library worth stating: on a duplicate registration
-    `prometheus-fastapi-instrumentator` returns None from its metric
-    factory and attaches NO instrumentation, so the second app built in a
-    process serves a `/metrics` that never moves. Production has one app
-    per process; a test suite has dozens, and against the default registry
-    these assertions would pass or fail on collection order.
-    """
+    """A private registry: on a duplicate registration `prometheus-fastapi-instrumentator`
+    returns None and attaches no instrumentation, so a second app in the process would
+    serve a `/metrics` that never moves. Against the default registry, this suite's many
+    apps would pass or fail on collection order."""
 
     @pytest.fixture
     def measured(self) -> TestClient:
@@ -108,15 +96,9 @@ class TestWhatTheParametersDo:
     def test_a_request_is_measured_by_its_route_template(
         self, measured: TestClient
     ) -> None:
-        """The `handler` label is the route TEMPLATE, which is why the
-        instrumentator is installed after the routers -- and why `symbol`
-        never reaches a label from here.
-
-        An unmatched path has no template, so the instrumentator labels it
-        `handler="none"` -- which is the same mechanism producing the same
-        kind of bounded value, and is what a request for a route that does
-        not exist must NOT turn into a label of its own.
-        """
+        """The `handler` label is the route TEMPLATE, which is why the instrumentator is
+        installed after the routers and `symbol` never reaches a label. An unmatched path
+        has no template and is labelled `handler="none"`, never a label of its own."""
         measured.get("/no-such-route")
         body = self._series(measured)
         assert "yfin_http_requests_total" in body
@@ -274,14 +256,9 @@ class TestTheWindow:
 
 
 class TestMultiprocessSafety:
-    """`PROMETHEUS_MULTIPROC_DIR` is read at IMPORT time, process-wide.
-
-    The image runs four uvicorn workers, so the API is the one service that
-    sets it -- and it must be set for the API ALONE. A module-level
-    `import prometheus_client` anywhere in the package would decide the
-    value class for the scheduler, the stream and both relays too, before
-    any of them had a chance to be something else.
-    """
+    """`PROMETHEUS_MULTIPROC_DIR` is read at import time, process-wide, and only the API
+    (four uvicorn workers) sets it. A module-level `import prometheus_client` anywhere in
+    the package would fix the value class for every other service too."""
 
     def test_nothing_imports_the_client_at_module_level(self) -> None:
         import pathlib

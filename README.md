@@ -414,8 +414,9 @@ pinned TimescaleDB service, and the web `check`/`lint`/`test`/`build`.
 
 **Conventions**
 
-- Every claim in a comment is measured. If you cannot measure it, do not
-  claim it.
+- Comments follow `CLAUDE.md`: at most 3-5 lines, only a non-obvious
+  constraint or invariant, never a measurement or an investigation. Measured
+  claims belong in `docs/measurements/` and in commit messages.
 - New tables must satisfy the schema invariants in
   `tests/unit/test_schema_invariants.py` — FK policy, timestamp
   precision, collation, as-of key ordering.
@@ -445,6 +446,38 @@ information.
   repository. A disclaimer does not grant redistribution rights.
 - Compliance with Yahoo's terms and with exchange or vendor licences is
   the operator's responsibility.
+
+---
+
+## Production deployment
+
+The supported production target is Docker Compose on one host; the
+image is the same one `docker compose up` builds locally.
+
+```bash
+cp .env.example .env
+# Required: DB_PASSWORD, YFAPI_JWT_SIGNING_KEY (`openssl rand -base64 48`).
+# Behind a TLS proxy: YFAPI_TRUSTED_PROXIES and YFAPI_PUBLIC_BASE_URL.
+# Optional: YF_PROXY_SECRET_KEY (proxy pool), YFAPI_ADMIN_PASSWORD (/admin),
+# YFAPI_UI_ENABLED (public terminal), YFAPI_DOCS_ENABLED.
+docker compose up -d --build
+docker compose exec api yfin db create
+docker compose exec api yfin db upgrade head
+docker compose exec api yfin config seed        # config/settings.seed.json
+docker compose exec api yfin symbols add AAPL MSFT
+docker compose exec api yfin stream scope add AAPL MSFT
+docker compose exec api yfin config set yf_stream_enabled true   # else `stream` exits and restarts
+docker compose exec api yfin api client create --name <name> --owner-email <email>
+curl -fsS http://localhost:8000/health/ready     # {"status":"ok","database":"ok","redis":"ok"}
+```
+
+Monitoring is the `observability` profile with `deploy/observability/.env`
+filled in (see "Monitoring"). Upgrades are `git pull`, the same
+`up -d --build`, and `yfin db upgrade head`; take the backup below
+first, because a rolled-back image does not roll back the schema. The
+archive lives in the `yfin-pgdata` volume — back it up
+with `docker compose exec timescaledb pg_dump -U yfin -d yfinance -Fc`.
+Terminate TLS in front of the API; nothing in the stack serves it.
 
 ---
 

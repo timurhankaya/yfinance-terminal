@@ -1,14 +1,7 @@
-"""RFC 9457 problem details, and the handlers that keep internals out.
-
-One rule governs every body here: a client learns *what* was refused,
-never *how* the server is built. No exception text, no SQL, no table or
-column name, no file path, no stack trace -- those go to the log, keyed
-by the same request_id the client is handed.
-
-`/oauth/token` is the one endpoint that does NOT use this format; RFC
-6749 §5.2 requires its own error body, and standard OAuth2 clients parse
-that shape. See `api/routers/oauth.py`.
-"""
+"""RFC 9457 problem details. A body says what was refused, never how the
+server is built: exception text, SQL, names and paths go to the log under
+the client's request_id. `/oauth/token` alone answers in the RFC 6749 §5.2
+shape instead, because OAuth2 client libraries parse that."""
 
 from __future__ import annotations
 
@@ -110,13 +103,8 @@ def _oauth_shaped(
     detail: str | None,
     headers: dict[str, str] | None,
 ) -> JSONResponse:
-    """RFC 6749 §5.2 body for a failure the token endpoint did not phrase.
-
-    Two members only, exactly as `_oauth_error` in the router builds them,
-    so every failure of this endpoint looks the same to a client library
-    whether the router refused it or a generic handler did. The request id
-    is still on the response, in `X-Request-Id`.
-    """
+    """RFC 6749 §5.2 body for a failure the token endpoint did not phrase;
+    the same two members `_oauth_error` in the router builds."""
     error, description = _OAUTH_ERRORS.get(status, ("invalid_request", title))
     all_headers = {"Cache-Control": "no-store", "Pragma": "no-cache"}
     all_headers.update(headers or {})
@@ -136,22 +124,13 @@ def problem_response(
     detail: str | None = None,
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
-    # Before the OAuth branch, not after: the label set is `ALL_TYPES`, and
-    # an error that left through the token endpoint's own shape is still an
-    # error the dashboard has to see. This is the one function every refusal
-    # passes through, which is why the counter is here and not at each of
-    # the two dozen `raise ApiProblem` sites.
+    # Before the OAuth branch: an error that leaves in the token endpoint's
+    # shape still counts. Every refusal passes through here.
     inc("yfin_api_problems_total", type=problem_type)
 
     if request.url.path == TOKEN_ENDPOINT_PATH:
-        # The token endpoint's own code answers in the RFC 6749 shape, but
-        # the generic handlers registered below do not know that. Without
-        # this, a missing `grant_type` (RequestValidationError), an
-        # unhandled failure or a cancelled query would reach an OAuth2
-        # client library as a problem document with no `error` field --
-        # exactly the failure `routers/oauth.py` documents at length and
-        # which no schema test would catch, because the document would
-        # still match what we published.
+        # Generic handlers (validation, unhandled, cancelled query) must not
+        # hand an OAuth2 client a problem document with no `error` field.
         return _oauth_shaped(status, title, detail=detail, headers=headers)
 
     body: dict[str, Any] = {
@@ -190,13 +169,8 @@ async def _http_exception(request: Request, exc: Exception) -> JSONResponse:
 
 
 async def _validation_error(request: Request, exc: Exception) -> JSONResponse:
-    """422 without echoing the submitted value.
-
-    FastAPI's default body carries `input`, i.e. whatever the client
-    sent, and the internal field path. Both are reflected straight back;
-    for a public API that is a needless amplification surface and leaks
-    the shape of our models.
-    """
+    """422 without echoing the submitted value or the internal field path
+    that FastAPI's default body reflects back."""
     assert isinstance(exc, RequestValidationError)
     fields = sorted(
         {".".join(str(p) for p in err.get("loc", ())[1:]) or "body" for err in exc.errors()}
@@ -215,14 +189,9 @@ QUERY_CANCELED = "57014"
 
 
 async def _operational_error(request: Request, exc: Exception) -> JSONResponse:
-    """A cancelled query is the caller's answer, not an internal failure.
-
-    Without this the statement timeout in `storage/limits.py` surfaces as
-    a 500, which is wrong twice over: the caller learns nothing about what
-    to change, and a 500 refunds the request's quota unit -- so asking for
-    something too expensive to serve would cost nothing, which is an
-    invitation to keep asking.
-    """
+    """A cancelled query (statement timeout in `storage/limits.py`) is the
+    caller's answer, not a 500: a 500 would refund the quota unit, making
+    too-expensive requests free to repeat."""
     assert isinstance(exc, OperationalError)
     if getattr(exc.orig, "sqlstate", None) == QUERY_CANCELED:
         return problem_response(

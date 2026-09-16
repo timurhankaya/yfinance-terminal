@@ -1,9 +1,7 @@
 """ticker calendar dataset.
 
-Source is a nine-key dict (`quote.py:_fetch_calendar` writes exactly these
-nine, no more possible); keys go missing per symbol: MSFT lacks
-Ex-Dividend Date, THYAO lacks Dividend Date, TSLA/BRK-B lack both. All
-columns are therefore nullable.
+Source is a nine-key dict; keys go missing per symbol, so every column is
+nullable.
 """
 
 from __future__ import annotations
@@ -84,8 +82,8 @@ class CalendarDataset(SnapshotDataset[CalendarPayload]):
         if not isinstance(dates, list | tuple):
             dates = [dates]
         if len(dates) > 2:
-            # Source has no documented list-length limit; measured len=1 across
-            # 6 symbols. Middle entries are dropped, hence the warning.
+            # Source has no documented list-length limit; middle entries are
+            # dropped, hence the warning.
             log.warning("earnings date list has extra entries", symbol=symbol, count=len(dates))
 
         row: dict[str, Any] = {

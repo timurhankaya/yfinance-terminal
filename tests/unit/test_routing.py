@@ -1,12 +1,6 @@
-"""Every produced table is routed, and routed the way the API serves it.
-
-The routing map is written out by hand so the rule behind it -- family per
-table, partition column per table -- is readable rather than inferred. That
-only works if something checks the map against the schema it describes, and
-these are those checks: a new table, a renamed column or a dataset exposed
-under a second family fails here rather than sending a row to a topic no
-consumer's ACL covers.
-"""
+"""Every produced table is routed, and routed the way the API serves it. The map is written
+by hand so the rule is readable; these checks keep it in step with the schema, so a new
+table or a renamed column fails here rather than sending rows to an uncovered topic."""
 
 from __future__ import annotations
 
@@ -50,12 +44,8 @@ def test_routes_cover_nothing_that_is_not_produced() -> None:
 
 
 def test_the_route_family_is_the_family_the_api_serves_the_table_under() -> None:
-    """One ACL line per family only holds if both sides agree.
-
-    A table served as `fundamentals` and published as `bars` would need a
-    consumer to hold two scopes to see one table -- which is exactly the
-    promise the per-table map exists to keep.
-    """
+    """One ACL line per family only holds if both sides agree: a table served as
+    `fundamentals` and published as `bars` would need two scopes to see one table."""
     for dataset, table, family in _exposures():
         assert table in ROUTES, f"{dataset}: exposed table {table!r} has no route"
         assert ROUTES[table].family.value == family, (
@@ -73,12 +63,8 @@ def test_every_partition_column_exists_on_its_table() -> None:
 
 
 def test_every_partition_column_is_part_of_the_primary_key() -> None:
-    """A delete event has the key and nothing else.
-
-    There is no row left to read a column from, so a partition column
-    outside the primary key would leave deletes on that table unroutable --
-    and the failure would only appear the first time something was deleted.
-    """
+    """A delete event has the key and nothing else, so a partition column outside the
+    primary key would leave deletes on that table unroutable."""
     for table, route in ROUTES.items():
         key = [c.name for c in Base.metadata.tables[table].primary_key]
         assert route.partition_column in key, (
@@ -88,12 +74,8 @@ def test_every_partition_column_is_part_of_the_primary_key() -> None:
 
 
 def test_infrastructure_covers_every_table_no_dataset_produces() -> None:
-    """Nothing falls between the two lists.
-
-    A table that is neither produced nor named as infrastructure is a table
-    whose rows nobody decided about -- and the default has to be a decision,
-    not silence.
-    """
+    """Nothing falls between the two lists: a table neither produced nor named as
+    infrastructure is a table whose rows nobody decided about."""
     unclassified = set(Base.metadata.tables) - _produced_tables() - INFRASTRUCTURE_TABLES
     assert not unclassified, f"neither produced nor infrastructure: {sorted(unclassified)}"
 

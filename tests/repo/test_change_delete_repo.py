@@ -1,9 +1,7 @@
 """Deletes that happen outside a sync, and what they publish.
 
-`symbols purge` and `yfin prune` remove rows nothing else will ever mention
-again. A consumer mirroring the archive has to be told, or its copy keeps
-rows that exist nowhere -- which is the same failure the whole design exists
-to prevent, arriving from the other direction.
+`symbols purge` and `yfin prune` remove rows nothing else will mention again;
+a consumer mirroring the archive has to be told or keeps rows that exist nowhere.
 """
 
 from __future__ import annotations

@@ -48,14 +48,10 @@ import { TooltipLayer } from "./TooltipLayer";
 import { functionHelp } from "./tab-help";
 import { dockviewEnabled } from "./config";
 
-/** The symbol a market page inherits, carried in the history entry.
- *
- *  Not in the path, because the page is not about it; not in a store,
- *  because that would be a second source of truth the URL could disagree
- *  with. A history entry is exactly the right lifetime: Esc and forward
- *  restore the symbol that was on the strip at that step, and a link
- *  someone pastes carries none -- which is what a shared screener should
- *  carry. */
+/** The symbol a market page inherits, carried in the history entry:
+ *  not in the path (the page is not about it), not in a store (a second
+ *  source of truth the URL could disagree with). Esc and forward restore
+ *  it per step, and a pasted link carries none. */
 interface HistoryContext {
   symbol?: string | null;
   /** Panels a split handed over on the way from an address to the
@@ -88,13 +84,10 @@ function FnButton(props: {
 }
 
 
-/** Everything a page is while it is on screen.
- *
- *  `panels` is what each panel is showing and `dock` is where they are;
- *  the two come from the same stored document and go back to it
- *  together, so there is no second copy to drift. `epoch` changes when a
- *  DIFFERENT page is loaded, which is what remounts the dock -- dockview
- *  reads a layout once, on the way up. */
+/** Everything a page is while it is on screen. `panels` and `dock` come
+ *  from the same stored document and go back to it together. `epoch`
+ *  changes when a DIFFERENT page is loaded, which remounts the dock --
+ *  dockview reads a layout once, on the way up. */
 interface PageState {
   name: string;
   panels: PanelSeed[];
@@ -243,18 +236,9 @@ export function Shell() {
           return;
         }
         // An address page IS one panel, so splitting it is the moment it
-        // stops being an address (spec, "Adres ve yönlendirme"). Both
-        // panels ride in the history entry; the working page picks them
-        // up from there.
-        //
-        // Opening a workspace is a navigation step: Back returns to the
-        // single page that the reader explicitly split with +.
-        //
-        // Whatever the working page held is replaced, and no confirmation
-        // is asked. `-` is the page with no name; naming one with
-        // `PG SAVE` is how a page is kept, and a prompt on every split
-        // would tax the common gesture to protect the page the terminal
-        // calls scratch.
+        // stops being an address. Both panels ride in the history entry
+        // so Back returns to the single page. The scratch page `-` is
+        // replaced without confirmation: `PG SAVE` is how a page is kept.
         void navigate(pagePath(PageName.Scratch), {
           state: {
             panels: [
@@ -411,12 +395,9 @@ export function Shell() {
   //: page as it is, not as it was seeded.
   const alone = !saved || page.panels.length <= 1;
 
-  /** What the shell's own controls are about.
-   *
-   *  On a page that is an address, that is the address. On a saved page
-   *  it is whichever panel has the keyboard: typing `GIP` there means
-   *  "this panel, intraday", and the strip and the function bar are about
-   *  the same panel the command box is. */
+  /** What the shell's own controls are about: the address on an address
+   *  page, otherwise whichever panel has the keyboard -- the strip, the
+   *  function bar and the command box all mean the same panel. */
   const focusedPanel = saved ? pagePanels.find((panel) => panel.id === activeId) : undefined;
   // Memoised because half a dozen callbacks depend on it: rebuilt every
   // render, every one of them would be a new function every render too,
@@ -479,13 +460,10 @@ export function Shell() {
     [focusedPanel],
   );
 
-  /** Hands the keyboard to the panel in that direction.
-   *
-   *  dockview has no directional navigation, so this is worked out from
-   *  where the panels are: each group's rectangle, and the arithmetic in
-   *  `pickNeighbour`. A group is one box however many tabs it holds --
-   *  the tabs are stacked in the same place, so "left" cannot mean one of
-   *  them. */
+  /** Hands the keyboard to the panel in that direction. dockview has no
+   *  directional navigation, so it is worked out from each group's
+   *  rectangle (`pickNeighbour`); a group is one box however many tabs
+   *  it holds. */
   const onMoveFocus = useCallback((direction: Direction) => {
     const api = apiRef.current;
     if (api === null) return;
@@ -798,12 +776,9 @@ export function Shell() {
           <p className="share">{shareLink}</p>
         )}
       </header>
-      {/* The market pages, and only those. The symbol functions moved
-          into the band each symbol panel wears (`SymbolBand.tsx`): they
-          belong beside the price they act on, and here they could only
-          ever have named one of the symbols a split page is showing.
-          A flat list of 22 codes gave a reader no way to tell which of
-          them a symbol was even relevant to. */}
+      {/* The market pages only; the symbol functions live in each symbol
+          panel's band (`SymbolBand.tsx`), since a split page shows more
+          than one symbol. */}
       <nav className="fnbar" aria-label="functions">
         <span className="fn-group">Market</span>
         {market_panels.map((panel) => (

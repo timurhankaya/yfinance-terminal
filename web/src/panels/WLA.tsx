@@ -1,20 +1,8 @@
-// WLA: a watchlist, live.
-//
-// **The list lives in the URL.** `WLA AAPL MSFT NVDA` is
-// `/ui/m/WLA?symbols=AAPL,MSFT,NVDA`, and that is the whole of its
-// state. The terminal has no login and no user table (that is phase 2),
-// so the alternatives were `localStorage` -- which the design says is
-// for the entry redirect and "is not a second state source" -- or a
-// server-side list nobody is authenticated to own. The URL is neither:
-// it is shareable, it is a history entry like every other command, so
-// Esc walks back through earlier lists, and it introduces no state the
-// page has to keep in step with anything.
-//
-// Every row subscribes on its own. That is what makes a 200-symbol list
-// affordable: the store keys quotes by symbol and each row selects only
-// its own, so one symbol ticking re-renders one row. Measured and
-// asserted -- `docs/measurements/websocket.md` ("Browser store at
-// watchlist size") and `web/src/live/hooks.test.tsx`.
+// WLA: a watchlist, live. The list lives in the URL and nowhere else:
+// `WLA AAPL MSFT NVDA` is `/ui/m/WLA?symbols=AAPL,MSFT,NVDA`, shareable
+// and a history entry like any other command. Every row subscribes on
+// its own, so one symbol ticking re-renders one row (asserted in
+// `web/src/live/hooks.test.tsx`).
 import { useState, type ReactElement } from "react";
 import { SYMBOL_RE } from "../commands/parser";
 import { usePanelRun } from "../workspace/frame";

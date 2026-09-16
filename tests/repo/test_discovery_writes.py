@@ -1,9 +1,7 @@
 """Discovery writes' actual behavior against PostgreSQL.
 
-Unit tests verify the row `normalize` produces; here that row is confirmed
-to actually write AND not corrupt existing data. Different failure classes:
-FK violations, NOT NULL, column scope, and `ON CONFLICT` semantics only show
-up in a real INSERT.
+Unit tests verify the row `normalize` produces; here it is written and must not
+corrupt existing data -- FK, NOT NULL and `ON CONFLICT` only show in a real INSERT.
 """
 
 from __future__ import annotations
@@ -280,9 +278,8 @@ class TestScreenerWrites:
             assert stats.verified.get(table, 0) == attempted, table
 
     def test_replace_scope_drops_yesterdays_member(self, db_session: Session) -> None:
-        """Regression: membership shifts within a day (measured: `day_gainers`
-        122 -> 117). A plain upsert would leave a symbol that dropped out at
-        noon permanently, incorrectly, in that day's membership.
+        """Membership shifts within a day; a plain upsert would keep a symbol
+        that dropped out at noon in that day's membership.
         """
         first = _screen_payload("day_gainers_p0", "day_gainers")
         _write(db_session, ScreenerDataset(), first)
@@ -329,12 +326,9 @@ class TestScreenerWrites:
 
 class TestSharedReport:
     def test_same_report_from_both_paths_is_one_row(self, db_session: Session) -> None:
-        """Report ids share one namespace.
-
-        A row is first written as if from the domain path, then Search
-        passes through with the same `report_id`. Only one row should
-        remain, and the domain columns must survive.
-        """
+        """Report ids share one namespace: a domain-path row and a Search
+        pass-through with the same `report_id` must stay one row, and the
+        domain columns must survive."""
         payload = _search_payload("search_AAPL", "AAPL")
         report_id = payload.reports[0]["id"]
         db_session.execute(

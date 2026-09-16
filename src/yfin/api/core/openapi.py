@@ -1,28 +1,8 @@
-"""The schema half of the published contract.
-
-`core/docs.py` writes what a human reads: the introduction, the tag
-descriptions, the catalogue table. This module owns what a generator
-consumes -- the parts of the document that are true of many operations at
-once and would otherwise be repeated in every route decorator, or, as
-they were until now, in none of them.
-
-What is here and not in the routers, and why: an endpoint added tomorrow
-gets the same error responses, the same headers and the same media types
-as the rest without anyone remembering to ask for them. What is NOT here
-is anything true of one operation only -- a parameter description, the
-`interval` enum, `OAuthError` -- because the place to state that is the
-place the operation is declared.
-
-This is enforcement, not automation. The tables below have to be kept up
-to date by hand; what the design buys is that forgetting fails a test in
-`tests/unit/test_api_contract.py` rather than shipping.
-
-Two things the document said before this module existed were false. It
-published `HTTPValidationError`, a body `core/errors.py` never sends,
-and it published no error at all for nine of ten operations -- so a
-client generated from it had no type for a 401 and no way to learn that
-429 exists.
-"""
+"""The schema half of the published contract: what is true of many
+operations at once (error responses, headers, media types), as opposed to
+`core/docs.py` prose. Anything true of one operation only is declared at
+the route. The tables here are hand-kept; forgetting one fails
+`tests/unit/test_api_contract.py`."""
 
 from __future__ import annotations
 
@@ -43,12 +23,8 @@ from yfin.api.core.config import ApiSettings
 #: below only changes what a running deployment serves.
 PRODUCTION_URL = "https://yfinance.monafy.com"
 
-#: The icon both documentation pages use, inline.
-#:
-#: FastAPI's default points at `fastapi.tiangolo.com`, which means every
-#: reader of our contract makes a request to a third party's server and
-#: tells it they did. A `data:` URI costs nothing and makes the pages
-#: depend on one host fewer.
+#: The icon both documentation pages use, inline: FastAPI's default is
+#: fetched from a third-party host on every read of the contract.
 FAVICON = (
     "data:image/svg+xml,"
     "%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E"
@@ -75,16 +51,10 @@ OPERATION_IDS: dict[tuple[str, str], str] = {
     ("get", "/v1/datasets/{name}"): "readDataset",
 }
 
-#: The error statuses each operation publishes. Explicit per operation
-#: rather than derived from a rule, because every rule anyone proposed was
-#: wrong about at least one row: `listDatasets` needs no scope and touches
-#: no database, so it has neither a 403 nor a 504, while 403 is raised
-#: app-wide by `auth/dependencies.py` and is not a dataset speciality.
-#:
-#: 405 is deliberately absent. `_http_exception` turns Starlette's method
-#: refusal into a problem on every path, but a caller using a method the
-#: document does not list has already left the contract; describing it in
-#: the introduction beats ten identical response objects.
+#: The error statuses each operation publishes, explicit per operation:
+#: no rule fits every row (`listDatasets` needs no scope and no database,
+#: so neither 403 nor 504). 405 is left to the introduction; a caller
+#: using an unlisted method has already left the contract.
 ERROR_STATUSES: dict[str, tuple[int, ...]] = {
     "issueToken": (400, 401, 422, 429, 503),
     "getHealth": (500,),
@@ -106,26 +76,10 @@ CONTRACT_KEY = "x-yfin-contract"
 
 @dataclass(frozen=True)
 class RouteContract:
-    """What a handler does that the document cannot see by reading it.
-
-    Three sets used to live here as hand-kept tables of operation ids --
-    which operations meter, which set cache headers, which answer a 304.
-    Nothing enforced them. The three tests that were believed to protect
-    them each checked the document against the very table that produced
-    it, so forgetting to add a new route to one of them broke no test; the
-    document simply became untrue, quietly.
-
-    Declaring it at the route puts the statement next to the code it
-    describes, and `guard()` cannot supply it on its own: `listDatasets`
-    and `readDataset` meter from inside the handler because their family
-    depends on which dataset was asked for, so a rule derived from the
-    dependency would call those two unmetered -- the same class of silent
-    wrongness, arrived at automatically.
-
-    What enforces it now is `tests/repo/test_api_headers.py`, which drives
-    the real endpoints and compares the headers they actually send against
-    the ones published here.
-    """
+    """What a handler does that the document cannot see by reading it,
+    declared at the route. It cannot be derived from `guard()`: the dataset
+    routes meter from inside the handler. `tests/repo/test_api_headers.py`
+    compares the headers actually sent against what is published here."""
 
     #: Meters the request, and therefore carries the rate and quota
     #: headers. Not the same as "has security": `listDatasets` needs a
@@ -184,11 +138,9 @@ RANGE_VARIANT = (
 RANGED = frozenset({"listBars", "listActions"})
 
 #: The examples the document must carry, as
-#: `operationId -> {status -> (example name, ...)}`. Curated rather than
-#: exhaustive: sixty near-identical bodies would be noise, and what a
-#: reader needs is one of each SHAPE plus every failure they are likely to
-#: hit. Each entry is a file under `examples/`, captured from a real
-#: response by `tests/repo/test_api_examples.py`.
+#: `operationId -> {status -> (example name, ...)}`: one of each shape plus
+#: the likely failures. Each entry is a file under `examples/`, captured
+#: from a real response by `tests/repo/test_api_examples.py`.
 REQUIRED_EXAMPLES: dict[str, dict[int, tuple[str, ...]]] = {
     "issueToken": {200: ("token",), 400: ("invalid_request",), 401: ("invalid_client",)},
     "getHealth": {200: ("up",)},
@@ -206,16 +158,9 @@ REQUIRED_EXAMPLES: dict[str, dict[int, tuple[str, ...]]] = {
     },
 }
 
-#: An example value for every parameter, keyed by the name a caller
-#: sends. Keyed by name rather than by operation because `symbol`, `limit`
-#: and `cursor` appear on five operations each, and a document that
-#: illustrated them differently in each place would be answering the same
-#: question three ways.
-#:
-#: `ACME` is fictional, and deliberately so: the response examples are
-#: captured against it, so a reader following the document sees one
-#: company throughout, and nobody mistakes an illustrative number for a
-#: real company's reported figure.
+#: An example value for every parameter, keyed by the name a caller sends
+#: so a name shared by several operations is illustrated the same way.
+#: `ACME` is fictional so no illustrative number reads as a real figure.
 PARAMETER_EXAMPLES: dict[str, Any] = {
     "symbol": "ACME",
     "name": "major_holders",
@@ -362,14 +307,9 @@ _TOKEN_WWW_AUTHENTICATE = _header(
 
 
 def _headers_for(operation_id: str, declared: RouteContract, status: int) -> dict[str, Any]:
-    """Exactly the headers this response carries, and no others.
-
-    The distinctions are not cosmetic. `problem_response` builds a fresh
-    response with only the headers the raiser attached, so a 404 or a 504
-    genuinely has no rate headers on it, while a 429 does -- the limiter
-    merges them in deliberately. Publishing them everywhere would be
-    easier and would be a lie a client could act on.
-    """
+    """Exactly the headers this response carries: `problem_response` builds a
+    fresh response with only what the raiser attached, so a 404 has no rate
+    headers while a 429 does."""
     headers: dict[str, Any] = dict(UNIVERSAL_HEADERS)
 
     if operation_id == TOKEN_OPERATION:
@@ -399,14 +339,9 @@ def _headers_for(operation_id: str, declared: RouteContract, status: int) -> dic
 
 
 def servers_for(settings: ApiSettings) -> list[dict[str, str]]:
-    """Where the API is, for a generator that has only the document.
-
-    The relative entry is second and is not decoration: it is what lets
-    `/docs` on a laptop or a staging host call itself instead of calling
-    production. `tokenUrl` stays relative for the same reason and is
-    unaffected by this list -- in OpenAPI 3.1 it resolves against the
-    document's own URL, not against `servers`.
-    """
+    """The `servers` list. The relative entry lets `/docs` on a laptop or
+    staging host call itself instead of production; `tokenUrl` resolves
+    against the document's own URL, not this list."""
     base = settings.public_base_url.strip().rstrip("/") or PRODUCTION_URL
     return [
         {"url": base, "description": "Production"},
@@ -480,13 +415,9 @@ def _problem_response(
 
 
 def install(app: FastAPI) -> None:
-    """Names the routes and replaces the document builder.
-
-    Memoised into `app.openapi_schema` the way FastAPI's own
-    implementation is, and installed whether or not the docs are served:
-    a deployment that withholds `/openapi.json` must still BE the
-    application the committed contract describes.
-    """
+    """Names the routes and replaces the document builder. Installed whether
+    or not the docs are served: a deployment that withholds `/openapi.json`
+    must still be the application the committed contract describes."""
     _name_routes(app)
 
     def openapi() -> dict[str, Any]:
@@ -498,15 +429,9 @@ def install(app: FastAPI) -> None:
 
 
 def walk_routes(routes: Iterable[Any]) -> Iterator[Any]:
-    """Every route, through the wrappers `include_router` leaves behind.
-
-    `app.routes` is not flat: FastAPI wraps an included router in a node
-    whose own `routes` hold the real ones, and it has no `path`. Iterating
-    the top level only -- which is what this did first -- silently found
-    nothing but the four documentation routes, named none of the API's
-    operations, and left the generated ids in the contract with no error
-    anywhere to say so.
-    """
+    """Every route, through the wrappers `include_router` leaves behind:
+    `app.routes` is not flat, and the top level alone holds only the
+    documentation routes."""
     for route in routes:
         # `_IncludedRouter` is a matcher, not a route: it holds the real
         # ones on `original_router` and exposes neither `path` nor
@@ -568,11 +493,8 @@ def finalise(document: dict[str, Any]) -> dict[str, Any]:
 
 def _declared_contract(operation: dict[str, Any], operation_id: str) -> RouteContract:
     """Reads the route's declaration and takes it back out of the document.
-
-    Missing is an error, not a default: a silent `RouteContract()` is how a
-    new route would publish no rate headers while metering every request,
-    which is precisely what the removed tables allowed.
-    """
+    Missing is an error, not a default: a silent `RouteContract()` would
+    publish no rate headers for a route that meters."""
     declared = operation.pop(CONTRACT_KEY, None)
     if declared is None:
         raise ValueError(
@@ -614,13 +536,9 @@ def _apply(operation: dict[str, Any], operation_id: str) -> None:
 
 
 def _attach_parameter_examples(operation: dict[str, Any]) -> None:
-    """A value a reader can paste, on every parameter.
-
-    On the Parameter Object, not inside its schema: Swagger UI pre-fills
-    its "Try it out" fields from the former and ignores the latter, and a
-    form a reader can submit unchanged is the difference between reading
-    the documentation and using it.
-    """
+    """A value a reader can paste, on every parameter. On the Parameter
+    Object, not inside its schema: Swagger UI pre-fills "Try it out" from
+    the former only."""
     for parameter in operation.get("parameters", ()):
         example = PARAMETER_EXAMPLES.get(parameter["name"])
         if example is not None:
@@ -636,20 +554,11 @@ def _attach_request_example(operation: dict[str, Any]) -> None:
 
 
 def _attach_examples(responses: dict[str, Any], operation_id: str) -> None:
-    """Real responses, captured and committed.
-
-    `examples`, never the singular `example`: OpenAPI 3.1 deprecates the
-    latter on a Media Type Object, forbids using both, and could not carry
-    the several bodies one status admits -- a 422 is `invalid_parameter`
-    OR `invalid_cursor`, and a reader needs to see both.
-
-    A missing file is skipped rather than raised. Failing here would take
-    `/openapi.json` and `/docs` down in production over a documentation
-    file, and would deadlock CI: only the database job can produce one,
-    while the job without a database would refuse to run without it. The
-    presence check lives in `tests/unit/test_api_contract.py`, where it
-    costs nothing and blocks the merge.
-    """
+    """Real responses, captured and committed. Plural `examples`: OpenAPI 3.1
+    deprecates `example` on a Media Type Object and one status may admit
+    several bodies. A missing file is skipped, not raised: that would take
+    `/docs` down over a documentation file, and only the database CI job
+    can produce one. `tests/unit/test_api_contract.py` checks presence."""
     for status, names in REQUIRED_EXAMPLES.get(operation_id, {}).items():
         response = responses.get(str(status))
         if response is None or "content" not in response:

@@ -1,8 +1,7 @@
 """Shared run helpers for domain repo tests.
 
-Uses the same production path: real dataset instances, real
-`PostgresRowWriter`, real `NormalizedResult`. The only difference is the
-fetch comes from a fixture.
+Uses the production path (real datasets, `PostgresRowWriter`, `NormalizedResult`);
+only the fetch comes from a fixture.
 """
 
 from __future__ import annotations

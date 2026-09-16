@@ -1,12 +1,8 @@
 // The thin band under the function bar: what the symbol is doing right
-// now. Present on every panel so the reader always knows which symbol
-// the keyboard is pointed at; live only under a `headed` panel, which is
-// what the layout field on `PanelSpec` decides.
+// now. Live only under a `headed` panel (the layout field on `PanelSpec`).
 //
-// Everything it shows about the connection is stated, never implied. A
-// price that has quietly stopped updating looks exactly like a quiet
-// market, so "the stream is off" and "this tab lost its socket" each get
-// their own words.
+// Connection state is stated, never implied: a price that has quietly
+// stopped updating looks exactly like a quiet market.
 import { useEffect, useRef } from "react";
 import type { ReactElement } from "react";
 import { useBudgetFull, useDropped, useLinkState, useLiveEnabled, useQuote } from "../live/hooks";

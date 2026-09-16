@@ -1,38 +1,7 @@
 """Where a written row goes: one family and one partition column per table.
 
-Routing is a property of the TABLE, not of the dataset that wrote it. Six
-datasets write `symbols`, two write `news`, three write `research_reports`;
-a per-dataset family would send one table's rows to two topics and cost the
-"one ACL line per family" promise the family scheme exists for. It also
-keeps the earlier decision not to put a mandatory `family` on `Dataset`
-(see `datasets/exposure.py`): exposure stays opt-in and fails closed, while
-routing is exhaustive and is checked to be.
-
-The partition column follows one rule, applied per table:
-
-    the FIRST of `symbol`, `domain_key`, `region`, the table's own
-    identifier that is PART OF THE PRIMARY KEY.
-
-The primary-key qualifier is not decoration. A delete event carries the key
-and nothing else -- there is no row left to read a column from -- so a
-partition column outside the key would leave deletes on that table with
-nowhere to be routed. Three tables take their second choice because of it:
-`market_summary` and `market_summary_history` carry the index symbol but are
-keyed by `(region, board_code)`, and `domains` carries the domain's index
-symbol but is keyed by `domain_key`.
-
-The map is nevertheless written out in full rather than derived, so the
-result of that rule is reviewable in a diff. `tests/unit/test_routing.py`
-holds the map to the schema: every produced table is routed or named as
-infrastructure, every route agrees with the family the API serves the table
-under, and every partition column is a real column.
-
-`INFRASTRUCTURE_TABLES` is the other half of the same decision. Its rows are
-the pipeline talking to itself -- audit, gates, offsets, proxies, settings,
-the outboxes -- and are never published. The three gate tables are called
-out separately in `GATE_TABLES` because the write path has to recognise
-them: their header writes carry `fetched_at` alone and would otherwise
-acquire a predicate and a `RETURNING *` for a row nobody receives.
+The partition column is the first of `symbol`, `domain_key`, `region`, the
+table's own id that is PART OF THE PRIMARY KEY: a delete event carries only the key.
 """
 
 from __future__ import annotations
@@ -137,11 +106,8 @@ ROUTES: Final[Mapping[str, Route]] = {
     "screen_members": Route(_DISCOVERY, "symbol"),
     "screen_quotes": Route(_DISCOVERY, "symbol"),
     # --- domains --------------------------------------------------------
-    # `domains` and the three `domain_top_*` tables carry a company (or
-    # index) `symbol`, so the rule keys them by it; only the two tables
-    # without one fall through to `domain_key`.
-    # `domains.symbol` is the domain's index symbol and is unique, but the
-    # primary key is `domain_key`, so that is what a delete can be routed by.
+    # `domains.symbol` is unique but not the primary key, so a delete can
+    # only be routed by `domain_key`.
     "domains": Route(_DOMAINS, "domain_key"),
     "domain_metrics": Route(_DOMAINS, "domain_key"),
     "domain_report_links": Route(_DOMAINS, "domain_key"),

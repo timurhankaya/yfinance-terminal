@@ -1,9 +1,5 @@
-"""`merge_stats` -- sums two `WriteStats` per key.
-
-`DiscoveryDataset.upsert` splits writes in two (ungated + gated) and
-produces two separate stats objects; `_record_items` expects a single
-`WriteStats`. No helper for this existed in the codebase.
-"""
+"""`merge_stats` sums two `WriteStats` per key: `DiscoveryDataset.upsert` splits writes into
+ungated + gated, and `_record_items` expects a single `WriteStats`."""
 
 from __future__ import annotations
 
@@ -34,25 +30,16 @@ def test_disjoint_tables_are_unioned() -> None:
 
 
 def test_shared_table_counts_are_summed() -> None:
-    """If the same table appears on both sides, the counts are summed.
-
-    This doesn't happen today in `DiscoveryDataset` (the sets are
-    disjoint), but the contract doesn't forbid it; silently dropping one
-    side would corrupt the audit.
-    """
+    """A table on both sides is summed. `DiscoveryDataset`'s sets are disjoint today, but
+    the contract does not forbid it, and dropping one side would corrupt the audit."""
     merged = merge_stats(_stats(attempted={"symbols": 2}), _stats(attempted={"symbols": 3}))
     assert merged.attempted == {"symbols": 5}
 
 
 def test_zero_entries_are_preserved() -> None:
-    """A zero-valued entry is not dropped.
-
-    When the hash matches, `AsOfGate.upsert` writes
-    `attempted.setdefault(table, 0)` for a target that carries no row
-    (asof_base.py). If that entry were lost, the table would fall outside
-    `stats.tables()`, `_record_items` would never see it, and it would
-    drop out of that run's audit.
-    """
+    """A zero-valued entry is not dropped: `AsOfGate.upsert` writes
+    `attempted.setdefault(table, 0)` for a target with no row, and losing it would drop the
+    table from `stats.tables()` and from that run's audit."""
     merged = merge_stats(_stats(attempted={"fund_top_holdings": 0}), _stats())
     assert "fund_top_holdings" in merged.attempted
     assert merged.attempted["fund_top_holdings"] == 0
@@ -60,12 +47,8 @@ def test_zero_entries_are_preserved() -> None:
 
 
 def test_skipped_is_not_double_counted() -> None:
-    """`gated_result` is constructed with `skipped={}`.
-
-    The caller seeds `result.skipped` only into the outer `stats`. Seeding
-    both sides would turn this test red and double-count the `rows_skipped`
-    audit.
-    """
+    """`gated_result` is constructed with `skipped={}`: the caller seeds `result.skipped`
+    only into the outer `stats`, and seeding both sides would double-count."""
     outer = _stats(skipped={"search_quotes": 7})
     inner = _stats()  # skipped is not passed to the gated side
 

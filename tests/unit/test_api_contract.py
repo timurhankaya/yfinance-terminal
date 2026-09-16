@@ -1,11 +1,5 @@
-"""The published contract: the committed document and what it promises.
-
-The contract is only meaningful if changing it is visible. `openapi.json`
-is generated from the code and committed, so a renamed Pydantic field
-shows up as a reviewable diff instead of surfacing when a client breaks.
-The check runs here as well as in CI, so it fails on the machine where
-the change was made rather than a push later.
-"""
+"""The published contract: `openapi.json` is generated and committed so a renamed field is
+a reviewable diff, and the check runs here so it fails where the change was made."""
 
 from __future__ import annotations
 
@@ -106,14 +100,9 @@ _schema = schemathesis.openapi.from_dict(create_app(api_settings()).openapi())
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
 )
 def test_no_operation_answers_with_an_unhandled_error(case: Any) -> None:
-    """Fuzzes every operation and asserts the response matches what we
-    published.
-
-    Every route here is authenticated, so these calls get 401 or 422 --
-    which is the point: the interesting failure is a 500, i.e. a request
-    shape that reaches code expecting something else. An unauthenticated
-    fuzz is exactly the traffic a public API receives first.
-    """
+    """Fuzzes every operation against the published document. Unauthenticated calls get
+    401/422; the failure of interest is a 500 from a request shape reaching code that
+    expects something else."""
     app = create_app(api_settings())
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.request(
@@ -130,9 +119,8 @@ def test_no_operation_answers_with_an_unhandled_error(case: Any) -> None:
 
 
 def test_no_published_scope_grants_access_to_NOTHING() -> None:
-    """A scope in the document is a promise. Three of them used to grant a
-    client an empty catalogue and a 404 on everything, which is a contract
-    that does not hold."""
+    """A scope in the document is a promise: each must grant at least one
+    resource."""
     from yfin.api.storage.catalog import CATALOG
     from yfin.core.families import DataFamily
 
@@ -262,15 +250,8 @@ def test_every_route_is_named(document: dict[str, Any]) -> None:
 
 
 def test_metrics_is_NOT_in_the_document(document: dict[str, Any]) -> None:
-    """`/metrics` is operational, not part of what a client is promised:
-    it publishes internal handler names and its format is Prometheus's to
-    change, not ours.
-
-    Explicit, because nothing else here would notice. Every path check
-    above filters on the `("/v1", "/oauth", "/health")` prefixes, so a
-    `/metrics` that leaked into the document would pass all of them and
-    then be a route we had promised to keep.
-    """
+    """`/metrics` is operational, not contract. Explicit because every other path check
+    filters on the `/v1`, `/oauth`, `/health` prefixes and would let it leak through."""
     from yfin.api.core.openapi import walk_routes
 
     assert "/metrics" not in document["paths"]
@@ -489,12 +470,8 @@ def test_the_document_is_a_VALID_openapi_document(document: dict[str, Any]) -> N
 
 
 def test_the_token_endpoint_answers_a_missing_field_in_the_OAUTH_shape() -> None:
-    """The endpoint's docstring has always promised RFC 6749 errors, and
-    until now the promise held only for the failures its own handler wrote.
-    A missing form field reached the app-wide validation handler and came
-    back as problem+json -- with no `error` field for a client library to
-    read, and no test to notice, because the document still matched what we
-    published."""
+    """RFC 6749 errors are promised for every failure, including a missing form field that
+    reaches the app-wide validation handler rather than the endpoint's own."""
     with TestClient(create_app(api_settings()), raise_server_exceptions=False) as client:
         response = client.post("/oauth/token", data={})
 
@@ -595,15 +572,9 @@ def test_the_introduction_covers_caching_and_versioning(
 
 
 def test_an_example_exists_for_everything_the_table_requires() -> None:
-    """The presence check lives here, without a database, because the
-    injection deliberately does not raise.
-
-    Failing inside `finalise` would take /openapi.json and /docs down in
-    production over a documentation file, and would deadlock CI: only the
-    database job can produce one, while the job without a database would
-    refuse to start without it. Here it costs nothing and still blocks the
-    merge.
-    """
+    """Checked here, without a database, because the injection does not raise: failing
+    inside `finalise` would take /openapi.json down in production and deadlock CI, where
+    only the database job can produce the file."""
     from yfin.api.core.openapi import REQUIRED_EXAMPLES, example_path
 
     missing = [
@@ -775,15 +746,8 @@ def test_the_screen_keys_are_discoverable() -> None:
 
 
 def test_a_route_that_declares_no_contract_cannot_produce_a_document() -> None:
-    """The declaration is required, not defaulted.
-
-    Defaulting it to "meters nothing, caches nothing" is how a new route
-    would publish no rate headers while metering every request -- the
-    document quietly untrue about the one thing a client bills against.
-    Three tests used to be believed to guard this; each compared the
-    document against the table that generated it, so none of them could
-    fail. This one fails at document build.
-    """
+    """The declaration is required, not defaulted: a default would let a new route publish
+    no rate headers while metering every request. Fails at document build."""
     from yfin.api.core.openapi import CONTRACT_KEY, _apply
 
     with pytest.raises(ValueError, match="openapi_extra"):

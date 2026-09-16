@@ -481,7 +481,7 @@ def test_read_path_FAILS_OPEN_without_redis(
 def test_publishing_into_an_UNCLAIMED_redis_is_refused(
     redis: fakeredis.FakeRedis, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Measured failure: `yfin api client disable` wrote a revocation to
+    """`yfin api client disable` once wrote a revocation to
     the operator's local Redis while the API read a different one. A Redis
     answered, so the command reported success -- and the disabled client
     kept serving. An exit code that proves only "some Redis answered" is

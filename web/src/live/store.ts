@@ -1,20 +1,8 @@
-// The page's one live store, and the three rules that keep it cheap.
-//
-// **Coalescing.** A busy symbol ticks faster than the screen refreshes.
-// Frames land in a buffer and one `requestAnimationFrame` applies the
-// whole batch, so React renders once per frame however many arrived --
-// without this, a market open is a render storm that makes the terminal
-// slower the more data it has.
-//
-// **Reference counting.** Panels retain a symbol and release it; the
-// socket unsubscribes when the count reaches zero. `GP -> QR` on the same
-// symbol is a retain before a release, so it never round-trips through
-// an unsubscribe and back, and never asks for a second snapshot.
-//
-// **One tape.** Every symbol keeps its last tick, but only the symbol
-// `QR` is showing keeps a history, and that history is a bounded ring.
-// Keeping every symbol's would grow without limit for a panel nobody has
-// open.
+// The page's one live store. Frames land in a buffer and one
+// `requestAnimationFrame` applies the batch, so React renders once per
+// frame. Panels retain and release symbols; the socket unsubscribes at
+// zero, so `GP -> QR` on one symbol never round-trips. Only the symbol
+// `QR` shows keeps a tick history, and it is a bounded ring.
 import { create } from "zustand";
 import { LinkState, MarketHours, Op, WsErrorCode } from "./types";
 import type { ServerFrame, Tick } from "./types";
@@ -124,12 +112,10 @@ export function handleFrame(frame: ServerFrame): void {
       useLive.setState((state) => ({ dropped: state.dropped + frame.n }));
       return;
     case Op.Error:
-      // `too_many` is recorded, because the server refuses the frame
-      // WHOLE: every symbol in it stays unsubscribed and the panels that
-      // asked would otherwise sit there quietly showing no price, which
-      // looks exactly like a quiet market. `bad_symbol` is still
-      // ignored: it names one token the page should not have sent, and
-      // the panel already shows what it has.
+      // `too_many` is recorded because the server refuses the frame WHOLE
+      // and the panels would otherwise sit there showing no price.
+      // `bad_symbol` names one token and the panel already shows what it
+      // has.
       if (frame.code === WsErrorCode.TooMany) useLive.setState({ budgetFull: true });
       return;
   }

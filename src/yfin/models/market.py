@@ -1,11 +1,8 @@
 """Market-wide tables: market_status/summary and calendars.
 
-None of these have a symbol FK: the source returns symbols outside the
-universe (Korean stocks in the splits calendar, Oracle in the earnings
-calendar). An FK would fail the whole batch's transaction over one
-foreign symbol -- same reasoning as news_symbols. The is_known flag marks
-whether the symbol is in the universe.
-"""
+No symbol FK: the source returns symbols outside the universe, and an FK
+would fail the whole batch's transaction over one foreign symbol. The
+is_known flag marks whether the symbol is in the universe."""
 
 from __future__ import annotations
 
@@ -142,11 +139,9 @@ class CalendarEarnings(Base):
 class CalendarEconomic(Base):
     """PK (region, event_time_utc, event_name).
 
-    The source Index (Event) is not unique (29 duplicates in 100 rows);
-    this triple key measured 100/100 unique. event_name is KeyTextType:
+    The source Index (Event) alone is not unique. event_name is KeyTextType:
     the default collation ignores accent and case, which would fold two
-    distinct events into one row.
-    """
+    distinct events into one row."""
 
     __tablename__ = "calendar_economic"
     __table_args__ = (
@@ -159,8 +154,7 @@ class CalendarEconomic(Base):
     period_for: Mapped[str | None] = mapped_column(String(16, collation="C"))
     actual: Mapped[Decimal | None] = mapped_column(PriceType())
     expected: Mapped[Decimal | None] = mapped_column(PriceType())
-    # Not `last_value`: the name is a leftover guard from the MySQL era
-    # (and `last_value` is a window function in PostgreSQL too).
+    # Not `last_value`: a window function name in PostgreSQL.
     last_reported: Mapped[Decimal | None] = mapped_column(PriceType())
     revised: Mapped[Decimal | None] = mapped_column(PriceType())
     fetched_at: Mapped[datetime] = mapped_column(TsType(), nullable=False)

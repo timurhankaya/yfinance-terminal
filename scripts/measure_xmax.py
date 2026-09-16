@@ -1,33 +1,8 @@
 """Does `RETURNING *, (xmax = 0) AS inserted` tell an insert from an update?
 
-The change-events design publishes `insert` and `update` as different
-messages, so the writer has to know which branch of
-`INSERT ... ON CONFLICT DO UPDATE` produced each returned row. Matching the
-returned rows back against the proposed ones would mean a second pass over
-every write; `xmax = 0` answers it for free.
-
-It is an implementation detail PostgreSQL does not document, and
-TimescaleDB's chunk-dispatch insert path has in the past refused system
-columns in `RETURNING` -- which would remove the approach from exactly the
-tables that produce the most rows. So it is measured before any writer code
-is written, on:
-
-1. a plain table,
-2. a hypertable, through the chunk dispatch path,
-3. a row inserted and then upserted AGAIN inside one transaction --
-   `symbols` is written three times per symbol, so this is not a corner
-   case,
-4. a `DO UPDATE ... WHERE` whose predicate evaluates false, which must
-   return nothing at all.
-
-Everything runs in a scratch schema that is dropped at the end, so no real
-table is touched. Kept in the repository so it can be re-run against a new
-PostgreSQL or TimescaleDB pin:
-
-    uv run python scripts/measure_xmax.py
-
-The output is recorded in `docs/measurements/database.md`.
-"""
+`xmax = 0` is undocumented, so it is checked on a plain table, a hypertable,
+a row upserted twice in one transaction and a false `DO UPDATE ... WHERE`.
+Runs in a scratch schema; re-run against a new PostgreSQL or TimescaleDB pin."""
 
 from __future__ import annotations
 

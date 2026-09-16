@@ -1,12 +1,7 @@
 """The growth_estimates dataset.
 
-The official documentation (base.py:369-371) gives the index as
-`0q +1q 0y +1y +5y -5y` and the columns as `stock industry sector index`.
-Measurement refuted both: the index is `0q,+1q,0y,+1y,LTG`, and the only
-columns returned are `stockTrend` and `indexTrend` (19 of 19 symbols).
-The `industryTrend`/`sectorTrend` columns are created anyway -- the module
-is requested explicitly (analysis.py:141), so if the endpoint starts
-returning them again no migration is needed.
+The source currently returns only `stockTrend` and `indexTrend`; the
+`industryTrend`/`sectorTrend` columns exist so their return needs no migration.
 """
 
 from __future__ import annotations

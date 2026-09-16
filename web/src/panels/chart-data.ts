@@ -1,15 +1,7 @@
-// Everything the charts compute, with no chart in sight.
-//
-// `lightweight-charts` draws to a canvas, which jsdom does not have, so a
-// panel test can only assert that a component rendered. The rules worth
-// getting right -- which bars become candles, where a corporate action's
-// marker lands, how a gap in the archive becomes a shaded band, which
-// bucket a live tick belongs in -- live here instead, where they are
-// ordinary functions with ordinary tests.
-//
-// Times are SECONDS since the epoch, UTC, because that is what
-// `lightweight-charts` calls a `UTCTimestamp`. Tick timestamps arrive in
-// milliseconds and are converted at the door.
+// Everything the charts compute, with no chart in sight: jsdom has no
+// canvas, so the rules live here as ordinary functions with ordinary
+// tests. Times are SECONDS since the epoch, UTC (`UTCTimestamp`); tick
+// timestamps arrive in milliseconds and are converted at the door.
 import type { Row } from "../api/client";
 import { MarketHours } from "../live/types";
 import type { Tick } from "../live/types";
@@ -66,14 +58,10 @@ function num(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** Bars as candles, oldest first, one per instant.
- *
- *  `close` is the only column the archive guarantees; `open`, `high` and
- *  `low` are nullable and fall back to it, which draws a flat mark rather
- *  than dropping a bar that has a price in it. Duplicate instants keep
- *  the LAST row: the chart library refuses a series whose times are not
- *  strictly increasing, and a duplicate is what a page overlap looks
- *  like when two cursors meet. */
+/** Bars as candles, oldest first, one per instant. `close` is the only
+ *  column the archive guarantees; `open`, `high`, `low` fall back to it.
+ *  Duplicate instants keep the LAST row: the chart library refuses times
+ *  that are not strictly increasing, and a page overlap duplicates. */
 export function toCandles(rows: Row[]): Candle[] {
   const byTime = new Map<number, Candle>();
   for (const row of rows) {
@@ -130,14 +118,10 @@ const ACTION_PREFIX: Record<MarkerKind, string> = {
   [MarkerKind.CapitalGain]: "CG",
 };
 
-/** Dividends and splits, snapped to the candle that carries them.
- *
- *  An action's date is a SESSION date and a candle's time is an instant,
- *  so the two never match exactly. The marker goes on the first candle
- *  at or after the action -- which is the session the price actually
- *  moved in. An action after the last candle has no bar to sit on and is
- *  dropped rather than piled onto the right edge, where it would claim
- *  to have happened at a time it did not. */
+/** Dividends and splits, snapped to the candle that carries them: an
+ *  action's date is a SESSION date and a candle's time an instant, so the
+ *  marker goes on the first candle at or after the action. An action
+ *  after the last candle is dropped rather than piled on the right edge. */
 /** `0.270000000000` -> `0.27`, `2.000000000000` -> `2`; anything that is
  *  not a decimal string is shown as it came. */
 export function trimDecimal(value: unknown): string {
@@ -191,17 +175,10 @@ export interface GapBands {
 //: 8,000, and past a few thousand the band costs more than it explains.
 export const GAP_SLOT_LIMIT = 3000;
 
-/** Open gaps, as time slots the chart can shade.
- *
- *  A gap is a window where the archive has NO bars, so the time scale
- *  has no slot there and nothing can be drawn: coordinates only exist
- *  for instants some series mentions. Whitespace points are what create
- *  those slots -- the library's own mechanism for it -- and the band is
- *  a second series with a value at each one.
- *
- *  Slots outside the charted window are dropped: shading before the
- *  first candle would stretch the axis to a date the reader did not ask
- *  for. */
+/** Open gaps, as time slots the chart can shade. A gap has NO bars, so
+ *  the time scale has no slot there; whitespace points create the slots,
+ *  and the band is a second series with a value at each. Slots outside
+ *  the charted window are dropped so the axis is not stretched. */
 export function gapBands(gaps: Gap[], intervalSeconds: number, candles: Candle[]): GapBands {
   const whitespace: Whitespace[] = [];
   if (candles.length === 0 || intervalSeconds <= 0) {
@@ -249,15 +226,10 @@ export enum BucketMode {
    *  bucket the archive has not written yet -- that is what makes the
    *  last candle move while the market is open. */
   Interval = "interval",
-  /** Daily and above: only ever extend the bar that is already there.
-   *
-   *  A daily bar's instant is the SESSION open (13:30Z for a US listing),
-   *  not UTC midnight, so flooring by 86,400 would place today's ticks in
-   *  a bucket no bar occupies and draw a second candle beside the real
-   *  one. And the chart cannot invent tomorrow's bar: which instant it
-   *  belongs at is the exchange's calendar, which this page does not
-   *  have. So a tick from a session the archive has no bar for is left
-   *  alone until the pipeline writes it. */
+  /** Daily and above: only ever extend the bar that is already there. A
+   *  daily bar's instant is the SESSION open, not UTC midnight, so
+   *  flooring by 86,400 would draw a second candle; and the next bar's
+   *  instant is the exchange calendar's, which this page does not have. */
   Session = "session",
 }
 
@@ -265,16 +237,11 @@ function sameUtcDay(a: number, b: number): boolean {
   return Math.floor(a / 86_400) === Math.floor(b / 86_400);
 }
 
-/** The last candle, brought up to date by one tick.
- *
- *  Returns null when the tick cannot move the chart: outside the regular
- *  session (the series was asked for with `session=regular`, so an
- *  extended-hours print would not match the bars under it), without a
- *  usable price, older than the bar it would extend, or -- in
- *  `Session` mode -- from a day the archive has no bar for.
- *
- *  A new bucket opens at the tick's own price on all four legs, which is
- *  what a bar looks like when it has seen one trade. */
+/** The last candle, brought up to date by one tick. Null when the tick
+ *  cannot move the chart: outside the regular session (the bars were
+ *  asked for with `session=regular`), no usable price, older than the bar
+ *  it would extend, or in `Session` mode from a day with no bar. A new
+ *  bucket opens at the tick's price on all four legs. */
 export function applyTick(
   last: Candle | undefined,
   tick: Tick,
@@ -331,14 +298,8 @@ export interface ComparisonSeries {
 }
 
 /** One symbol's daily closes as a series indexed to 100 at its first.
- *
- *  Null below two closes: one point is not a shape, and a series drawn
- *  as a single dot at 100 would say a symbol went nowhere when what
- *  happened is that the archive has one session of it.
- *
- *  Duplicate instants keep the LAST row, as `toCandles` does and for the
- *  same reason: the library refuses times that are not strictly
- *  increasing, and a duplicate is what a page overlap looks like. */
+ *  Null below two closes: one point is not a shape. Duplicate instants
+ *  keep the LAST row, as `toCandles` does and for the same reason. */
 export function toComparison(symbol: string, rows: Row[]): ComparisonSeries | null {
   const byTime = new Map<number, number>();
   for (const row of rows) {

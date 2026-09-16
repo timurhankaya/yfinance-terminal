@@ -1,13 +1,7 @@
 """market_status and market_summary datasets.
 
-`Market.status` is populated ONLY for the US region: `domain/market.py`
-detects an id mismatch and sets `self._status = None`. This is
-deterministic, not flaky; `empty` is the expected result for the other 7
-regions.
-
-On a parse error, `Market.summary` can return the raw envelope dict
-({'marketSummaryResponse': ...}); without validating the board code's
-shape, garbage gets written into the PK.
+`Market.status` is populated only for the US region; `empty` is expected
+elsewhere. `Market.summary` may return the raw envelope, so the board code is validated.
 """
 
 from __future__ import annotations

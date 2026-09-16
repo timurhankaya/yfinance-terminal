@@ -1,9 +1,7 @@
 """Error classification.
 
-Separate from and not dependent on client.py, so the proxy domain model
-(proxy package) can use ErrorKind without importing the yfinance wrapper;
-the dependency arrow points the right way.
-"""
+Independent of client.py so the proxy package can use ErrorKind without
+importing the yfinance wrapper."""
 
 from __future__ import annotations
 
@@ -64,11 +62,8 @@ PROXY_FAULT_KINDS = frozenset({ErrorKind.RATE_LIMITED, ErrorKind.BLOCKED, ErrorK
 class DatasetOutOfScope(Exception):
     """Dataset is out of scope for this symbol; no network call was made.
 
-    Does not subclass ValueError: _NEVER_RETRYABLE includes ValueError, and
-    that base would silently classify an out-of-scope symbol as a DATA
-    error and pollute proxy health accounting. `_worker` already catches
-    this before the generic `except`, so it never reaches classify_error.
-    """
+    Not a ValueError: _NEVER_RETRYABLE includes ValueError, which would classify
+    an out-of-scope symbol as a DATA error and pollute proxy health."""
 
     def __init__(self, interval: str) -> None:
         super().__init__(f"out of scope: {interval}")
@@ -111,7 +106,7 @@ _BLOCKED_MARKERS = ("forbidden", "consent", "captcha", "unauthorized")
 # Smallest valid HTTP status. curl_cffi attaches a Response to connection
 # errors too, with status_code 0; without this floor, 0 counts as "a valid
 # response", falls through to DATA in _kind_from_status, and a dead proxy is
-# never penalized (confirmed in a live run).
+# never penalized.
 _MIN_HTTP_STATUS = 100
 
 
@@ -134,10 +129,9 @@ def _kind_from_status(code: int) -> ErrorKind:
     return ErrorKind.DATA
 
 
-#: Yahoo answering "nothing in that range" for a price request. The
-#: message names a cause it does not actually know (retention, a period
-#: the symbol does not support), and in every measured case the honest
-#: reading is: an empty result, not a broken fetch.
+#: Yahoo answering "nothing in that range" for a price request. The message
+#: names a cause it does not actually know; the honest reading is an empty
+#: result, not a broken fetch.
 NO_DATA_EXC = (yf_exceptions.YFPricesMissingError, yf_exceptions.YFInvalidPeriodError)
 
 
@@ -148,11 +142,8 @@ def is_no_data(exc: BaseException) -> bool:
 def classify_error(exc: BaseException) -> ErrorKind:
     """Map an exception to the class the proxy policy understands.
 
-    Order matters: curl_cffi's RequestException derives from OSError
-    (HTTPError -> RequestException -> CurlError -> OSError), so a plain
-    "OSError -> NETWORK" rule would treat 403s as NETWORK and unfairly
-    penalize the proxy. The HTTP status check runs first.
-    """
+    Order matters: curl_cffi's RequestException derives from OSError, so the
+    HTTP status check runs before any "OSError -> NETWORK" rule."""
     # 1) yfinance's dedicated rate-limit exception
     if isinstance(exc, yf_exceptions.YFRateLimitError):
         return ErrorKind.RATE_LIMITED
@@ -215,13 +206,9 @@ _ABSENT_INDEX_MESSAGE = "positional indexers are out-of-bounds"
 def is_absent_data(exc: BaseException) -> bool:
     """Is this "no such data for this symbol", rather than a real failure?
 
-    The project sets `yf.config.debug.hide_exceptions = False` so real
-    errors aren't swallowed, but this also turns yfinance's "404 -> empty
-    dict" behavior into an exception. A symbol that isn't a company (ETF,
-    fund, crypto) gets a 404 from Yahoo's fundamentals endpoints:
-    `{"error":{"code":"Not Found","description":"No fundamentals data found
-    for symbol: SPY"}}`. That is `empty`, not `failed`.
-    """
+    `yf.config.debug.hide_exceptions = False` turns yfinance's "404 -> empty
+    dict" into an exception; a non-company symbol gets a 404 from Yahoo's
+    fundamentals endpoints, and that is `empty`, not `failed`."""
     if _status_code(exc) == HTTPStatus.NOT_FOUND:
         return True
     return isinstance(exc, IndexError) and _ABSENT_INDEX_MESSAGE in str(exc)

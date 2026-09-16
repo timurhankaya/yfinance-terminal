@@ -1,26 +1,8 @@
-"""Rate and quota, decided in one atomic step.
-
-Two layers with different jobs: a per-second bucket that protects the
-infrastructure, and a monthly quota that bounds the product. They share
-one Lua script because they must be decided together -- read, compute and
-write as three round trips would let concurrent requests slip past both.
-
-Token bucket rather than a fixed window: a fixed window admits twice the
-rate across a boundary, and a sliding log stores a record per request.
-The bucket also yields an exact `Retry-After`, which is the difference
-between an API that says "no" and one a client can actually back off
-against.
-
-The quota is evaluated *first* and refused *without* consuming a token,
-so a client that has run out does not also burn through its burst. INCR
-and EXPIRE happen in the same script: as separate commands, a process
-dying between them leaves a key with no TTL, and that client's counter
-never resets -- quota exhausted forever, with nothing in the logs.
-
-Everything here fails open. Losing a counter store costs accounting;
-refusing all traffic would cost the product. The token endpoint makes the
-opposite choice for reasons specific to it (see `token_endpoint.py`).
-"""
+"""Per-second token bucket and monthly quota, decided in one Lua script so
+concurrent requests cannot slip past either. The quota is checked first
+and refused without consuming a token; INCR and EXPIRE are in the same
+script, or a crash between them leaves a counter that never resets.
+Everything here fails open (the token endpoint does the opposite)."""
 
 from __future__ import annotations
 
@@ -189,12 +171,8 @@ def consume(settings: ApiSettings, client_id: str, limits: PlanLimits) -> Verdic
 
 
 def refund_quota(settings: ApiSettings, client_id: str) -> None:
-    """Gives back one quota unit after a server-side failure.
-
-    A client must not pay for our 500. The token bucket is not refunded:
-    the request really did cost the infrastructure a slot, which is
-    exactly what that layer measures.
-    """
+    """Gives back one quota unit after a server-side failure. The token
+    bucket is not refunded: the request really did cost infrastructure."""
     try:
         redis = get_redis(settings)
         key = QUOTA_KEY.format(client_id=client_id, period=period_key())
@@ -207,12 +185,9 @@ def refund_quota(settings: ApiSettings, client_id: str) -> None:
 
 
 def headers(verdict: Verdict) -> dict[str, str]:
-    """Rate headers plus a separate quota family.
-
-    Two families because they answer different questions and reset on
-    different clocks; folding the monthly quota into `RateLimit-*` would
-    tell a client its per-second budget was millions.
-    """
+    """Rate headers plus a separate quota family; they reset on different
+    clocks, and folding the monthly quota into `RateLimit-*` would tell a
+    client its per-second budget was millions."""
     return {
         "RateLimit-Limit": str(verdict.rate_limit),
         "RateLimit-Remaining": str(verdict.tokens_left),

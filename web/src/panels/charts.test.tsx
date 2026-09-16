@@ -1,10 +1,7 @@
-// GP and QR against a stubbed API.
-//
-// `lightweight-charts` is mocked: it draws to a canvas, and jsdom has no
-// 2D context, so the real one throws on construction. What is asserted
-// here is the contract between the panel and the chart -- which series
-// it hands over, and what it says around them. The transforms themselves
-// are `chart-data.test.ts`, where they are ordinary functions.
+// GP and QR against a stubbed API. `lightweight-charts` is mocked: jsdom
+// has no 2D context, so the real one throws on construction. Asserted
+// here is which series the panel hands over; the transforms themselves
+// are `chart-data.test.ts`.
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router";

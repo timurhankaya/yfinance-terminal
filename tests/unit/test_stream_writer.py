@@ -1,10 +1,5 @@
-"""Writer batching, symbol filtering and reject sampling.
-
-The COPY encoding itself moved to `test_storage_copy.py` with `copy_body`.
-
-The database side lives in tests/repo; these cover the parts that decide
-what reaches it.
-"""
+"""Writer batching, symbol filtering and reject sampling: the parts that decide what reaches
+the database. COPY encoding is in `test_storage_copy.py`; the database side in tests/repo."""
 
 from __future__ import annotations
 
@@ -272,12 +267,8 @@ def test_stop_lets_run_finish() -> None:
 
 
 def test_dedupe_keeps_the_newest_row_whole() -> None:
-    """The batch-level half of the rollback guard.
-
-    The database guard only ever sees the row dedupe hands it. Plain
-    last-wins would hand it the older tick and the guard would then
-    correctly refuse to apply... the wrong row.
-    """
+    """The batch-level half of the rollback guard: the database guard only sees the row
+    dedupe hands it, and plain last-wins would hand it the older tick."""
     from yfin.storage.persistence import dedupe_rows
 
     newer = {"symbol": "AAPL", "ts_utc": TS, "price": Decimal("10")}
@@ -361,12 +352,8 @@ class _FakeSession:
 
 
 def _publishing_writer(*, commit_fails: bool = False) -> tuple[StreamWriter, _RecordingPublisher]:
-    """A writer whose database side is stubbed out.
-
-    Everything below `_write` needs a real PostgreSQL (COPY into a temp
-    table through the raw driver connection), and it is covered in
-    tests/repo. The decision under test is above all of that.
-    """
+    """A writer whose database side is stubbed out: everything below `_write` needs a real
+    PostgreSQL and is covered in tests/repo."""
     session = _FakeSession(commit_fails=commit_fails)
     writer, _, _ = _writer()
     writer._session_factory = lambda: session  # type: ignore[assignment,method-assign]

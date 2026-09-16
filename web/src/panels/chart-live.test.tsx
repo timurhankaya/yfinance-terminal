@@ -1,11 +1,7 @@
-// The running candle, under StrictMode.
-//
-// StrictMode is the point: React double-invokes updaters and effects
-// there precisely to surface impurity, and this hook used to call
-// `setRolledAt` from inside a `setBar` updater. What the tests pin is
-// the contract the caller depends on -- one candle folded from the
-// ticks, and `rolledAt` naming the newest bucket a tick opened, once,
-// whatever React does to the render.
+// The running candle, under StrictMode: React double-invokes updaters
+// and effects there to surface impurity. What is pinned is one candle
+// folded from the ticks, and `rolledAt` naming the newest bucket a tick
+// opened, once, whatever React does to the render.
 import { StrictMode } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

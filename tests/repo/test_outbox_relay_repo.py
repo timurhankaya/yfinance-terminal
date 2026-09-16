@@ -1,8 +1,7 @@
 """The relay against a real database (broker faked).
 
-What is checked here is the part that decides whether a message can be
-lost: the offset must not move past anything the broker did not confirm,
-and a chunk must not be dropped while it still holds unpublished rows.
+The offset must not move past anything the broker did not confirm, and a
+chunk must not be dropped while it still holds unpublished rows.
 """
 
 from __future__ import annotations

@@ -1,16 +1,6 @@
-"""Proves the `lookup` call is adaptive.
-
-This file is the regression lock on a design decision disproved during an
-audit. The original version always made a single `all` call and had been
-generalized from measuring one narrow term (`BTC`). For broad terms, `all`
-truncates at ~1,000 documents: for `GOLD`, `lookupTotals.all` reports
-7,273 while `documents` returns 995, and the typed union returns 3,313 --
-the difference goes both ways.
-
-Also tested: NOT falling back to the typed branch for a narrow term. If it
-did, cost in the symbol loop would go from 1 to 8 requests per symbol,
-adding +31,500 unnecessary requests per day across 4,500 symbols.
-"""
+"""The `lookup` call is adaptive: `all` truncates for broad terms, so the typed union is
+used there, while a narrow term must NOT fall back to the typed branch (eight requests per
+symbol instead of one)."""
 
 from __future__ import annotations
 
@@ -73,11 +63,8 @@ class TestAdaptiveBranch:
     def test_broad_term_falls_back_to_typed_calls(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Regression: `GOLD` -> lookupTotals.all = 7,273, `all` returns 995 docs.
-
-        Without falling back to the typed branch, over 70% of symbols
-        would be lost with no visible error.
-        """
+        """`all` can return far fewer docs than `lookupTotals.all` claims;
+        without the typed fallback most symbols would be lost silently."""
         rec = _Recorder(
             {"all": _block("lookup_GOLD_all"), "equity": _block("lookup_GOLD_equity")}
         )

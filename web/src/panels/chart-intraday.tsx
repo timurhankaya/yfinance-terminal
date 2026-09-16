@@ -1,15 +1,8 @@
 // The intraday chart's body: five sessions of candles at the interval
-// asked for, the last of them moving with the socket, and a shaded band
-// wherever the archive knows it is missing bars.
-//
-// The band is why this stayed its own pipeline. An hour with no candles
-// means one of two very different things -- the market was closed, or a
-// fetch was missed -- and only `bar_gaps` can tell them apart. Without
-// it the chart quietly draws a continuous line across a hole and the
-// reader has no way to know.
-//
-// A body, not a panel: `GP` owns the code, the arguments and the
-// controls. See `chart-daily.tsx` for why the two bodies are two files.
+// asked for, the last moving with the socket, and a shaded band wherever
+// the archive knows it is missing bars. The band is why this is its own
+// pipeline: only `bar_gaps` tells a closed market from a missed fetch.
+// A body, not a panel: `GP` owns the code, the arguments and the controls.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import {

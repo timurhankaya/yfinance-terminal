@@ -1,20 +1,8 @@
 """Real API data -> real PostgreSQL, no network.
 
-Fixtures were captured once from live Yahoo (`scripts/capture_fixtures.py`);
-each test here feeds them to the dataset's `normalize` and writes the output
-to the real schema.
-
-Why this exists alongside `test_dataset_writes.py`: there, payloads are
-hand-built, so it only tests our own assumptions. Here the input comes from
-the source itself -- column names, dtypes, missing columns, and the empty-
-value distribution match what Yahoo actually returns. The two catch
-different classes of bug.
-
-An `empty` result is not a failure: 17 datasets are empty on ^GSPC, six on
-THYAO.IS, and `funds_data` is empty for every non-fund symbol. The test does
-not require "must be non-empty"; it requires "if non-empty, must write
-without error".
-"""
+Fixtures were captured from live Yahoo (`scripts/capture_fixtures.py`) and fed
+through each dataset's `normalize` into the real schema. An `empty` result is
+not a failure: the requirement is "if non-empty, must write without error"."""
 
 from __future__ import annotations
 
@@ -144,7 +132,7 @@ def test_index_symbol_is_empty_everywhere_but_never_fails(
 def test_bond_fund_writes_ratings_but_no_holdings(
     db_session: Session, written_symbols: list[str]
 ) -> None:
-    """Measured on BND: 0 sectors + 9 ratings, `top_holdings` empty."""
+    """A bond fund: no sectors, ratings only, `top_holdings` empty."""
     if "BND" not in written_symbols:
         pytest.skip("no BND fixture")
     _write(db_session, SYMBOL_DATASETS["funds_data"], "BND")
@@ -171,8 +159,8 @@ def test_equity_fund_writes_sectors_and_holdings(
     quote_type = db_session.execute(
         text("SELECT quote_type FROM fund_profile WHERE symbol = 'SPY'")
     ).scalar_one()
-    # `quote_type` is not a @property in yfinance; a blind access would have
-    # written "<bound method ...>" here (measured live).
+    # `quote_type` is not a @property in yfinance; a blind access would write
+    # "<bound method ...>" here.
     assert quote_type == "ETF"
 
 

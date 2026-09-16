@@ -1,12 +1,7 @@
 """PostgreSQL's COPY text format, and the JSON rendering that feeds it.
 
-Written for the stream writer, which measured COPY at 22,291 ticks/s
-against 6,219 for `INSERT ... ON CONFLICT` (docs/measurements/websocket.md).
-It lives under `storage/` rather than in `stream/` because the pipeline's
-change outbox writes the same way, and `storage/` may not import `stream/`.
-
-Nothing here touches a session: these turn rows into a string, and the
-caller hands that string to psycopg's `copy`.
+Under `storage/` because the change outbox writes the same way and
+`storage/` may not import `stream/`. Nothing here touches a session.
 """
 
 from __future__ import annotations
@@ -42,9 +37,7 @@ def copy_value(value: Any) -> str:
 def jsonable(value: Any) -> Any:
     """Decimal and datetime as text, so the payload round-trips exactly.
 
-    A float here would undo f32_decimal for every consumer downstream --
-    the artefact this pipeline exists to remove would be reintroduced on the
-    way out.
+    A float here would undo f32_decimal for every consumer downstream.
     """
     if isinstance(value, Decimal | datetime):
         return str(value)

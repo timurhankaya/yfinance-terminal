@@ -1,18 +1,8 @@
 """Optional Kafka producer, behind an import guard.
 
-`confluent-kafka` is an extra. This module is importable without it; only
-building a producer requires it, and then the failure is loud and immediate
-rather than a stream that quietly publishes nothing.
-
-Topic layout is the part worth arguing about, and it is settled here:
-**topic per route, partition key per row.** For ticks the route is the
-exchange and the key is the symbol; a topic per symbol would be thousands
-of topics and would take the broker's metadata down with it, and a single
-topic would give up per-exchange isolation. Keying on the symbol is what
-makes ordering per-symbol rather than per-topic. The pipeline's change
-outbox uses the same shape with a different vocabulary -- see
-`spec.py`.
-"""
+`confluent-kafka` is an extra; the module imports without it and only
+building a producer fails. Topic layout: topic per route (exchange),
+partition key per row (symbol), so ordering is per-symbol. See `spec.py`."""
 
 from __future__ import annotations
 
@@ -61,16 +51,9 @@ class OutboxMessage:
 def topic_for(spec: OutboxSpec, route: str | None) -> str:
     """Renders a topic name and makes it legal.
 
-    The pattern, the placeholder it substitutes and whether the route value
-    is upper-cased all travel together on the spec, so they are read from it
-    rather than passed one by one -- three arguments that must agree are
-    three chances for two call sites to disagree.
-
-    Sanitising rather than trusting the route value: an exchange code comes
-    from `symbols.exchange`, which discovery paths populate, so a value with
-    a slash or a space is not impossible. An illegal name would fail at
-    produce time, one message at a time.
-    """
+    The route value is sanitised, not trusted: `symbols.exchange` is
+    populated by discovery paths, and an illegal name would fail at
+    produce time, one message at a time."""
     label = (route or "").strip()
     if spec.upper_case_route:
         label = label.upper()
@@ -84,10 +67,7 @@ def topic_for(spec: OutboxSpec, route: str | None) -> str:
 class Producer(Protocol):
     """The slice of confluent_kafka.Producer the relay uses.
 
-    `headers` is optional because only one outbox sends any, and because a
-    fake producer in a test should not have to accept an argument the tick
-    path never passes.
-    """
+    `headers` is optional because only one outbox sends any."""
 
     def produce(
         self,
@@ -106,17 +86,9 @@ class Producer(Protocol):
 def build_producer(bootstrap_servers: str, *, client_id: str) -> Producer:
     """A producer configured so per-key ordering actually holds.
 
-    The two settings below are not tuning. librdkafka defaults allow more
-    than one in-flight request per connection with retries enabled, and a
-    retried batch can then land after a later one -- reordering messages
-    within the partition that per-key ordering depends on.
-    `enable.idempotence` bounds in-flight requests and de-duplicates
-    retries; it also implies acks=all, which is stated here rather than
-    left implicit.
-
-    `client.id` comes from the spec so the two relays are told apart in the
-    broker's own logs rather than both reporting as one client.
-    """
+    librdkafka defaults allow several in-flight requests with retries, so a
+    retried batch can land after a later one. `enable.idempotence` bounds
+    in-flight requests and de-duplicates retries; acks=all is stated explicitly."""
     if not bootstrap_servers:
         raise KafkaUnavailable(
             "yf_kafka_enabled is on but yf_kafka_bootstrap_servers is empty"
@@ -142,11 +114,9 @@ def build_producer(bootstrap_servers: str, *, client_id: str) -> Producer:
 def existing_topics(bootstrap_servers: str, timeout: float = 10.0) -> set[str]:
     """Topic names the broker already knows.
 
-    The relay checks these at start rather than relying on
-    `auto.create.topics.enable`: a topic created implicitly gets the
-    broker's default partition count, and the wrong partition count
-    silently costs per-key ordering.
-    """
+    Checked at start rather than relying on `auto.create.topics.enable`: an
+    implicitly created topic gets the default partition count, which
+    silently costs per-key ordering."""
     try:
         from confluent_kafka.admin import AdminClient
     except ImportError as exc:  # pragma: no cover - depends on the extra
@@ -161,10 +131,7 @@ class DeliveryTracker:
     """Counts how a produce batch actually landed.
 
     The relay may not advance its offset until every message in the batch
-    is acknowledged. Without that, a broker outage mid-batch would move the
-    offset past messages nobody received -- and the outbox is then the only
-    place they existed.
-    """
+    is acknowledged, or a mid-batch outage would skip messages nobody got."""
 
     def __init__(self) -> None:
         self.delivered = 0

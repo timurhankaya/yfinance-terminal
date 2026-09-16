@@ -1,17 +1,6 @@
-# One image, every service.
-#
-# The API, the scheduler, the stream, both relays and every `yfin` command
-# run from this image; only the CMD differs. One image rather than five
-# because they share the whole package anyway -- the dataset catalogue is
-# built from the dataset registry at import, so even serving the API pulls
-# in yfinance, pandas and numpy. Five images would each carry that and
-# would each be a separate thing to keep in step.
-#
-# All four extras are installed for the same reason: a service that had to
-# be given its own image to gain a dependency would make "which image is
-# this" a question with a wrong answer.
-#
-# Two stages so the build tools and the uv cache do not ship.
+# One image, every service: the API, the scheduler, the stream, both relays
+# and every `yfin` command run from it with all four extras; only the CMD
+# differs. Two stages so the build tools and the uv cache do not ship.
 
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
 
@@ -58,13 +47,11 @@ COPY --from=builder --chown=yfin:yfin /app/.venv /app/.venv
 COPY --from=builder --chown=yfin:yfin /app/src /app/src
 COPY --from=web --chown=yfin:yfin /app/src/yfin/ui/static/dist /app/src/yfin/ui/static/dist
 COPY --chown=yfin:yfin docker/entrypoint.sh /app/docker/entrypoint.sh
-# Without these the image cannot migrate itself: `cli/db.py` builds an
-# Alembic `Config("alembic.ini")` on a RELATIVE path, so
-# `docker compose exec api yfin db upgrade head` fails and every schema
-# change needs a host with the repository checked out. For a deployment
-# whose whole story is compose, that is the wrong place to need one.
+# `yfin db upgrade` and `yfin config seed` resolve alembic.ini and
+# config/settings.seed.json relative to /app, so the image must carry them.
 COPY --chown=yfin:yfin alembic.ini /app/alembic.ini
 COPY --chown=yfin:yfin migrations /app/migrations
+COPY --chown=yfin:yfin config /app/config
 RUN chmod +x /app/docker/entrypoint.sh
 
 # yfinance's tz/cookie/ISIN cache is SQLite and it WRITES. The default is
@@ -75,13 +62,9 @@ RUN chmod +x /app/docker/entrypoint.sh
 ENV YF_TZ_CACHE_DIR=/var/cache/yfin
 RUN mkdir -p /var/cache/yfin && chown yfin:yfin /var/cache/yfin
 
-# NOT set here. `prometheus_client` reads PROMETHEUS_MULTIPROC_DIR at
-# import time, process-wide, so an image-wide value would put the
-# scheduler, the stream and both relays into multiprocess mode as well --
-# where each writes mmap files nobody collects and its /metrics goes
-# quiet. The `api` service sets it in compose, alone.
-#
-#   PROMETHEUS_MULTIPROC_DIR
+# PROMETHEUS_MULTIPROC_DIR is deliberately not set here: it is read at
+# import time, and only the `api` service (in compose) may run in
+# multiprocess mode.
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
@@ -96,26 +79,15 @@ EXPOSE 8000
 # mid-job.
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
 
-# The API's. Every other service overrides it in compose with a probe on
-# its own /metrics port -- a scheduler answering an HTTP health check on
-# 8000 would be answering for a server it is not running.
-#
-# Liveness only: /health touches nothing else, so it stays truthful while
-# the database or Redis is down. Readiness is the orchestrator's call, and
-# /health/ready is there for it.
+# The API's liveness probe; every other service disables it in compose.
+# /health touches no dependency, /health/ready is the readiness check.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=5 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"
 
-# Workers, not threads, because the endpoints are synchronous (design K1):
-# concurrency comes from processes here, and each one carries its own
-# connection pool.
-#
-# --no-proxy-headers is deliberate and load-bearing. uvicorn's own proxy
-# handling REPLACES request.client with whatever X-Forwarded-For claims,
-# and the API resolves the client address itself against a configured
-# CIDR list (YFAPI_TRUSTED_PROXIES). If uvicorn rewrote it first, the
-# real peer -- the only thing that check has to go on -- would already be
-# gone, and every rate limit key would be attacker-chosen.
+# Workers, not threads: the endpoints are synchronous.
+# --no-proxy-headers is load-bearing: the API resolves the client address
+# itself against YFAPI_TRUSTED_PROXIES; if uvicorn rewrote request.client
+# from X-Forwarded-For first, every rate limit key would be attacker-chosen.
 CMD ["uvicorn", "yfin.api.app:app", \
      "--host", "0.0.0.0", \
      "--port", "8000", \

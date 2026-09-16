@@ -126,13 +126,7 @@ def test_report_links_cascade_when_the_report_is_deleted(db_session: Session) ->
 
 
 def test_report_title_is_unbounded_text(db_session: Session) -> None:
-    """Measured max is 23,570 CHARACTERS; there must be NO length limit.
-
-    In MySQL, `TEXT` was 65,535 BYTES, and 23,570 characters in utf8mb4 could
-    exceed that, so `MEDIUMTEXT` was needed. In PostgreSQL, `text` is
-    UNBOUNDED; the distinction disappeared. The test's PURPOSE is the same:
-    prove the column carries no length limit.
-    """
+    """The report title column must carry no length limit."""
     data_type, max_len = db_session.execute(
         text(
             "SELECT data_type, character_maximum_length "

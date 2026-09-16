@@ -1,9 +1,4 @@
-"""Live integration tests for price_bars.
-
-`-m live`: real Yahoo API + real PostgreSQL. Fixture tests verify a
-recorded past shape of the source; these verify its current shape and catch
-BAR_LIMITS drift early.
-"""
+"""Live integration tests for price_bars (`-m live`); catch BAR_LIMITS drift."""
 
 from __future__ import annotations
 
@@ -55,13 +50,7 @@ def test_end_to_end_5m_write(db_session: Session, symbol: str) -> None:
 
 
 def test_first_fill_1m_slices_stay_inside_the_request_limit() -> None:
-    """The planner's slices must not error at the real limit.
-
-    This test exists because of a measured bug: BAR_LIMITS["1m"] was
-    previously (8, 30), and since the first slice started right at the
-    limit, live runs raised YFPricesMissingError. This breaks first if
-    Yahoo's limits change.
-    """
+    """The planner's slices must not error at the real limit."""
     now = datetime.now(UTC)
     plan = plan_windows("1m", None, now)
     ticker = make_ticker("MSFT")

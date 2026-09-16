@@ -1,11 +1,6 @@
-"""Every dataset module must actually reach a registry.
-
-Registration happens as an import side effect, so the one central list
-left in the architecture is `datasets/__init__.py`. Leaving a module out
-of it is silent: the dataset simply never exists, `yfin sync` runs
-without it, and no test fails because no test knows it should be there.
-This walks the package on disk instead and compares.
-"""
+"""Every dataset module must reach a registry. Registration is an import side effect of
+`datasets/__init__.py`; a module left out simply never exists and no test would fail. This
+walks the package on disk and compares."""
 
 from __future__ import annotations
 
@@ -52,13 +47,8 @@ def test_every_registering_module_is_imported_by_the_package() -> None:
 
 @functools.cache
 def _imported_modules() -> frozenset[str]:
-    """Every yfin.datasets module reachable from importing ONLY the package.
-
-    This runs in a subprocess on purpose. Reading this process's
-    `sys.modules` would count modules some other test imported directly,
-    so a module missing from `datasets/__init__.py` would still look
-    present and the guard would pass while the CLI saw nothing.
-    """
+    """Every yfin.datasets module reachable from importing ONLY the package, in a
+    subprocess: this process's `sys.modules` would count modules other tests imported."""
     code = (
         "import sys, json; import yfin.datasets; "
         "print(json.dumps([m for m in sys.modules if m.startswith('yfin.datasets')]))"

@@ -1,22 +1,7 @@
-"""The process that replaces cron.
+"""The process that replaces cron: APScheduler firing `yfin <command>` subprocesses.
 
-One long-lived process holding an APScheduler `BlockingScheduler`. Each
-firing spawns `yfin <command>` in ITS OWN PROCESS GROUP and waits for it.
-The subprocess boundary is what keeps the scheduler simple: sharding,
-advisory locks, per-proxy cache directories and exit codes are all the
-runner's business, and a job that segfaults takes nothing with it.
-
-Two executors, and the split is not tuning. `yahoo` is a single thread, so
-`sync`, `market`, `domain` and `stream_reconcile` -- everything that talks
-to Yahoo or takes the sync advisory lock -- can never run at the same time
-and halve one IP's rate budget. Verified against APScheduler 3.11.3:
-`max_instances` is counted PER JOB ID, so a DIFFERENT job fired while
-`sync` runs is QUEUED rather than rejected, and its misfire grace is
-evaluated when it is dequeued. So an hourly `stream_reconcile` waiting
-behind a three-hour `sync` either runs late -- and the lateness is
-`started_at - scheduled_at` in `scheduler_runs` -- or is dropped as
-`misfired`. A second firing of a job that is itself still running is
-`skipped`.
+The `yahoo` executor is one thread, so nothing that talks to Yahoo or
+takes the sync lock overlaps; a job queued behind it runs late or misfires.
 """
 
 from __future__ import annotations
@@ -108,11 +93,10 @@ class SchedulerService:
         return CronTrigger.from_crontab(cron, timezone=self._settings.yf_schedule_timezone)
 
     def _grace(self, interval: float) -> int:
-        """The misfire grace for a job with this cadence.
+        """`min(cadence / 2, configured)`.
 
-        `min(cadence / 2, configured)`. Half the cadence, because a firing
-        that is later than that is closer to the NEXT one, and running both
-        back to back is worse than dropping the first.
+        A firing later than half the cadence is closer to the next one,
+        and running both back to back is worse than dropping the first.
         """
         configured = self._settings.yf_schedule_misfire_grace_seconds
         if interval <= 0:
@@ -162,13 +146,9 @@ class SchedulerService:
                 with self._lock:
                     self._groups.pop(job.name, None)
                     state.running = False
-            # Inside the span, because a span that has ended takes no
-            # further attributes -- and `result` is the one thing anybody
-            # would filter these traces by.
-            #
+            # Inside the span: an ended span takes no further attributes.
             # A job the scheduler killed is `terminated`, whatever the
-            # shell made of the signal: "we stopped it" and "it failed"
-            # are different facts and an operator acts differently on them.
+            # shell made of the signal.
             result = (
                 "terminated" if self._stopping.is_set() else runs.result_for(exit_code)
             )
@@ -194,24 +174,15 @@ class SchedulerService:
     def intervals(self) -> dict[str, float]:
         """Each job's mean cadence, in seconds.
 
-        The exporter divides by these to decide what is stale, and it asks
-        every pass rather than once: `reload()` can change a trigger sixty
-        seconds from now, and freshness judged against a cron nobody runs
-        would be wrong in the direction that hides a problem.
+        Asked by the exporter every pass, not once: `reload()` can change a trigger.
         """
         return {name: state.interval_seconds for name, state in self._states.items()}
 
     def job_samples(self) -> list[Sample]:
         """The job gauges. In this process's memory, and in no table.
 
-        `next_run_timestamp` is the exception -- it comes from APScheduler,
-        which is the only thing that knows when a trigger fires next, and it
-        is absent for a job with no cron rather than reported as 0. A zero
-        there would read as "fires at the epoch", which is overdue by
-        fifty-six years.
-
-        `last_success` is seeded from `scheduler_runs` at start-up, so a
-        restart does not make every job look overdue at once.
+        `next_run_timestamp` is absent, not 0, for a job with no cron: a
+        zero would read as overdue since the epoch.
         """
         scheduler = self._scheduler
         samples: list[Sample] = []
@@ -242,11 +213,8 @@ class SchedulerService:
     def _on_event(self, event: Any) -> None:
         """`misfired` and `skipped` never become subprocesses.
 
-        Both are recorded rather than logged. A job that quietly did not run
-        is exactly what `scheduler_runs` exists to make visible, and the two
-        have different causes: `misfired` means it waited past its grace,
-        `skipped` that the previous instance of the same job was still
-        going.
+        `misfired`: it waited past its grace. `skipped`: the previous
+        instance of the same job was still going. Both are recorded.
         """
         from apscheduler.events import EVENT_JOB_MAX_INSTANCES, EVENT_JOB_MISSED
 
@@ -313,10 +281,7 @@ class SchedulerService:
     def reload(self) -> list[str]:
         """Re-reads the schedule. Returns the jobs whose trigger changed.
 
-        Through `load_overrides` rather than `get_settings()`: the process
-        singleton never re-reads by design, and a scheduler that needed a
-        restart to pick up a new cron would defeat the reason the crons are
-        settings.
+        Through `load_overrides`, not `get_settings()`: the singleton never re-reads.
         """
         from yfin.core.config import bootstrap_settings, settings_from_overrides
         from yfin.storage import settings_store
@@ -379,11 +344,8 @@ class SchedulerService:
     def stop(self) -> None:
         """SIGTERM: stop firing, then give the running jobs a bounded wait.
 
-        SIGTERM goes to the process GROUP, so a sync's shard processes get
-        it too rather than being orphaned holding the advisory lock. The
-        wait is bounded and then escalates, because a scheduler that hangs
-        waiting is a scheduler Docker will kill anyway -- and its own grace
-        must stay below compose's `stop_grace_period` for that reason.
+        SIGTERM goes to the process GROUP so shards are not orphaned holding
+        the lock. The grace must stay below compose's `stop_grace_period`.
         """
         self._stopping.set()
         if self._exporter is not None:

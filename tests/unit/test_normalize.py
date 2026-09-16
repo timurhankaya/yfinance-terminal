@@ -173,12 +173,9 @@ class TestNumericBoundaries:
     """
 
     def test_numpy_int_epoch_is_not_silently_null(self) -> None:
-        """`np.int64` is not a subclass of int (np.float64 IS a subclass of
-        float). With a plain `isinstance(v, int | float)`, an epoch value
-        would fall through to `to_datetime_utc` and return None: a silent
-        NULL. If a symbol's insider dates are all populated, pandas makes
-        the column int64, and all three date columns would go NULL at once.
-        """
+        """`np.int64` is not a subclass of int, so a plain `isinstance(v, int | float)`
+        would send an epoch value to `to_datetime_utc` and return None: a silent NULL
+        whenever pandas makes a date column int64."""
         from yfin.models.kinds import KINDS
 
         convert = KINDS["dt"].convert

@@ -1,41 +1,8 @@
-"""Third WebSocket measurement round: the regular US session.
+"""WebSocket measurement during the regular US session: message rate, field
+fill rates and whether `market_hours` distinguishes a session.
 
-The first two rounds both missed the market. Round 1 (2026-09-06) was a
-Sunday; round 2 (2026-09-07) looked like a Monday pre-market but was US
-Labor Day, so the equity market was closed all day. Everything either
-round says about equities therefore rests on 2 messages, and
-`docs/measurements/websocket.md` marks it **not measured**.
-
-This script closes that. Run it INSIDE the regular session:
-
-    2026-09-08 13:30-20:00 UTC  ==  16:30-23:00 Europe/Istanbul
-
-and preferably ~30 minutes after the open rather than at the bell. The
-first seconds of a connection are dominated by the on-subscribe snapshot
-of the last known price (the source of the p99 ~2.5 day lag already
-recorded), and the opening auction is a burst that does not represent the
-session's steady rate.
-
-It decodes through the project's own `protocol.decode_envelope`, so what
-comes out is exactly what the pipeline would have written -- not a
-parallel implementation that could be right where the pipeline is wrong.
-Nothing is written to the database.
-
-    .venv/bin/python scripts/measure_regular_session.py
-    .venv/bin/python scripts/measure_regular_session.py --minutes 10 --json out.json
-
-Three questions it answers, all currently open:
-
-1. **Equity message rate.** Messages per symbol per minute during a real
-   session. Round 2 saw 2 messages in 5 minutes across 10 liquid symbols.
-2. **Equity field fill rates**, especially `bid`/`ask` (0% in both groups
-   so far, on a closed market) and `day_high`/`day_low`/`day_volume`
-   (0% for equities, 100% for crypto -- consistent with a snapshot).
-3. **Whether `market_hours` means anything.** Every message in round 2
-   carried 1 (REGULAR) on a day the exchange never opened. If it also
-   reads 1 during a real session, the field cannot distinguish a session
-   at all and `is_extended_session` is classifying noise.
-"""
+Run it inside the session, preferably ~30 minutes after the open. Decodes via
+`protocol.decode_envelope`; writes nothing. Usage: [--minutes 10] [--json out.json]"""
 
 from __future__ import annotations
 

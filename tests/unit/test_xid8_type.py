@@ -1,15 +1,6 @@
-"""`xid8` has no cast from bigint and psycopg has no loader for it.
-
-The pipeline relay's cursor is a transaction id, so the outbox carries an
-`xid8` column and the offset table stores one. Neither side of the driver
-handles it on its own: PostgreSQL offers no implicit `bigint -> xid8` cast,
-so a bound parameter has to be cast explicitly in the SQL, and psycopg 3
-returns the value as text.
-
-`Xid8Type` puts both halves in one place. These tests cover the halves that
-do not need a database; `tests/repo/test_changes_schema_repo.py` covers the
-round trip.
-"""
+"""`xid8` has no cast from bigint and psycopg has no loader for it: a bound parameter must
+be cast explicitly in the SQL, and psycopg 3 returns the value as text. `Xid8Type` holds
+both halves; the round trip is in `tests/repo/test_changes_schema_repo.py`."""
 
 from __future__ import annotations
 

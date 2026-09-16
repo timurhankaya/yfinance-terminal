@@ -1,9 +1,7 @@
 """The core read endpoints, end to end against a real schema.
 
-These run through the HTTP layer on purpose. The parts most likely to
-break are the seams -- interval to table, session filter, cursor to sort
-key, Decimal to JSON -- and none of them are visible from a repository
-test alone.
+These go through the HTTP layer because the seams (interval to table, session
+filter, cursor to sort key, Decimal to JSON) are invisible to a repository test.
 """
 
 from __future__ import annotations
@@ -266,8 +264,8 @@ def test_an_unknown_symbol_is_404(client: TestClient) -> None:
 
 
 def test_the_daily_interval_reads_price_history(client: TestClient) -> None:
-    """`bars_table_for` used to return periodic_bars for 1d, which is a
-    different table with a different key."""
+    """1d must read price history; periodic_bars is a different table with a
+    different key."""
     body = _get(
         client, f"/v1/symbols/{SYMBOL}/bars", interval="1d", **{"from": "2026-01-01"}
     ).json()
@@ -420,12 +418,9 @@ def test_responses_are_marked_private_and_vary_on_authorization(client: TestClie
 def test_a_cancelled_query_is_504_not_500(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The statement timeout has to reach the caller as their answer.
-
-    As a 500 it is wrong twice: the caller learns nothing about what to
-    change, and the middleware refunds a 500's quota unit -- so asking for
-    something too expensive to serve would cost nothing.
-    """
+    """The statement timeout has to reach the caller as their answer: a 500
+    tells them nothing, and the middleware refunds a 500's quota unit, so an
+    unservable query would cost nothing."""
     from yfin.api.storage import limits as query_limits
 
     monkeypatch.setattr(query_limits, "STATEMENT_TIMEOUT_MS", 1)
@@ -502,13 +497,9 @@ def test_a_conditional_request_still_costs_a_request(client: TestClient) -> None
 def test_the_etag_changes_when_the_DATA_changes(
     client: TestClient, seeded: Session
 ) -> None:
-    """The validator is derived from the response body, and this is why.
-
-    It used to be a hash of the request identity alone, which made it a
-    pure function of the query: it never moved when the data did. Nothing
-    revalidated, so nothing noticed -- but honouring If-None-Match against
-    such a validator pins a client to one page forever.
-    """
+    """The validator is derived from the response body: a hash of the request
+    identity alone never moves when the data does, and honouring If-None-Match
+    against it would pin a client to one page forever."""
     etag = _get(client, "/v1/symbols").headers["ETag"]
 
     seeded.execute(
@@ -533,9 +524,8 @@ def test_a_stale_etag_gets_the_body(client: TestClient) -> None:
 def test_an_unsupported_interval_is_refused_by_the_published_enum(
     client: TestClient,
 ) -> None:
-    """The check used to be hand-rolled in the handler while the contract
-    said `interval` was any string. It is the annotation now, so the
-    document lists the values a caller may send."""
+    """The interval check is the annotation, so the document lists the values
+    a caller may send."""
     assert _get(client, f"/v1/symbols/{SYMBOL}/bars", interval="3h").status_code == 422
 
 
@@ -567,13 +557,9 @@ def test_a_range_that_really_is_too_large_still_says_so(client: TestClient) -> N
 
 # --- the published header contract -------------------------------------------
 #
-# What replaced three tests that could not fail. Each of them read a table
-# out of `core/openapi.py` and checked the document against the same table
-# that had produced it, so a route added without a `contract(...)`
-# declaration broke nothing -- the document just stopped being true.
-#
-# These drive the real endpoints and compare what the handler actually
-# sends against what the document says it sends.
+# These drive the real endpoints and compare what the handler actually sends
+# against what the document says; checking the document against the table in
+# `core/openapi.py` that produced it could never fail.
 
 #: One header per family. Checking every name would test the header
 #: dictionaries against themselves again; what has to hold is that the

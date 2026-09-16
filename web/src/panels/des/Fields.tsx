@@ -1,11 +1,6 @@
-// Every field of the snapshot, four tabs down from the overview.
-//
-// The promise the terminal made was that a key Yahoo sent is a key the
-// reader can find (`DES.tsx`'s opening comment, and it still holds): the
-// tabs re-shelve the sections, they do not drop any. What changed is the
-// shape -- one column of a hundred and fifty rows became a tab of a few
-// multi-column blocks, so a field is found by looking rather than by
-// scrolling.
+// Every field of the snapshot, four tabs down from the overview. A key
+// Yahoo sent is a key the reader can find: the tabs re-shelve the
+// sections, they do not drop any.
 import { FIELD_HELP } from "../../app/tab-help";
 import { Fragment } from "react";
 import type { ReactElement, ReactNode } from "react";

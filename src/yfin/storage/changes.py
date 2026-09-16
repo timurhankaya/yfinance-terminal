@@ -1,22 +1,7 @@
 """Capturing pipeline writes as change events.
 
-The writer knows which rows it wrote; nothing downstream does. This is where
-that knowledge is turned into something that survives the transaction: one
-envelope per inserted, updated or deleted row, queued into `pipeline_outbox`
-by the same transaction that wrote the data. A failed commit loses both, a
-successful one guarantees eventual publication.
-
-Two things are deliberately NOT here. Routing -- which family a table
-belongs to and which column keys it -- lives in `routing.py`, because it is a
-property of the table and several datasets write the same one. Rendering
-goes through `core/normalize.canonical_json`, because a second JSON encoder
-would be a second answer to "how does a Decimal cross the wire", and the
-answer this project already gives (as text, never a float) is the whole
-reason `f32_decimal` exists.
-
-The collector holds events in memory for the length of one transaction. That
-is bounded by what one symbol's sync writes -- tens of thousands of rows at
-most, and bar writes coalesce into range events before they get here.
+One envelope per changed row, queued into `pipeline_outbox` by the same
+transaction that wrote the data. Routing lives in `routing.py`.
 """
 
 from __future__ import annotations
@@ -51,12 +36,7 @@ OUTBOX_COLUMNS: tuple[str, ...] = ("created_at", "family", "partition_key", "pay
 RESCALE_TABLE = "price_bars"
 
 #: The key column a range event's span is measured over, per bars table.
-#:
-#: Written out rather than derived, because "the date-ish key column" is a
-#: guess and this is the field a consumer uses to re-read the span. Two of
-#: the six also carry `bar_interval`, which is why a range event names both:
-#: one span per (symbol, interval) there, one per symbol on the rest.
-#: `tests/unit/test_routing.py` holds the map to the schema.
+#: A consumer re-reads the span by this field, so it is written out, not guessed.
 BARS_TIME_COLUMN: Mapping[str, str] = {
     "price_bars": "ts_utc",
     "periodic_bars": "ts_utc",
@@ -80,10 +60,8 @@ _CURRENT_DATASET: Any = object()
 class ChangeContext:
     """What a collector needs that only the caller knows.
 
-    Created by whoever knows the run -- the runners for a sync, the CLI for
-    `purge` and `bars rescale` -- and carried to the writer. The COLLECTOR
-    is built from it per attempt, so a transaction replayed after a
-    serialisation failure produces one set of events rather than two.
+    The collector is built from it per attempt, so a replayed transaction
+    produces one set of events rather than two.
     """
 
     #: `sync_runs.id`, or None outside a sync. A scheduler run is reachable
@@ -100,14 +78,8 @@ def context_for(
 ) -> ChangeContext | None:
     """A context, or None when change publishing is off.
 
-    The one place "off means nothing happens" is written down. None travels
-    all the way to `PostgresRowWriter`, which then emits the statements it
-    emitted before any of this existed -- no predicate, no `RETURNING *`, no
-    outbox row -- so the feature costs zero until someone turns it on.
-
-    Takes the two values rather than `Settings`: `storage/persistence.py`
-    imports this module and states that it depends on no configuration, and
-    a `core.config` import here would quietly make that false.
+    None reaches `PostgresRowWriter`, which then emits no `RETURNING *` and
+    no outbox row. Takes values, not `Settings`: this module must not import config.
     """
     if not enabled:
         return None
@@ -126,9 +98,7 @@ class ChangeEvent:
 class ChangeCollector:
     """Accumulates the events of one transaction, then renders them.
 
-    Built per attempt rather than per symbol, and handed to the writer. It
-    holds no session: `flush` takes one, so the collector can be filled by
-    code that is not inside a transaction yet.
+    Holds no session: `flush` takes one, so it can be filled before a transaction opens.
     """
 
     def __init__(self, ctx: ChangeContext) -> None:
@@ -148,9 +118,7 @@ class ChangeCollector:
     def enter_dataset(self, name: str | None) -> None:
         """Labels everything recorded from here on.
 
-        `None` is the honest answer for `purge`, `prune` and `bars rescale`:
-        they run outside any dataset, and inventing one would put a name in
-        the envelope that resolves to nothing.
+        `None` for `purge`, `prune` and `bars rescale`, which run outside any dataset.
         """
         self._dataset = name
 
@@ -165,10 +133,8 @@ class ChangeCollector:
     ) -> None:
         """One row-level event, unless the table is infrastructure.
 
-        `row` is the row as the database returned it -- `RETURNING *` -- so
-        columns outside the update map, `GREATEST`-merged columns and server
-        defaults are what the consumer sees, not what the pipeline proposed.
-        `None` for a delete, which has no row left to return.
+        `row` is the row as `RETURNING *` gave it back, so the consumer sees
+        merged columns and server defaults. `None` for a delete.
         """
         if table in INFRASTRUCTURE_TABLES:
             return
@@ -188,16 +154,8 @@ class ChangeCollector:
     ) -> None:
         """One event standing for a bulk write or delete on a bars table.
 
-        A first sync writes ~20,000 bars per symbol; across a 4,500-symbol
-        universe that is on the order of 10^8 row events to say "the history
-        is here". The consumer re-reads the span from the endpoint that
-        serves the table.
-
-        `bar_interval` is set for `price_bars` and `periodic_bars` and null
-        for the bars-family tables keyed by a date, which is why `ts_column`
-        has to name the key column the span is over. A purge leaves the span
-        null: returning millions of bar keys from a DELETE is the cost this
-        event exists to avoid.
+        The consumer re-reads the span over `ts_column`; `bar_interval` is
+        null for date-keyed tables. A purge leaves the span null.
         """
         route = ROUTES[table]
         if route.family is not DataFamily.BARS:
@@ -227,11 +185,9 @@ class ChangeCollector:
         factor: Decimal,
         applied_before: datetime,
     ) -> None:
-        """A split applied to the stored history.
+        """A split applied to the stored history; one event, since it rewrites every bar.
 
-        Named rather than enumerated for the same reason as a range event:
-        a rescale rewrites every bar the symbol has. `dataset` is null --
-        `storage/rescale.py` runs before the dataset loop and from the CLI.
+        `dataset` is null: `storage/rescale.py` runs outside the dataset loop.
         """
         self._append(
             RESCALE_TABLE,
@@ -296,19 +252,8 @@ class ChangeCollector:
     def flush(self, session: Session) -> int:
         """Writes the events into `pipeline_outbox` and returns the count.
 
-        One `clock_timestamp()` for the whole batch, read from the database
-        rather than from this process: it is both the outbox row's
-        `created_at` and the envelope's `occurred_at`, and taking it from
-        the server means the database clock orders events across shard
-        processes and hosts.
-
-        `clock_timestamp()`, not `now()`: `now()` is the transaction start
-        time, so every event of a long symbol transaction would claim to
-        have happened before the writes it describes.
-
-        The caller commits. This is the last statement before that commit,
-        which is what keeps the outbox window -- and the relay's wait on
-        open writers -- small.
+        One server-side `clock_timestamp()` (not `now()`, the transaction
+        start) orders events across hosts. Must be the last statement before commit.
         """
         if not self._events:
             return 0
@@ -328,11 +273,8 @@ class ChangeCollector:
 def _with_occurred_at(payload: str, occurred_at: datetime) -> str:
     """Stamps the flush timestamp into an already-rendered envelope.
 
-    Rendering at record time and patching here, rather than rendering at
-    flush time, keeps the expensive part -- `canonical_json` over a wide row
-    -- out of the window between the timestamp and the COPY. The field is
-    written as `null` by `_append` and is the only one that changes, so the
-    substitution is unambiguous.
+    Rendering happens at record time to keep `canonical_json` out of the
+    window between the timestamp and the COPY; `_append` writes the field as null.
     """
     return payload.replace('"occurred_at":null', f'"occurred_at":"{occurred_at.isoformat()}"')
 

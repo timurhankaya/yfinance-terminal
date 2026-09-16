@@ -1,9 +1,7 @@
 """eps_trend + eps_revisions datasets.
 
-`downLast7Days` capitalizes the D. Measured on 19/19 symbols; the official
-docs write all four keys lowercase. Reading it as `d` leaves the column
-silently NULL forever -- the most fragile line in this file, pinned by a
-fixture test.
+The source key is `downLast7Days` (capital D) despite the docs writing it
+lowercase; reading it as `d` leaves the column silently NULL.
 """
 
 from __future__ import annotations
@@ -54,7 +52,7 @@ class EpsRevisionsDataset(PeriodFrameDataset):
     columns = (
         Column("upLast7days", "up_last_7d", nz.to_int),
         Column("upLast30days", "up_last_30d", nz.to_int),
-        # Capital D -- measured on 19/19 symbols
+        # Capital D in the source key
         Column("downLast7Days", "down_last_7d", nz.to_int),
         Column("downLast30days", "down_last_30d", nz.to_int),
         Column("currency", "currency", _currency),

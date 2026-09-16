@@ -1,10 +1,7 @@
 """The `scheduler_runs` row: opened before the job, closed after it.
 
-Its own module because the lifecycle is the part worth reading on its own.
-A row exists from BEFORE the subprocess starts, so a scheduler that is
-killed mid-job still leaves evidence that the job was attempted -- which is
-the difference between "it failed" and "nobody knows", and the second is
-what cron gave us.
+The row exists before the subprocess starts, so a scheduler killed
+mid-job still leaves evidence the job was attempted.
 """
 
 from __future__ import annotations
@@ -18,23 +15,14 @@ from yfin.core.logging_setup import get_logger
 
 log = get_logger(__name__)
 
-#: Exit codes the pipeline defines, mapped to a word.
-#:
-#: 0 ok, 1 no symbols, 2 partial, 3 all failed, 4 lock not acquired, 5 no
-#: proxy. `locked` is kept apart from `failed` because it is the expected
-#: outcome of an overlap, not a fault: the previous run is still going and
-#: the advisory lock did its job. `partial` likewise -- a nightly sync where
-#: three symbols failed is not a failed sync.
+#: Pipeline exit codes mapped to a word; anything unmapped is `failed`.
+#: `locked` and `partial` are not faults: an overlap or a few failed
+#: symbols is not a failed sync.
 _RESULT_BY_EXIT_CODE = {0: "ok", 2: "partial", 4: "locked"}
 
 
 def result_for(exit_code: int) -> str:
-    """The word for an exit code. Anything unmapped is a failure.
-
-    Unmapped rather than enumerated: a code nobody planned for is a failure
-    by definition, and listing 1, 3 and 5 explicitly would leave a future
-    code 6 silently reported as `ok`.
-    """
+    """The word for an exit code. Anything unmapped is a failure."""
     return _RESULT_BY_EXIT_CODE.get(exit_code, "failed")
 
 
@@ -43,10 +31,8 @@ def open_run(
 ) -> int:
     """Records that a job is starting. Returns the row id.
 
-    `scheduled_at` is when the TRIGGER said it should run, not now. The
-    difference is the lateness a job accumulates waiting behind the
-    single-threaded `yahoo` executor, and it is the number the dashboard
-    shows.
+    `scheduled_at` is the trigger's time, not now; the difference is the
+    lateness the dashboard shows.
     """
     with factory() as session:
         row = session.execute(
@@ -96,14 +82,10 @@ def close_run(
 def record_unstarted(
     factory: sessionmaker[Session], job: str, scheduled_at: datetime, result: str
 ) -> None:
-    """A firing that never became a subprocess.
+    """A firing that never became a subprocess: `misfired` or `skipped`.
 
-    `misfired` -- it waited past its grace, usually behind a long job on the
-    single-threaded executor -- or `skipped`, meaning a previous instance of
-    the SAME job was still running. Both are opened and closed at once,
-    because there was never a process in between, and both are recorded
-    rather than logged: a job that quietly did not run is exactly what this
-    table exists to make visible.
+    Recorded rather than logged: a job that quietly did not run is what
+    this table exists to make visible.
     """
     run_id = open_run(factory, job, scheduled_at)
     close_run(factory, run_id, result=result)
@@ -112,13 +94,8 @@ def record_unstarted(
 def close_orphans(factory: sessionmaker[Session]) -> int:
     """Closes rows left open by a scheduler that died. Returns the count.
 
-    Run at start-up. A row with no `finished_at` belongs to a process this
-    scheduler cannot see any more, so claiming to know how it ended would be
-    a guess -- `terminated` says only that nobody closed it.
-
-    If the subprocess somehow outlived its scheduler and is still holding
-    the advisory lock, the next firing comes back `locked`. That is visible,
-    which is the point; the alternative is two syncs overlapping in silence.
+    Run at start-up. `terminated` says only that nobody closed the row;
+    a subprocess that outlived its scheduler surfaces as `locked` next time.
     """
     with factory() as session:
         result = session.execute(
@@ -140,12 +117,8 @@ def close_orphans(factory: sessionmaker[Session]) -> int:
 def close_orphan_sync_runs(factory: sessionmaker[Session]) -> int:
     """Closes sync audit rows whose scheduler parent was terminated.
 
-    The scheduler and sync are separate processes.  On a scheduler restart,
-    the scheduler row is recoverable, but the child may have been killed
-    before its own finalizer ran.  Leaving that child as ``running`` makes
-    freshness dashboards claim work is still in progress forever.  A run
-    older than one day cannot be a healthy scheduled sync, so old manual
-    rows without a scheduler parent are recovered too.
+    The child may have been killed before its own finalizer ran. A run
+    older than one day cannot be healthy, so old manual rows are closed too.
     """
     with factory() as session:
         result = session.execute(
@@ -173,9 +146,8 @@ def close_orphan_sync_runs(factory: sessionmaker[Session]) -> int:
 def last_success(factory: sessionmaker[Session]) -> dict[str, datetime]:
     """The newest successful finish per job.
 
-    Read once at start-up to seed `yfin_job_last_success_timestamp`. Without
-    it a restart would leave the gauge at zero and `JobOverdue` would fire
-    on a system that is perfectly healthy.
+    Seeds `yfin_job_last_success_timestamp` at start-up so a restart does
+    not fire `JobOverdue`.
     """
     with factory() as session:
         rows = session.execute(
