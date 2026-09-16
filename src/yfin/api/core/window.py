@@ -58,11 +58,3 @@ def guard(name: str) -> Callable[[Request], None]:
 
 
 metrics_window = guard("metrics")
-
-
-def reset() -> None:
-    """Empties every window. For tests, which must not inherit a minute."""
-    _windows.clear()
-
-
-__all__ = ["allow", "check", "guard", "metrics_window", "reset"]

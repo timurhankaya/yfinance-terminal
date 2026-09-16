@@ -13,7 +13,7 @@ from urllib.parse import unquote_plus
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from yfin.api.auth.hashing import verify_against
@@ -55,13 +55,18 @@ class TokenResponse(BaseModel):
 
 
 class TokenRequest(BaseModel):
-    """The form body, named.
-
-    A model rather than three `Form()` parameters, so the published schema
-    is called `TokenRequest` and not `Body_issue_token_oauth_token_post`.
-    The field names are the wire names; `client_secret` is accepted only
-    to refuse it with a message that says where the credential belongs.
-    """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "description": (
+                "The form body, named.\n"
+                "\n"
+                "A model rather than three `Form()` parameters, so the published schema\n"
+                "is called `TokenRequest` and not `Body_issue_token_oauth_token_post`.\n"
+                "The field names are the wire names; `client_secret` is accepted only\n"
+                "to refuse it with a message that says where the credential belongs."
+            )
+        }
+    )
 
     grant_type: str = Field(description="Must be `client_credentials`.")
     scope: str | None = Field(
@@ -81,12 +86,17 @@ class TokenRequest(BaseModel):
 
 
 class OAuthError(BaseModel):
-    """RFC 6749 §5.2, and the reason this endpoint is not RFC 9457.
-
-    Named and published so the contract says what a client library will
-    parse. `errors.py` builds the same two members for the failures the
-    handler below does not phrase itself.
-    """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "description": (
+                "RFC 6749 §5.2, and the reason this endpoint is not RFC 9457.\n"
+                "\n"
+                "Named and published so the contract says what a client library will\n"
+                "parse. `errors.py` builds the same two members for the failures the\n"
+                "handler below does not phrase itself."
+            )
+        }
+    )
 
     error: str = Field(
         description=(
@@ -142,6 +152,14 @@ def _parse_basic(header: str) -> tuple[str, str] | None:
 @router.post(
     "/oauth/token",
     summary="Issue an access token",
+    description=(
+        "Exchanges a client id and secret for a bearer token.\n"
+        "\n"
+        "Send the credentials as HTTP Basic; `client_secret_post` is refused.\n"
+        "Errors here are RFC 6749 objects with an `error` field, not the\n"
+        "problem documents the rest of the API uses -- every OAuth2 client\n"
+        "library parses that shape and nothing else."
+    ),
     # RFC 6749 section 5.1 requires `no-store`, the opposite of caching,
     # and the endpoint is rate limited without being metered against a
     # plan -- there is no client yet to bill.
@@ -169,13 +187,6 @@ def issue_token(
     session: Annotated[Session, Depends(session_scope)],
     form: Annotated[TokenRequest, Form()],
 ) -> JSONResponse:
-    """Exchanges a client id and secret for a bearer token.
-
-    Send the credentials as HTTP Basic; `client_secret_post` is refused.
-    Errors here are RFC 6749 objects with an `error` field, not the
-    problem documents the rest of the API uses -- every OAuth2 client
-    library parses that shape and nothing else.
-    """
     settings: ApiSettings = request.app.state.api_settings
     client_ip = getattr(request.state, "client_ip", "unknown")
     grant_type, scope = form.grant_type, form.scope

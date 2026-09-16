@@ -41,9 +41,3 @@ class FixedWindow:
             if window != self._window:
                 return False
             return self._hits.get(key, 0) >= limit
-
-    def reset(self) -> None:
-        """Drops the window. For tests, which share one process."""
-        with self._lock:
-            self._window = 0
-            self._hits = {}

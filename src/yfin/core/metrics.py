@@ -742,24 +742,3 @@ def count_exception(exc: BaseException) -> None:
     `prometheus_client.count_exceptions` cannot label by type. Runs inside
     exception handlers, so it swallows its own failures."""
     inc("yfin_exceptions_total", type=type(exc).__name__)
-
-
-__all__ = [
-    "ALLOWED_LABELS",
-    "METRICS",
-    "Accumulator",
-    "CounterRow",
-    "MetricSpec",
-    "clear_gauge",
-    "count_exception",
-    "current_accumulator",
-    "exported_name",
-    "inc",
-    "label_key",
-    "observe",
-    "serve_metrics",
-    "set_build_info",
-    "set_gauge",
-    "timed",
-    "use_accumulator",
-]

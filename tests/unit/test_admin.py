@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from yfin.admin import auth, ops
 from yfin.api.core.config import ApiSettings
+from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.api.storage.session import session_scope
 from yfin.storage.settings_store import SettingRejected
 
@@ -32,7 +33,7 @@ def settings(**overrides: object) -> ApiSettings:
 def make_client(monkeypatch: pytest.MonkeyPatch, **overrides: object) -> TestClient:
     from yfin.api.app import create_app
 
-    auth._failures.reset()
+    monkeypatch.setattr(auth, "_failures", FixedWindow())
     app = create_app(settings(**overrides))
     # No database in unit tests: the ops layer is mocked per test and the
     # session dependency yields nothing.

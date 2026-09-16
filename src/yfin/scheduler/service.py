@@ -434,6 +434,3 @@ class SchedulerService:
             changed = self.reload()
             if changed:
                 log.info("schedule reloaded", changed=changed)
-
-
-__all__ = ["RELOAD_SECONDS", "YFIN", "JobState", "SchedulerService"]

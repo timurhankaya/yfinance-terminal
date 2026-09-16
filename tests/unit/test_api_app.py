@@ -158,7 +158,7 @@ def test_readiness_is_limited_PER_IP(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(meta, "_check_database", lambda: True)
     monkeypatch.setattr(meta, "_check_redis", lambda _s: True)
-    window.reset()
+    monkeypatch.setattr(window, "_windows", {})
     monkeypatch.setattr(meta, "_cache", meta._ReadinessCache())
 
     client = TestClient(create_app(ApiSettings(health_rate_limit_per_minute=2)))
@@ -181,7 +181,7 @@ def test_the_readiness_result_is_cached(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr(meta, "_check_database", counted_db)
     monkeypatch.setattr(meta, "_check_redis", lambda _s: True)
-    window.reset()
+    monkeypatch.setattr(window, "_windows", {})
     monkeypatch.setattr(meta, "_cache", meta._ReadinessCache())
 
     client = TestClient(create_app(ApiSettings(health_cache_seconds=30)))
@@ -197,7 +197,7 @@ def test_readiness_reports_degraded_when_a_dependency_is_down(
 
     monkeypatch.setattr(meta, "_check_database", lambda: True)
     monkeypatch.setattr(meta, "_check_redis", lambda _s: False)
-    window.reset()
+    monkeypatch.setattr(window, "_windows", {})
     monkeypatch.setattr(meta, "_cache", meta._ReadinessCache())
 
     response = TestClient(create_app(ApiSettings())).get("/health/ready")

@@ -30,11 +30,6 @@ export function storageBlocked(): boolean {
   return blocked;
 }
 
-/** Tests only: forget that storage ever refused. */
-export function resetStorageBlocked(): void {
-  blocked = false;
-}
-
 /** What is in storage, or an empty store. Store-level damage -- an
  *  envelope that will not parse, or an unknown version -- resets
  *  everything; page-level damage is answered in `dropPage`. */

@@ -153,10 +153,6 @@ class StreamSupervisor:
 
     # --- public API --------------------------------------------------------
 
-    @property
-    def connection_keys(self) -> list[str]:
-        return sorted(self._running)
-
     async def run(self) -> None:
         """Builds the connection set and keeps it aligned until stopped."""
         scope = self._repository.load_scope()

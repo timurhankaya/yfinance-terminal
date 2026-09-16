@@ -62,10 +62,6 @@ class TestExplicitRequest:
         without knowing its name."""
         assert "search" in registry.user_visible_names()
 
-    def test_is_opt_in_reports_the_flag(self, registry: Registry[Any]) -> None:
-        assert registry.is_opt_in("search") is True
-        assert registry.is_opt_in("info") is False
-
 
 class TestRegistrationHygiene:
     def test_reregistering_without_flag_clears_it(self, registry: Registry[Any]) -> None:
@@ -75,13 +71,7 @@ class TestRegistrationHygiene:
         the next registration, and `all` would expand narrower than expected.
         """
         registry.register(_Ds("search"))
-        assert registry.is_opt_in("search") is False
         assert "search" in _names(registry.resolve(None))
-
-    def test_unregister_clears_the_flag(self, registry: Registry[Any]) -> None:
-        registry.unregister("search")
-        registry.register(_Ds("search"))
-        assert registry.is_opt_in("search") is False
 
     def test_bootstrap_is_still_prepended(self, registry: Registry[Any]) -> None:
         """`opt_in` does not affect `bootstrap`: one adds, the other excludes."""

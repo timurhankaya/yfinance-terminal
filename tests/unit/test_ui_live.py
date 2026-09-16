@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from yfin.api.core.config import ApiSettings
+from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.ui import live
 from yfin.ui.live import (
     MAX_SYMBOLS,
@@ -42,14 +43,11 @@ def settings(**overrides: Any) -> ApiSettings:
 
 
 @pytest.fixture(autouse=True)
-def _fresh_limits() -> Iterator[None]:
+def _fresh_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     """The handshake window and the open-socket count are per PROCESS, so
     one test's sockets would otherwise be another's ceiling."""
-    live._handshakes.reset()
-    live._open_sessions = 0
-    yield
-    live._handshakes.reset()
-    live._open_sessions = 0
+    monkeypatch.setattr(live, "_handshakes", FixedWindow())
+    monkeypatch.setattr(live, "_open_sessions", 0)
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { SerializedDockview } from "dockview-react";
 import { Layout } from "../commands/types";
-import { clearRegistry, registerPanel } from "../commands/registry";
+import { registerPanel } from "../commands/registry";
 import { Group } from "./groups";
 import {
   PageName,
@@ -34,10 +34,6 @@ function page(over: Partial<Page> = {}): Page {
     ...over,
   };
 }
-
-beforeEach(() => {
-  clearRegistry();
-});
 
 describe("isPage", () => {
   it("accepts a page and rejects what is not one", () => {

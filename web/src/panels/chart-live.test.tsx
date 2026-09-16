@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BucketMode } from "./chart-data";
 import type { Candle } from "./chart-data";
 import { useLiveSeries } from "./chart-live";
-import { resetLive, setSocketFactory, useLive } from "../live/store";
+import { resetLive, useLive } from "../live/store";
 import type { SocketLike } from "../live/socket";
 import { MarketHours } from "../live/types";
 import type { Tick } from "../live/types";
@@ -46,14 +46,14 @@ function mount(base: Candle[] = BASE) {
 }
 
 beforeEach(() => {
-  setSocketFactory(() => new DeadSocket());
+  vi.stubGlobal("WebSocket", DeadSocket);
   resetLive();
 });
 
 afterEach(() => {
   cleanup();
   resetLive();
-  setSocketFactory(null);
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 

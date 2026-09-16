@@ -4,7 +4,7 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useQuote } from "./hooks";
-import { handleFrame, resetLive, setSocketFactory } from "./store";
+import { handleFrame, resetLive } from "./store";
 import type { SocketLike } from "./socket";
 import { MarketHours, Op } from "./types";
 
@@ -53,14 +53,13 @@ beforeEach(() => {
     return frames.length;
   });
   vi.stubGlobal("cancelAnimationFrame", () => {});
-  setSocketFactory(() => new DeadSocket());
+  vi.stubGlobal("WebSocket", DeadSocket);
   resetLive();
 });
 
 afterEach(() => {
   cleanup();
   resetLive();
-  setSocketFactory(null);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

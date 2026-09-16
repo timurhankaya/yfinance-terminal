@@ -20,6 +20,7 @@ from yfin.api.auth.hashing import Candidate, hash_secret, new_secret
 from yfin.api.core.config import ApiSettings
 from yfin.api.core.errors import ApiProblem, install_error_handlers
 from yfin.api.ratelimit import token_endpoint as limiter
+from yfin.api.ratelimit.fixed_window import FixedWindow
 from yfin.api.ratelimit.revocation import disabled_key, epoch_key, revoked_secret_key
 from yfin.api.routers import oauth
 from yfin.api.storage import clients as repo
@@ -51,7 +52,7 @@ def redis() -> Iterator[fakeredis.FakeRedis]:
 def _wire_redis(monkeypatch: pytest.MonkeyPatch, redis: fakeredis.FakeRedis) -> None:
     monkeypatch.setattr(deps, "get_redis", lambda _s: redis)
     monkeypatch.setattr(limiter, "get_redis", lambda _s: redis)
-    limiter._fallback.reset()
+    monkeypatch.setattr(limiter, "_fallback", FixedWindow(limiter.WINDOW_SECONDS))
 
 
 # --- JWT --------------------------------------------------------------------
@@ -333,7 +334,7 @@ def test_token_endpoint_FAILS_CLOSED_without_redis(
         raise ConnectionError("redis is down")
 
     monkeypatch.setattr(limiter, "get_redis", broken)
-    limiter._fallback.reset()
+    monkeypatch.setattr(limiter, "_fallback", FixedWindow(limiter.WINDOW_SECONDS))
 
     allowed = 0
     for _ in range(limiter.FALLBACK_IP_LIMIT + 3):

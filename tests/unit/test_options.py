@@ -73,8 +73,8 @@ def dataset() -> Any:
 def test_it_is_opt_in_so_a_run_never_picks_it_up_by_itself() -> None:
     """One request per expiry per symbol against a universe that already
     takes ~33 hours: this must never join the `all` expansion."""
-    assert REGISTRY.is_opt_in("options")
-    assert "options" not in REGISTRY.resolve(None)
+    assert "options" not in {d.name for d in REGISTRY.resolve(None)}
+    assert "options" in {d.name for d in REGISTRY.resolve(["options"])}
 
 
 def test_it_is_selectable_by_name() -> None:

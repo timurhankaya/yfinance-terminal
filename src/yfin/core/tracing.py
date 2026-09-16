@@ -163,17 +163,3 @@ def enabled() -> bool:
 def _reset_for_tests() -> None:
     global _enabled  # noqa: PLW0603 - the tests own this flag
     _enabled = False
-
-
-__all__ = [
-    "ENDPOINT_VAR",
-    "EXPORT_TIMEOUT_MS",
-    "SEMCONV_VALUE",
-    "SEMCONV_VAR",
-    "configure_tracing",
-    "enabled",
-    "instrument_fastapi",
-    "instrument_sqlalchemy",
-    "set_attributes",
-    "span",
-]

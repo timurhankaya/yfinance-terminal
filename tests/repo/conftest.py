@@ -60,12 +60,12 @@ def clean_settings_table(test_engine: Engine) -> Iterator[None]:
 
 @pytest.fixture
 def db_layer_on(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Turns on the DB layer and resets the settings singleton.
+    """Turns on the DB layer and clears the settings singleton.
 
-    Without the reset the singleton stays populated from a previous test and
+    Without the clear the singleton stays populated from a previous test and
     `load_overrides` is never called.
     """
     monkeypatch.delenv(SETTINGS_SOURCE_VAR, raising=False)
-    config_mod.reset_settings()
+    monkeypatch.setattr(config_mod, "_settings", None)
+    monkeypatch.setattr(config_mod, "_overrides", {})
     yield
-    config_mod.reset_settings()

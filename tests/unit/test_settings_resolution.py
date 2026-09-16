@@ -21,11 +21,11 @@ DEFAULT = 4
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Every test starts with a clean singleton and an open DB layer: `conftest.py` sets
-    YF_SETTINGS_SOURCE=env, and without the reset the loader would never run."""
+    YF_SETTINGS_SOURCE=env, and without a cleared singleton the loader would never run."""
     monkeypatch.delenv(SETTINGS_SOURCE_VAR, raising=False)
-    config_mod.reset_settings()
+    monkeypatch.setattr(config_mod, "_settings", None)
+    monkeypatch.setattr(config_mod, "_overrides", {})
     yield
-    config_mod.reset_settings()
 
 
 def _rows(monkeypatch: pytest.MonkeyPatch, rows: dict[str, str] | None) -> list[int]:

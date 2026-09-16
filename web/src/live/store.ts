@@ -7,7 +7,6 @@ import { create } from "zustand";
 import { LinkState, MarketHours, Op, WsErrorCode } from "./types";
 import type { ServerFrame, Tick } from "./types";
 import { LiveSocket } from "./socket";
-import type { SocketLike } from "./socket";
 
 //: What `QR` can scroll back through. A tick is ~150 bytes here, so this
 //: is a third of a megabyte for the one symbol on screen.
@@ -124,20 +123,13 @@ export function handleFrame(frame: ServerFrame): void {
 // --- the socket ------------------------------------------------------------
 
 let socket: LiveSocket | null = null;
-let openOverride: ((url: string) => SocketLike) | null = null;
 const retained = new Map<string, number>();
-
-/** Tests replace the transport; nothing else calls this. */
-export function setSocketFactory(open: ((url: string) => SocketLike) | null): void {
-  openOverride = open;
-}
 
 function live(): LiveSocket {
   if (socket === null) {
     socket = new LiveSocket({
       onFrame: handleFrame,
       onState: (link) => useLive.setState({ link }),
-      ...(openOverride === null ? {} : { open: openOverride, url: "ws://test/ui/ws" }),
     });
     socket.start();
   }

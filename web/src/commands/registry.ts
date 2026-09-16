@@ -54,9 +54,3 @@ export const RETIRED: Readonly<Record<string, string>> = {
 export function retiredNote(code: string): string | undefined {
   return RETIRED[code.toUpperCase()];
 }
-
-/** Tests register their own minimal panels. */
-export function clearRegistry(): void {
-  panels.clear();
-  actions.clear();
-}

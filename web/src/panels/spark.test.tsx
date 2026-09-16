@@ -6,8 +6,8 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { EQS } from "./EQS";
 import { WLA } from "./WLA";
 import { SPARK_FAILED_LABEL, SPARK_LABEL, rowSymbols } from "./spark";
-import { SPARKLINE_MAX_SYMBOLS, resetCatalogCache } from "../api/client";
-import { handleFrame, resetLive, setSocketFactory } from "../live/store";
+import { SPARKLINE_MAX_SYMBOLS } from "../api/client";
+import { handleFrame, resetLive } from "../live/store";
 import { MarketHours, Op } from "../live/types";
 import type { SocketLike } from "../live/socket";
 
@@ -77,16 +77,13 @@ beforeEach(() => {
     return frames.length;
   });
   vi.stubGlobal("cancelAnimationFrame", () => {});
-  setSocketFactory(() => new DeadSocket());
+  vi.stubGlobal("WebSocket", DeadSocket);
   resetLive();
-  resetCatalogCache();
 });
 
 afterEach(() => {
   cleanup();
   resetLive();
-  setSocketFactory(null);
-  resetCatalogCache();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

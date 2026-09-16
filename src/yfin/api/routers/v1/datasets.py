@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from yfin.api.auth.dependencies import Authenticated, insufficient_scope
@@ -38,14 +38,19 @@ RESERVED = frozenset({"symbol", "limit", "cursor", "all"})
 
 
 class ColumnOut(BaseModel):
-    """One column of a dataset, as it arrives.
-
-    This is what stands in for a schema per resource. The data route
-    serves `dict[str, Any]` and will keep doing so -- a schema per dataset
-    would make the frozen openapi.json churn every time one was added --
-    so the shape has to be discoverable somewhere, and the catalogue is
-    where a client is already looking.
-    """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "description": (
+                "One column of a dataset, as it arrives.\n"
+                "\n"
+                "This is what stands in for a schema per resource. The data route\n"
+                "serves `dict[str, Any]` and will keep doing so -- a schema per dataset\n"
+                "would make the frozen openapi.json churn every time one was added --\n"
+                "so the shape has to be discoverable somewhere, and the catalogue is\n"
+                "where a client is already looking."
+            )
+        }
+    )
 
     name: str
     type: str = Field(
@@ -59,13 +64,18 @@ class ColumnOut(BaseModel):
 
 
 class CatalogEntryOut(BaseModel):
-    """The catalogue as clients see it.
-
-    The mapping lives here rather than on the catalogue entry: the wire
-    shape is an HTTP concern, and `api/storage` is not allowed to know
-    one. A `describe()` on the entry would have made the storage layer
-    the place where a field rename in the contract has to be made.
-    """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "description": (
+                "The catalogue as clients see it.\n"
+                "\n"
+                "The mapping lives here rather than on the catalogue entry: the wire\n"
+                "shape is an HTTP concern, and `api/storage` is not allowed to know\n"
+                "one. A `describe()` on the entry would have made the storage layer\n"
+                "the place where a field rename in the contract has to be made."
+            )
+        }
+    )
 
     name: str
     family: str
@@ -114,6 +124,13 @@ class CatalogEntryOut(BaseModel):
     "",
     response_model=Collection[CatalogEntryOut],
     summary="Dataset catalogue",
+    description=(
+        "What this token can read, by default.\n"
+        "\n"
+        "Filtering to the caller's scopes is the default because advertising\n"
+        "data they cannot fetch is noise. `?all=true` is the documented way to\n"
+        "see the rest -- a deliberate choice, not an accident of implementation."
+    ),
     # Metered from inside the handler, under the `meta` family: this route
     # belongs to no data family, so `guard()` cannot name one for it.
     openapi_extra=contract(metered=True, cached=True),
@@ -130,12 +147,6 @@ def list_datasets(
         ),
     ] = False,
 ) -> Collection[CatalogEntryOut]:
-    """What this token can read, by default.
-
-    Filtering to the caller's scopes is the default because advertising
-    data they cannot fetch is noise. `?all=true` is the documented way to
-    see the rest -- a deliberate choice, not an accident of implementation.
-    """
     # `meta` is the family for a surface that belongs to no data family.
     meter(request, response, principal, META_FAMILY)
     entries = catalog.visible_to(principal.scopes, everything=all_datasets)
@@ -150,6 +161,15 @@ def list_datasets(
     "/{name}",
     response_model=Collection[dict[str, Any]],
     summary="Dataset rows",
+    description=(
+        "Rows from one dataset.\n"
+        "\n"
+        "Any query parameter that is not reserved is treated as a filter, and\n"
+        "only the columns the dataset declared as filterable are accepted --\n"
+        "an unknown one is refused rather than ignored, because silently\n"
+        "dropping a filter returns more data than the caller asked for and\n"
+        "looks like it worked."
+    ),
     # Metered inside the handler because the family depends on WHICH
     # dataset was asked for. Not conditional: this surface emits no
     # validator, so there would be nothing to revalidate against.
@@ -177,14 +197,6 @@ def read_dataset(
         Query(description="The `next_cursor` of the previous page of THIS query."),
     ] = None,
 ) -> Collection[dict[str, Any]]:
-    """Rows from one dataset.
-
-    Any query parameter that is not reserved is treated as a filter, and
-    only the columns the dataset declared as filterable are accepted --
-    an unknown one is refused rather than ignored, because silently
-    dropping a filter returns more data than the caller asked for and
-    looks like it worked.
-    """
     # Metered before the catalogue is consulted so the 403/404 refusals
     # below are not free; the real family is attributed once the name
     # resolves.

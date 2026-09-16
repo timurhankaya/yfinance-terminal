@@ -12,7 +12,7 @@ import { BAR_INTERVALS } from "../api/client";
 import { QR, QR_PANEL, QR_USAGE, mergeTape, tapeClock } from "./QR";
 import { LinkState, MarketHours } from "../live/types";
 import type { Tick } from "../live/types";
-import { resetLive, setSocketFactory, useLive } from "../live/store";
+import { resetLive, useLive } from "../live/store";
 import type { SocketLike } from "../live/socket";
 
 const drawn: ChartProps[] = [];
@@ -72,13 +72,13 @@ beforeEach(() => {
   drawn.length = 0;
   // The panels retain a symbol through `useQuote`; without a transport
   // the store would try to open a real WebSocket.
-  setSocketFactory(() => new DeadSocket());
+  vi.stubGlobal("WebSocket", DeadSocket);
 });
 
 afterEach(() => {
   cleanup();
   resetLive();
-  setSocketFactory(null);
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 

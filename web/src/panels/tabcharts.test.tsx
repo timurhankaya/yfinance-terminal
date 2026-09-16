@@ -2,11 +2,11 @@
 // functions, and the one thing the wiring has to get right -- that a
 // tab which declares none draws none.
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { HDS_PANEL } from "./curated";
 import { TOP_HOLDERS, holderBars, insiderFlow } from "./tabcharts";
-import { resetCatalogCache, type Row } from "../api/client";
+import type { Row } from "../api/client";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -29,26 +29,32 @@ const ACTIVITY_COLUMNS = [
   { name: "net_shares", type: "decimal", nullable: true },
 ];
 
-function catalog(name: string, columns: unknown[]) {
+function entry(name: string, columns: unknown[]) {
   return {
-    data: [
-      {
-        name,
-        family: "holders",
-        scope: "symbol",
-        kind: "asof",
-        table: name,
-        sort_key: ["as_of_date"],
-        descending: true,
-        filters: [],
-        symbol_scoped: true,
-        description: name,
-        columns,
-      },
-    ],
-    next_cursor: null,
+    name,
+    family: "holders",
+    scope: "symbol",
+    kind: "asof",
+    table: name,
+    sort_key: ["as_of_date"],
+    descending: true,
+    filters: [],
+    symbol_scoped: true,
+    description: name,
+    columns,
   };
 }
+
+// The client caches the catalogue for the life of the module, so one
+// catalogue carries every dataset the three tabs read.
+const CATALOG = {
+  data: [
+    entry("institutional_holders", HOLDER_COLUMNS),
+    entry("insider_purchases", ACTIVITY_COLUMNS),
+    entry("major_holders", HOLDER_COLUMNS),
+  ],
+  next_cursor: null,
+};
 
 function drawTab(tab: string) {
   const Panel = HDS_PANEL.component;
@@ -61,11 +67,8 @@ function drawTab(tab: string) {
   );
 }
 
-beforeEach(() => resetCatalogCache());
-
 afterEach(() => {
   cleanup();
-  resetCatalogCache();
   vi.restoreAllMocks();
 });
 
@@ -125,7 +128,7 @@ describe("HDS", () => {
   it("draws the chart the tab declares, above its table", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url.endsWith("/datasets")) return json(catalog("institutional_holders", HOLDER_COLUMNS));
+      if (url.endsWith("/datasets")) return json(CATALOG);
       return json({
         data: [
           { symbol: "AAPL", holder: "Vanguard Group", pct_held: "0.09" },
@@ -144,7 +147,7 @@ describe("HDS", () => {
   it("draws the insider flow on the tab that declares that one", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url.endsWith("/datasets")) return json(catalog("insider_purchases", ACTIVITY_COLUMNS));
+      if (url.endsWith("/datasets")) return json(CATALOG);
       return json({
         data: [
           {
@@ -167,7 +170,7 @@ describe("HDS", () => {
   it("draws none on a tab that declares none", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url.endsWith("/datasets")) return json(catalog("major_holders", HOLDER_COLUMNS));
+      if (url.endsWith("/datasets")) return json(CATALOG);
       return json({ data: [{ symbol: "AAPL", holder: "x", pct_held: "0.5" }], next_cursor: null });
     });
     drawTab("major");

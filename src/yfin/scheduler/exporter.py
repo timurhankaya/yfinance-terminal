@@ -144,6 +144,3 @@ class Exporter:
                 log.error("exporter pass failed", error=str(exc))
             if self._stopping.wait(interval):
                 return
-
-
-__all__ = ["Exporter", "JobSamples", "publish"]

@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommandPalette } from "./CommandPalette";
-import { clearRegistry, registerPanel } from "../commands/registry";
+import { registerPanel } from "../commands/registry";
 import { Layout } from "../commands/types";
 
 function json(status: number, body: unknown): Response {
@@ -30,12 +30,9 @@ function Harness(props: { onPick: (text: string) => void; onClose: () => void })
   return <CommandPalette open query={query} onQuery={setQuery} onPick={props.onPick} onClose={props.onClose} />;
 }
 
-beforeEach(() => {
-  clearRegistry();
-  registerPanel({ code: "DES", title: "Description", needsSymbol: true, layout: Layout.Headed, parseArgs: () => ({}), component: () => null });
-  registerPanel({ code: "GIP", title: "Intraday", needsSymbol: true, layout: Layout.Headed, parseArgs: () => ({}), component: () => null });
-  registerPanel({ code: "HELP", title: "Help", needsSymbol: false, layout: Layout.Single, parseArgs: () => ({}), component: () => null });
-});
+registerPanel({ code: "DES", title: "Description", needsSymbol: true, layout: Layout.Headed, parseArgs: () => ({}), component: () => null });
+registerPanel({ code: "GIP", title: "Intraday", needsSymbol: true, layout: Layout.Headed, parseArgs: () => ({}), component: () => null });
+registerPanel({ code: "HELP", title: "Help", needsSymbol: false, layout: Layout.Single, parseArgs: () => ({}), component: () => null });
 
 afterEach(() => {
   cleanup();

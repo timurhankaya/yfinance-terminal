@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { clearRegistry, registerAction, registerPanel } from "./registry";
+import { describe, expect, it } from "vitest";
+import { registerAction, registerPanel } from "./registry";
 import { commandToPath, isMarketCode, parse, ParseKind, pathToCommand, symbolCommand } from "./parser";
 import { Layout, type PanelArgs, type PanelSpec } from "./types";
 
@@ -21,18 +21,16 @@ function spec(
 
 const INTERVALS = ["1m", "5m", "15m", "60m"];
 
-beforeEach(() => {
-  clearRegistry();
-  registerPanel(spec("DES"));
-  registerPanel(spec("FA"));
-  registerPanel(spec("CF"));
-  registerPanel(spec("HELP", false, () => ({})));
-  registerPanel(spec("GIP", true, (t) => {
-    const interval = (t[0] ?? "5m").toLowerCase();
-    if (!INTERVALS.includes(interval)) throw new Error(`Unknown interval ${t[0]}`);
-    return { interval };
-  }));
-});
+registerPanel(spec("DES"));
+registerPanel(spec("FA"));
+registerPanel(spec("CF"));
+registerPanel(spec("HELP", false, () => ({})));
+registerPanel(spec("GIP", true, (t) => {
+  const interval = (t[0] ?? "5m").toLowerCase();
+  if (!INTERVALS.includes(interval)) throw new Error(`Unknown interval ${t[0]}`);
+  return { interval };
+}));
+registerAction({ code: "GRP", title: "group" });
 
 const ctx = { symbol: "AAPL", code: "DES" };
 
@@ -73,7 +71,6 @@ describe("parse", () => {
   });
 
   it("reads a group command as an action, not as a ticker", () => {
-    registerAction({ code: "GRP", title: "group" });
     expect(parse("GRP B", ctx)).toEqual({ kind: ParseKind.Action, code: "GRP", tokens: ["B"] });
     expect(parse("GRP", ctx)).toEqual({ kind: ParseKind.Action, code: "GRP", tokens: [] });
   });

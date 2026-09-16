@@ -90,9 +90,6 @@ JOBS: tuple[Job, ...] = (
     ),
 )
 
-JOBS_BY_NAME: dict[str, Job] = {job.name: job for job in JOBS}
-
-
 #: Long enough to cover a monthly job several times over, so the mean below
 #: is not distorted by where in the month the sample starts.
 _INTERVAL_SAMPLE_DAYS = 400
@@ -125,13 +122,3 @@ def interval_seconds(trigger: Any, *, now: datetime | None = None) -> float:
     if first is None or last is None or gaps == 0:
         return 0.0
     return (last - first).total_seconds() / gaps
-
-
-__all__ = [
-    "JOBS",
-    "JOBS_BY_NAME",
-    "JOB_RUN_ID_VAR",
-    "Executor",
-    "Job",
-    "interval_seconds",
-]

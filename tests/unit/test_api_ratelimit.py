@@ -55,7 +55,6 @@ def _wire(monkeypatch: pytest.MonkeyPatch, redis: fakeredis.FakeRedis) -> None:
     for module in (limiter, concurrency, usage, auth_deps):
         monkeypatch.setattr(module, "get_redis", lambda _s: redis)
     monkeypatch.setattr(policy, "limits_for_client", lambda _cid: LIMITS)
-    policy.clear_cache()
 
 
 def _token(scopes: tuple[str, ...] = ("bars:read",)) -> str:

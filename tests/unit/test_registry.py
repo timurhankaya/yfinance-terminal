@@ -44,14 +44,16 @@ def test_bootstrap_always_first() -> None:
 def test_all_resolves_every_dataset() -> None:
     """`all` = every dataset that is NOT opt-in. `opt_in` is the inverse of `bootstrap`: one
     is added to every resolution, the other excluded from `all`."""
-    opt_in = {n for n in REGISTRY if REGISTRY.is_opt_in(n)}
-    assert opt_in, "expected at least one opt-in dataset (search/lookup)"
-    assert {d.name for d in resolve(None)} == set(REGISTRY) - opt_in
-    assert {d.name for d in resolve(["all"])} == set(REGISTRY) - opt_in
+    default = {d.name for d in resolve(None)}
+    opt_in = set(REGISTRY) - default
+    assert {"search", "lookup"} <= opt_in
+    for name in opt_in:
+        assert name in {d.name for d in resolve([name])}
+    assert {d.name for d in resolve(["all"])} == default
     # An empty list takes the same branch as `all` (registry.py); opt-in
     # stays excluded there too -- otherwise `--datasets ""` would be a
     # hidden backdoor.
-    assert {d.name for d in resolve([])} == set(REGISTRY) - opt_in
+    assert {d.name for d in resolve([])} == default
 
 
 def test_alias_expands() -> None:
@@ -81,7 +83,10 @@ def test_dependencies_come_first() -> None:
 
 
 def test_cycle_detected() -> None:
+    from typing import Any
+
     from yfin.datasets.base import Dataset
+    from yfin.datasets.registry import Registry
 
     class A(Dataset[None]):
         name = "_cycle_a"
@@ -97,14 +102,11 @@ def test_cycle_detected() -> None:
         name = "_cycle_b"
         depends_on = ("_cycle_a",)
 
-    REGISTRY.register(A())
-    REGISTRY.register(B())
-    try:
-        with pytest.raises(DependencyCycleError):
-            resolve(["_cycle_a"])
-    finally:
-        REGISTRY.unregister("_cycle_a")
-        REGISTRY.unregister("_cycle_b")
+    registry: Registry[Any] = Registry()
+    registry.register(A())
+    registry.register(B())
+    with pytest.raises(DependencyCycleError):
+        registry.resolve(["_cycle_a"])
 
 
 def test_produces_are_table_names() -> None:
@@ -171,8 +173,7 @@ def test_market_registry_has_no_bootstrap() -> None:
 
     assert MARKET_DATASETS.bootstrap is None
     resolved = MARKET_DATASETS.resolve(None)
-    opt_in = {n for n in MARKET_DATASETS if MARKET_DATASETS.is_opt_in(n)}
-    assert {d.name for d in resolved} == set(MARKET_DATASETS) - opt_in
+    assert set(MARKET_DATASETS) - {d.name for d in resolved} == {"screener"}
     assert MARKET_DATASETS.resolve([]) == resolved
 
 

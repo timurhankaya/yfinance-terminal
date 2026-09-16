@@ -11,10 +11,7 @@ import {
   readPage,
   readStore,
   renamePage,
-  resetStorageBlocked,
   savePage,
-  storageBlocked,
-  writeStore,
 } from "./store";
 
 function page(name: string): Page {
@@ -27,7 +24,6 @@ function page(name: string): Page {
 
 beforeEach(() => {
   window.localStorage.clear();
-  resetStorageBlocked();
 });
 
 afterEach(() => {
@@ -115,13 +111,17 @@ describe("pageKeyName", () => {
 });
 
 describe("storage that refuses", () => {
-  it("says so once and lets the terminal carry on", () => {
+  it("says so once and lets the terminal carry on", async () => {
+    // The refusal is remembered for the life of the module, so this
+    // test gets its own instance rather than marking the shared one.
+    vi.resetModules();
+    const fresh = await import("./store");
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("blocked");
     });
-    expect(storageBlocked()).toBe(false);
-    expect(writeStore(emptyStore())).toBe(false);
-    expect(storageBlocked()).toBe(true);
+    expect(fresh.storageBlocked()).toBe(false);
+    expect(fresh.writeStore(emptyStore())).toBe(false);
+    expect(fresh.storageBlocked()).toBe(true);
   });
 });
 

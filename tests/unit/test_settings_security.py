@@ -17,9 +17,9 @@ from yfin.storage.settings_store import SettingRejected, filter_overrides, valid
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.delenv(SETTINGS_SOURCE_VAR, raising=False)
-    config_mod.reset_settings()
+    monkeypatch.setattr(config_mod, "_settings", None)
+    monkeypatch.setattr(config_mod, "_overrides", {})
     yield
-    config_mod.reset_settings()
 
 
 def test_a_db_host_row_is_NOT_APPLIED(monkeypatch: pytest.MonkeyPatch) -> None:
